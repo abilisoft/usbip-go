@@ -51,6 +51,14 @@ func TestParseRemote(t *testing.T) {
 		{"ipv6_missing_bracket", "[::1", domain.RemoteEndpoint{}, true},
 		{"ipv6_bad_suffix", "[::1]garbage", domain.RemoteEndpoint{}, true},
 		{"empty_host", ":1234", domain.RemoteEndpoint{}, true},
+		// Host-format validation (codex Phase 1 finding).
+		{"host_with_space", "bad host", domain.RemoteEndpoint{}, true},
+		{"host_with_tab", "bad\thost", domain.RemoteEndpoint{}, true},
+		{"host_with_control", "bad\x01host", domain.RemoteEndpoint{}, true},
+		{"ambiguous_multi_colon", "a:b:c", domain.RemoteEndpoint{}, true},
+		{"invalid_ipv6_short", "::xyz", domain.RemoteEndpoint{}, true},
+		{"host_starts_with_dot", ".host.example", domain.RemoteEndpoint{}, true},
+		{"host_trailing_dot_ok", "host.example.", domain.RemoteEndpoint{Host: "host.example.", Port: 3240}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

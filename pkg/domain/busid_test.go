@@ -19,11 +19,23 @@ func TestParseBusID(t *testing.T) {
 	}{
 		{"simple", "1-1", domain.BusID("1-1"), false},
 		{"nested", "1-1.2", domain.BusID("1-1.2"), false},
-		{"max_length", strings.Repeat("a", 31), domain.BusID(strings.Repeat("a", 31)), false},
+		{"nested_deeper", "2-3.4.5.6", domain.BusID("2-3.4.5.6"), false},
+		{"max_length_digits", "1-" + strings.Repeat("1", 29), domain.BusID("1-" + strings.Repeat("1", 29)), false},
 		{"empty", "", "", true},
 		{"whitespace", " ", "", true},
-		{"over_limit", strings.Repeat("a", 32), "", true},
+		{"over_limit", "1-" + strings.Repeat("1", 31), "", true},
 		{"contains_null", "1-\x00", "", true},
+		// Malformed topology per spec §4.1 (pattern must be ^\d+-[\d\.]+$).
+		{"no_dash", "abc", "", true},
+		{"trailing_dash", "1-", "", true},
+		{"leading_dash", "-1", "", true},
+		{"double_dash", "1--2", "", true},
+		{"letters", "1-a", "", true},
+		{"space_in_middle", "1- 1", "", true},
+		{"trailing_dot", "1-1.", "", true},
+		{"double_dot", "1-1..2", "", true},
+		{"leading_zero_prefix_space", " 1-1", "", true},
+		{"trailing_space", "1-1 ", "", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
