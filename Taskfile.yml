@@ -75,6 +75,17 @@ tasks:
     cmds:
       - gremlins unleash ./pkg/domain/... ./internal/adapter/wire/...
 
+  changelog:
+    desc: Regenerate CHANGELOG.md from Conventional Commit history via git-cliff
+    cmds:
+      - git-cliff --config cliff.toml --output CHANGELOG.md
+
+  changelog:check:
+    desc: Fail if CHANGELOG.md is out of date relative to current history
+    cmds:
+      - git-cliff --config cliff.toml > /tmp/cliff-expected.md
+      - diff -u CHANGELOG.md /tmp/cliff-expected.md
+
   lint:
     desc: golangci-lint
     cmds:
