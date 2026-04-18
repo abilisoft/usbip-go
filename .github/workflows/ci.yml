@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # Weekly mutation testing — Mondays at 04:00 UTC. Non-blocking, files tracking issues on survivors.
+    - cron: '0 4 * * 1'
 
 permissions:
   contents: read
@@ -166,9 +169,10 @@ jobs:
       - name: Diff exported API against baselines
         run: |
           set -euo pipefail
+          # Baseline filenames per plan Task 6.6: api/pkg_usbip.json, api/pkg_domain.json.
           for pkg in github.com/abilisoft/usbip-go/pkg/usbip github.com/abilisoft/usbip-go/pkg/domain; do
-            name="${pkg##*/}"
-            baseline="api/${name}.json"
+            short="${pkg##*/}"          # usbip | domain
+            baseline="api/pkg_${short}.json"
             if [ ! -f "$baseline" ]; then
               echo "no baseline for $pkg at $baseline; skipping (Task 6.6 establishes baselines)"
               continue
@@ -207,11 +211,42 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Scan for import "C"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Authoritative cgo detection via go list
+        # `go list -deps -f '{{.ImportPath}} {{.CgoFiles}}'` surfaces every
+        # package that has cgo files — catches both single-line
+        # `import "C"` and block-imports, generated cgo, and dotimports.
+        # Skip the tools package (has build tag `tools`) which has no cgo anyway.
         run: |
           set -euo pipefail
-          if grep -rnE 'import[[:space:]]+"C"' --include='*.go' .; then
-            echo "found cgo import — CGO_ENABLED=0 policy violation"
+          cgo_pkgs="$(go list -deps -f '{{if .CgoFiles}}{{.ImportPath}}{{end}}' ./... | grep -v '^$' || true)"
+          if [ -n "$cgo_pkgs" ]; then
+            echo "found packages with cgo files — CGO_ENABLED=0 policy violation:"
+            echo "$cgo_pkgs"
+            exit 1
+          fi
+          # Belt-and-suspenders: raw source grep for both single-line and
+          # block-form `"C"` imports. Catches non-building packages too.
+          if grep -rnE '(^|[[:space:]])import[[:space:]]+"C"' --include='*.go' . ; then
+            echo "found single-line import \"C\" — CGO_ENABLED=0 policy violation"
+            exit 1
+          fi
+          # Block-form: search each Go file for an import ( ... "C" ... ) pattern.
+          # Using awk for multi-line accuracy.
+          if find . -name '*.go' -not -path './.git/*' -print0 | xargs -0 -r awk '
+              /^import[[:space:]]*\(/ { in_blk=1; next }
+              in_blk && /^\)/          { in_blk=0; next }
+              in_blk && /^[[:space:]]*"C"/ {
+                  print FILENAME ":" FNR ": block-form import \"C\" (cgo)"
+                  found=1
+              }
+              END { exit found ? 1 : 0 }
+            '; then
+            :
+          else
+            echo "found block-form import \"C\" — CGO_ENABLED=0 policy violation"
             exit 1
           fi
 
