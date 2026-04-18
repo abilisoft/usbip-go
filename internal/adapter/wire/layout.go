@@ -108,9 +108,13 @@ func DecodeDevice(r io.Reader) (domain.Device, error) {
 }
 
 // decodeDeviceBuf interprets a 312-byte slice as a device descriptor.
+// The truncated flags from paddedStringFromBytes are intentionally
+// dropped: per-field NUL-termination drift is advisory and not
+// surfaced at the Device level. Higher-level Codec methods (which
+// have an injected *slog.Logger) are responsible for any logging.
 func decodeDeviceBuf(buf []byte) (domain.Device, error) {
-	path := paddedStringFromBytes(buf[offDevPath:offDevBusID])
-	busidStr := paddedStringFromBytes(buf[offDevBusID:offDevBusNum])
+	path, _ := paddedStringFromBytes(buf[offDevPath:offDevBusID])
+	busidStr, _ := paddedStringFromBytes(buf[offDevBusID:offDevBusNum])
 
 	busnum32 := binary.BigEndian.Uint32(buf[offDevBusNum:])
 	devnum32 := binary.BigEndian.Uint32(buf[offDevDevNum:])

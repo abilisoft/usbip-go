@@ -58,7 +58,7 @@ func TestWritePaddedStringWriterError(t *testing.T) {
 func TestReadPaddedStringNonEOFReaderError(t *testing.T) {
 	t.Parallel()
 
-	_, err := wire.ReadPaddedString(&shortReader{err: errCoverageInjected}, domain.BusIDSize)
+	_, _, err := wire.ReadPaddedString(&shortReader{err: errCoverageInjected}, domain.BusIDSize)
 	require.ErrorIs(t, err, errCoverageInjected)
 }
 
@@ -184,7 +184,7 @@ func TestDecodeOpRepDevlistCountTruncated(t *testing.T) {
 	buf.Write(wire.EncodeHeader(wire.OpRepDevlist, 0))
 	buf.Write([]byte{0, 0})
 
-	_, err := wire.DecodeOpRepDevlist(&buf)
+	_, _, err := wire.DecodeOpRepDevlist(&buf)
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 }
 
@@ -197,7 +197,7 @@ func TestDecodeOpRepDevlistOpcodeMismatch(t *testing.T) {
 
 	buf.Write(wire.EncodeHeader(wire.OpReqDevlist, 0))
 
-	_, err := wire.DecodeOpRepDevlist(&buf)
+	_, _, err := wire.DecodeOpRepDevlist(&buf)
 	require.ErrorIs(t, err, domain.ErrProtocolMismatch)
 }
 
@@ -353,7 +353,7 @@ func TestDecodeInterfacesNonEOFReadError(t *testing.T) {
 		err:    errCoverageInjected,
 	}
 
-	_, err := wire.DecodeOpRepDevlist(r)
+	_, _, err := wire.DecodeOpRepDevlist(r)
 	require.ErrorIs(t, err, errCoverageInjected)
 }
 
@@ -374,7 +374,7 @@ func TestDecodeDevlistBodyNonEOFDeviceError(t *testing.T) {
 
 	buf.Write(bad)
 
-	_, err := wire.DecodeOpRepDevlist(&buf)
+	_, _, err := wire.DecodeOpRepDevlist(&buf)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "decode device at index 0")
 }
@@ -394,7 +394,7 @@ func TestDecodeOpRepDevlistCountReadNonEOFError(t *testing.T) {
 		err:    errCoverageInjected,
 	}
 
-	_, err := wire.DecodeOpRepDevlist(r)
+	_, _, err := wire.DecodeOpRepDevlist(r)
 	require.ErrorIs(t, err, errCoverageInjected)
 }
 

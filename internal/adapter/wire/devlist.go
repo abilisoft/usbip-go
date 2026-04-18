@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"math"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -124,7 +123,10 @@ func encodeInterfaces(w io.Writer, d domain.Device) error {
 }
 
 // DecodeOpRepDevlist decodes an OP_REP_DEVLIST reply from r. Returns
-// (nil, nil) for a zero-device reply. Errors follow spec §6.2 error
+// (nil, false, nil) for a zero-device reply. The trailingBytes flag
+// is true when bytes remain after the last device (spec §6.2
+// "permissive on read"); the caller (typically the Codec) logs via
+// its injected logger if desired. Errors follow spec §6.2 error
 // matrix:
 //
 //   - Truncated mid-device → io.ErrUnexpectedEOF wrapped with
@@ -133,15 +135,14 @@ func encodeInterfaces(w io.Writer, d domain.Device) error {
 //   - Truncated mid-interface / declared interface count exceeds
 //     remaining bytes → io.ErrUnexpectedEOF wrapped with
 //     "truncated interfaces".
-//   - Trailing bytes → slog.Warn; accepted.
-func DecodeOpRepDevlist(r io.Reader) ([]domain.Device, error) {
+func DecodeOpRepDevlist(r io.Reader) ([]domain.Device, bool, error) {
 	_, op, _, err := DecodeHeader(r)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	if op != OpRepDevlist {
-		return nil, fmt.Errorf("%w: expected OP_REP_DEVLIST got 0x%04x",
+		return nil, false, fmt.Errorf("%w: expected OP_REP_DEVLIST got 0x%04x",
 			domain.ErrProtocolMismatch, uint16(op))
 	}
 
@@ -149,7 +150,7 @@ func DecodeOpRepDevlist(r io.Reader) ([]domain.Device, error) {
 
 	_, err = io.ReadFull(r, countBuf)
 	if err != nil {
-		return nil, wrapUnexpectedEOF("read devlist count", err)
+		return nil, false, wrapUnexpectedEOF("read devlist count", err)
 	}
 
 	count := binary.BigEndian.Uint32(countBuf)
@@ -162,12 +163,10 @@ func DecodeOpRepDevlist(r io.Reader) ([]domain.Device, error) {
 
 	devices, err := decodeDevlistBody(br, count)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	warnIfTrailing(br)
-
-	return devices, nil
+	return devices, hasTrailingBytes(br), nil
 }
 
 // decodeDevlistBody reads exactly count devices, each followed by its
@@ -248,14 +247,12 @@ func wrapUnexpectedEOF(ctx string, err error) error {
 	return fmt.Errorf("%s: %w", ctx, err)
 }
 
-// warnIfTrailing emits a single slog.Warn if br has at least one more
-// byte buffered. This is per spec §6.2 ("permissive on read").
-func warnIfTrailing(br *bufio.Reader) {
+// hasTrailingBytes reports whether br still has at least one byte
+// buffered. Callers (typically the Codec) use this to surface a
+// permissive-read signal to an injected logger (spec §6.2).
+func hasTrailingBytes(br *bufio.Reader) bool {
 	_, err := br.Peek(1)
-	if err != nil {
-		return
-	}
 
-	slog.Warn("trailing bytes after devlist")
+	return err == nil
 }
 

@@ -38,7 +38,11 @@ func DecodeOpReqImport(r io.Reader) (domain.BusID, error) {
 			domain.ErrProtocolMismatch, uint16(op))
 	}
 
-	busid, err := ReadPaddedString(r, domain.BusIDSize)
+	// Field-level truncation is advisory and not surfaced here; the
+	// busid-is-non-NUL-terminated case is rare and documented in
+	// ReadPaddedString. Callers who need to observe it use the Codec
+	// method on a higher layer.
+	busid, _, err := ReadPaddedString(r, domain.BusIDSize)
 	if err != nil {
 		return "", err
 	}
