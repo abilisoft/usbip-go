@@ -3,21 +3,12 @@
 package kernel
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"io/fs"
 	"log/slog"
+	"sync"
 
 	"github.com/abilisoft/usbip-go/internal/app"
-	"github.com/abilisoft/usbip-go/pkg/domain"
 )
-
-// errNotYetImplemented marks an interface method whose body is filled
-// in by a later Task 4.x GREEN step. Only Subscribe still uses it;
-// Task 4.10 replaces this placeholder with the real fan-out
-// implementation.
-var errNotYetImplemented = errors.New("kernel adapter method wired by later Phase 4 task")
 
 // commonAdapter holds the shared state injected into every role
 // adapter. Role adapters (ImporterAdapter, ExporterAdapter,
@@ -46,9 +37,14 @@ type ExporterAdapter struct {
 
 // EventsAdapter satisfies app.KernelEvents. It opens and shares a
 // single NETLINK_KOBJECT_UEVENT socket across subscribers via an
-// internal fan-out.
+// internal fan-out. dispMu guards the first Subscribe that lazily
+// opens the socket; disp is the live dispatcher or nil when no
+// subscribers are active.
 type EventsAdapter struct {
 	commonAdapter
+
+	dispMu *sync.Mutex
+	disp   *eventDispatcher
 }
 
 // NewImporterAdapter constructs an ImporterAdapter with defaults
@@ -96,11 +92,3 @@ func newCommon(opts ...Option) commonAdapter {
 	return c
 }
 
-// Subscribe is wired by Task 4.10. The placeholder ensures
-// EventsAdapter satisfies app.KernelEvents at compile time even before
-// the netlink fan-out lands.
-func (a *EventsAdapter) Subscribe(_ context.Context) (<-chan domain.Event, func(), error) {
-	_ = a
-
-	return nil, nil, fmt.Errorf("EventsAdapter.Subscribe: %w", errNotYetImplemented)
-}
