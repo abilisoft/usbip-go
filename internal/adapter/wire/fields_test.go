@@ -107,3 +107,61 @@ func TestReadPaddedStringMidBufferNUL(t *testing.T) {
 	require.Equal(t, "1-1", got)
 	require.False(t, truncated, "NUL-terminated frame should not set truncated flag")
 }
+
+// TestReadPaddedStringNonPrintableBeforeEOF: spec §6.2 says a
+// malformed frame should truncate at the first non-printable byte
+// even when no NUL is present. A leading printable prefix followed by
+// a non-printable byte must surface as truncated=true with the prefix
+// returned.
+func TestReadPaddedStringNonPrintableBeforeEOF(t *testing.T) {
+	t.Parallel()
+
+	buf := make([]byte, domain.BusIDSize)
+	copy(buf, []byte("abc\x01"))
+	// Fill the rest with printable bytes so there is no NUL at all.
+	for i := 4; i < domain.BusIDSize; i++ {
+		buf[i] = 'x'
+	}
+
+	got, truncated, err := wire.ReadPaddedString(bytes.NewReader(buf), domain.BusIDSize)
+	require.NoError(t, err)
+	require.Equal(t, "abc", got, "must truncate at first non-printable byte")
+	require.True(t, truncated, "non-printable-terminated frame is malformed; flag must be set")
+}
+
+// TestReadPaddedStringHighByteTruncates: 0x80+ bytes are non-ASCII
+// and count as non-printable per the 0x20..0x7E range.
+func TestReadPaddedStringHighByteTruncates(t *testing.T) {
+	t.Parallel()
+
+	buf := make([]byte, domain.BusIDSize)
+	copy(buf, []byte("ok\xff"))
+
+	for i := 3; i < domain.BusIDSize; i++ {
+		buf[i] = 'a'
+	}
+
+	got, truncated, err := wire.ReadPaddedString(bytes.NewReader(buf), domain.BusIDSize)
+	require.NoError(t, err)
+	require.Equal(t, "ok", got)
+	require.True(t, truncated)
+}
+
+// TestReadPaddedStringFirstByteNonPrintable: a leading non-printable
+// byte yields an empty string with truncated=true.
+func TestReadPaddedStringFirstByteNonPrintable(t *testing.T) {
+	t.Parallel()
+
+	buf := make([]byte, domain.BusIDSize)
+
+	buf[0] = 0x01
+
+	for i := 1; i < domain.BusIDSize; i++ {
+		buf[i] = 'a'
+	}
+
+	got, truncated, err := wire.ReadPaddedString(bytes.NewReader(buf), domain.BusIDSize)
+	require.NoError(t, err)
+	require.Empty(t, got)
+	require.True(t, truncated)
+}
