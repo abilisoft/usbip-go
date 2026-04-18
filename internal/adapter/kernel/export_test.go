@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/abilisoft/usbip-go/internal/app"
+	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
 // CommonExport mirrors commonAdapter for white-box tests. Keeping a
@@ -47,4 +48,12 @@ func commonSnapshot(c commonAdapter) CommonExport {
 		Logger:      c.logger,
 		Clock:       c.clock,
 	}
+}
+
+// FindFreePortForTest exposes the internal findFreePort for unit
+// tests. Role adapters share the algorithm via commonAdapter so the
+// ImporterAdapter parameter is arbitrary — either role would produce
+// identical results.
+func FindFreePortForTest(a *ImporterAdapter, speed domain.Speed) (domain.PortID, error) {
+	return a.findFreePort(speed)
 }
