@@ -183,3 +183,36 @@ func TestBind_ModuleMissingShortCircuits(t *testing.T) {
 	require.ErrorIs(t, err, domain.ErrKernelModuleMissing)
 	require.Empty(t, rec.calls, "no sysfs writes should be attempted when module is missing")
 }
+
+// TestBind_UnboundInterfaceReturnsErrDeviceNotBound exercises the
+// spec semantics for a device that exists in sysfs but has no driver
+// attached yet (fresh plug-in that userland has not yet bound). The
+// interface dir exists but neither driver_name nor the driver
+// symlink is present. Bind's currentDriver lookup must surface
+// ErrDeviceNotBound, not ErrDeviceNotFound (which means the device
+// itself is missing). Codex Phase 4 review finding 4.
+func TestBind_UnboundInterfaceReturnsErrDeviceNotBound(t *testing.T) {
+	t.Parallel()
+
+	busID := domain.BusID("1-1")
+	iface := string(busID) + ":1.0"
+	rec := &writeRecord{}
+
+	m := bindFS(string(busID))
+	// Remove both driver-indicator paths while keeping the interface
+	// directory itself present. This is the "unbound but device
+	// exists" scenario.
+	delete(m, "sys/bus/usb/devices/"+iface+"/driver/driver_name")
+	delete(m, "sys/bus/usb/devices/"+iface+"/driver")
+
+	a, err := kernel.NewExporterAdapter(
+		kernel.WithFS(m),
+		kernel.WithWriteFunc(rec.record()),
+	)
+	require.NoError(t, err)
+
+	err = a.Bind(context.Background(), busID)
+	require.ErrorIs(t, err, domain.ErrDeviceNotBound,
+		"unbound interface must surface ErrDeviceNotBound, not ErrDeviceNotFound")
+	require.Empty(t, rec.calls, "no sysfs writes should occur before the error")
+}
