@@ -69,11 +69,9 @@ type Transport interface {
 	Listen(ctx context.Context, addr string) (net.Listener, error)
 }
 
-// Compile-time assertion: wire.Codec satisfies ImporterKernel.
-//
-// NOTE: this assertion is INTENTIONALLY WRONG in this commit. It exists
-// to demonstrate in the RED build that interface assertions actually
-// constrain types — wire.Codec is a protocol codec, not a kernel
-// adapter, so Go's type system must reject this line. The GREEN commit
-// replaces it with the correct ProtocolCodec assertion.
-var _ ImporterKernel = (*wire.Codec)(nil)
+// Compile-time assertion: wire.Codec satisfies ProtocolCodec. If this
+// line fails to build, either the wire package drifted from the
+// interface or the interface changed shape without an adapter update;
+// either way the drift must be fixed — do NOT silently relax this
+// assertion.
+var _ ProtocolCodec = (*wire.Codec)(nil)
