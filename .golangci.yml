@@ -1,0 +1,54 @@
+version: 2
+run:
+  timeout: 5m
+  tests: true
+linters:
+  default: all
+  disable:
+    # Each disable requires a rationale per spec §9.4.
+    - depguard      # enable once we configure an allowed-deps list (tracked as an open item)
+    - exhaustruct   # fights functional options and zero-value defaults
+    - varnamelen    # flags idiomatic short names (err, ctx, i)
+    - wsl           # superseded by wsl_v5
+    - nlreturn      # overlaps with wsl_v5
+  settings:
+    gocyclo:
+      min-complexity: 10
+    gocognit:
+      min-complexity: 10
+    cyclop:
+      max-complexity: 10
+    nestif:
+      min-complexity: 4
+    funlen:
+      lines: 80
+      statements: 40
+    lll:
+      line-length: 120
+    wsl_v5:
+      allow-first-in-block: true
+      # Check names match bombsimon/wsl/v5.CheckFromString.
+      # `expr-cuddling` in the spec maps to the `expr` check; `branch-max-lines` is
+      # a separate config key (not a check) and is pinned below via branch-max-lines.
+      enable:
+        - assign-exclusive
+        - assign-expr
+        - expr
+      branch-max-lines: 2
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    goconst:
+      min-occurrences: 3
+      min-len: 3
+    mnd:
+      ignored-functions:
+        - 'make'
+        - 'strconv.FormatInt'
+        - 'strconv.FormatUint'
+  exclusions:
+    rules:
+      - path: cmd/.+/.+\.go
+        linters: [gochecknoglobals]  # cobra cmd vars are unavoidable; scoped here only
+      - path: _test\.go
+        linters: [funlen, gocyclo, cyclop, gocognit, dupl, mnd]
