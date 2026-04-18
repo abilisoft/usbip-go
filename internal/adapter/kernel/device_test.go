@@ -5,6 +5,7 @@ package kernel_test
 import (
 	"context"
 	"io/fs"
+	"maps"
 	"testing"
 	"testing/fstest"
 
@@ -15,22 +16,22 @@ import (
 )
 
 // deviceSysfs builds a MapFS that mimics /sys/bus/usb/devices/<busid>/
-// with the per-device attribute set ListLocalDevices reads.
-func deviceSysfs(busID string, attrs map[string]string, hasInterface bool) fstest.MapFS {
+// with the per-device attribute set ListLocalDevices reads, plus a
+// primary interface descriptor under <busid>:1.0.
+func deviceSysfs(busID string, attrs map[string]string) fstest.MapFS {
 	m := fstest.MapFS{}
 
 	for name, value := range attrs {
 		m["sys/bus/usb/devices/"+busID+"/"+name] = &fstest.MapFile{Data: []byte(value)}
 	}
 
-	if hasInterface {
-		iface := busID + ":1.0"
-		m["sys/bus/usb/devices/"+iface] = &fstest.MapFile{Mode: fs.ModeDir}
-		m["sys/bus/usb/devices/"+iface+"/bInterfaceClass"] = &fstest.MapFile{Data: []byte("09\n")}
-		m["sys/bus/usb/devices/"+iface+"/bInterfaceSubClass"] = &fstest.MapFile{Data: []byte("00\n")}
-		m["sys/bus/usb/devices/"+iface+"/bInterfaceProtocol"] = &fstest.MapFile{Data: []byte("00\n")}
-		m["sys/bus/usb/devices/"+iface+"/bAlternateSetting"] = &fstest.MapFile{Data: []byte("0\n")}
-	}
+	iface := busID + ":1.0"
+
+	m["sys/bus/usb/devices/"+iface] = &fstest.MapFile{Mode: fs.ModeDir}
+	m["sys/bus/usb/devices/"+iface+"/bInterfaceClass"] = &fstest.MapFile{Data: []byte("09\n")}
+	m["sys/bus/usb/devices/"+iface+"/bInterfaceSubClass"] = &fstest.MapFile{Data: []byte("00\n")}
+	m["sys/bus/usb/devices/"+iface+"/bInterfaceProtocol"] = &fstest.MapFile{Data: []byte("00\n")}
+	m["sys/bus/usb/devices/"+iface+"/bAlternateSetting"] = &fstest.MapFile{Data: []byte("0\n")}
 
 	return m
 }
@@ -66,9 +67,7 @@ func mergeFS(base ...fstest.MapFS) fstest.MapFS {
 	out := fstest.MapFS{}
 
 	for _, m := range base {
-		for k, v := range m {
-			out[k] = v
-		}
+		maps.Copy(out, m)
 	}
 
 	return out
@@ -77,7 +76,7 @@ func mergeFS(base ...fstest.MapFS) fstest.MapFS {
 func TestListLocalDevices_FiltersBusIDLikeEntries(t *testing.T) {
 	t.Parallel()
 
-	dev := deviceSysfs("1-1", makeDeviceAttrs(), true)
+	dev := deviceSysfs("1-1", makeDeviceAttrs())
 
 	// Add non-device entries the walker must ignore.
 	mfs := mergeFS(dev, moduleDirs(), fstest.MapFS{
@@ -108,8 +107,8 @@ func TestListLocalDevices_FiltersBusIDLikeEntries(t *testing.T) {
 func TestListLocalDevices_MultipleDevices(t *testing.T) {
 	t.Parallel()
 
-	devA := deviceSysfs("1-1", makeDeviceAttrs(), true)
-	devB := deviceSysfs("1-1.2", makeDeviceAttrs(), true)
+	devA := deviceSysfs("1-1", makeDeviceAttrs())
+	devB := deviceSysfs("1-1.2", makeDeviceAttrs())
 
 	mfs := mergeFS(devA, devB, moduleDirs())
 
@@ -135,7 +134,7 @@ func TestListLocalDevices_MultipleDevices(t *testing.T) {
 func TestListLocalDevices_ModuleMissingReturnsBoth(t *testing.T) {
 	t.Parallel()
 
-	dev := deviceSysfs("1-1", makeDeviceAttrs(), true)
+	dev := deviceSysfs("1-1", makeDeviceAttrs())
 	// No module dirs.
 	mfs := dev
 
