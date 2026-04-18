@@ -2,9 +2,8 @@ package wire_test
 
 import (
 	"bytes"
+	"embed"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/abilisoft/usbip-go/internal/adapter/wire"
@@ -12,24 +11,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+//go:embed testdata/*.bin testdata/*.json
+var deviceFixtureFS embed.FS
+
 // deviceFixture mirrors the JSON sidecar format for a device fixture.
 // Byte-for-byte round-trip: decode(*.bin) must equal the values in the
 // *.json sidecar; re-encode(decoded) must equal the original *.bin.
 type deviceFixture struct {
-	Path          string
-	BusID         string
-	BusNum        uint16
-	DevNum        uint16
-	Speed         domain.Speed
-	VendorID      uint16
-	ProductID     uint16
-	BcdDevice     uint16
-	Class         domain.USBClass
-	Subclass      domain.USBSubclass
-	Protocol      domain.USBProtocol
-	ConfigValue   uint8
-	NumConfigs    uint8
-	NumInterfaces uint8
+	Path          string             `json:"path"`
+	BusID         string             `json:"busId"`
+	BusNum        uint16             `json:"busNum"`
+	DevNum        uint16             `json:"devNum"`
+	Speed         domain.Speed       `json:"speed"`
+	VendorID      uint16             `json:"vendorId"`
+	ProductID     uint16             `json:"productId"`
+	BcdDevice     uint16             `json:"bcdDevice"`
+	Class         domain.USBClass    `json:"class"`
+	Subclass      domain.USBSubclass `json:"subclass"`
+	Protocol      domain.USBProtocol `json:"protocol"`
+	ConfigValue   uint8              `json:"configValue"`
+	NumConfigs    uint8              `json:"numConfigs"`
+	NumInterfaces uint8              `json:"numInterfaces"`
 }
 
 // TestDecodeDeviceHSKingstonFixture decodes the committed HS fixture and
@@ -52,11 +54,11 @@ func TestDecodeDeviceSSFixture(t *testing.T) {
 func assertDeviceFixture(t *testing.T, name string) {
 	t.Helper()
 
-	binBytes, err := os.ReadFile(filepath.Join("testdata", name+".bin"))
+	binBytes, err := deviceFixtureFS.ReadFile("testdata/" + name + ".bin")
 	require.NoError(t, err)
 	require.Len(t, binBytes, wire.DeviceWireSize)
 
-	jsonBytes, err := os.ReadFile(filepath.Join("testdata", name+".json"))
+	jsonBytes, err := deviceFixtureFS.ReadFile("testdata/" + name + ".json")
 	require.NoError(t, err)
 
 	var want deviceFixture
