@@ -7,9 +7,11 @@ package tools
 
 import (
 	_ "github.com/go-gremlins/gremlins/cmd/gremlins"
-	_ "github.com/goreleaser/goreleaser/v2"
 	_ "github.com/golangci/golangci-lint/v2/cmd/golangci-lint"
+	_ "github.com/goreleaser/goreleaser/v2"
 	_ "github.com/matryer/moq"
+	_ "golang.org/x/exp/cmd/apidiff"
+	_ "golang.org/x/tools/cmd/goimports"
 	_ "golang.org/x/vuln/cmd/govulncheck"
 	_ "mvdan.cc/gofumpt"
 )
