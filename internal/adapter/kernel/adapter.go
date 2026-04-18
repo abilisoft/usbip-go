@@ -99,31 +99,15 @@ func newCommon(opts ...Option) commonAdapter {
 	return c
 }
 
-// ImporterAdapter method placeholders. Every body is a marker that
-// Task 4.x (4.5 attach, 4.7 ports, 4.8 detach, 4.9 modules) replaces
-// with a real implementation in its GREEN commit. The signatures are
-// pinned to app.ImporterKernel so the compile-time assertion in the
-// tests holds across the Phase 4 progression.
-
-// AttachRemote is wired by Task 4.5.
-func (a *ImporterAdapter) AttachRemote(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
-	_ = a
-
-	return 0, fmt.Errorf("ImporterAdapter.AttachRemote: %w", errNotYetImplemented)
-}
+// ImporterAdapter method placeholders. AttachRemote and ListPorts are
+// wired in attach.go and ports.go respectively. DetachPort is wired
+// in attach.go by Task 4.8.
 
 // DetachPort is wired by Task 4.8.
 func (a *ImporterAdapter) DetachPort(_ context.Context, _ domain.PortID) error {
 	_ = a
 
 	return fmt.Errorf("ImporterAdapter.DetachPort: %w", errNotYetImplemented)
-}
-
-// ListPorts is wired by Task 4.7.
-func (a *ImporterAdapter) ListPorts(_ context.Context) ([]domain.Port, error) {
-	_ = a
-
-	return nil, fmt.Errorf("ImporterAdapter.ListPorts: %w", errNotYetImplemented)
 }
 
 // ExporterAdapter method placeholders. Wired by Task 4.8
