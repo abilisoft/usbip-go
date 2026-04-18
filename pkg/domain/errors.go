@@ -2,9 +2,43 @@ package domain
 
 import "errors"
 
-// ErrBusIDInvalid is returned when a bus id fails validation
-// (empty, whitespace-only, too long, or contains a NUL byte).
+// Sentinel errors returned by pkg/domain and by internal packages that
+// surface domain-level conditions. Consumers match via errors.Is.
 //
-// Additional sentinels defined by spec §4.4 and §6.2 are added in
-// later tasks in the same file.
-var ErrBusIDInvalid = errors.New("invalid bus id")
+// Message text is a stable part of the public API and MUST NOT be
+// changed without a breaking-change bump. List ordering matches spec
+// §4.4 followed by the three additions in §6.2.
+var (
+	// ErrDeviceNotFound indicates the requested busid is not present.
+	ErrDeviceNotFound = errors.New("device not found")
+	// ErrDeviceAlreadyBound indicates the device is already bound to
+	// usbip-host and cannot be bound again.
+	ErrDeviceAlreadyBound = errors.New("device already bound")
+	// ErrDeviceNotBound indicates the device is not currently bound
+	// to usbip-host.
+	ErrDeviceNotBound = errors.New("device not bound")
+	// ErrPortInUse indicates a local vhci port is already attached.
+	ErrPortInUse = errors.New("port in use")
+	// ErrNoFreePort indicates no vhci port is available for attach.
+	ErrNoFreePort = errors.New("no free vhci port")
+	// ErrProtocolMismatch indicates the peer reported a different
+	// USBIP protocol version.
+	ErrProtocolMismatch = errors.New("usbip protocol version mismatch")
+	// ErrProtocolError indicates the peer replied with a protocol
+	// error status code (OP_REP_*.status != 0 on a handshake frame).
+	ErrProtocolError = errors.New("usbip protocol error reported by peer")
+	// ErrAlreadyRunning indicates another exporter instance is holding
+	// the shared PID lock.
+	ErrAlreadyRunning = errors.New("another instance is already running")
+	// ErrAlreadyShutdown indicates the exporter has been shut down and
+	// cannot accept further requests.
+	ErrAlreadyShutdown = errors.New("exporter already shut down")
+	// ErrBusIDInvalid indicates a bus id failed validation.
+	ErrBusIDInvalid = errors.New("invalid bus id")
+	// ErrPermission indicates the caller lacks the privileges needed
+	// (typically CAP_SYS_ADMIN or root).
+	ErrPermission = errors.New("operation requires elevated privileges")
+	// ErrKernelModuleMissing indicates a required kernel module
+	// (usbip-core/usbip-host/vhci-hcd) is not loaded.
+	ErrKernelModuleMissing = errors.New("required kernel module not loaded")
+)
