@@ -52,11 +52,7 @@ linters:
         linters: [gochecknoglobals]  # cobra cmd vars are unavoidable; scoped here only
       - path: _test\.go
         linters: [funlen, gocyclo, cyclop, gocognit, dupl, mnd]
-      # Flat data-table switch: 22 trivial data cases form a compiler
-      # jump table. Cyclomatic-complexity linters misclassify this as
-      # high complexity; human-complexity is effectively 1. No control
-      # flow beyond case-return. The alternatives (package-level map
-      # caught by gochecknoglobals, per-call slice allocation, init()
-      # caught by gochecknoinits) are all worse.
-      - path: pkg/domain/class_data\.go
-        linters: [gocyclo, cyclop, gocognit, funlen]
+    # Generated files (standard header "Code generated ... DO NOT EDIT.") are
+    # auto-detected by golangci-lint and skipped. All other files run against
+    # the full linter set; there is no path-based exclusion for live code.
+    generated: lax
