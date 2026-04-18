@@ -32,8 +32,10 @@ func TestParseBusID(t *testing.T) {
 			got, err := domain.ParseBusID(tc.in)
 			if tc.err {
 				require.Error(t, err)
+
 				return
 			}
+
 			require.NoError(t, err)
 			require.Equal(t, tc.want, got)
 			require.True(t, got.IsValid())
