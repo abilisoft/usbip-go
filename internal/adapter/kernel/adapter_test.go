@@ -3,6 +3,7 @@
 package kernel_test
 
 import (
+	"errors"
 	"io/fs"
 	"log/slog"
 	"testing"
@@ -50,6 +51,19 @@ func TestNewEventsAdapter_ReturnsNonNil(t *testing.T) {
 	require.NotNil(t, a)
 }
 
+// fakeNetlinkSocket is a test-scope NetlinkSocket that answers no
+// events. Concrete type avoids nilnil lint noise and keeps the dialer
+// closure simple.
+type fakeNetlinkSocket struct{}
+
+func (fakeNetlinkSocket) Receive() ([]byte, error) { return nil, errTestSocketClosed }
+func (fakeNetlinkSocket) Close() error             { return nil }
+
+// errTestSocketClosed is an err113-compatible sentinel for the test
+// fake's Receive() call. No real consumer ever sees it because the
+// fake is injected only for option-plumbing assertions.
+var errTestSocketClosed = errors.New("fake netlink socket closed")
+
 // TestOptionsApplyToImporter confirms every With* option threads through
 // NewImporterAdapter into the underlying commonAdapter state. The test
 // uses the package-internal accessors exported via export_test.go so the
@@ -59,7 +73,7 @@ func TestOptionsApplyToImporter(t *testing.T) {
 
 	myFS := fstest.MapFS{"sys/module/usbip_core": &fstest.MapFile{Mode: fs.ModeDir}}
 	writer := func(string, string) error { return nil }
-	dialer := func() (kernel.NetlinkSocket, error) { return nil, nil } //nolint:nilnil // test-only stub dialer returning a nil socket in absence of a real one.
+	dialer := func() (kernel.NetlinkSocket, error) { return fakeNetlinkSocket{}, nil }
 	logger := slog.New(slog.DiscardHandler)
 	clock := testutil.NewFakeClockAt(time.Unix(0, 0))
 
@@ -85,8 +99,10 @@ func TestOptionsApplyToExporter(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.DiscardHandler)
+
 	a, err := kernel.NewExporterAdapter(kernel.WithLogger(logger))
 	require.NoError(t, err)
+
 	got := kernel.ExportCommonFromExporter(a)
 	require.Same(t, logger, got.Logger)
 }
@@ -95,8 +111,10 @@ func TestOptionsApplyToEvents(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.DiscardHandler)
+
 	a, err := kernel.NewEventsAdapter(kernel.WithLogger(logger))
 	require.NoError(t, err)
+
 	got := kernel.ExportCommonFromEvents(a)
 	require.Same(t, logger, got.Logger)
 }
@@ -108,6 +126,7 @@ func TestDefaultFSIsOsDirFS(t *testing.T) {
 
 	a, err := kernel.NewImporterAdapter()
 	require.NoError(t, err)
+
 	got := kernel.ExportCommonFromImporter(a)
 	require.NotNil(t, got.FS, "default FS must not be nil")
 }
