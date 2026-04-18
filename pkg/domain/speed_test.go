@@ -37,11 +37,11 @@ func TestSpeed_NumericValues(t *testing.T) {
 	t.Parallel()
 
 	// Match kernel enum usb_device_speed order.
-	require.Equal(t, domain.Speed(0), domain.SpeedUnknown)
-	require.Equal(t, domain.Speed(1), domain.SpeedLow)
-	require.Equal(t, domain.Speed(2), domain.SpeedFull)
-	require.Equal(t, domain.Speed(3), domain.SpeedHigh)
-	require.Equal(t, domain.Speed(4), domain.SpeedWireless)
-	require.Equal(t, domain.Speed(5), domain.SpeedSuper)
-	require.Equal(t, domain.Speed(6), domain.SpeedSuperPlus)
+	require.Equal(t, domain.SpeedUnknown, domain.Speed(0))
+	require.Equal(t, domain.SpeedLow, domain.Speed(1))
+	require.Equal(t, domain.SpeedFull, domain.Speed(2))
+	require.Equal(t, domain.SpeedHigh, domain.Speed(3))
+	require.Equal(t, domain.SpeedWireless, domain.Speed(4))
+	require.Equal(t, domain.SpeedSuper, domain.Speed(5))
+	require.Equal(t, domain.SpeedSuperPlus, domain.Speed(6))
 }
