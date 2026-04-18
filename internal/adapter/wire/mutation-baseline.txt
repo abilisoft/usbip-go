@@ -1,0 +1,33 @@
+Gremlins mutation baseline — internal/adapter/wire (Phase 2)
+
+Date: 2026-04-18
+Command: gremlins unleash ./internal/adapter/wire/
+
+Runs are producing timed-out mutants at 100% rate with the default
+per-mutant timeout. This is a known gremlins behavior for codecs
+whose tests exercise io.ReadFull paths that hit retry loops under
+mutation — the test binary takes longer than gremlins' default
+"killed" threshold, so surviving mutants are recorded as TIMED_OUT
+rather than KILLED or LIVED.
+
+Earlier runs (before boundary-value tests were added for busnum /
+devnum max-uint16) reported:
+  Killed: 10, Lived: 3, Timed out: 73
+  Test efficacy: 76.92%
+
+The three LIVED mutants at that time were:
+  - opcodes.go:40:12  CONDITIONALS_NEGATION in isReplyOpCode
+  - layout.go:119:14  CONDITIONALS_BOUNDARY on busnum guard
+  - layout.go:123:14  CONDITIONALS_BOUNDARY on devnum guard
+
+The boundary-value tests (TestDecodeDeviceBusnumAtMaxU16 /
+TestDecodeDeviceDevnumAtMaxU16) target the two layout.go survivors.
+The isReplyOpCode survivor is unreachable with well-formed USBIP
+traffic (isKnownOpCode gates every invocation) and is accepted as a
+vacuous mutation.
+
+Follow-up (Phase 2 post-task):
+  - Tune the gremlins per-mutant timeout to convert TIMED_OUT
+    mutants into KILLED mutants so the baseline report is
+    comparable across runs.
+  - Re-record baseline once timeout is tuned.
