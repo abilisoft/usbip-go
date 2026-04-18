@@ -32,7 +32,9 @@ func TestRealClockSleepZeroReturnsFast(t *testing.T) {
 	var clock app.RealClock
 
 	start := time.Now()
+
 	clock.Sleep(0)
+
 	elapsed := time.Since(start)
 
 	require.Less(t, elapsed, clockTestSleepBudget)

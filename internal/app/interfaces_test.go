@@ -38,6 +38,7 @@ func TestProtocolCodecSatisfiedByWireCodec(t *testing.T) {
 	require.Empty(t, devs)
 
 	buf.Reset()
+
 	dev := domain.Device{Path: "/sys/d", BusID: domain.BusID("2-1")}
 	require.NoError(t, codec.EncodeOpRepImport(&buf, dev))
 
