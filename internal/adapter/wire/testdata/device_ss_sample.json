@@ -1,0 +1,16 @@
+{
+  "Path": "/sys/devices/pci0000:00/0000:00:14.0/usb2/2-1",
+  "BusID": "2-1",
+  "BusNum": 2,
+  "DevNum": 3,
+  "Speed": 5,
+  "VendorID": 2385,
+  "ProductID": 5734,
+  "BcdDevice": 272,
+  "Class": 0,
+  "Subclass": 0,
+  "Protocol": 0,
+  "ConfigValue": 1,
+  "NumConfigs": 1,
+  "NumInterfaces": 1
+}
