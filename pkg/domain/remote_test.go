@@ -46,6 +46,11 @@ func TestParseRemote(t *testing.T) {
 		{"bad_port", "host:abc", domain.RemoteEndpoint{}, true},
 		{"port_overflow", "host:99999", domain.RemoteEndpoint{}, true},
 		{"port_zero", "host:0", domain.RemoteEndpoint{}, true},
+		{"ipv6_bare", "::1", domain.RemoteEndpoint{Host: "::1", Port: 3240}, false},
+		{"ipv6_only_bracketed", "[::1]", domain.RemoteEndpoint{Host: "::1", Port: 3240}, false},
+		{"ipv6_missing_bracket", "[::1", domain.RemoteEndpoint{}, true},
+		{"ipv6_bad_suffix", "[::1]garbage", domain.RemoteEndpoint{}, true},
+		{"empty_host", ":1234", domain.RemoteEndpoint{}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
