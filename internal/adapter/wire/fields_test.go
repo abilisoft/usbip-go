@@ -1,4 +1,4 @@
-package wire
+package wire_test
 
 import (
 	"bytes"
@@ -8,22 +8,23 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/abilisoft/usbip-go/internal/adapter/wire"
 	"github.com/abilisoft/usbip-go/pkg/domain"
 	"github.com/stretchr/testify/require"
 )
 
-// TestPaddedStringRoundTripBusID verifies that writePaddedString produces
-// exactly BusIDSize bytes and that readPaddedString recovers the string.
+// TestPaddedStringRoundTripBusID verifies that wire.WritePaddedString produces
+// exactly BusIDSize bytes and that wire.ReadPaddedString recovers the string.
 func TestPaddedStringRoundTripBusID(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
 
-	err := writePaddedString(&buf, "1-1", domain.BusIDSize)
+	err := wire.WritePaddedString(&buf, "1-1", domain.BusIDSize)
 	require.NoError(t, err)
 	require.Equal(t, domain.BusIDSize, buf.Len())
 
-	got, err := readPaddedString(&buf, domain.BusIDSize)
+	got, err := wire.ReadPaddedString(&buf, domain.BusIDSize)
 	require.NoError(t, err)
 	require.Equal(t, "1-1", got)
 }
@@ -34,11 +35,11 @@ func TestPaddedStringRoundTripPath(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	err := writePaddedString(&buf, "/sys/devices/pci0000:00/usb1/1-1", domain.SysPathSize)
+	err := wire.WritePaddedString(&buf, "/sys/devices/pci0000:00/usb1/1-1", domain.SysPathSize)
 	require.NoError(t, err)
 	require.Equal(t, domain.SysPathSize, buf.Len())
 
-	got, err := readPaddedString(&buf, domain.SysPathSize)
+	got, err := wire.ReadPaddedString(&buf, domain.SysPathSize)
 	require.NoError(t, err)
 	require.Equal(t, "/sys/devices/pci0000:00/usb1/1-1", got)
 }
@@ -52,7 +53,7 @@ func TestWritePaddedStringBusIDOverflow(t *testing.T) {
 	var buf bytes.Buffer
 
 	// Length exactly 32 — no room for trailing NUL.
-	err := writePaddedString(&buf, strings.Repeat("a", domain.BusIDSize), domain.BusIDSize)
+	err := wire.WritePaddedString(&buf, strings.Repeat("a", domain.BusIDSize), domain.BusIDSize)
 	require.ErrorIs(t, err, domain.ErrBusIDInvalid)
 }
 
@@ -62,7 +63,7 @@ func TestWritePaddedStringPathOverflow(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	err := writePaddedString(&buf, strings.Repeat("a", domain.SysPathSize), domain.SysPathSize)
+	err := wire.WritePaddedString(&buf, strings.Repeat("a", domain.SysPathSize), domain.SysPathSize)
 	require.ErrorIs(t, err, domain.ErrProtocolError)
 }
 
@@ -73,7 +74,7 @@ func TestReadPaddedStringShortRead(t *testing.T) {
 
 	partial := make([]byte, domain.BusIDSize-1)
 
-	_, err := readPaddedString(bytes.NewReader(partial), domain.BusIDSize)
+	_, err := wire.ReadPaddedString(bytes.NewReader(partial), domain.BusIDSize)
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 }
 
@@ -86,7 +87,7 @@ func TestReadPaddedStringNonNULTerminated(t *testing.T) {
 
 	buf := bytes.Repeat([]byte{'A'}, domain.BusIDSize)
 
-	got, err := readPaddedString(bytes.NewReader(buf), domain.BusIDSize)
+	got, err := wire.ReadPaddedString(bytes.NewReader(buf), domain.BusIDSize)
 	require.NoError(t, err)
 	require.Equal(t, strings.Repeat("A", domain.BusIDSize), got)
 
@@ -105,7 +106,7 @@ func TestReadPaddedStringMidBufferNUL(t *testing.T) {
 	buf := make([]byte, domain.BusIDSize)
 	copy(buf, []byte("1-1\x00junk-after-nul"))
 
-	got, err := readPaddedString(bytes.NewReader(buf), domain.BusIDSize)
+	got, err := wire.ReadPaddedString(bytes.NewReader(buf), domain.BusIDSize)
 	require.NoError(t, err)
 	require.Equal(t, "1-1", got)
 	require.Empty(t, restoreWarn(), "no warn expected when NUL is present")
