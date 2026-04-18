@@ -22,12 +22,16 @@ func TestEventKind_DistinctValues(t *testing.T) {
 		domain.EventSessionStarted,
 		domain.EventSessionEnded,
 	}
+
 	seen := make(map[domain.EventKind]struct{}, len(kinds))
+
 	for _, k := range kinds {
 		_, dup := seen[k]
 		require.Falsef(t, dup, "duplicate EventKind value %d", k)
+
 		seen[k] = struct{}{}
 	}
+
 	require.Len(t, seen, 9)
 }
 
@@ -70,6 +74,7 @@ func TestConcreteEvents_ImplementEvent(t *testing.T) {
 	port := domain.Port{ID: 1}
 	dev := domain.Device{BusID: "1-1"}
 	sess := domain.Session{}
+	remote := domain.RemoteEndpoint{Host: "h"}
 
 	cases := []struct {
 		name string
@@ -81,8 +86,16 @@ func TestConcreteEvents_ImplementEvent(t *testing.T) {
 		{"errored", domain.PortErroredEvent{At: now, Port: port, Err: "e"}, domain.EventPortErrored},
 		{"bound", domain.DeviceBoundEvent{At: now, Device: dev}, domain.EventDeviceBound},
 		{"unbound", domain.DeviceUnboundEvent{At: now, Device: dev}, domain.EventDeviceUnbound},
-		{"remote_added", domain.RemoteDeviceAddedEvent{At: now, Remote: domain.RemoteEndpoint{Host: "h"}, Device: dev}, domain.EventRemoteDeviceAdded},
-		{"remote_removed", domain.RemoteDeviceRemovedEvent{At: now, Remote: domain.RemoteEndpoint{Host: "h"}, BusID: "1-1"}, domain.EventRemoteDeviceRemoved},
+		{
+			"remote_added",
+			domain.RemoteDeviceAddedEvent{At: now, Remote: remote, Device: dev},
+			domain.EventRemoteDeviceAdded,
+		},
+		{
+			"remote_removed",
+			domain.RemoteDeviceRemovedEvent{At: now, Remote: remote, BusID: "1-1"},
+			domain.EventRemoteDeviceRemoved,
+		},
 		{"session_start", domain.SessionStartedEvent{At: now, Session: sess}, domain.EventSessionStarted},
 		{"session_end", domain.SessionEndedEvent{At: now, Session: sess, Reason: "r"}, domain.EventSessionEnded},
 	}
