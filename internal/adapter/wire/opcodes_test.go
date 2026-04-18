@@ -11,14 +11,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// errTestInjectedRead is a static sentinel used by failingReader. Having
+// a named error satisfies the err113 linter without expanding the
+// public API.
+var errTestInjectedRead = errors.New("injected read failure")
+
 // TestOpCodeConstants pins spec §6.2 opcode numeric values.
 func TestOpCodeConstants(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, wire.OpCode(0x8005), wire.OpReqDevlist)
-	require.Equal(t, wire.OpCode(0x0005), wire.OpRepDevlist)
-	require.Equal(t, wire.OpCode(0x8003), wire.OpReqImport)
-	require.Equal(t, wire.OpCode(0x0003), wire.OpRepImport)
+	require.Equal(t, wire.OpReqDevlist, wire.OpCode(0x8005))
+	require.Equal(t, wire.OpRepDevlist, wire.OpCode(0x0005))
+	require.Equal(t, wire.OpReqImport, wire.OpCode(0x8003))
+	require.Equal(t, wire.OpRepImport, wire.OpCode(0x0003))
 }
 
 // TestEncodeHeaderReqImport pins the exact byte layout from spec §6.2.
@@ -54,10 +59,13 @@ func TestEncodeHeaderAllOpcodes(t *testing.T) {
 func TestDecodeHeaderCleanEOF(t *testing.T) {
 	t.Parallel()
 
-	_, _, _, err := wire.DecodeHeader(bytes.NewReader(nil))
+	ver, op, status, err := wire.DecodeHeader(bytes.NewReader(nil))
 	require.ErrorIs(t, err, io.EOF)
 	// must be exactly io.EOF (not wrapped).
 	require.Equal(t, io.EOF, err)
+	require.Equal(t, uint16(0), ver)
+	require.Equal(t, wire.OpCode(0), op)
+	require.Equal(t, uint32(0), status)
 }
 
 // TestDecodeHeaderShortRead: partial header → io.ErrUnexpectedEOF wrapped.
@@ -65,8 +73,11 @@ func TestDecodeHeaderShortRead(t *testing.T) {
 	t.Parallel()
 
 	// 3 bytes only.
-	_, _, _, err := wire.DecodeHeader(bytes.NewReader([]byte{0x01, 0x11, 0x80}))
+	ver, op, status, err := wire.DecodeHeader(bytes.NewReader([]byte{0x01, 0x11, 0x80}))
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.Equal(t, uint16(0), ver)
+	require.Equal(t, wire.OpCode(0), op)
+	require.Equal(t, uint32(0), status)
 }
 
 // TestDecodeHeaderVersionMismatch: version != 0x0111 → ErrProtocolMismatch.
@@ -76,8 +87,11 @@ func TestDecodeHeaderVersionMismatch(t *testing.T) {
 	// Version 0x0112, opcode OpRepDevlist.
 	buf := []byte{0x01, 0x12, 0x00, 0x05, 0, 0, 0, 0}
 
-	_, _, _, err := wire.DecodeHeader(bytes.NewReader(buf))
+	ver, op, status, err := wire.DecodeHeader(bytes.NewReader(buf))
 	require.ErrorIs(t, err, domain.ErrProtocolMismatch)
+	require.Equal(t, uint16(0), ver)
+	require.Equal(t, wire.OpCode(0), op)
+	require.Equal(t, uint32(0), status)
 }
 
 // TestDecodeHeaderUnknownOpcode: unknown opcode → ErrProtocolMismatch.
@@ -86,8 +100,11 @@ func TestDecodeHeaderUnknownOpcode(t *testing.T) {
 
 	buf := []byte{0x01, 0x11, 0xFF, 0xFF, 0, 0, 0, 0}
 
-	_, _, _, err := wire.DecodeHeader(bytes.NewReader(buf))
+	ver, op, status, err := wire.DecodeHeader(bytes.NewReader(buf))
 	require.ErrorIs(t, err, domain.ErrProtocolMismatch)
+	require.Equal(t, uint16(0), ver)
+	require.Equal(t, wire.OpCode(0), op)
+	require.Equal(t, uint32(0), status)
 }
 
 // TestDecodeHeaderReplyStatusNonZero: reply header with status != 0 →
@@ -98,8 +115,11 @@ func TestDecodeHeaderReplyStatusNonZero(t *testing.T) {
 	// OpRepImport with status=5.
 	buf := []byte{0x01, 0x11, 0x00, 0x03, 0, 0, 0, 5}
 
-	_, _, _, err := wire.DecodeHeader(bytes.NewReader(buf))
+	ver, op, status, err := wire.DecodeHeader(bytes.NewReader(buf))
 	require.ErrorIs(t, err, domain.ErrProtocolError)
+	require.Equal(t, uint16(0), ver)
+	require.Equal(t, wire.OpCode(0), op)
+	require.Equal(t, uint32(0), status)
 }
 
 // TestDecodeHeaderRequestStatusIgnored: request opcodes don't trigger
@@ -121,11 +141,13 @@ func TestDecodeHeaderRequestStatusIgnored(t *testing.T) {
 func TestDecodeHeaderReaderError(t *testing.T) {
 	t.Parallel()
 
-	sentinel := errors.New("injected read failure")
-	r := &failingReader{err: sentinel}
+	r := &failingReader{err: errTestInjectedRead}
 
-	_, _, _, err := wire.DecodeHeader(r)
-	require.ErrorIs(t, err, sentinel)
+	ver, op, status, err := wire.DecodeHeader(r)
+	require.ErrorIs(t, err, errTestInjectedRead)
+	require.Equal(t, uint16(0), ver)
+	require.Equal(t, wire.OpCode(0), op)
+	require.Equal(t, uint32(0), status)
 }
 
 // failingReader returns err on every Read.
