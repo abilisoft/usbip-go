@@ -10,6 +10,8 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -285,4 +287,193 @@ func TestAttachRemote_ModuleMissing(t *testing.T) {
 	_, err = a.AttachRemote(context.Background(), wrapped, spec)
 	require.ErrorIs(t, err, domain.ErrKernelModuleMissing)
 	require.EqualValues(t, 0, wrapped.closes.Load())
+}
+
+// portStatusInUse is the numeric vdev_status value for a used port
+// (matches the kernel's vdev_st_used enum member).
+const portStatusInUse = 3
+
+// singlePortStatus renders a vhci status table where port 0 is the
+// only initially free slot; every other port starts already used.
+// The WriteFunc calls markUsed after a successful attach to emulate
+// the kernel's StatusNull → StatusUsed transition, so the second
+// concurrent attach finds zero free ports and must return
+// ErrNoFreePort.
+type singlePortStatus struct {
+	mu     sync.Mutex
+	nports int
+	// busy[i]==true means port i is already in use.
+	busy []bool
+}
+
+// newSinglePortStatus builds a table of size n where only port 0 is
+// free.
+func newSinglePortStatus(n int) *singlePortStatus {
+	busy := make([]bool, n)
+	for i := 1; i < n; i++ {
+		busy[i] = true
+	}
+
+	return &singlePortStatus{nports: n, busy: busy}
+}
+
+// statusText returns the current status-file bytes.
+func (s *singlePortStatus) statusText() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	lines := make([]string, 0, 1+s.nports)
+
+	lines = append(lines, "hub port sta spd dev      sockfd local_busid")
+
+	for i := range s.nports {
+		sta := 0
+		if s.busy[i] {
+			sta = portStatusInUse
+		}
+
+		lines = append(lines, fmt.Sprintf("hs  %04d %03d 000 00000000 000000 0-0", i, sta))
+	}
+
+	return []byte(strings.Join(lines, "\n") + "\n")
+}
+
+// markUsed commits the port as used. Called by the test's WriteFunc
+// on a successful sysfs attach write.
+func (s *singlePortStatus) markUsed(port int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if port >= 0 && port < s.nports {
+		s.busy[port] = true
+	}
+}
+
+// mutableStatusFS wraps fstest.MapFS so opens of the vhci status file
+// return the current singlePortStatus rendering. Everything else
+// passes through to the wrapped map.
+type mutableStatusFS struct {
+	inner fstest.MapFS
+	state *singlePortStatus
+}
+
+// Open implements fs.FS.
+func (m *mutableStatusFS) Open(name string) (fs.File, error) {
+	if name == "sys/devices/platform/vhci_hcd.0/status" {
+		fresh := fstest.MapFS{
+			name: &fstest.MapFile{Data: m.state.statusText()},
+		}
+
+		f, err := fresh.Open(name)
+		if err != nil {
+			return nil, fmt.Errorf("mutableStatusFS open %q: %w", name, err)
+		}
+
+		return f, nil
+	}
+
+	f, err := m.inner.Open(name)
+	if err != nil {
+		return nil, fmt.Errorf("mutableStatusFS inner open %q: %w", name, err)
+	}
+
+	return f, nil
+}
+
+// TestAttachRemote_SerializedUnderContention exercises spec §3.4:
+// concurrent AttachRemote callers contending for a single free port
+// must produce exactly one success and one ErrNoFreePort. Codex
+// Phase 4 review finding 3.
+func TestAttachRemote_SerializedUnderContention(t *testing.T) {
+	t.Parallel()
+
+	const contenderCount = 2
+
+	left1, right1 := socketpairConns(t)
+	left2, right2 := socketpairConns(t)
+
+	defer func() {
+		_ = right1.Close()
+		_ = right2.Close()
+	}()
+
+	const testNPorts = 8
+
+	state := newSinglePortStatus(testNPorts)
+
+	mfs := &mutableStatusFS{
+		inner: fstest.MapFS{
+			"sys/module/usbip_core":                  &fstest.MapFile{Mode: fs.ModeDir},
+			"sys/module/vhci_hcd":                    &fstest.MapFile{Mode: fs.ModeDir},
+			"sys/devices/platform/vhci_hcd.0":        &fstest.MapFile{Mode: fs.ModeDir},
+			"sys/devices/platform/vhci_hcd.0/nports": &fstest.MapFile{Data: fmt.Appendf(nil, "%d\n", testNPorts)},
+		},
+		state: state,
+	}
+
+	writer := func(p, data string) error {
+		if p != "/sys/devices/platform/vhci_hcd.0/attach" {
+			return nil
+		}
+
+		var (
+			port, fd int
+			devID    uint32
+			speed    uint32
+		)
+
+		_, err := fmt.Sscanf(data, "%d %d %d %d", &port, &fd, &devID, &speed)
+		if err != nil {
+			return fmt.Errorf("test writer: parse attach payload: %w", err)
+		}
+
+		state.markUsed(port)
+
+		return nil
+	}
+
+	a, err := kernel.NewImporterAdapter(
+		kernel.WithFS(mfs),
+		kernel.WithWriteFunc(writer),
+	)
+	require.NoError(t, err)
+
+	spec := app.RemoteDeviceSpec{DevID: 1, Speed: domain.SpeedHigh}
+
+	results := make([]error, contenderCount)
+	conns := []net.Conn{left1, left2}
+
+	var wg sync.WaitGroup
+
+	wg.Add(contenderCount)
+
+	for i := range contenderCount {
+		go func(idx int) {
+			defer wg.Done()
+
+			_, attachErr := a.AttachRemote(context.Background(), conns[idx], spec)
+
+			results[idx] = attachErr
+		}(i)
+	}
+
+	wg.Wait()
+
+	successes := 0
+	noFreePortErrors := 0
+
+	for _, r := range results {
+		if r == nil {
+			successes++
+
+			continue
+		}
+
+		if errors.Is(r, domain.ErrNoFreePort) {
+			noFreePortErrors++
+		}
+	}
+
+	require.Equal(t, 1, successes, "exactly one Attach must succeed")
+	require.Equal(t, 1, noFreePortErrors, "exactly one Attach must see ErrNoFreePort")
 }
