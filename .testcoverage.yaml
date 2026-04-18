@@ -1,0 +1,31 @@
+# Per-package coverage thresholds per spec §8.7.
+# Enforced by vladopajic/go-test-coverage@v2 in the CI "coverage" job.
+profile: coverage.out
+local-prefix: github.com/abilisoft/usbip-go
+
+# Empty total threshold; per-package overrides below are the source of truth.
+threshold:
+  file: 0
+  package: 0
+  total: 0
+
+override:
+  - path: ^pkg/domain($|/)
+    threshold: 95
+  - path: ^internal/app($|/)
+    threshold: 90
+  - path: ^internal/adapter/wire($|/)
+    threshold: 95
+  - path: ^internal/adapter/kernel($|/)
+    threshold: 70
+  - path: ^internal/adapter/transport($|/)
+    threshold: 80
+  - path: ^cmd/
+    threshold: 60
+
+# Skip paths that have no meaningful coverage surface.
+exclude:
+  paths:
+    - ^internal/tools/
+    - ^internal/testutil/
+    - doc\.go$

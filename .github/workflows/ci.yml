@@ -1,0 +1,292 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: '1.26'
+  GOTOOLCHAIN: local
+
+jobs:
+  lint-and-vet:
+    name: Lint & vuln
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Install task
+        run: go install github.com/go-task/task/v3/cmd/task@latest
+      - name: Install dev tools
+        run: task install-tools
+      - name: Lint
+        run: task lint
+      - name: Vuln
+        run: task vuln
+
+  unit-linux:
+    name: Unit tests (linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Install task
+        run: go install github.com/go-task/task/v3/cmd/task@latest
+      - name: Test
+        run: task test
+
+  unit-macos:
+    name: Unit tests (macos)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Install task
+        run: go install github.com/go-task/task/v3/cmd/task@latest
+      - name: Test (catches Linux-only imports in shared packages)
+        run: task test
+
+  conformance:
+    name: Conformance (upstream usbip-utils)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Install task
+        run: go install github.com/go-task/task/v3/cmd/task@latest
+      - name: Install upstream usbip-utils
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y linux-tools-common "linux-tools-$(uname -r)"
+      - name: Conformance tests
+        run: task test:conformance
+
+  test-tdd-discipline:
+    name: TDD discipline (Compliance Gate 3)
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request'
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Inspect PR commits for red->green pairs
+        run: |
+          set -euo pipefail
+          commits=$(git rev-list --reverse "${BASE_SHA}..${HEAD_SHA}")
+          if [ -z "$commits" ]; then
+            echo "No commits in PR range; skipping TDD discipline check."
+            exit 0
+          fi
+          prev_added_test=""
+          fail=0
+          for sha in $commits; do
+            subject=$(git log -1 --format=%s "$sha")
+            added_test=$(git diff-tree --no-commit-id --name-only --diff-filter=A -r "$sha" | { grep -E '_test\.go$' || true; })
+            non_test_go=$(git diff-tree --no-commit-id --name-only -r "$sha" | { grep -E '\.go$' || true; } | { grep -v '_test\.go$' || true; })
+            if [ -n "$prev_added_test" ] && [ -z "$non_test_go" ] && ! printf '%s' "$subject" | grep -qiE '^refactor:' ; then
+              echo "FAIL: commit $sha (\"$subject\") follows a RED commit but adds no implementation and is not labeled 'refactor:'"
+              fail=1
+            fi
+            if [ -n "$added_test" ]; then
+              prev_added_test="$sha"
+            else
+              prev_added_test=""
+            fi
+          done
+          exit "$fail"
+
+  api-surface:
+    name: API surface (Compliance Gate 6)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install apidiff
+        run: go install golang.org/x/exp/cmd/apidiff@latest
+      - name: Diff exported API against baselines
+        run: |
+          set -euo pipefail
+          for pkg in github.com/abilisoft/usbip-go/pkg/usbip github.com/abilisoft/usbip-go/pkg/domain; do
+            name="${pkg##*/}"
+            baseline="api/${name}.json"
+            if [ ! -f "$baseline" ]; then
+              echo "no baseline for $pkg at $baseline; skipping (Task 6.6 establishes baselines)"
+              continue
+            fi
+            apidiff "$pkg" "$baseline" > diff.txt
+            cat diff.txt
+            if grep -qE '^(Incompatible|Removed)' diff.txt; then
+              if ! git log -1 --format=%s | grep -q '^BREAKING:' ; then
+                echo "API break without BREAKING: commit"; exit 1
+              fi
+            fi
+          done
+
+  ddd-boundary:
+    name: DDD boundary (Compliance Gate 5)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: pkg/ must not import internal/
+        run: |
+          set -euo pipefail
+          if [ -d pkg ] && grep -rEn 'github\.com/abilisoft/usbip-go/internal/' pkg/; then
+            echo "pkg/ imports internal/ — boundary violation"
+            exit 1
+          fi
+      - name: internal/app must not import internal/adapter/
+        run: |
+          set -euo pipefail
+          if [ -d internal/app ] && grep -rEn 'github\.com/abilisoft/usbip-go/internal/adapter/' internal/app/; then
+            echo "internal/app imports internal/adapter/ — boundary violation"
+            exit 1
+          fi
+
+  no-cgo:
+    name: No cgo (Compliance Gate 8)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for import "C"
+        run: |
+          set -euo pipefail
+          if grep -rnE 'import[[:space:]]+"C"' --include='*.go' .; then
+            echo "found cgo import — CGO_ENABLED=0 policy violation"
+            exit 1
+          fi
+
+  coverage:
+    name: Coverage (Compliance Gate 4)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Install task
+        run: go install github.com/go-task/task/v3/cmd/task@latest
+      - name: Produce coverage profile
+        run: task test:cover
+      - name: Enforce thresholds
+        uses: vladopajic/go-test-coverage@v2
+        with:
+          config: ./.testcoverage.yaml
+
+  cross-compile:
+    name: Cross-compile (Compliance Gate 12)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Phase-0 minimal cross build
+        run: |
+          set -euo pipefail
+          GOOS=linux GOARCH=amd64 go build ./...
+          GOOS=linux GOARCH=arm64 go build ./...
+          GOOS=linux GOARCH=arm GOARM=7 go build ./...
+
+  mutation:
+    name: Mutation testing
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Install task
+        run: go install github.com/go-task/task/v3/cmd/task@latest
+      - name: Install gremlins
+        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+      - name: Mutation tests
+        run: task test:mutation
