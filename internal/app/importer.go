@@ -1,8 +1,13 @@
 package app
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
+	"net"
 	"sync"
+
+	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
 // Importer is the use-case service that imports remote USB devices via
@@ -80,4 +85,59 @@ func (i *Importer) Close() error {
 	i.closed = true
 
 	return nil
+}
+
+// ListRemote dials endpoint, requests the remote device list via
+// OP_REQ_DEVLIST, and returns the decoded []domain.Device. The TCP
+// connection is owned for the entire call: it is always closed before
+// ListRemote returns (success or failure). OP_REP_DEVLIST does not
+// involve fd-passing, so the spec §5.4 handoff contract does not apply
+// here — the connection is a short-lived query channel.
+//
+// Returned errors are wrapped with the peer endpoint so callers can
+// distinguish which remote produced the failure when a consumer lists
+// across multiple peers.
+func (i *Importer) ListRemote(ctx context.Context, endpoint domain.RemoteEndpoint) ([]domain.Device, error) {
+	i.mu.RLock()
+
+	closed := i.closed
+
+	i.mu.RUnlock()
+
+	if closed {
+		return nil, ErrImporterClosed
+	}
+
+	endpoint = endpoint.NormalizePort()
+
+	conn, err := i.transport.Dial(ctx, endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("dial %s: %w", endpoint.String(), err)
+	}
+
+	defer closeConnLogging(conn, i.logger)
+
+	reqBytes := i.codec.EncodeOpReqDevlist()
+
+	_, err = conn.Write(reqBytes)
+	if err != nil {
+		return nil, fmt.Errorf("write OP_REQ_DEVLIST to %s: %w", endpoint.String(), err)
+	}
+
+	devs, err := i.codec.DecodeOpRepDevlist(conn)
+	if err != nil {
+		return nil, fmt.Errorf("decode OP_REP_DEVLIST from %s: %w", endpoint.String(), err)
+	}
+
+	return devs, nil
+}
+
+// closeConnLogging closes conn and logs any error via logger. The close
+// error is NEVER surfaced to the caller because the primary operation
+// has already completed; a close failure is informational only.
+func closeConnLogging(conn net.Conn, logger *slog.Logger) {
+	err := conn.Close()
+	if err != nil {
+		logger.Warn("close importer conn", slog.Any("err", err))
+	}
 }
