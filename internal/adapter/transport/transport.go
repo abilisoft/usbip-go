@@ -83,15 +83,21 @@ func (t *NetTransport) Dial(ctx context.Context, r domain.RemoteEndpoint) (net.C
 		return conn, nil
 	}
 
+	// TCP_NODELAY is a performance knob (§6.3) — turning off Nagle so
+	// the short USB/IP handshake frames ship immediately. If the kernel
+	// rejects the sockopt (exotic stacks, LD_PRELOAD wrappers) the TCP
+	// handshake itself still succeeded and the connection is usable,
+	// just with Nagle's coalescing. Dropping a valid conn on a perf
+	// knob failure would convert a recoverable warning into an
+	// availability outage; log at warn instead and keep the conn.
 	nerr := tcpConn.SetNoDelay(true)
 	if nerr != nil {
-		_ = conn.Close()
-
-		return nil, fmt.Errorf("set nodelay %s: %w", addr, nerr)
+		t.logger.LogAttrs(ctx, slog.LevelWarn, "transport.Dial TCP_NODELAY rejected",
+			slog.String("remote", addr), slog.Any("err", nerr))
 	}
 
 	t.logger.LogAttrs(ctx, slog.LevelDebug, "transport.Dial established",
-		slog.String("remote", addr), slog.Bool("tcp", true))
+		slog.String("remote", addr), slog.Bool("tcp", true), slog.Bool("nodelay", nerr == nil))
 
 	return conn, nil
 }
