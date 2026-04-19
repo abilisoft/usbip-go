@@ -85,8 +85,10 @@ func (tableRenderer) Sessions(w io.Writer, sessions []usbip.Session) error {
 // renderer format is intentionally compact and NOT machine-readable;
 // --output=json is the stable watch stream.
 func (tableRenderer) Event(w io.Writer, ev usbip.Event) error {
-	rec := eventRecord(ev)
-	if rec == nil {
+	rec := classifyEvent(ev)
+	kind, at, ok := eventHeader(rec)
+
+	if !ok {
 		_, err := fmt.Fprintf(w, "%T %v\n", ev, ev)
 		if err != nil {
 			return fmt.Errorf("render event: %w", err)
@@ -95,7 +97,7 @@ func (tableRenderer) Event(w io.Writer, ev usbip.Event) error {
 		return nil
 	}
 
-	_, err := fmt.Fprintf(w, "%s %v\n", rec["kind"], rec["at"])
+	_, err := fmt.Fprintf(w, "%s %s\n", kind, at)
 	if err != nil {
 		return fmt.Errorf("render event: %w", err)
 	}
