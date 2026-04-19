@@ -140,14 +140,23 @@ func (a *EventsAdapter) Subscribe(ctx context.Context) (<-chan domain.Event, fun
 		go dispatcher.run()
 	}
 
-	unsub := a.buildUnsubscribe(dispatcher, id)
+	// unsubSig lets the ctx-watcher goroutine below exit when the
+	// caller releases the subscription via unsub(). Without it, an
+	// explicit-unsub path strands the watcher on ctx.Done() for the
+	// lifetime of the caller's (possibly very long-lived) ctx.
+	unsubSig := make(chan struct{})
+	unsub := a.buildUnsubscribe(dispatcher, id, unsubSig)
 
 	// Honour the caller's ctx — cancel auto-unsubscribes this
 	// subscriber only. The dispatcher keeps running as long as any
-	// other subscriber is attached.
+	// other subscriber is attached. Exits on whichever signal fires
+	// first: ctx cancellation or explicit unsub.
 	go func() {
-		<-ctx.Done()
-		unsub()
+		select {
+		case <-ctx.Done():
+			unsub()
+		case <-unsubSig:
+		}
 	}()
 
 	return ch, unsub, nil
@@ -212,12 +221,17 @@ func (d *eventDispatcher) cancel() {
 }
 
 // buildUnsubscribe returns a func that removes a subscriber and, if
-// it was the last one, shuts the dispatcher down.
-func (a *EventsAdapter) buildUnsubscribe(d *eventDispatcher, id int64) func() {
+// it was the last one, shuts the dispatcher down. Closing unsubSig on
+// the first call releases Subscribe's per-subscription ctx-watcher
+// goroutine so it does not leak for the lifetime of the caller's ctx
+// when unsub is invoked directly.
+func (a *EventsAdapter) buildUnsubscribe(d *eventDispatcher, id int64, unsubSig chan struct{}) func() {
 	var once sync.Once
 
 	return func() {
 		once.Do(func() {
+			close(unsubSig)
+
 			empty := d.removeSubscriber(id)
 			if !empty {
 				return
