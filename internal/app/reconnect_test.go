@@ -865,3 +865,87 @@ func TestImporterReconnectSameSlotStaleEventIgnored(t *testing.T) {
 	}, 100*time.Millisecond, 5*time.Millisecond,
 		"same-slot stale event must be filtered by kernel-confirmation, not by port id")
 }
+
+// TestImporterReconnectOnReconnectPanicRecovered asserts the watcher
+// survives an OnReconnect callback that panics. Per spec §5.5 the
+// callback is a fire-and-forget notification, so a buggy caller must
+// not crash the process, wedge the watcher's retry cadence, or leak a
+// goroutine (goleak's TestMain hook backs up the assertion).
+func TestImporterReconnectOnReconnectPanicRecovered(t *testing.T) {
+	t.Parallel()
+
+	var attachCount atomic.Int32
+
+	// First AttachRemote succeeds (initial Attach). Every subsequent
+	// AttachRemote (the reconnect attempts) fails so the watcher stays
+	// in its retry loop long enough for the panic to surface AND for
+	// the next attempt to happen.
+	attachFn := func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+		n := attachCount.Add(1)
+		if n == 1 {
+			return domain.PortID(1), nil
+		}
+
+		return 0, errBoom
+	}
+
+	imp, clk, registry, kernel := newReconnectFixture(t, attachFn)
+
+	var (
+		callbackCount atomic.Int32
+		panicFired    = make(chan struct{}, 1)
+	)
+
+	opts := attachOptionsWithBackoff()
+
+	opts.MaxAttempts = 3
+	opts.OnReconnect = func(attempt int, _ error) {
+		callbackCount.Add(1)
+
+		if attempt == 1 {
+			select {
+			case panicFired <- struct{}{}:
+			default:
+			}
+
+			panic("test panic from OnReconnect")
+		}
+	}
+
+	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), opts)
+	require.NoError(t, err)
+
+	registry.waitFor(t, 1)
+
+	registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
+
+	// Drive the watcher through all three attempts. Each iteration
+	// advances the clock until AttachRemote has been invoked for the
+	// expected attempt. If the panic wedged the watcher, the second
+	// attempt never lands and Eventually times out.
+	for i := range 3 {
+		want := int32(i + 2) // +1 initial attach, +1 per attempt
+		require.Eventually(t, func() bool {
+			clk.Advance(reconnectTestBackoff().Delay)
+
+			return attachCount.Load() >= want
+		}, reconnectTestSettleBudget, 10*time.Millisecond,
+			"watcher must continue after OnReconnect panic (expected attempt %d)", i+1)
+	}
+
+	// The panic from attempt 1 actually reached the test's callback.
+	select {
+	case <-panicFired:
+	case <-time.After(reconnectTestSettleBudget):
+		t.Fatal("OnReconnect was never invoked; fixture is broken")
+	}
+
+	// Close drains the waitgroup — a leaked watcher goroutine would
+	// deadlock here. This is the direct assertion that the panic did
+	// not leave the watcher alive and orphaned.
+	require.NoError(t, imp.Close())
+
+	require.Equal(t, int32(3), callbackCount.Load(),
+		"callback must still fire for every attempt despite the first-attempt panic")
+	require.Len(t, kernel.AttachRemoteCalls(), 4, "initial + 3 reconnect attempts")
+}
