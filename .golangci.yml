@@ -44,7 +44,13 @@ linters:
     ireturn:
       # domain.Event and kernel.NetlinkSocket are internal adapter
       # contracts — their whole purpose is to be returned across package
-      # boundaries. Allow them in addition to ireturn's defaults.
+      # boundaries. Allow them in addition to ireturn's defaults. The
+      # app.BackoffStrategy entry covers the pkg/usbip translation helper
+      # that converts a public BackoffStrategy into the internal one; the
+      # facade's role is exactly to return this internal interface value
+      # into the internal app constructor. Public BackoffStrategy is also
+      # whitelisted so future helpers constructing a default strategy
+      # (used only internally) do not trip the linter.
       allow:
         - anon
         - error
@@ -53,6 +59,8 @@ linters:
         - generic
         - 'github.com/abilisoft/usbip-go/internal/adapter/kernel\.NetlinkSocket'
         - 'github.com/abilisoft/usbip-go/pkg/domain\.Event'
+        - 'github.com/abilisoft/usbip-go/internal/app\.BackoffStrategy'
+        - 'github.com/abilisoft/usbip-go/pkg/usbip\.BackoffStrategy'
     mnd:
       ignored-functions:
         - 'make'
@@ -62,6 +70,13 @@ linters:
     rules:
       - path: cmd/.+/.+\.go
         linters: [gochecknoglobals]  # cobra cmd vars are unavoidable; scoped here only
+      - path: pkg/usbip/usbip\.go
+        # The pkg/usbip facade is intentional 1:1 forwarding to
+        # internal/app (spec §5.7). Wrapping each forwarded error with
+        # fmt.Errorf would obscure sentinels and duplicate the
+        # error-wrapping already performed inside internal/app. The
+        # errors.Is chain relies on identity; this file must NOT wrap.
+        linters: [wrapcheck]
       - path: _test\.go
         # Test files are exempt from complexity and magic-number linters
         # because table-driven tests with 10+ cases hit gocyclo / mnd

@@ -2,38 +2,49 @@ package usbip_test
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net"
 	"testing"
 	"time"
 
-	"github.com/abilisoft/usbip-go/internal/adapter/wire"
 	internalapp "github.com/abilisoft/usbip-go/internal/app"
 	"github.com/abilisoft/usbip-go/pkg/domain"
 	"github.com/abilisoft/usbip-go/pkg/usbip"
 	"github.com/stretchr/testify/require"
 )
 
+// importerStubs bundles the mock adapters so tests can reach for the
+// handle they care about without tolerating blank identifiers. Using a
+// struct also keeps the helper signature short enough to pass lll.
+type importerStubs struct {
+	inner  *internalapp.Importer
+	kernel *stubImporterKernel
+	events *stubKernelEvents
+	trans  *stubTransport
+	codec  *stubCodec
+}
+
 // newInternalImporterForTest assembles an internal Importer with
-// stubbed adapters. The returned stubs are exposed so per-case setup
-// can rewire individual methods.
-func newInternalImporterForTest(t *testing.T) (*internalapp.Importer, *stubImporterKernel, *stubKernelEvents, *stubTransport, *stubCodec) {
+// stubbed adapters. The returned bundle exposes each stub so per-case
+// setup can rewire a single behaviour.
+func newInternalImporterForTest(t *testing.T) importerStubs {
 	t.Helper()
 
-	k := &stubImporterKernel{}
-	e := &stubKernelEvents{}
-	tr := &stubTransport{}
-	c := &stubCodec{}
+	s := importerStubs{
+		kernel: &stubImporterKernel{},
+		events: &stubKernelEvents{},
+		trans:  &stubTransport{},
+		codec:  &stubCodec{},
+	}
 
-	imp := internalapp.NewImporter(
-		internalapp.WithImporterKernel(k),
-		internalapp.WithImporterEvents(e),
-		internalapp.WithImporterTransport(tr),
-		internalapp.WithImporterCodec(c),
+	s.inner = internalapp.NewImporter(
+		internalapp.WithImporterKernel(s.kernel),
+		internalapp.WithImporterEvents(s.events),
+		internalapp.WithImporterTransport(s.trans),
+		internalapp.WithImporterCodec(s.codec),
 	)
 
-	return imp, k, e, tr, c
+	return s
 }
 
 // TestImporterWrapperNotNil is the smallest sanity check: wrapping a
@@ -41,9 +52,9 @@ func newInternalImporterForTest(t *testing.T) (*internalapp.Importer, *stubImpor
 func TestImporterWrapperNotNil(t *testing.T) {
 	t.Parallel()
 
-	inner, _, _, _, _ := newInternalImporterForTest(t)
+	s := newInternalImporterForTest(t)
 
-	imp := usbip.NewImporterFromInternalForTest(inner)
+	imp := usbip.NewImporterFromInternalForTest(s.inner)
 
 	require.NotNil(t, imp)
 }
@@ -54,35 +65,17 @@ func TestImporterWrapperNotNil(t *testing.T) {
 func TestImporterListRemoteForwards(t *testing.T) {
 	t.Parallel()
 
-	inner, _, _, tr, c := newInternalImporterForTest(t)
+	s := newInternalImporterForTest(t)
 
 	want := []domain.Device{{BusID: "1-1"}, {BusID: "1-2"}}
 
-	c.decodeOpRepDevlistFn = func(_ io.Reader) ([]domain.Device, error) {
+	s.codec.decodeOpRepDevlistFn = func(_ io.Reader) ([]domain.Device, error) {
 		return want, nil
 	}
 
-	// Override Dial to return a net.Pipe pair; the fake drain goroutine
-	// reads from the remote side so the importer's Write does not park.
-	tr.dialFn = func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
-		local, remote := net.Pipe()
+	s.trans.dialFn = pipeDialer()
 
-		go func() {
-			buf := make([]byte, 64)
-			for {
-				_, err := remote.Read(buf)
-				if err != nil {
-					_ = remote.Close()
-
-					return
-				}
-			}
-		}()
-
-		return local, nil
-	}
-
-	imp := usbip.NewImporterFromInternalForTest(inner)
+	imp := usbip.NewImporterFromInternalForTest(s.inner)
 
 	t.Cleanup(func() {
 		require.NoError(t, imp.Close())
@@ -98,21 +91,23 @@ func TestImporterListRemoteForwards(t *testing.T) {
 func TestImporterAttachForwards(t *testing.T) {
 	t.Parallel()
 
-	inner, k, _, _, c := newInternalImporterForTest(t)
+	s := newInternalImporterForTest(t)
 
 	decoded := domain.Device{BusID: "1-1", Speed: domain.SpeedHigh, BusNum: 1, DevNum: 2}
 
-	c.decodeOpRepImportFn = func(_ io.Reader) (domain.Device, error) {
+	s.codec.decodeOpRepImportFn = func(_ io.Reader) (domain.Device, error) {
 		return decoded, nil
 	}
 
-	k.attachRemoteFn = func(_ context.Context, _ net.Conn, spec internalapp.RemoteDeviceSpec) (domain.PortID, error) {
+	s.kernel.attachRemoteFn = func(
+		_ context.Context, _ net.Conn, spec internalapp.RemoteDeviceSpec,
+	) (domain.PortID, error) {
 		require.Equal(t, decoded, spec.Device)
 
 		return 7, nil
 	}
 
-	imp := usbip.NewImporterFromInternalForTest(inner)
+	imp := usbip.NewImporterFromInternalForTest(s.inner)
 
 	t.Cleanup(func() {
 		require.NoError(t, imp.Close())
@@ -132,25 +127,27 @@ func TestImporterAttachForwards(t *testing.T) {
 func TestImporterDetachForwards(t *testing.T) {
 	t.Parallel()
 
-	inner, k, _, _, c := newInternalImporterForTest(t)
+	s := newInternalImporterForTest(t)
 
-	c.decodeOpRepImportFn = func(_ io.Reader) (domain.Device, error) {
+	s.codec.decodeOpRepImportFn = func(_ io.Reader) (domain.Device, error) {
 		return domain.Device{BusID: "1-1", Speed: domain.SpeedHigh, BusNum: 1, DevNum: 2}, nil
 	}
 
-	k.attachRemoteFn = func(_ context.Context, _ net.Conn, _ internalapp.RemoteDeviceSpec) (domain.PortID, error) {
+	s.kernel.attachRemoteFn = func(
+		_ context.Context, _ net.Conn, _ internalapp.RemoteDeviceSpec,
+	) (domain.PortID, error) {
 		return 3, nil
 	}
 
 	detachGot := make(chan domain.PortID, 1)
 
-	k.detachPortFn = func(_ context.Context, id domain.PortID) error {
+	s.kernel.detachPortFn = func(_ context.Context, id domain.PortID) error {
 		detachGot <- id
 
 		return nil
 	}
 
-	imp := usbip.NewImporterFromInternalForTest(inner)
+	imp := usbip.NewImporterFromInternalForTest(s.inner)
 
 	t.Cleanup(func() {
 		require.NoError(t, imp.Close())
@@ -174,15 +171,15 @@ func TestImporterDetachForwards(t *testing.T) {
 func TestImporterListPortsForwards(t *testing.T) {
 	t.Parallel()
 
-	inner, k, _, _, _ := newInternalImporterForTest(t)
+	s := newInternalImporterForTest(t)
 
 	want := []domain.Port{{ID: 1, Status: domain.StatusUsed}, {ID: 2}}
 
-	k.listPortsFn = func(_ context.Context) ([]domain.Port, error) {
+	s.kernel.listPortsFn = func(_ context.Context) ([]domain.Port, error) {
 		return want, nil
 	}
 
-	imp := usbip.NewImporterFromInternalForTest(inner)
+	imp := usbip.NewImporterFromInternalForTest(s.inner)
 
 	t.Cleanup(func() {
 		require.NoError(t, imp.Close())
@@ -199,25 +196,26 @@ func TestImporterListPortsForwards(t *testing.T) {
 func TestImporterWatchYieldsEvents(t *testing.T) {
 	t.Parallel()
 
-	inner, _, e, _, _ := newInternalImporterForTest(t)
+	s := newInternalImporterForTest(t)
 
 	ch := make(chan domain.Event, 1)
 	cancelled := make(chan struct{})
 
-	e.subscribeFn = func(_ context.Context) (<-chan domain.Event, func(), error) {
+	s.events.subscribeFn = func(_ context.Context) (<-chan domain.Event, func(), error) {
 		return ch, func() { close(cancelled) }, nil
 	}
 
 	ch <- domain.DeviceBoundEvent{Device: domain.Device{BusID: "1-1"}}
+
 	close(ch)
 
-	imp := usbip.NewImporterFromInternalForTest(inner)
+	imp := usbip.NewImporterFromInternalForTest(s.inner)
 
 	t.Cleanup(func() {
 		require.NoError(t, imp.Close())
 	})
 
-	var got []usbip.Event
+	got := make([]usbip.Event, 0, 1)
 
 	for ev := range imp.Watch(t.Context()) {
 		got = append(got, ev)
@@ -235,9 +233,9 @@ func TestImporterWatchYieldsEvents(t *testing.T) {
 func TestImporterCloseIsIdempotent(t *testing.T) {
 	t.Parallel()
 
-	inner, _, _, _, _ := newInternalImporterForTest(t)
+	s := newInternalImporterForTest(t)
 
-	imp := usbip.NewImporterFromInternalForTest(inner)
+	imp := usbip.NewImporterFromInternalForTest(s.inner)
 
 	require.NoError(t, imp.Close())
 	require.NoError(t, imp.Close())
@@ -251,23 +249,22 @@ func TestImporterCloseIsIdempotent(t *testing.T) {
 func TestImporterAfterCloseSurfacesSentinel(t *testing.T) {
 	t.Parallel()
 
-	inner, _, _, _, _ := newInternalImporterForTest(t)
+	s := newInternalImporterForTest(t)
 
-	imp := usbip.NewImporterFromInternalForTest(inner)
+	imp := usbip.NewImporterFromInternalForTest(s.inner)
 	require.NoError(t, imp.Close())
 
 	_, err := imp.ListRemote(t.Context(), usbip.RemoteEndpoint{Host: "peer"})
 	require.ErrorIs(t, err, internalapp.ErrImporterClosed)
 }
 
-// TestImporterAttachOptionsWithBackoff proves AttachOptions fields
-// flow through. Bounding the backoff avoids a deterministic deadlock
-// when a flaky transport triggers auto-reconnect in future tests.
+// TestImporterAttachOptionsTypeIsPublic pins the AttachOptions shape
+// by constructing the struct with every field set. An accidental
+// rename or removal from the public surface surfaces here at compile
+// time.
 func TestImporterAttachOptionsTypeIsPublic(t *testing.T) {
 	t.Parallel()
 
-	// The literal must compile with all documented fields — this
-	// captures an accidental rename / removal at the public surface.
 	opts := usbip.AttachOptions{
 		AutoReconnect:      false,
 		Backoff:            nil,
@@ -278,10 +275,3 @@ func TestImporterAttachOptionsTypeIsPublic(t *testing.T) {
 
 	require.Equal(t, 3, opts.MaxAttempts)
 }
-
-// silence unused-import warnings when Task 6.3 RED is run ahead of
-// Task 6.5: errors + wire are only imported by helper types.
-var (
-	_ = errors.New
-	_ = wire.OpCode(0)
-)
