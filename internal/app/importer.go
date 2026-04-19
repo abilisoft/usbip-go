@@ -113,15 +113,22 @@ func NewImporter(opts ...ImporterOption) *Importer {
 // Subsequent Close calls are no-ops via sync.Once. The wait group is
 // currently empty (auto-reconnect goroutines land in Task 5.8) but the
 // wait is wired now so the contract is stable across that addition.
+//
+// The handle map is NOT nilled here: a concurrent Attach may be parked
+// past AttachRemote but before registerHandle, and nilling the map
+// under it would panic on the unconditional write. Instead,
+// registerHandle itself rejects writes once closed is true. The map
+// becomes garbage when the *Importer is collected.
 func (i *Importer) Close() error {
 	i.closeOnce.Do(func() {
 		i.mu.Lock()
 
 		i.closed = true
 
-		handles := i.handles
-
-		i.handles = nil
+		handles := make([]*portHandle, 0, len(i.handles))
+		for _, h := range i.handles {
+			handles = append(handles, h)
+		}
 
 		i.mu.Unlock()
 
@@ -396,7 +403,23 @@ func (i *Importer) attachOverDialed(
 
 	handedOff = true
 
-	i.registerHandle(portID, busID, endpoint)
+	err = i.registerHandle(portID, busID, endpoint)
+	if err != nil {
+		// Importer closed between AttachRemote and registerHandle.
+		// We hold a live kernel port that no handle tracks, so
+		// Close's sweep cannot reach it. Best-effort release; log
+		// any secondary error so it is not silent, but surface the
+		// original ErrImporterClosed to the caller.
+		detachErr := i.kernel.DetachPort(ctx, portID)
+		if detachErr != nil {
+			i.logger.Warn("release port after close race",
+				slog.Any("port_id", portID),
+				slog.Any("err", detachErr),
+			)
+		}
+
+		return domain.Port{}, err
+	}
 
 	return domain.Port{
 		ID:       portID,
@@ -413,9 +436,18 @@ func (i *Importer) attachOverDialed(
 // after a previous detach we didn't observe), its cancel func fires
 // first so any in-flight consumer sees termination before the new
 // generation appears.
-func (i *Importer) registerHandle(id domain.PortID, busID domain.BusID, endpoint domain.RemoteEndpoint) {
+//
+// Returns ErrImporterClosed when the Importer was closed between
+// AttachRemote's successful return and this register call. The caller
+// MUST release the kernel-owned port it just acquired because no
+// handle was recorded and Close's cancel sweep cannot reach it.
+func (i *Importer) registerHandle(id domain.PortID, busID domain.BusID, endpoint domain.RemoteEndpoint) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+
+	if i.closed {
+		return ErrImporterClosed
+	}
 
 	if old, ok := i.handles[id]; ok {
 		old.cancel()
@@ -429,6 +461,8 @@ func (i *Importer) registerHandle(id domain.PortID, busID domain.BusID, endpoint
 		busID:      busID,
 		remote:     endpoint,
 	}
+
+	return nil
 }
 
 // emptyEventSeq is the iter.Seq returned by Watch when there is nothing
