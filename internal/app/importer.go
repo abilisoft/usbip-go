@@ -7,9 +7,15 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
+
+// defaultShutdownTimeout bounds Detach and Close's wait on the reconnect
+// watcher per spec §5.5 when AttachOptions.ShutdownTimeout is zero. A
+// negative ShutdownTimeout disables the bound (wait indefinitely).
+const defaultShutdownTimeout = 5 * time.Second
 
 // Importer is the use-case service that imports remote USB devices via
 // the vhci_hcd kernel surface. One Importer is sufficient for a whole
@@ -55,13 +61,19 @@ type Importer struct {
 // watcherDone is closed by the reconnect watcher goroutine when it
 // exits. Non-AutoReconnect handles leave it nil; Detach and Close read
 // it to synchronise with the watcher before issuing the kernel detach.
+//
+// shutdownTimeout bounds how long Detach and Close are willing to block
+// on watcherDone before proceeding anyway. Carried on the handle (not
+// on the Importer) because it is set per-Attach and must outlast the
+// Attach call itself.
 type portHandle struct {
-	done        chan struct{}
-	cancelOnce  sync.Once
-	busID       domain.BusID
-	remote      domain.RemoteEndpoint
-	generation  uint64
-	watcherDone chan struct{}
+	done            chan struct{}
+	cancelOnce      sync.Once
+	busID           domain.BusID
+	remote          domain.RemoteEndpoint
+	generation      uint64
+	watcherDone     chan struct{}
+	shutdownTimeout time.Duration
 }
 
 // cancel closes the done channel exactly once, signalling any watcher
@@ -146,7 +158,7 @@ func (i *Importer) Close() error {
 			h.cancel()
 		}
 
-		i.wg.Wait()
+		i.waitGroupBounded(handles)
 	})
 
 	return nil
@@ -294,11 +306,13 @@ func (i *Importer) Detach(ctx context.Context, id domain.PortID) error {
 	// Cancel first (spec §5.5) so any reconnect watcher observes
 	// termination and exits. Waiting on watcherDone guarantees the
 	// watcher has drained before DetachPort runs; a nil watcherDone
-	// means this handle was attached with AutoReconnect=false.
+	// means this handle was attached with AutoReconnect=false. The
+	// wait is bounded by the handle's shutdownTimeout: a wedged watcher
+	// (e.g. a kernel call ignoring ctx) cannot hang Detach indefinitely.
 	h.cancel()
 
 	if h.watcherDone != nil {
-		<-h.watcherDone
+		i.waitWatcherBounded(h, id)
 	}
 
 	err := i.kernel.DetachPort(ctx, id)
@@ -370,6 +384,82 @@ func (i *Importer) Watch(ctx context.Context) iter.Seq[domain.Event] {
 	return newEventSeq(ctx, ch, cancel)
 }
 
+// waitWatcherBounded blocks on h.watcherDone up to h.shutdownTimeout,
+// then logs and returns so Detach can proceed with the kernel-side
+// detach regardless. A negative shutdownTimeout disables the bound.
+func (i *Importer) waitWatcherBounded(h *portHandle, id domain.PortID) {
+	if h.shutdownTimeout < 0 {
+		<-h.watcherDone
+
+		return
+	}
+
+	select {
+	case <-h.watcherDone:
+	case <-i.clock.After(h.shutdownTimeout):
+		i.logger.Warn("detach watcher wait timed out",
+			slog.Any("port_id", id),
+			slog.Duration("timeout", h.shutdownTimeout),
+		)
+	}
+}
+
+// waitGroupBounded waits on i.wg up to the longest shutdownTimeout
+// across the registered handles, then logs and returns so Close can
+// release the caller regardless of a wedged background goroutine. A
+// negative timeout on any handle opts the whole Close into unbounded
+// wait, matching the per-Detach semantics of waitWatcherBounded.
+func (i *Importer) waitGroupBounded(handles []*portHandle) {
+	timeout := longestShutdownTimeout(handles)
+
+	if timeout < 0 {
+		i.wg.Wait()
+
+		return
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		i.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-i.clock.After(timeout):
+		i.logger.Warn("close waitgroup drain timed out",
+			slog.Duration("timeout", timeout),
+		)
+	}
+}
+
+// longestShutdownTimeout returns the largest shutdownTimeout among the
+// supplied handles, or the §5.5 default when the slice is empty. A
+// negative on any handle poisons the result to -1 (wait forever).
+// registerHandle normalises zero to the default before storing, so the
+// "every handle has zero" branch is unreachable in production; the
+// default-on-empty branch remains for Close's cancel-nothing case.
+func longestShutdownTimeout(handles []*portHandle) time.Duration {
+	if len(handles) == 0 {
+		return defaultShutdownTimeout
+	}
+
+	longest := time.Duration(0)
+
+	for _, h := range handles {
+		if h.shutdownTimeout < 0 {
+			return -1
+		}
+
+		if h.shutdownTimeout > longest {
+			longest = h.shutdownTimeout
+		}
+	}
+
+	return longest
+}
+
 // attachOverDialed factors out the dial-through-handoff portion of
 // Attach. Splitting it keeps Attach under the project's cyclomatic cap
 // and isolates the fd-passing deferred cleanup per spec §5.4. opts is
@@ -424,7 +514,7 @@ func (i *Importer) attachOverDialed(
 
 	handedOff = true
 
-	h, err := i.registerHandle(portID, busID, endpoint)
+	h, err := i.registerHandle(portID, busID, endpoint, resolveShutdownTimeout(opts.ShutdownTimeout))
 	if err != nil {
 		// Importer closed between AttachRemote and registerHandle.
 		// We hold a live kernel port that no handle tracks, so
@@ -472,6 +562,7 @@ func (i *Importer) registerHandle(
 	id domain.PortID,
 	busID domain.BusID,
 	endpoint domain.RemoteEndpoint,
+	shutdownTimeout time.Duration,
 ) (*portHandle, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -487,15 +578,28 @@ func (i *Importer) registerHandle(
 	i.nextGen++
 
 	h := &portHandle{
-		done:       make(chan struct{}),
-		busID:      busID,
-		remote:     endpoint,
-		generation: i.nextGen,
+		done:            make(chan struct{}),
+		busID:           busID,
+		remote:          endpoint,
+		generation:      i.nextGen,
+		shutdownTimeout: shutdownTimeout,
 	}
 
 	i.handles[id] = h
 
 	return h, nil
+}
+
+// resolveShutdownTimeout maps the user-supplied AttachOptions.ShutdownTimeout
+// to its effective value: zero picks up the §5.5 default; any other
+// value (including negative) is passed through so callers can disable
+// the bound by setting a negative value.
+func resolveShutdownTimeout(t time.Duration) time.Duration {
+	if t == 0 {
+		return defaultShutdownTimeout
+	}
+
+	return t
 }
 
 // emptyEventSeq is the iter.Seq returned by Watch when there is nothing
