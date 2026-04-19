@@ -38,7 +38,10 @@ func (s *sessionEventSubscriber) closeDone() {
 // sorted by start time so callers paginating the list see a stable
 // order between calls. ctx is accepted for interface symmetry with
 // other list methods; it is not currently used — the snapshot is an
-// in-memory copy under the Exporter's read lock.
+// in-memory copy under the Exporter's read lock. Equal StartedAt
+// values tiebreak by SessionID string form: UUIDv7 is lexical-time-
+// ordered so the secondary key stays meaningful without additional
+// state.
 func (e *Exporter) Sessions(_ context.Context) []domain.Session {
 	e.mu.RLock()
 
@@ -50,6 +53,10 @@ func (e *Exporter) Sessions(_ context.Context) []domain.Session {
 	e.mu.RUnlock()
 
 	sort.Slice(out, func(i, j int) bool {
+		if out[i].StartedAt.Equal(out[j].StartedAt) {
+			return out[i].ID.String() < out[j].ID.String()
+		}
+
 		return out[i].StartedAt.Before(out[j].StartedAt)
 	})
 
