@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"sync"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
@@ -95,11 +96,12 @@ func (t *NetTransport) Dial(ctx context.Context, r domain.RemoteEndpoint) (net.C
 	return conn, nil
 }
 
-// Listen binds addr and returns the underlying net.Listener verbatim.
-// net.ListenConfig forwards ctx to the resolver but not to the bind
-// itself, so a pre-cancelled ctx against a literal IP would otherwise
-// succeed — we check ctx up front so graceful-shutdown call sites in
-// §7 see the cancel signal they expect.
+// Listen binds addr and returns a ctx-bound net.Listener. The listener
+// is closed automatically when ctx is cancelled, so graceful-shutdown
+// call sites in §7 can drive a daemon teardown by cancelling one root
+// context without having to track the listener separately. The
+// returned Listener's own Close is idempotent and waits for the
+// watcher goroutine to exit, so callers cannot leak it.
 func (t *NetTransport) Listen(ctx context.Context, addr string) (net.Listener, error) {
 	ctxErr := ctx.Err()
 	if ctxErr != nil {
@@ -116,7 +118,62 @@ func (t *NetTransport) Listen(ctx context.Context, addr string) (net.Listener, e
 	t.logger.LogAttrs(ctx, slog.LevelDebug, "transport.Listen bound",
 		slog.String("addr", ln.Addr().String()))
 
-	return ln, nil
+	return newCtxListener(ctx, ln), nil
+}
+
+// ctxListener wraps a net.Listener so that its lifetime is bound to a
+// context. A goroutine waits on either ctx.Done or an explicit Close
+// and invokes the underlying listener's Close exactly once via
+// closeOnce. Close itself is idempotent and blocks until the watcher
+// has observed the stop signal, so callers who Close() immediately
+// after constructing the wrapper cannot race the goroutine into a
+// leak.
+type ctxListener struct {
+	net.Listener
+
+	stop      chan struct{}
+	stopOnce  sync.Once
+	closeOnce sync.Once
+	closeErr  error
+	watcher   chan struct{}
+}
+
+func newCtxListener(ctx context.Context, ln net.Listener) *ctxListener {
+	cl := &ctxListener{
+		Listener: ln,
+		stop:     make(chan struct{}),
+		watcher:  make(chan struct{}),
+	}
+
+	go cl.watch(ctx)
+
+	return cl
+}
+
+// Close signals the watcher to stop, closes the underlying listener at
+// most once, and blocks until the watcher has exited. The order is:
+// (1) close the stop chan so the watcher observes the exit signal;
+// (2) close the listener exactly once (watcher may have already done
+// so); (3) wait for the watcher goroutine to exit.
+func (cl *ctxListener) Close() error {
+	cl.stopOnce.Do(func() { close(cl.stop) })
+	cl.closeOnce.Do(func() { cl.closeErr = cl.Listener.Close() })
+	<-cl.watcher
+
+	return cl.closeErr
+}
+
+// watch closes the underlying listener on whichever signal arrives
+// first — ctx cancellation or an explicit Close via the stop channel.
+// closeOnce guards against double-close if both fire close together.
+func (cl *ctxListener) watch(ctx context.Context) {
+	defer close(cl.watcher)
+
+	select {
+	case <-ctx.Done():
+		cl.closeOnce.Do(func() { cl.closeErr = cl.Listener.Close() })
+	case <-cl.stop:
+	}
 }
 
 // noopLogger returns a *slog.Logger that discards all records. Using a
