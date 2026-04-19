@@ -126,13 +126,16 @@ func TestExporterWatchSessions_StartEnd(t *testing.T) {
 	watchCtx, watchCancel := context.WithCancel(context.Background())
 	t.Cleanup(watchCancel)
 
-	// Subscribe in a separate goroutine so we can race start vs
-	// subscription and still receive the event via the buffered
-	// internal channel.
+	// Subscribe SYNCHRONOUSLY on the test goroutine so the subscriber
+	// is registered before we drive session-end — otherwise the
+	// in-goroutine subscribe can lose the race to close(release) and
+	// miss SessionEndedEvent. Iterate the returned seq in a worker.
+	seq := exp.WatchSessions(watchCtx)
+
 	evs := make(chan domain.Event, 8)
 
 	go func() {
-		for ev := range exp.WatchSessions(watchCtx) {
+		for ev := range seq {
 			select {
 			case evs <- ev:
 			case <-watchCtx.Done():
