@@ -53,12 +53,10 @@ const u16Max = 0xFFFF
 // Upstream usbip client only reads config 1, alt 0; we match.
 const ifaceSuffixFmt = "%s:%d.%d"
 
-// defaultConfigIndex and defaultAltIndex identify the "primary"
-// interface for bind/list purposes. Matches upstream libsrc.
-const (
-	defaultConfigIndex = 1
-	defaultAltIndex    = 0
-)
+// defaultConfigIndex identifies the "primary" configuration for
+// bind/list purposes (sysfs names interfaces as "<busid>:<config>.<intf>").
+// Matches upstream libsrc, which only reads configuration 1.
+const defaultConfigIndex = 1
 
 // isBusIDLike reports whether name looks like a USB bus-device topology
 // path (e.g. "1-1", "1-1.2.3"). Interface nodes and controller stubs
