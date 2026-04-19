@@ -932,6 +932,122 @@ func TestImporterCloseCancelsAllHandles(t *testing.T) {
 	require.ErrorIs(t, err, app.ErrImporterClosed)
 }
 
+// TestImporterWatchYieldsSubscribedEvents asserts Watch yields every
+// event pushed on the Subscribe channel until the source closes.
+func TestImporterWatchYieldsSubscribedEvents(t *testing.T) {
+	t.Parallel()
+
+	ch := make(chan domain.Event, 3)
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return ch, func() {}, nil
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterEvents(events))
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	want := []domain.Event{
+		domain.PortAttachedEvent{Port: domain.Port{ID: 1}},
+		domain.PortAttachedEvent{Port: domain.Port{ID: 2}},
+		domain.PortAttachedEvent{Port: domain.Port{ID: 3}},
+	}
+	for _, e := range want {
+		ch <- e
+	}
+
+	close(ch)
+
+	got := []domain.Event{}
+
+	for e := range imp.Watch(context.Background()) {
+		got = append(got, e)
+	}
+
+	require.Equal(t, want, got)
+	require.Len(t, events.SubscribeCalls(), 1)
+}
+
+// TestImporterWatchCtxCancelTerminatesIter asserts ctx cancellation
+// stops iteration even if the subscribe channel still has pending
+// events.
+func TestImporterWatchCtxCancelTerminatesIter(t *testing.T) {
+	t.Parallel()
+
+	ch := make(chan domain.Event)
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return ch, func() {}, nil
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterEvents(events))
+	t.Cleanup(func() {
+		close(ch)
+		require.NoError(t, imp.Close())
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Cancel immediately; no events will flow.
+	cancel()
+
+	got := []domain.Event{}
+
+	for e := range imp.Watch(ctx) {
+		got = append(got, e)
+	}
+
+	require.Empty(t, got)
+}
+
+// TestImporterWatchPostCloseReturnsEmpty asserts Watch on a closed
+// Importer returns an iter that yields nothing and terminates
+// immediately — no Subscribe call is made.
+func TestImporterWatchPostCloseReturnsEmpty(t *testing.T) {
+	t.Parallel()
+
+	events := &KernelEventsMock{}
+
+	imp := newImporterForTest(t, app.WithImporterEvents(events))
+	require.NoError(t, imp.Close())
+
+	count := 0
+
+	for range imp.Watch(context.Background()) {
+		count++
+	}
+
+	require.Zero(t, count)
+	require.Empty(t, events.SubscribeCalls())
+}
+
+// TestImporterWatchSubscribeErrorYieldsEmpty asserts a Subscribe
+// failure produces a terminated iter rather than panicking or
+// looping forever.
+func TestImporterWatchSubscribeErrorYieldsEmpty(t *testing.T) {
+	t.Parallel()
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return nil, nil, errBoom
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterEvents(events))
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	count := 0
+
+	for range imp.Watch(context.Background()) {
+		count++
+	}
+
+	require.Zero(t, count)
+}
+
 // TestImporterCloseIdempotentAfterAttach asserts Close is idempotent
 // even after a successful Attach has registered a handle. The second
 // Close must not double-cancel or panic.
