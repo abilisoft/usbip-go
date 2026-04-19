@@ -9,10 +9,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// backoffJitterSeed is a deterministic PRNG seed used across the jitter
-// tests so failures reproduce locally without recovering the original
-// random stream.
-const backoffJitterSeed uint64 = 0x5eed_5eed_5eed_5eed
+// backoffJitterSeed returns a deterministic PRNG seed used across the
+// jitter tests so failures reproduce locally without recovering the
+// original random stream. It is a function rather than a package-level
+// var to satisfy gochecknoglobals while keeping the seed literal in
+// one place.
+func backoffJitterSeed() [32]byte {
+	return [32]byte{
+		0x5e, 0xed, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
+		0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+		0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15,
+		0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
+	}
+}
 
 // TestFixedBackoffReturnsConstantDelay asserts FixedBackoff.Next is
 // constant regardless of the attempt number.
@@ -60,7 +69,7 @@ func TestExponentialBackoffJitterBounds(t *testing.T) {
 
 	const jitter = 0.25
 
-	rng := rand.New(rand.NewPCG(backoffJitterSeed, backoffJitterSeed)) //nolint:gosec // deterministic test source, not crypto
+	rng := rand.New(rand.NewChaCha8(backoffJitterSeed()))
 
 	b := app.NewExponentialBackoff(app.ExponentialBackoffConfig{
 		Min:    time.Second,
@@ -87,7 +96,7 @@ func TestExponentialBackoffJitterDeterministic(t *testing.T) {
 	t.Parallel()
 
 	mk := func() *app.ExponentialBackoff {
-		rng := rand.New(rand.NewPCG(backoffJitterSeed, backoffJitterSeed)) //nolint:gosec // deterministic test source
+		rng := rand.New(rand.NewChaCha8(backoffJitterSeed()))
 
 		return app.NewExponentialBackoff(app.ExponentialBackoffConfig{
 			Min:    time.Second,
