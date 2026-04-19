@@ -27,11 +27,40 @@ type Exporter struct {
 	clock     Clock
 	logger    *slog.Logger
 
-	mu       sync.RWMutex
-	shutdown bool
-	serving  bool
+	cfg       exporterLimits
+	acceptLim acceptLimiter
 
+	mu        sync.RWMutex
+	shutdown  bool
+	serving   bool
+	sessions  map[domain.SessionID]*sessionHandle
+	perPeer   map[string]int
+
+	// wg tracks the ctx-listener-closer goroutine spawned by Serve;
+	// Serve waits on it before returning.
 	wg sync.WaitGroup
+
+	// sessionsWG tracks per-connection handler goroutines and their
+	// handshake-timeout watchers. Serve deliberately does NOT wait on
+	// sessionsWG (spec §3.4: Serve returns on ctx cancel; Shutdown
+	// drains in-flight sessions bounded by its own ctx).
+	sessionsWG sync.WaitGroup
+}
+
+// sessionHandle is the per-session bookkeeping entry. done is closed
+// exactly once when the session handler returns (graceful or error).
+// Shutdown and WatchSessions (Task 5.12) observe done to synchronise
+// with session termination.
+type sessionHandle struct {
+	session   domain.Session
+	done      chan struct{}
+	closeOnce sync.Once
+	peerKey   string
+}
+
+// cancel closes done exactly once. Safe to call from any goroutine.
+func (h *sessionHandle) cancel() {
+	h.closeOnce.Do(func() { close(h.done) })
 }
 
 // NewExporter constructs an Exporter from functional options. Required
@@ -58,6 +87,10 @@ func NewExporter(opts ...ExporterOption) *Exporter {
 		codec:     cfg.codec,
 		clock:     cfg.clock,
 		logger:    cfg.logger,
+		cfg:       resolveExporterLimits(&cfg),
+		acceptLim: newAcceptLimiter(resolveAcceptRate(&cfg), resolveAcceptBurst(&cfg)),
+		sessions:  make(map[domain.SessionID]*sessionHandle),
+		perPeer:   make(map[string]int),
 	}
 }
 
@@ -136,39 +169,48 @@ func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
 
 	loopErr := e.acceptLoop(ctx, listener)
 
-	// Wait for every per-conn goroutine we spawned to drain. Without
-	// this, Serve can return while session handlers are mid-handshake;
-	// goleak would (rightly) flag the leaked goroutines in TestMain.
+	// Wait for the ctx-listener-closer only. Session handlers run on
+	// sessionsWG; Shutdown drains them with a bounded deadline per
+	// spec §3.4. If Serve also waited on sessionsWG here, an in-flight
+	// ExportOnConn would block Serve's return past ctx cancel.
 	e.wg.Wait()
 
 	return loopErr
 }
 
-// Shutdown stops accepting new connections and signals in-flight
-// sessions to drain. Task 5.10 lands the minimal "mark shutdown + reject
-// future Serve" semantics required by the accept-loop RED tests;
-// Task 5.12 extends this with the bounded drain wait over in-flight
-// session handles. Idempotent: a second Shutdown returns nil.
-func (e *Exporter) Shutdown(_ context.Context) error {
+// Shutdown stops accepting new connections and drains in-flight
+// session handlers. Per spec §3.4: new accepts are refused, existing
+// handlers are signalled to exit, and the call waits for them bounded
+// by the provided ctx deadline. Returns nil when the drain completes
+// before the deadline; a ctx.Err-wrapped error when it does not.
+// Idempotent: a second Shutdown returns nil after another drain.
+func (e *Exporter) Shutdown(ctx context.Context) error {
 	e.mu.Lock()
 
-	if e.shutdown {
-		e.mu.Unlock()
-
-		return nil
+	if !e.shutdown {
+		e.shutdown = true
 	}
 
-	e.shutdown = true
+	handles := make([]*sessionHandle, 0, len(e.sessions))
+	for _, h := range e.sessions {
+		handles = append(handles, h)
+	}
 
 	e.mu.Unlock()
 
-	return nil
+	// Signal every tracked handle to unblock; in real operation the
+	// handler reacts by asking the kernel to Disconnect the busid,
+	// which triggers the session-end event path.
+	for _, h := range handles {
+		h.cancel()
+	}
+
+	return e.waitSessionsBounded(ctx)
 }
 
 // startServing transitions the Exporter from idle → serving. Returns
 // ErrAlreadyShutdown when Shutdown has run or ErrServeAlreadyRunning
-// when Serve is already running (overlapping Serve calls are
-// unsupported).
+// when Serve is already running.
 func (e *Exporter) startServing() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -218,10 +260,10 @@ func (e *Exporter) spawnCtxListenerCloser(ctx context.Context, listener net.List
 }
 
 // acceptLoop pulls connections off listener and dispatches each to a
-// fresh handler goroutine. Accept errors that indicate a closed
-// listener (either ctx-driven close or explicit Close) terminate the
-// loop via the shared acceptShouldStop helper; other errors are
-// surfaced to the caller wrapped with context.
+// fresh handler goroutine. Rate-limit rejections happen at the accept
+// boundary so the token bucket never triggers handler work. Accept
+// errors that indicate a closed listener return nil via
+// acceptShouldStop; other errors are surfaced wrapped.
 func (e *Exporter) acceptLoop(ctx context.Context, listener net.Listener) error {
 	for {
 		conn, err := listener.Accept()
@@ -233,16 +275,42 @@ func (e *Exporter) acceptLoop(ctx context.Context, listener net.Listener) error 
 			return fmt.Errorf("exporter accept: %w", err)
 		}
 
-		e.wg.Go(func() {
+		if !e.acceptLim.allow() {
+			e.logger.Debug("exporter accept rate-limited",
+				slog.String("remote", conn.RemoteAddr().String()))
+
+			closeConnLogging(conn, e.logger)
+
+			continue
+		}
+
+		e.sessionsWG.Go(func() {
 			e.handleConn(ctx, conn)
 		})
 	}
 }
 
+// waitSessionsBounded blocks until sessionsWG drains or ctx deadline
+// expires. Returns a ctx-wrapped error on deadline expiry so callers
+// distinguish graceful drain from forced cutoff.
+func (e *Exporter) waitSessionsBounded(ctx context.Context) error {
+	done := make(chan struct{})
+
+	go func() {
+		e.sessionsWG.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("exporter shutdown: %w", ctx.Err())
+	}
+}
+
 // acceptShouldStop reports whether the accept error is a normal stop
-// signal (ctx-driven or listener closed) vs a fatal error that Serve
-// must surface to the caller. Factored out to isolate the //nilerr
-// pattern behind a named predicate.
+// signal (ctx-driven or listener closed) vs a fatal error.
 func acceptShouldStop(ctx context.Context, err error) bool {
 	if ctx.Err() != nil {
 		return true
@@ -250,3 +318,85 @@ func acceptShouldStop(ctx context.Context, err error) bool {
 
 	return errors.Is(err, net.ErrClosed)
 }
+
+// peerKeyFromAddr returns a stable key for the per-peer session
+// counter. TCP addrs reduce to their IP literal; any other addr
+// (notably pipeAddr in tests with no preset remote) falls back to the
+// Addr's String() form so the tracker still distinguishes conns.
+func peerKeyFromAddr(addr net.Addr) string {
+	if addr == nil {
+		return ""
+	}
+
+	if t, ok := addr.(*net.TCPAddr); ok && t != nil && t.IP != nil {
+		return t.IP.String()
+	}
+
+	host := addr.String()
+
+	h, _, err := net.SplitHostPort(host)
+	if err == nil {
+		return h
+	}
+
+	return host
+}
+
+// registerSession records a new accepted session in the handle map and
+// increments the per-peer counter. Returns (nil, sentinel) when the
+// global cap or per-peer cap is exhausted; the caller must close the
+// conn without invoking the kernel in that case.
+func (e *Exporter) registerSession(sess domain.Session, peerKey string) (*sessionHandle, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.shutdown {
+		return nil, ErrAlreadyShutdown
+	}
+
+	if e.cfg.maxSessions > 0 && len(e.sessions) >= e.cfg.maxSessions {
+		return nil, ErrMaxSessionsExceeded
+	}
+
+	if e.cfg.maxSessionsPerPeer > 0 && e.perPeer[peerKey] >= e.cfg.maxSessionsPerPeer {
+		return nil, ErrPerPeerLimitExceeded
+	}
+
+	h := &sessionHandle{
+		session: sess,
+		done:    make(chan struct{}),
+		peerKey: peerKey,
+	}
+
+	e.sessions[sess.ID] = h
+	e.perPeer[peerKey]++
+
+	return h, nil
+}
+
+// unregisterSession drops a session from the handle map and decrements
+// the per-peer counter. Safe to call multiple times with the same id;
+// the map delete and the counter decrement are both idempotent via the
+// presence check.
+func (e *Exporter) unregisterSession(id domain.SessionID) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	h, ok := e.sessions[id]
+	if !ok {
+		return
+	}
+
+	delete(e.sessions, id)
+
+	if e.perPeer[h.peerKey] > 0 {
+		e.perPeer[h.peerKey]--
+	}
+
+	if e.perPeer[h.peerKey] == 0 {
+		delete(e.perPeer, h.peerKey)
+	}
+
+	h.cancel()
+}
+

@@ -66,9 +66,8 @@ type ExporterOption func(*exporterConfig)
 
 // exporterConfig is the mutable bag of dependencies and limits that
 // option functions populate. Exposed to tests via option setters; never
-// returned from a public API. Fields added in later batches (resource
-// limits, ACL allow-list) live alongside the required dependencies so
-// the struct shape is stable across the phase.
+// returned from a public API. Resource-limit fields follow spec §11.5.3;
+// zero means "apply the documented default".
 type exporterConfig struct {
 	kernel    ExporterKernel
 	events    KernelEvents
@@ -76,6 +75,13 @@ type exporterConfig struct {
 	codec     ProtocolCodec
 	clock     Clock
 	logger    *slog.Logger
+
+	maxSessions        int
+	maxSessionsPerPeer int
+	acceptRateLimit    float64
+	acceptBurst        int
+	maxHandshakeBytes  int
+	handshakeTimeout   time.Duration
 }
 
 // WithExporterKernel injects the kernel-side adapter (usbip_host
@@ -109,6 +115,46 @@ func WithExporterClock(clk Clock) ExporterOption {
 // slog.Default() when unspecified.
 func WithExporterLogger(l *slog.Logger) ExporterOption {
 	return func(c *exporterConfig) { c.logger = l }
+}
+
+// WithExporterMaxSessions caps the total concurrent accepted sessions
+// (spec §11.5.3). Zero picks up the default; a negative value disables
+// the cap entirely. Each accepted connection that would push the count
+// past the cap is closed by the handler before ExportOnConn runs, so
+// the kernel is never asked to attach past the cap.
+func WithExporterMaxSessions(n int) ExporterOption {
+	return func(c *exporterConfig) { c.maxSessions = n }
+}
+
+// WithExporterMaxSessionsPerPeer caps the concurrent sessions per
+// source IP (spec §11.5.3). Zero picks up the default; a negative
+// value disables the per-peer cap entirely.
+func WithExporterMaxSessionsPerPeer(n int) ExporterOption {
+	return func(c *exporterConfig) { c.maxSessionsPerPeer = n }
+}
+
+// WithExporterAcceptRateLimit caps new accepts at rps tokens per
+// second via a token bucket with the given burst size (spec §11.5.3).
+// rps <= 0 disables rate limiting entirely; burst <= 0 picks up a
+// sane default.
+func WithExporterAcceptRateLimit(rps float64, burst int) ExporterOption {
+	return func(c *exporterConfig) {
+		c.acceptRateLimit = rps
+		c.acceptBurst = burst
+	}
+}
+
+// WithExporterMaxHandshakeBytes caps bytes read during the handshake
+// phase (spec §11.5.3). Zero picks up the default.
+func WithExporterMaxHandshakeBytes(n int) ExporterOption {
+	return func(c *exporterConfig) { c.maxHandshakeBytes = n }
+}
+
+// WithExporterHandshakeTimeout bounds how long the exporter will wait
+// for a client to complete its OP request (spec §11.5.3). Zero picks
+// up the default; a negative value disables the timeout.
+func WithExporterHandshakeTimeout(d time.Duration) ExporterOption {
+	return func(c *exporterConfig) { c.handshakeTimeout = d }
 }
 
 // AttachOptions configures a single Importer.Attach call. All fields

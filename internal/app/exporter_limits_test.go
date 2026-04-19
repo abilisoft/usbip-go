@@ -127,7 +127,9 @@ func TestExporter_MaxSessions(t *testing.T) {
 	require.Equal(t, int32(1), exports.Load())
 
 	cancel()
+
 	_ = first.Close()
+
 	<-serveDone
 }
 
@@ -261,17 +263,13 @@ func TestExporter_RateLimit(t *testing.T) {
 	// the rest are dropped before DecodeHeader runs.
 	const totalConns = 5
 
-	conns := make([]net.Conn, 0, totalConns)
-
 	for range totalConns {
 		c, err := lis.dial(ctx)
 		require.NoError(t, err)
 
-		// Close client end to avoid wedging; handler reads EOF and
-		// exits without reaching the codec for rate-limited conns.
+		// Close client end immediately: rate-limited conns never reach
+		// the codec; allowed conns see EOF and exit the handler.
 		require.NoError(t, c.Close())
-
-		conns = append(conns, c)
 	}
 
 	// Allow handlers a moment to finish.
