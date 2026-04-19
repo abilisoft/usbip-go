@@ -17,12 +17,9 @@ import (
 // value is not usable — NewImporter initialises required state.
 //
 // The handle map tracks every successfully-attached port along with a
-// monotonically-increasing generation counter and a per-handle
-// CancelFunc. The generation counter implements the stale-event
-// protection described in spec §5.5: a watcher reading an event must
-// compare its generation against the current handle generation and
-// drop the event if the numbers differ (the handle was detached and
-// re-attached in between).
+// per-handle cancel signal. Generation-based stale-event filtering per
+// spec §5.5 is deferred to Task 5.8, which will re-introduce the
+// counter alongside the watcher that reads it.
 type Importer struct {
 	kernel    ImporterKernel
 	events    KernelEvents
@@ -35,23 +32,19 @@ type Importer struct {
 	closed    bool
 	closeOnce sync.Once
 	handles   map[domain.PortID]*portHandle
-	nextGen   uint64
 	wg        sync.WaitGroup
 }
 
 // portHandle is the per-port bookkeeping entry for an active import.
 // The done channel is closed exactly once (guarded by cancelOnce) when
 // Detach or Close fires; the Task 5.8 watcher selects on it to observe
-// termination. generation increments on every successful Attach of the
-// same PortID so watchers can detect a detach/re-attach sequence
-// without missing the transition (spec §5.5).
+// termination.
 //
 // Using a channel + sync.Once instead of a context sidesteps the
 // containedctx linter while preserving the same semantics: done is a
 // broadcast signal, a watcher derives its own ctx at launch time and
 // selects on ctx.Done() alongside done.
 type portHandle struct {
-	generation uint64
 	done       chan struct{}
 	cancelOnce sync.Once
 	busID      domain.BusID
@@ -435,7 +428,7 @@ func (i *Importer) attachOverDialed(
 // entry already existed for this PortID (the kernel re-used the slot
 // after a previous detach we didn't observe), its cancel func fires
 // first so any in-flight consumer sees termination before the new
-// generation appears.
+// entry appears.
 //
 // Returns ErrImporterClosed when the Importer was closed between
 // AttachRemote's successful return and this register call. The caller
@@ -453,13 +446,10 @@ func (i *Importer) registerHandle(id domain.PortID, busID domain.BusID, endpoint
 		old.cancel()
 	}
 
-	i.nextGen++
-
 	i.handles[id] = &portHandle{
-		generation: i.nextGen,
-		done:       make(chan struct{}),
-		busID:      busID,
-		remote:     endpoint,
+		done:   make(chan struct{}),
+		busID:  busID,
+		remote: endpoint,
 	}
 
 	return nil
