@@ -348,9 +348,9 @@ func TestExporter_HandshakeTimeoutCoversBodyDecode(t *testing.T) {
 	clk := testutil.NewFakeClockAt(exporterTestEpoch())
 
 	// Force a real DecodeHeader and a slow DecodeOpReqImport: the mock
-	// blocks attempting to read the busid body so the handler parks
-	// between header decode and busid decode — exactly the window the
-	// pre-fix code leaves uncovered by the timeout.
+	// reads BusIDSize bytes directly so the handler parks between
+	// header decode and busid decode — exactly the window the pre-fix
+	// code leaves uncovered by the timeout.
 	decodeBodyReached := make(chan struct{}, 1)
 
 	codec := &ProtocolCodecMock{
@@ -361,7 +361,14 @@ func TestExporter_HandshakeTimeoutCoversBodyDecode(t *testing.T) {
 			default:
 			}
 
-			return wire.NewCodec().DecodeOpReqImport(r)
+			buf := make([]byte, domain.BusIDSize)
+
+			_, readErr := io.ReadFull(r, buf)
+			if readErr != nil {
+				return "", io.EOF
+			}
+
+			return domain.BusID(buf), nil
 		},
 	}
 
