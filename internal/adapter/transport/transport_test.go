@@ -305,6 +305,89 @@ func TestNew_OptionsApply(t *testing.T) {
 	})
 }
 
+// TestListen_ClosesOnContextCancel asserts that a listener returned by
+// NetTransport.Listen stops accepting once the context passed to Listen
+// is cancelled. Without this behaviour callers who pass a shutdown
+// context still get a live socket that keeps accepting until they
+// separately Close() it — a footgun for graceful-shutdown call sites.
+func TestListen_ClosesOnContextCancel(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	tr := transport.New()
+
+	ln, err := tr.Listen(ctx, "127.0.0.1:0")
+	require.NoError(t, err)
+
+	defer func() { _ = ln.Close() }()
+
+	cancel()
+
+	done := make(chan error, 1)
+
+	go func() {
+		_, aerr := ln.Accept()
+		done <- aerr
+	}()
+
+	select {
+	case acceptErr := <-done:
+		require.Error(t, acceptErr, "Accept must return an error after ctx cancel")
+	case <-time.After(time.Second):
+		t.Fatal("Accept did not unblock within 1s of ctx cancel")
+	}
+}
+
+// TestListen_CloseIdempotent asserts the wrapped listener's Close can
+// be called multiple times without panicking. First call returns nil;
+// subsequent calls may return an "already closed" error from the
+// underlying listener — not a panic, not a deadlock.
+func TestListen_CloseIdempotent(t *testing.T) {
+	t.Parallel()
+
+	tr := transport.New()
+
+	ln, err := tr.Listen(t.Context(), "127.0.0.1:0")
+	require.NoError(t, err)
+
+	_ = ln.Close()
+	_ = ln.Close()
+}
+
+// TestListen_CloseDoesNotDeadlockAfterCtxCancel covers the race where
+// the ctx-watcher goroutine has already closed the listener and the
+// caller then calls Close(). The wrapper MUST wait for the watcher to
+// exit without deadlocking.
+func TestListen_CloseDoesNotDeadlockAfterCtxCancel(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	tr := transport.New()
+
+	ln, err := tr.Listen(ctx, "127.0.0.1:0")
+	require.NoError(t, err)
+
+	cancel()
+	// Give the watcher a moment to run so the race path exercises
+	// "watcher closed first, caller calls Close second".
+	time.Sleep(50 * time.Millisecond)
+
+	done := make(chan struct{})
+
+	go func() {
+		_ = ln.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Close deadlocked after ctx-triggered listener close")
+	}
+}
+
 // captureHandler collects every slog.Record it handles, mirroring the
 // pattern in internal/adapter/wire/codec_test.go.
 type captureHandler struct {
