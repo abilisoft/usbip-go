@@ -145,6 +145,48 @@ func TestExporterShutdownForwards(t *testing.T) {
 	require.NoError(t, exp.Shutdown(ctx))
 }
 
+// TestExporterWatchSessionsForwards proves the facade WatchSessions
+// returns an iter.Seq that drains the internal subscriber channel.
+// The subscriber is torn down on Shutdown, so iteration terminates
+// deterministically.
+func TestExporterWatchSessionsForwards(t *testing.T) {
+	t.Parallel()
+
+	s := newInternalExporterForTest(t)
+
+	exp := usbip.NewExporterFromInternalForTest(s.inner)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	t.Cleanup(cancel)
+
+	seq := exp.WatchSessions(ctx)
+
+	// Shutdown closes subscribers so the iter terminates — drain it
+	// to completion on a goroutine so the main test observes exit.
+	events := make(chan int, 1)
+
+	go func() {
+		// The stubbed exporter emits no events, so the range loop
+		// only terminates when Shutdown closes the subscriber.
+		seen := 0
+
+		for range seq {
+			seen++
+		}
+
+		events <- seen
+	}()
+
+	require.NoError(t, exp.Shutdown(ctx))
+
+	select {
+	case seen := <-events:
+		require.Zero(t, seen)
+	case <-time.After(time.Second):
+		t.Fatal("WatchSessions iter did not terminate after Shutdown")
+	}
+}
+
 // TestExporterServeRejectsAfterShutdown proves the facade Serve
 // forwards Shutdown-induced ErrAlreadyShutdown without swallowing or
 // re-wrapping it.
