@@ -180,7 +180,15 @@ func (e *Exporter) serveImport(ctx context.Context, reader io.Reader, conn net.C
 		return false
 	}
 
-	defer e.unregisterSession(handle.session.ID)
+	// Publish SessionStarted AFTER register (under its own lock) and
+	// BEFORE ExportOnConn blocks. Using a defer for SessionEnded binds
+	// emission to handler exit regardless of the kernel-call outcome.
+	e.publishSessionEvent(domain.SessionStartedEvent{
+		At:      e.clock.Now(),
+		Session: handle.session,
+	})
+
+	defer e.endSession(handle, "handler exited")
 
 	err = e.kernel.ExportOnConn(ctx, conn, busID)
 	if err != nil {
@@ -194,6 +202,21 @@ func (e *Exporter) serveImport(ctx context.Context, reader io.Reader, conn net.C
 	}
 
 	return true
+}
+
+// endSession unregisters the session and publishes a SessionEnded
+// event. Kept out of unregisterSession itself so the lock-holding
+// bookkeeping call does not also trigger fan-out under the write lock
+// (publishSessionEvent takes an RLock of the same mu, which would
+// deadlock).
+func (e *Exporter) endSession(h *sessionHandle, reason string) {
+	e.unregisterSession(h.session.ID)
+
+	e.publishSessionEvent(domain.SessionEndedEvent{
+		At:      e.clock.Now(),
+		Session: h.session,
+		Reason:  reason,
+	})
 }
 
 // buildSession assembles the domain.Session recorded for the accepted
