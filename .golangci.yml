@@ -84,6 +84,15 @@ linters:
     rules:
       - path: cmd/.+/.+\.go
         linters: [gochecknoglobals]  # cobra cmd vars are unavoidable; scoped here only
+      - path: cmd/usbipd/main\.go
+        # runWithContext threads ctx into cobra via cmd.SetContext +
+        # cmd.Execute; contextcheck insists ctx flow through newRootCmd
+        # as a parameter but cobra's PersistentPreRunE / RunE signatures
+        # are fixed. cmd/usbip works around this by not having a ctx
+        # parameter in run(); usbipd needs one because signal.NotifyContext
+        # wraps the parent in main. The exclusion is scoped to this one
+        # file so no other context-propagation smells escape review.
+        linters: [contextcheck]
       - path: pkg/usbip/usbip\.go
         # The pkg/usbip facade is intentional 1:1 forwarding to
         # internal/app (spec §5.7). Wrapping each forwarded error with

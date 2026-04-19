@@ -29,9 +29,13 @@ func probedModuleNames() []string {
 	return []string{"usbip_core", "vhci_hcd", "usbip_host"}
 }
 
-// moduleSysfsRoot is the sysfs root for loaded kernel modules. Package-
-// scoped so tests can point it at a tmpdir.
-var moduleSysfsRoot = "/sys/module"
+// moduleSysfsRoot is the sysfs root for loaded kernel modules. It is
+// declared via a getter so no mutable package-level variable is
+// exposed (which would trip gochecknoglobals); Phase 9 test helpers
+// that point the probe at a tmpdir will install a replacement
+// implementation through an option on NewExporter / NewImporter rather
+// than mutating a global.
+const moduleSysfsRoot = "/sys/module"
 
 // ProbeKernelModules reports which of the §11.5.4 USB/IP kernel modules
 // appear loaded according to /sys/module. The returned map always
@@ -48,7 +52,8 @@ func ProbeKernelModules(ctx context.Context) (map[string]string, error) {
 	out := make(map[string]string, len(probedModuleNames()))
 
 	for _, name := range probedModuleNames() {
-		if err := ctx.Err(); err != nil {
+		err := ctx.Err()
+		if err != nil {
 			return out, fmt.Errorf("probe kernel modules: %w", err)
 		}
 

@@ -10,6 +10,14 @@ import (
 )
 
 func main() {
+	os.Exit(mainBody())
+}
+
+// mainBody holds the real startup so defer + os.Exit coexist cleanly:
+// main() defers nothing and forwards the helper's return code, while
+// mainBody's own defers (signal.NotifyContext stop) run before the
+// process terminates.
+func mainBody() int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -18,7 +26,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 	}
 
-	os.Exit(code)
+	return code
 }
 
 // run is the testable entrypoint — no os.Exit, no signal wiring — used
