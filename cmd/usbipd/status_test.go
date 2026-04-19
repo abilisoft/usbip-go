@@ -420,6 +420,98 @@ func TestStatusGroupChownSkipsIfMissing(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
+// TestStatusBindSerialisedByFlock proves the TOCTOU-free bind path
+// (Phase 8 review Finding 2): two concurrent serveStatus goroutines
+// pointed at the same path MUST serialise — exactly one binds and
+// serves, the other observes errAlreadyRunning (or equivalent) without
+// racing the first daemon's detect/unlink/bind sequence.
+func TestStatusBindSerialisedByFlock(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	sockPath := filepath.Join(dir, "status.sock")
+
+	src := &fakeStatusSource{
+		listenAddr: "0.0.0.0:3240",
+		accepting:  true,
+		modules:    map[string]string{"usbip_core": "loaded"},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	type result struct {
+		err     error
+		started bool
+	}
+
+	const racers = 2
+
+	results := make(chan result, racers)
+
+	var wg sync.WaitGroup
+
+	for range racers {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			started := make(chan struct{})
+
+			doneStart := make(chan struct{})
+
+			go func() {
+				select {
+				case <-started:
+					close(doneStart)
+				case <-time.After(2 * time.Second):
+					close(doneStart)
+				}
+			}()
+
+			err := serveStatus(ctx, sockPath, "", src, started)
+			<-doneStart
+			results <- result{err: err, started: true}
+		}()
+	}
+
+	// Give both goroutines a chance to reach the bind path, then
+	// cancel so the winning serveStatus returns cleanly.
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	wg.Wait()
+	close(results)
+
+	var (
+		loserErrs int
+		winnerOK  int
+	)
+
+	for r := range results {
+		switch {
+		case r.err == nil:
+			winnerOK++
+		case errors.Is(r.err, errAlreadyRunning):
+			loserErrs++
+		default:
+			// A context.Canceled or closed-listener return from the
+			// winner is indistinguishable from nil for this test; any
+			// other error from the loser would indicate a TOCTOU race
+			// surfacing through bind / unlink.
+			if isClosedErr(r.err) {
+				winnerOK++
+			} else {
+				t.Errorf("unexpected serveStatus error: %v", r.err)
+			}
+		}
+	}
+
+	require.Equal(t, 1, winnerOK, "expected exactly one daemon to bind")
+	require.Equal(t, 1, loserErrs,
+		"expected the other daemon to see errAlreadyRunning, got %d", loserErrs)
+}
+
 // TestStatusGroupChownResolvesCallerGroup proves applyStatusSocketACL
 // silently completes when handed a group the current process belongs to.
 // A same-uid chgrp to one of the caller's own groups does NOT need root,
@@ -451,13 +543,16 @@ func TestStatusGroupChownResolvesCallerGroup(t *testing.T) {
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "status.sock")
 
-	// Create the file so applyStatusSocketACL has a valid target to
-	// chmod+chown. We're unit-testing the ACL helper itself; no HTTP
-	// server is needed. filepath.Clean reassures gosec G304 that the
-	// test-generated path has no traversal.
-	f, err := os.Create(filepath.Clean(sockPath))
+	// Create the file mode-0660 so the chown-only helper has a valid
+	// target. We're unit-testing the group-chown helper in isolation;
+	// mode is now set atomically by listenWithUmask's pre-bind umask.
+	// filepath.Clean reassures gosec G304 that the test-generated path
+	// has no traversal.
+	f, err := os.OpenFile(filepath.Clean(sockPath),
+		os.O_CREATE|os.O_RDWR, 0o660)
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
+	require.NoError(t, os.Chmod(sockPath, 0o660))
 
 	require.NoError(t, applyStatusSocketACL(sockPath, gname))
 
