@@ -47,6 +47,12 @@ type globalFlags struct {
 	// Config is an optional YAML config path. Currently unused by the
 	// subcommands; retained on the global surface for spec §7.2 parity.
 	Config string
+	// CompleteNetwork gates network-backed shell completion. When
+	// false (the default), second-arg completion for `usbip attach`
+	// returns an empty list to avoid silently dialing remotes during
+	// tab-completion. The USBIP_COMPLETE_NETWORK=1 env var is the
+	// equivalent opt-in (spec §7.6).
+	CompleteNetwork bool
 }
 
 // ctxKey is a private context-key type (avoids collisions with other
@@ -104,6 +110,8 @@ func newRootCmd() *cobra.Command {
 	flags.CountVarP(&gf.VerboseCount, "verbose", "v", "verbose counter: -v=debug, -vv=trace")
 	flags.BoolVar(&gf.NoColor, "no-color", false, "disable ANSI color output")
 	flags.StringVar(&gf.Config, "config", "", "path to YAML config file")
+	flags.BoolVar(&gf.CompleteNetwork, "complete-network", false,
+		"allow network-dialing shell completion (same as USBIP_COMPLETE_NETWORK=1)")
 
 	// Fixed-completion hints for enum flags (spec §7.6 static
 	// completion). These calls intentionally touch cobra's global

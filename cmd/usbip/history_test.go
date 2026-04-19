@@ -103,6 +103,7 @@ func itoaFast(n int) string {
 
 	for n > 0 {
 		out = string(rune('0'+n%10)) + out
+
 		n /= 10
 	}
 

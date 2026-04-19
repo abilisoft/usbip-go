@@ -107,6 +107,14 @@ linters:
         # security primitives.
         text: 'G404:'
         linters: [gosec]
+      - path: cmd/usbip/history\.go
+        # The attach-history file lives under $XDG_STATE_HOME/usbip-go
+        # (or $HOME/.local/state/usbip-go), a user-scoped path not
+        # derived from untrusted input. G304 flags every non-constant
+        # os.ReadFile; scoping the exclusion to this one file keeps
+        # the broader G304 surface intact.
+        text: 'G304:'
+        linters: [gosec]
     # Generated files (standard header "Code generated ... DO NOT EDIT.") are
     # auto-detected by golangci-lint and skipped. All other files run against
     # the full linter set; there is no path-based exclusion for live code.
