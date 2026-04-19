@@ -52,12 +52,15 @@ type Exporter struct {
 // sessionHandle is the per-session bookkeeping entry. done is closed
 // exactly once when the session handler returns (graceful or error).
 // Shutdown and WatchSessions (Task 5.12) observe done to synchronise
-// with session termination.
+// with session termination. conn is the accepted net.Conn; Shutdown
+// force-closes it to unwedge a handler parked in kernel.ExportOnConn
+// when the drain deadline expires.
 type sessionHandle struct {
 	session   domain.Session
 	done      chan struct{}
 	closeOnce sync.Once
 	peerKey   string
+	conn      net.Conn
 }
 
 // cancel closes done exactly once. Safe to call from any goroutine.
@@ -331,7 +334,11 @@ func (e *Exporter) acceptLoop(ctx context.Context, listener net.Listener) error 
 
 // waitSessionsBounded blocks until sessionsWG drains or ctx deadline
 // expires. Returns a ctx-wrapped error on deadline expiry so callers
-// distinguish graceful drain from forced cutoff.
+// distinguish graceful drain from forced cutoff. On deadline expiry
+// the function force-closes every tracked session conn and waits
+// unbounded for the background Wait goroutine so it never leaks —
+// the alternative is a parked handler stuck in kernel.ExportOnConn
+// with no observation path for handle.done.
 func (e *Exporter) waitSessionsBounded(ctx context.Context) error {
 	done := make(chan struct{})
 
@@ -344,7 +351,35 @@ func (e *Exporter) waitSessionsBounded(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-ctx.Done():
+		e.forceCloseSessionConns()
+		<-done
+
 		return fmt.Errorf("exporter shutdown: %w", ctx.Err())
+	}
+}
+
+// forceCloseSessionConns closes every tracked session conn so handlers
+// parked in kernel.ExportOnConn error out and unwind sessionsWG. We
+// lose the graceful TCP FIN the kernel would normally drive, but that
+// is the only alternative to a hung drain.
+func (e *Exporter) forceCloseSessionConns() {
+	e.mu.RLock()
+
+	conns := make([]net.Conn, 0, len(e.sessions))
+	for _, h := range e.sessions {
+		if h.conn != nil {
+			conns = append(conns, h.conn)
+		}
+	}
+
+	e.mu.RUnlock()
+
+	for _, c := range conns {
+		err := c.Close()
+		if err != nil && !errors.Is(err, net.ErrClosed) {
+			e.logger.Debug("exporter force-close session conn",
+				slog.Any("err", err))
+		}
 	}
 }
 
@@ -384,8 +419,10 @@ func peerKeyFromAddr(addr net.Addr) string {
 // registerSession records a new accepted session in the handle map and
 // increments the per-peer counter. Returns (nil, sentinel) when the
 // global cap or per-peer cap is exhausted; the caller must close the
-// conn without invoking the kernel in that case.
-func (e *Exporter) registerSession(sess domain.Session, peerKey string) (*sessionHandle, error) {
+// conn without invoking the kernel in that case. conn is stored on the
+// handle so Shutdown can force-close it when the drain deadline fires
+// and the handler is parked in kernel.ExportOnConn.
+func (e *Exporter) registerSession(sess domain.Session, peerKey string, conn net.Conn) (*sessionHandle, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -405,6 +442,7 @@ func (e *Exporter) registerSession(sess domain.Session, peerKey string) (*sessio
 		session: sess,
 		done:    make(chan struct{}),
 		peerKey: peerKey,
+		conn:    conn,
 	}
 
 	e.sessions[sess.ID] = h

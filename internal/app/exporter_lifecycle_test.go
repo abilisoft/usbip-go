@@ -37,8 +37,25 @@ func startExporterImportSession(
 	releaseExport := make(chan struct{})
 
 	kernel := &ExporterKernelMock{
-		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
-			<-releaseExport
+		ExportOnConnFunc: func(_ context.Context, c net.Conn, _ domain.BusID) error {
+			// Watch both the test-driven release AND the conn itself so a
+			// Shutdown force-close on drain-exceed unwedges the handler
+			// instead of deadlocking on releaseExport.
+			closedCh := make(chan struct{})
+
+			go func() {
+				defer close(closedCh)
+
+				_, _ = c.Read(make([]byte, 1))
+			}()
+
+			select {
+			case <-releaseExport:
+				_ = c.Close()
+
+				<-closedCh
+			case <-closedCh:
+			}
 
 			return nil
 		},
