@@ -45,3 +45,26 @@ header. The CI workflow (`.github/workflows/ci.yml`) enforces gates 1-6,
 8, and 12 mechanically. The remaining gates are code-review checklist
 items and will become mechanical as later phases introduce the required
 infrastructure (metrics catalog, error-mapping matrix, etc.).
+
+## API-surface baselines
+
+Stable public packages (`pkg/usbip` and `pkg/domain`) carry
+[`golang.org/x/exp/cmd/apidiff`](https://pkg.go.dev/golang.org/x/exp/cmd/apidiff)
+baselines under `api/`:
+
+- `api/pkg_usbip.json`
+- `api/pkg_domain.json`
+
+The CI `api-surface` job diffs the checked-in baselines against the
+current tree; any incompatible change fails the build. When a PR
+intentionally breaks either surface (subject line begins with
+`BREAKING:`), regenerate the affected baseline in the same PR so the
+next comparison starts from the new contract:
+
+```
+apidiff -w api/pkg_usbip.json  github.com/abilisoft/usbip-go/pkg/usbip
+apidiff -w api/pkg_domain.json github.com/abilisoft/usbip-go/pkg/domain
+```
+
+Run both commands from the repository root. Commit the regenerated
+files alongside the `BREAKING:`-prefixed change.
