@@ -949,3 +949,85 @@ func TestImporterReconnectOnReconnectPanicRecovered(t *testing.T) {
 		"callback must still fire for every attempt despite the first-attempt panic")
 	require.Len(t, kernel.AttachRemoteCalls(), 4, "initial + 3 reconnect attempts")
 }
+
+// TestImporterReconnectDetachShutdownTimeoutBounded asserts Detach
+// returns within AttachOptions.ShutdownTimeout even when the watcher is
+// wedged (here: the reconnect-path AttachRemote ignores ctx cancellation
+// and blocks forever, so h.watcherDone never closes on its own). Per
+// spec §5.5, Detach's wait on watcherDone is bounded; pre-fix the wait
+// was unbounded and Detach would hang indefinitely.
+func TestImporterReconnectDetachShutdownTimeoutBounded(t *testing.T) {
+	t.Parallel()
+
+	var (
+		attachCount atomic.Int32
+		release     = make(chan struct{})
+	)
+
+	// First AttachRemote (initial Attach) succeeds. The second call is
+	// the reconnect attempt — it blocks until the test releases it,
+	// IGNORING ctx cancellation. This wedges the watcher: h.cancel()
+	// fires from Detach, but the watcher is parked inside AttachRemote
+	// and cannot observe ctx.Done().
+	attachFn := func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+		n := attachCount.Add(1)
+		if n == 1 {
+			return domain.PortID(1), nil
+		}
+
+		<-release
+
+		return 0, errBoom
+	}
+
+	imp, clk, registry, _ := newReconnectFixture(t, attachFn)
+	t.Cleanup(func() {
+		// Release the stuck attach so Close drains cleanly AFTER the
+		// test has verified the bounded wait.
+		close(release)
+		require.NoError(t, imp.Close())
+	})
+
+	opts := attachOptionsWithBackoff()
+
+	opts.ShutdownTimeout = 50 * time.Millisecond
+
+	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), opts)
+	require.NoError(t, err)
+
+	registry.waitFor(t, 1)
+
+	// Trigger the reconnect path — watcher moves into the blocking
+	// second AttachRemote.
+	registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
+
+	// Spin the clock until the watcher is parked inside AttachRemote.
+	require.Eventually(t, func() bool {
+		clk.Advance(reconnectTestBackoff().Delay)
+
+		return attachCount.Load() >= 2
+	}, reconnectTestSettleBudget, 5*time.Millisecond, "reconnect attempt must enter AttachRemote")
+
+	// Detach with a wedged watcher: must return within ShutdownTimeout
+	// (plus scheduling slack) — pre-fix it would hang forever waiting
+	// on watcherDone.
+	detachDone := make(chan error, 1)
+
+	go func() {
+		detachDone <- imp.Detach(context.Background(), port.ID)
+	}()
+
+	// Advance the fake clock past the ShutdownTimeout so the bounded
+	// wait's timer fires.
+	require.Eventually(t, func() bool {
+		clk.Advance(opts.ShutdownTimeout)
+
+		select {
+		case <-detachDone:
+			return true
+		default:
+			return false
+		}
+	}, 200*time.Millisecond, 5*time.Millisecond,
+		"Detach must return within ShutdownTimeout despite wedged watcher")
+}
