@@ -9,7 +9,9 @@ require (
 	github.com/goreleaser/goreleaser/v2 v2.15.3
 	github.com/matryer/moq v0.7.1
 	github.com/stretchr/testify v1.11.1
+	go.uber.org/goleak v1.3.0
 	golang.org/x/exp v0.0.0-20251209150349-8475f28825e9
+	golang.org/x/sys v0.43.0
 	golang.org/x/tools v0.44.0
 	golang.org/x/vuln v1.2.0
 	mvdan.cc/gofumpt v0.9.2
@@ -488,7 +490,6 @@ require (
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260409153401-be6f6cb8b1fa // indirect
 	golang.org/x/term v0.42.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
