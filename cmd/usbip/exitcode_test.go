@@ -10,6 +10,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Static test sentinels — err113 requires named errors instead of
+// ad-hoc errors.New at call sites.
+var (
+	errUnknownFlagBogus = errors.New("unknown flag: --bogus")
+	errSomethingElse    = errors.New("something else")
+	errExtraInfo        = errors.New("extra info")
+	errHostUnreachable  = errors.New("host unreachable")
+)
+
 // fakeNetError implements net.Error so MapError's As-based detection
 // can bind a generic dial-class failure.
 type fakeNetError struct{}
@@ -48,8 +57,8 @@ func TestMapErrorTable(t *testing.T) {
 		{"canceled", context.Canceled, ExitTimeout},
 		{"net-error", fakeNetError{}, ExitNetwork},
 		{"usage-error", &usageError{msg: "bad usage"}, ExitUsage},
-		{"cobra-usage-style", errors.New("unknown flag: --bogus"), ExitUsage},
-		{"generic", errors.New("something else"), ExitGeneric},
+		{"cobra-usage-style", errUnknownFlagBogus, ExitUsage},
+		{"generic", errSomethingElse, ExitGeneric},
 	}
 
 	for _, tc := range cases {
@@ -83,7 +92,7 @@ func TestFormatErrorTable(t *testing.T) {
 		{"protocol-error", usbip.ErrProtocolError, "usbip: peer reported an error"},
 		{"deadline", context.DeadlineExceeded, "usbip: operation timed out"},
 		{"net-error", fakeNetError{}, "usbip: network error"},
-		{"generic", errors.New("something else"), "usbip: error"},
+		{"generic", errSomethingElse, "usbip: error"},
 	}
 
 	for _, tc := range cases {
@@ -107,7 +116,7 @@ func TestFormatErrorTable(t *testing.T) {
 func TestMapErrorWrapsPreserveIdentity(t *testing.T) {
 	t.Parallel()
 
-	wrapped := errors.Join(usbip.ErrDeviceNotFound, errors.New("extra info"))
+	wrapped := errors.Join(usbip.ErrDeviceNotFound, errExtraInfo)
 
 	require.Equal(t, ExitDeviceNotFound, MapError(wrapped))
 }
@@ -117,7 +126,7 @@ func TestMapErrorWrapsPreserveIdentity(t *testing.T) {
 func TestMapErrorNetDeadline(t *testing.T) {
 	t.Parallel()
 
-	var opErr net.Error = &net.OpError{Op: "dial", Err: errors.New("host unreachable")}
+	var opErr net.Error = &net.OpError{Op: "dial", Err: errHostUnreachable}
 
 	require.Equal(t, ExitNetwork, MapError(opErr))
 }
