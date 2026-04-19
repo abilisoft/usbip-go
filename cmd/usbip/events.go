@@ -44,6 +44,57 @@ type sessionView struct {
 	BytesOut  uint64 `json:"bytes_out"`
 }
 
+// ackEnvelope is the common prefix of every JSON ack record: schema,
+// op, and ok. Embedded as the first field of the per-op ack structs so
+// json.Marshal emits these keys before any op-specific payload (spec
+// §7.5 stability rule: "schema" is always the first byte-order key).
+type ackEnvelope struct {
+	Schema string `json:"schema"`
+	Op     string `json:"op"`
+	OK     bool   `json:"ok"`
+}
+
+// attachAck is the `attach --output=json` response envelope.
+type attachAck struct {
+	ackEnvelope
+
+	Port portView `json:"port"`
+}
+
+// detachAck is the `detach --output=json` response envelope.
+type detachAck struct {
+	ackEnvelope
+
+	PortID uint64 `json:"port_id"`
+}
+
+// bindAck is the `bind --output=json` response envelope.
+type bindAck struct {
+	ackEnvelope
+
+	BusID string `json:"busid"`
+}
+
+// unbindAck is the `unbind --output=json` response envelope. A
+// dedicated type (vs. reusing bindAck) keeps op→struct mapping
+// monomorphic and makes future per-op evolution local.
+type unbindAck struct {
+	ackEnvelope
+
+	BusID string `json:"busid"`
+}
+
+// newAckEnvelope builds a v1 ackEnvelope for the given op name with
+// OK=true. All ack records in the CLI today report success (failures
+// surface as non-zero exit codes, never as {"ok":false}).
+func newAckEnvelope(op string) ackEnvelope {
+	return ackEnvelope{
+		Schema: schemaVersion,
+		Op:     op,
+		OK:     true,
+	}
+}
+
 type portAttachedRecord struct {
 	eventBase
 

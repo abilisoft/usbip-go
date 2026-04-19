@@ -47,11 +47,10 @@ func runDetach(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("detach: %w", err)
 	}
 
-	r := pickRenderer(outputFromCtx(ctx))
 	out := cmd.OutOrStdout()
 
 	if outputFromCtx(ctx) == outputJSON {
-		err = r.Ack(out, "detach", map[string]any{"port_id": pidU})
+		err = (jsonRenderer{}).DetachAck(out, usbip.PortID(pidU))
 		if err != nil {
 			return fmt.Errorf("render ack: %w", err)
 		}
