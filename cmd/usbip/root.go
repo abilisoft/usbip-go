@@ -15,6 +15,12 @@ import (
 // from others; today it fits the ExitUsage bucket via isUsageError.
 var errInvalidOutput = errors.New("invalid --output")
 
+// skipFlagCompletionRegistration is flipped on by TestMain so parallel
+// tests do not populate cobra's global flagCompletionFunctions map and
+// avoid the intra-process race between `prepareCustomAnnotationsForFlags`
+// and `ValidateRequiredFlags`.
+var skipFlagCompletionRegistration = false
+
 // outputTable and outputJSON are the two legal values of --output;
 // centralising them kills goconst's complaint about duplicated literals.
 const (
@@ -99,14 +105,22 @@ func newRootCmd() *cobra.Command {
 	flags.BoolVar(&gf.NoColor, "no-color", false, "disable ANSI color output")
 	flags.StringVar(&gf.Config, "config", "", "path to YAML config file")
 
-	// Fixed-completion hints for enum flags (spec §7.6 static completion).
-	_ = cmd.RegisterFlagCompletionFunc("output", cobra.FixedCompletions(
-		[]cobra.Completion{outputTable, outputJSON}, cobra.ShellCompDirectiveNoFileComp))
-	_ = cmd.RegisterFlagCompletionFunc("log-level", cobra.FixedCompletions(
-		[]cobra.Completion{"error", "warn", "info", "debug", "trace"},
-		cobra.ShellCompDirectiveNoFileComp))
-	_ = cmd.RegisterFlagCompletionFunc("log-format", cobra.FixedCompletions(
-		[]cobra.Completion{"auto", "pretty", "json"}, cobra.ShellCompDirectiveNoFileComp))
+	// Fixed-completion hints for enum flags (spec §7.6 static
+	// completion). These calls intentionally touch cobra's global
+	// flagCompletionFunctions map; because the production binary
+	// builds exactly one root command, the global state causes no
+	// trouble. Parallel tests bypass registration via newRootCmd's
+	// `skipFlagCompletionRegistration` hook to avoid data races with
+	// cobra's internal bash-completion annotation writer.
+	if !skipFlagCompletionRegistration {
+		_ = cmd.RegisterFlagCompletionFunc("output", cobra.FixedCompletions(
+			[]cobra.Completion{outputTable, outputJSON}, cobra.ShellCompDirectiveNoFileComp))
+		_ = cmd.RegisterFlagCompletionFunc("log-level", cobra.FixedCompletions(
+			[]cobra.Completion{"error", "warn", "info", "debug", "trace"},
+			cobra.ShellCompDirectiveNoFileComp))
+		_ = cmd.RegisterFlagCompletionFunc("log-format", cobra.FixedCompletions(
+			[]cobra.Completion{"auto", "pretty", "json"}, cobra.ShellCompDirectiveNoFileComp))
+	}
 
 	cmd.AddCommand(newVersionCmd())
 	cmd.AddCommand(newListCmd())
@@ -116,6 +130,10 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newBindCmd())
 	cmd.AddCommand(newUnbindCmd())
 	cmd.AddCommand(newWatchCmd())
+
+	// Cobra registers `completion {bash,zsh,fish,pwsh}` automatically
+	// via the root command, so we augment it with `install`.
+	withCompletionInstall(cmd)
 
 	return cmd
 }
