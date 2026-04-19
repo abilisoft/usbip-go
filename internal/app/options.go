@@ -76,6 +76,13 @@ type AttachOptions struct {
 	// OnReconnect is invoked before every retry with the 1-indexed
 	// attempt number and the error that triggered the retry. nil
 	// disables the callback.
+	//
+	// The callback is invoked from a separate goroutine so a slow
+	// callback cannot stall the retry cadence. It may be called
+	// concurrently with other Importer operations (Detach, Close, or
+	// an in-flight reconnect). Panics from the callback are recovered
+	// and logged via the Importer's logger but are not propagated to
+	// the caller or the watcher goroutine.
 	OnReconnect func(attempt int, err error)
 
 	// StatusPollInterval controls the backstop poll period. Defaults
