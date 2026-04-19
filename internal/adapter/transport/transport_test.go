@@ -389,14 +389,16 @@ func TestListen_CloseDoesNotDeadlockAfterCtxCancel(t *testing.T) {
 	}
 }
 
-// TestDial_CancelRaceInvariant runs many concurrent dial+cancel races
-// to protect against a future refactor accidentally leaking a
-// raced-successful conn when ctx cancels just after the TCP handshake
-// completes. The tested invariant: Dial returns either a live conn
+// TestDial_CancelRaceInvariant asserts the Dial return contract stays
+// consistent under a concurrent cancel workload: either a live conn
 // (caller owns Close) or an error with no conn — never both, never
-// neither. Extends the existing pre-cancel coverage
-// (TestDial_ContextCancelPreDial) into the actual race window that
-// net.Dialer.DialContext must handle correctly.
+// neither. On loopback the TCP handshake completes too fast to
+// reliably force a mid-handshake cancel, so the test does NOT prove
+// the timing race is handled — it proves the invariant holds across
+// 100 cancel-racing iterations, catching a future refactor that
+// accidentally leaks a raced-successful conn or returns a bogus
+// (nil, nil) pair. True mid-handshake timing is left to
+// integration-level coverage with slower transports.
 func TestDial_CancelRaceInvariant(t *testing.T) {
 	t.Parallel()
 
