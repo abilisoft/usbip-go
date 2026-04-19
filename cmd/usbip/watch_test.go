@@ -64,14 +64,16 @@ func TestWatchEmitsJSONLines(t *testing.T) {
 	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
 	require.Len(t, lines, 3)
 
-	var kinds []string
+	kinds := make([]string, 0, len(lines))
 
 	for _, l := range lines {
 		var m map[string]any
 		require.NoError(t, json.Unmarshal([]byte(l), &m))
 		require.Equal(t, "v1", m["schema"])
 		require.Contains(t, m, "kind")
+
 		kind, _ := m["kind"].(string)
+
 		kinds = append(kinds, kind)
 	}
 
