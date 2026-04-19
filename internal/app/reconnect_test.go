@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"sync"
@@ -191,16 +192,18 @@ func TestImporterReconnectUeventTriggersReattach(t *testing.T) {
 	// reconnect phase, invoke the clock for backoff, and reattach.
 	registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
 
-	// The watcher spawned by the reconnect attempt subscribes too, so
-	// waiting for channel index 1 synchronises with the successful
-	// re-attach without sleeping.
-	registry.waitFor(t, 2)
-
-	clk.Advance(reconnectTestBackoff().Delay)
-
+	// The clock must keep ticking so the After timer eventually
+	// fires: the watcher may not have registered its pending When
+	// yet, so one pre-register Advance is not enough. Eventually
+	// polls with Advance inside so any interleaving succeeds.
 	require.Eventually(t, func() bool {
+		clk.Advance(reconnectTestBackoff().Delay)
+
 		return len(kernel.AttachRemoteCalls()) == 2
 	}, reconnectTestSettleBudget, 5*time.Millisecond, "AttachRemote should be called exactly twice after reconnect")
+
+	// Replacement watcher subscribes from the successful Attach path.
+	registry.waitFor(t, 2)
 }
 
 // TestImporterReconnectPollTriggersReattach covers the backstop path
@@ -241,24 +244,26 @@ func TestImporterReconnectPollTriggersReattach(t *testing.T) {
 
 	registry.waitFor(t, 1)
 
-	// Advance by the poll interval twice — once to move past the Used
-	// observation, once to trigger the StatusNull detection.
-	clk.Advance(opts.StatusPollInterval)
-	clk.Advance(opts.StatusPollInterval)
+	// Advance the clock at each poll-interval step until two poll
+	// calls have happened (the first returns StatusUsed, the second
+	// StatusNull) plus one backoff step for the reconnect attempt.
+	// Eventually re-advances each tick so we are robust to the exact
+	// moment the watcher registers its pending After channels.
+	require.Eventually(t, func() bool {
+		clk.Advance(opts.StatusPollInterval)
+		clk.Advance(reconnectTestBackoff().Delay)
+
+		return len(kernel.AttachRemoteCalls()) == 2
+	}, reconnectTestSettleBudget, 10*time.Millisecond, "poll-detected detach must produce exactly one reconnect")
 
 	registry.waitFor(t, 2)
-
-	clk.Advance(reconnectTestBackoff().Delay)
-
-	require.Eventually(t, func() bool {
-		return len(kernel.AttachRemoteCalls()) == 2
-	}, reconnectTestSettleBudget, 5*time.Millisecond, "poll-detected detach must produce exactly one reconnect")
 }
 
 // TestImporterReconnectBackoffRespected asserts the watcher sleeps for
-// exactly Backoff.Next(attempt) between attempts. With FixedBackoff and
-// FakeClock we can verify by refusing to advance: no reconnect occurs
-// until the clock ticks forward by the configured delay.
+// exactly Backoff.Next(attempt) between attempts. OnReconnect firing is
+// the deterministic sync point that the watcher has entered the
+// backoff sleep; from there we can assert the clock must advance by
+// the full delay before the reconnect runs.
 func TestImporterReconnectBackoffRespected(t *testing.T) {
 	t.Parallel()
 
@@ -271,12 +276,32 @@ func TestImporterReconnectBackoffRespected(t *testing.T) {
 	imp, clk, registry, kernel := newReconnectFixture(t, attachFn)
 	t.Cleanup(func() { require.NoError(t, imp.Close()) })
 
-	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), attachOptionsWithBackoff())
+	onReconnectFired := make(chan struct{}, 1)
+
+	opts := attachOptionsWithBackoff()
+
+	opts.OnReconnect = func(_ int, _ error) {
+		select {
+		case onReconnectFired <- struct{}{}:
+		default:
+		}
+	}
+
+	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), opts)
 	require.NoError(t, err)
 
 	registry.waitFor(t, 1)
 
 	registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
+
+	// Synchronise on OnReconnect so we know the watcher is now inside
+	// waitBackoff; past this point the backoff deadline is registered
+	// with the FakeClock and Advance is deterministic.
+	select {
+	case <-onReconnectFired:
+	case <-time.After(reconnectTestSettleBudget):
+		t.Fatal("OnReconnect did not fire")
+	}
 
 	// Advance by LESS than the backoff — reconnect must NOT fire yet.
 	clk.Advance(reconnectTestBackoff().Delay / 2)
@@ -326,19 +351,22 @@ func TestImporterReconnectMaxAttemptsExhausts(t *testing.T) {
 
 	registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
 
-	// Three reconnect attempts, each gated by the fixed backoff.
-	for range 3 {
+	// Drive the watcher through three full attempts. Each iteration
+	// advances the clock until AttachRemote has been invoked (i.e. the
+	// backoff elapsed for this attempt).
+	for i := range 3 {
+		want := int32(i + 2) // +1 for the initial attach, +1 for this reconnect
 		require.Eventually(t, func() bool {
-			// Advance the clock each iteration so a pending After fires.
 			clk.Advance(reconnectTestBackoff().Delay)
 
-			return false
-		}, 50*time.Millisecond, 10*time.Millisecond)
+			return attachCount.Load() >= want
+		}, reconnectTestSettleBudget, 10*time.Millisecond,
+			"AttachRemote should reach %d calls after attempt %d", want, i+1)
 	}
 
-	// Close waits on the Importer waitgroup — if the watcher is still
-	// looping, Close will never return. That failure mode is the
-	// assertion: the watcher must exit after MaxAttempts.
+	// Close waits on the Importer waitgroup — if the watcher were still
+	// looping, Close would never return. That drain is the assertion:
+	// the watcher exited after MaxAttempts.
 	require.NoError(t, imp.Close())
 
 	require.Equal(t, int32(3), reconnects.Load(), "OnReconnect must fire exactly MaxAttempts times")
@@ -421,12 +449,13 @@ func TestImporterReconnectStaleEventIgnored(t *testing.T) {
 
 	registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
 
-	registry.waitFor(t, 2)
-	clk.Advance(reconnectTestBackoff().Delay)
-
 	require.Eventually(t, func() bool {
+		clk.Advance(reconnectTestBackoff().Delay)
+
 		return len(kernel.AttachRemoteCalls()) == 2
 	}, reconnectTestSettleBudget, 5*time.Millisecond)
+
+	registry.waitFor(t, 2)
 
 	// New watcher is now subscribed on registry channel index 1 and
 	// tracks port id 2. A stale event for port id 1 MUST NOT cause a
@@ -436,4 +465,333 @@ func TestImporterReconnectStaleEventIgnored(t *testing.T) {
 	require.Never(t, func() bool {
 		return len(kernel.AttachRemoteCalls()) > 2
 	}, 50*time.Millisecond, 5*time.Millisecond, "stale old-port-id event must be ignored by the new watcher")
+}
+
+// TestImporterReconnectDefaultsApplied covers the zero-value branches
+// in resolveReconnectOptions: omitted Backoff and StatusPollInterval
+// get their §5.5 defaults. We exercise the path by attaching with
+// AutoReconnect=true but no backoff / poll overrides, then detach to
+// ensure the watcher shut down cleanly (which it cannot do if defaults
+// panicked the zero-value struct).
+func TestImporterReconnectDefaultsApplied(t *testing.T) {
+	t.Parallel()
+
+	attachFn := func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+		return domain.PortID(1), nil
+	}
+
+	imp, _, registry, _ := newReconnectFixture(t, attachFn)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	port, err := imp.Attach(
+		context.Background(),
+		testRemote(),
+		attachBusID(),
+		app.AttachOptions{AutoReconnect: true},
+	)
+	require.NoError(t, err)
+
+	registry.waitFor(t, 1)
+
+	// Detach cancels the watcher; if defaults had panicked the watcher
+	// goroutine, the watcherDone close would never happen and Detach
+	// would block forever — a timeout here would fail the test.
+	require.NoError(t, imp.Detach(context.Background(), port.ID))
+}
+
+// TestImporterReconnectSubscribeFailureExits asserts the watcher exits
+// cleanly when KernelEvents.Subscribe rejects the request. Close must
+// still drain the waitgroup.
+func TestImporterReconnectSubscribeFailureExits(t *testing.T) {
+	t.Parallel()
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return nil, nil, errBoom
+		},
+	}
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			return domain.PortID(1), nil
+		},
+	}
+
+	transport := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+			return newFakeConn(), nil
+		},
+	}
+
+	codec := &ProtocolCodecMock{
+		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
+		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
+	}
+
+	imp := app.NewImporter(
+		app.WithImporterKernel(kernel),
+		app.WithImporterEvents(events),
+		app.WithImporterTransport(transport),
+		app.WithImporterCodec(codec),
+		app.WithImporterClock(testutil.NewFakeClockAt(importerTestEpoch())),
+	)
+
+	_, err := imp.Attach(context.Background(), testRemote(), attachBusID(), attachOptionsWithBackoff())
+	require.NoError(t, err)
+
+	// Close drains i.wg — if the watcher leaked, Close would never
+	// return. The subscribe-failure branch must exit the goroutine.
+	require.NoError(t, imp.Close())
+}
+
+// TestImporterReconnectEventsChannelCloseExits mirrors the subscribe
+// failure path for the runtime case: the upstream source closes the
+// events channel while the watcher is waiting. The watcher must treat
+// that as cancellation and exit.
+func TestImporterReconnectEventsChannelCloseExits(t *testing.T) {
+	t.Parallel()
+
+	// A pre-closed subscribe channel triggers the watcher's
+	// closed-channel select branch immediately after subscription; the
+	// goroutine must exit so Close can drain the waitgroup.
+	preClosed := make(chan domain.Event)
+
+	close(preClosed)
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return preClosed, func() {}, nil
+		},
+	}
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			return domain.PortID(1), nil
+		},
+	}
+
+	transport := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+			return newFakeConn(), nil
+		},
+	}
+
+	codec := &ProtocolCodecMock{
+		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
+		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
+	}
+
+	imp := app.NewImporter(
+		app.WithImporterKernel(kernel),
+		app.WithImporterEvents(events),
+		app.WithImporterTransport(transport),
+		app.WithImporterCodec(codec),
+		app.WithImporterClock(testutil.NewFakeClockAt(importerTestEpoch())),
+	)
+
+	_, err := imp.Attach(context.Background(), testRemote(), attachBusID(), attachOptionsWithBackoff())
+	require.NoError(t, err)
+
+	require.NoError(t, imp.Close())
+}
+
+// TestImporterReconnectIgnoresForeignEvents asserts the watcher
+// discards PortDetachedEvents that carry a different port id and every
+// non-detach event kind; only a matching detach triggers the reconnect.
+func TestImporterReconnectIgnoresForeignEvents(t *testing.T) {
+	t.Parallel()
+
+	var nextID atomic.Uint32
+
+	attachFn := func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+		return domain.PortID(nextID.Add(1)), nil
+	}
+
+	imp, clk, registry, kernel := newReconnectFixture(t, attachFn)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), attachOptionsWithBackoff())
+	require.NoError(t, err)
+	require.Equal(t, domain.PortID(1), port.ID)
+
+	registry.waitFor(t, 1)
+
+	// Foreign events: a detach for a different port id and an
+	// attached-event for our port id — neither is a reconnect signal.
+	registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: domain.PortID(99)}}
+
+	registry.channel(t, 0) <- domain.PortAttachedEvent{Port: domain.Port{ID: port.ID}}
+
+	// Matching detach finally arrives — reconnect must fire for THIS.
+	registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
+
+	require.Eventually(t, func() bool {
+		clk.Advance(reconnectTestBackoff().Delay)
+
+		return len(kernel.AttachRemoteCalls()) == 2
+	}, reconnectTestSettleBudget, 5*time.Millisecond)
+}
+
+// TestImporterReconnectPollListPortsErrorTolerated asserts the watcher
+// survives a ListPorts error: the poll tick returns false (debug
+// logged) and the next poll cycle still runs, so a subsequent
+// StatusNull observation still triggers the reconnect.
+func TestImporterReconnectPollListPortsErrorTolerated(t *testing.T) {
+	t.Parallel()
+
+	var (
+		nextID      atomic.Uint32
+		listCalls   atomic.Int32
+		advanceStep = 250 * time.Millisecond
+	)
+
+	attachFn := func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+		return domain.PortID(nextID.Add(1)), nil
+	}
+
+	imp, clk, registry, kernel := newReconnectFixture(t, attachFn)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	kernel.ListPortsFunc = func(_ context.Context) ([]domain.Port, error) {
+		n := listCalls.Add(1)
+		if n == 1 {
+			return nil, errBoom
+		}
+
+		return []domain.Port{{ID: 1, Status: domain.StatusNull}}, nil
+	}
+
+	opts := attachOptionsWithBackoff()
+
+	opts.StatusPollInterval = advanceStep
+
+	_, err := imp.Attach(context.Background(), testRemote(), attachBusID(), opts)
+	require.NoError(t, err)
+
+	registry.waitFor(t, 1)
+
+	require.Eventually(t, func() bool {
+		clk.Advance(advanceStep)
+		clk.Advance(reconnectTestBackoff().Delay)
+
+		return len(kernel.AttachRemoteCalls()) == 2
+	}, reconnectTestSettleBudget, 10*time.Millisecond,
+		"reconnect must still fire after transient ListPorts error")
+}
+
+// TestImporterReconnectAttachClosedHaltsLoop asserts that when the
+// Importer closes mid-reconnect (AttachRemote succeeds but Close
+// flipped closed=true before registerHandle could commit), the
+// watcher's recursive Attach returns ErrImporterClosed and the loop
+// short-circuits — the errors.Is(err, ErrImporterClosed) branch exits
+// without further attempts.
+func TestImporterReconnectAttachClosedHaltsLoop(t *testing.T) {
+	t.Parallel()
+
+	var (
+		attachCount atomic.Int32
+		entered     = make(chan struct{}, 1)
+		release     = make(chan struct{})
+	)
+
+	attachFn := func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+		n := attachCount.Add(1)
+		if n == 1 {
+			return domain.PortID(1), nil
+		}
+
+		// The second call (reconnect attempt) parks until the test
+		// closes the Importer; Close flips closed=true, then releases
+		// the gate so AttachRemote returns. registerHandle then sees
+		// closed=true and bounces ErrImporterClosed back to the
+		// watcher, which exits its loop.
+		entered <- struct{}{}
+
+		<-release
+
+		return domain.PortID(2), nil
+	}
+
+	imp, clk, registry, kernel := newReconnectFixture(t, attachFn)
+
+	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), attachOptionsWithBackoff())
+	require.NoError(t, err)
+
+	registry.waitFor(t, 1)
+
+	registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
+
+	// Advance until the watcher has entered the second AttachRemote.
+	require.Eventually(t, func() bool {
+		clk.Advance(reconnectTestBackoff().Delay)
+
+		select {
+		case <-entered:
+			return true
+		default:
+			return false
+		}
+	}, reconnectTestSettleBudget, 10*time.Millisecond)
+
+	closeDone := make(chan error, 1)
+
+	go func() { closeDone <- imp.Close() }()
+
+	// Spin until Close has flipped closed=true (observable via
+	// ListPorts returning ErrImporterClosed). Only then release the
+	// gate so AttachRemote's caller sees the closed state inside
+	// registerHandle.
+	require.Eventually(t, func() bool {
+		_, lpErr := imp.ListPorts(context.Background())
+
+		return errors.Is(lpErr, app.ErrImporterClosed)
+	}, reconnectTestSettleBudget, 5*time.Millisecond)
+
+	close(release)
+
+	select {
+	case err := <-closeDone:
+		require.NoError(t, err)
+	case <-time.After(reconnectTestSettleBudget):
+		t.Fatal("Close did not drain after the watcher short-circuited on ErrImporterClosed")
+	}
+
+	require.Len(t, kernel.AttachRemoteCalls(), 2, "watcher must stop after ErrImporterClosed")
+}
+
+// TestImporterReconnectZeroBackoffSkipsSleep covers the early-return
+// branch in waitBackoff when Backoff.Next(0) yields a non-positive
+// duration. With FixedBackoff{Delay: 0}, the watcher must reconnect
+// without advancing the clock.
+func TestImporterReconnectZeroBackoffSkipsSleep(t *testing.T) {
+	t.Parallel()
+
+	var nextID atomic.Uint32
+
+	attachFn := func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+		return domain.PortID(nextID.Add(1)), nil
+	}
+
+	imp, _, registry, kernel := newReconnectFixture(t, attachFn)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	opts := app.AttachOptions{
+		AutoReconnect:      true,
+		Backoff:            app.FixedBackoff{Delay: 0},
+		StatusPollInterval: -1,
+	}
+
+	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), opts)
+	require.NoError(t, err)
+
+	registry.waitFor(t, 1)
+
+	registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
+
+	require.Eventually(t, func() bool {
+		return len(kernel.AttachRemoteCalls()) == 2
+	}, reconnectTestSettleBudget, 5*time.Millisecond,
+		"zero-delay backoff must reconnect without clock advance")
 }
