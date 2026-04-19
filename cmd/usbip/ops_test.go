@@ -153,6 +153,7 @@ func TestPortNoFilterListsAll(t *testing.T) {
 	var m map[string]any
 	require.NoError(t, json.Unmarshal(out.Bytes(), &m))
 	require.Equal(t, "v1", m["schema"])
+
 	ports, _ := m["ports"].([]any)
 	require.Len(t, ports, 2)
 }
@@ -191,6 +192,7 @@ func TestBindSuccess(t *testing.T) {
 	exp := &mockExporter{
 		bindFn: func(_ context.Context, b usbip.BusID) error {
 			called = true
+
 			require.Equal(t, usbip.BusID("1-1.2"), b)
 
 			return nil
@@ -220,6 +222,7 @@ func TestUnbindSuccess(t *testing.T) {
 	exp := &mockExporter{
 		unbindFn: func(_ context.Context, b usbip.BusID) error {
 			called = true
+
 			require.Equal(t, usbip.BusID("1-1.2"), b)
 
 			return nil
