@@ -29,6 +29,7 @@ type Exporter struct {
 
 	cfg       exporterLimits
 	acceptLim acceptLimiter
+	acl       *aclChecker
 
 	mu          sync.RWMutex
 	shutdown    bool
@@ -67,8 +68,23 @@ func (h *sessionHandle) cancel() {
 // NewExporter constructs an Exporter from functional options. Required
 // dependencies missing from opts cause a panic because a missing
 // dependency is a programming error, not a runtime condition worth
-// propagating up the call stack.
+// propagating up the call stack. Option-driven validation failures
+// (e.g. malformed ACL CIDR strings) also panic here; use
+// NewExporterWithError when the caller needs to surface such errors.
 func NewExporter(opts ...ExporterOption) *Exporter {
+	exp, err := NewExporterWithError(opts...)
+	if err != nil {
+		panic(err)
+	}
+
+	return exp
+}
+
+// NewExporterWithError is the fallible constructor variant. It returns
+// the same Exporter NewExporter would, plus any option-validation
+// error (today only ErrACLInvalid). Missing-dependency errors still
+// panic — those are programming bugs, not runtime conditions.
+func NewExporterWithError(opts ...ExporterOption) (*Exporter, error) {
 	cfg := exporterConfig{clock: RealClock{}, logger: slog.Default()}
 
 	for _, opt := range opts {
@@ -81,6 +97,11 @@ func NewExporter(opts ...ExporterOption) *Exporter {
 		cfg.logger = slog.Default()
 	}
 
+	acl, err := parseACL(cfg.aclCIDRs)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Exporter{
 		kernel:    cfg.kernel,
 		events:    cfg.events,
@@ -90,9 +111,10 @@ func NewExporter(opts ...ExporterOption) *Exporter {
 		logger:    cfg.logger,
 		cfg:       resolveExporterLimits(&cfg),
 		acceptLim: newAcceptLimiter(resolveAcceptRate(&cfg), resolveAcceptBurst(&cfg)),
+		acl:       acl,
 		sessions:  make(map[domain.SessionID]*sessionHandle),
 		perPeer:   make(map[string]int),
-	}
+	}, nil
 }
 
 // requireExporterDeps panics when any of the mandatory option-supplied
@@ -281,6 +303,15 @@ func (e *Exporter) acceptLoop(ctx context.Context, listener net.Listener) error 
 			}
 
 			return fmt.Errorf("exporter accept: %w", err)
+		}
+
+		if !e.acl.allow(conn.RemoteAddr()) {
+			e.logger.Info("exporter accept rejected by ACL",
+				slog.String("remote", conn.RemoteAddr().String()))
+
+			closeConnLogging(conn, e.logger)
+
+			continue
 		}
 
 		if !e.acceptLim.allow() {
