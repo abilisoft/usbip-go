@@ -121,9 +121,11 @@ type slogRef = struct {
 // there is no window in which events could be broadcast to an empty
 // subscriber set.
 func (a *EventsAdapter) Subscribe(ctx context.Context) (<-chan domain.Event, func(), error) {
-	mu := a.initDispatcherMu()
-	mu.Lock()
-	defer mu.Unlock()
+	// NewEventsAdapter eagerly allocates dispMu so concurrent first-
+	// Subscribers cannot race the pointer write (RANK 4). Lock the
+	// shared mutex directly.
+	a.dispMu.Lock()
+	defer a.dispMu.Unlock()
 
 	dispatcher, firstSubscribe, err := a.ensureDispatcher()
 	if err != nil {
@@ -160,17 +162,6 @@ func (a *EventsAdapter) Subscribe(ctx context.Context) (<-chan domain.Event, fun
 	}()
 
 	return ch, unsub, nil
-}
-
-// initDispatcherMu lazily constructs the per-adapter mutex that guards
-// dispatcher construction. Using sync.Once here would complicate the
-// error-surfacing path on dial failure; a plain mutex is simpler.
-func (a *EventsAdapter) initDispatcherMu() *sync.Mutex {
-	if a.dispMu == nil {
-		a.dispMu = &sync.Mutex{}
-	}
-
-	return a.dispMu
 }
 
 // ensureDispatcher opens the netlink socket on first call and reuses

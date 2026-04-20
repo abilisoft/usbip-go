@@ -3,7 +3,6 @@
 package kernel_test
 
 import (
-	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -39,7 +38,7 @@ func TestSubscribe_ConcurrentInitOpensOneSocket(t *testing.T) {
 	a, err := kernel.NewEventsAdapter(kernel.WithNetlinkDialer(dialer))
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := t.Context(), func() {}
 	defer cancel()
 
 	const subscribers = 100
@@ -48,6 +47,7 @@ func TestSubscribe_ConcurrentInitOpensOneSocket(t *testing.T) {
 		wg      sync.WaitGroup
 		cancels = make([]func(), subscribers)
 		cancMu  sync.Mutex
+		errs    = make([]error, subscribers)
 		start   = make(chan struct{})
 	)
 
@@ -60,16 +60,20 @@ func TestSubscribe_ConcurrentInitOpensOneSocket(t *testing.T) {
 			<-start
 
 			_, unsub, serr := a.Subscribe(ctx)
-			require.NoError(t, serr)
 
 			cancMu.Lock()
 			cancels[idx] = unsub
+			errs[idx] = serr
 			cancMu.Unlock()
 		}(i)
 	}
 
 	close(start)
 	wg.Wait()
+
+	for _, serr := range errs {
+		require.NoError(t, serr)
+	}
 
 	require.EqualValues(t, 1, dialCount.Load(),
 		"concurrent first-Subscribes must share one dispatcher and one netlink socket")
