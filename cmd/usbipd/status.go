@@ -160,13 +160,13 @@ func serveStatus(
 		return err
 	}
 
-	defer func() {
-		_ = lis.Close()
-		// Best-effort cleanup — unlink silently if the socket file is
-		// still around. Matches spec §7.7: next startup handles stale
-		// unlink on SIGKILL.
-		_ = os.Remove(path)
-	}()
+	// Listener close is the status-goroutine's responsibility; unlink
+	// of the UDS file is NOT — runDaemon's own cleanup path owns that
+	// so the socket is removed even when completeShutdown's
+	// ShutdownTimeout fires with the status goroutine still wedged
+	// (Finding 4). A forced os.Exit skips goroutine defers but still
+	// runs runDaemon's function-scoped defers before returning to main.
+	defer func() { _ = lis.Close() }()
 
 	// drainCtx detaches from the HTTP request context so drain can
 	// outlive the status client's connection but remains bounded by
