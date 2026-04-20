@@ -537,6 +537,11 @@ func (i *Importer) attachOverDialed(
 	portID, err := i.kernel.AttachRemote(ctx, conn, spec)
 	if err != nil {
 		i.metrics.ImporterAttached(AttachOutcomeKernelError)
+		i.logger.Warn("attach failed",
+			slog.Any("busid", busID),
+			slog.String("remote", endpoint.String()),
+			slog.Any("err", err),
+		)
 
 		return domain.Port{}, fmt.Errorf("attach %s on %s: %w", busID, endpoint.String(), err)
 	}
