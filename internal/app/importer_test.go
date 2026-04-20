@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -1096,8 +1097,15 @@ func TestImporterAttachConcurrentWithCloseNoPanic(t *testing.T) {
 	results := make([]result, parallelAttaches)
 
 	for i := range parallelAttaches {
+		// Use a UNIQUE busid per goroutine so the RANK 6 (endpoint,
+		// busid) dedup does not reject same-slot concurrent callers.
+		// This test exercises the Close vs registerHandle race
+		// specifically — the dedup guard has its own test. Each goroutine
+		// therefore hits a distinct attachKey.
+		bus := domain.BusID(fmt.Sprintf("1-1.%d", i+1))
+
 		attachers.Go(func() {
-			port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{})
+			port, err := imp.Attach(context.Background(), testRemote(), bus, app.AttachOptions{})
 
 			attachMu.Lock()
 			results[i] = result{port: port, err: err}
