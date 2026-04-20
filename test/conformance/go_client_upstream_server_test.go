@@ -200,6 +200,51 @@ func TestConformanceGoClientOpRepImport(t *testing.T) {
 		"Go encoder must reproduce the fixture OP_REP_IMPORT bytes exactly")
 }
 
+// TestConformanceSyntheticUpstreamCapturesBusID pins the server's
+// validation contract: the synthetic upstream must record the BusID
+// carried in an inbound OP_REQ_IMPORT so tests can assert the client
+// sent the expected fixture value. Without capture+expose, a client
+// that writes the wrong BusID bytes passes the conformance round-trip
+// silently because the server replies with the fixture device
+// regardless of what was requested.
+//
+// RED scenario: a raw TCP client writes OP_REQ_IMPORT with an
+// obviously-wrong BusID ("bogus.0" NUL-padded). The server must either
+// reject (protocol error) or capture the value so the test can assert
+// the mismatch. Current implementation drops the body and silently
+// replies — this test fails until the server exposes the captured
+// BusID via ReceivedBusID().
+func TestConformanceSyntheticUpstreamCapturesBusID(t *testing.T) {
+	t.Parallel()
+
+	upstream, addr, err := conformance.StartSyntheticUpstream(upstreamVudcDevice())
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = upstream.Close() })
+
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(addr.Host, portStr(addr.Port)), 2*time.Second)
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = conn.Close() })
+
+	// Deliberately wrong BusID — a correct server MUST NOT accept it
+	// as equivalent to the fixture's "usbip-vudc.0".
+	wrongBusID := domain.BusID("bogus.0")
+
+	err = wire.EncodeOpReqImport(conn, wrongBusID)
+	require.NoError(t, err)
+
+	// Drain the reply so the server handler exits cleanly and
+	// ReceivedBusID is safe to read (handler has returned).
+	_, _ = wire.DecodeOpRepImport(conn)
+	_ = conn.Close()
+	_ = upstream.Close()
+
+	got := upstream.ReceivedBusID()
+	require.Equal(t, wrongBusID, got,
+		"synthetic upstream must capture the inbound BusID so mismatches are observable")
+}
+
 // portStr renders a uint16 port as decimal for net.JoinHostPort.
 // Declared here rather than importing strconv so the test file's
 // dependency footprint stays minimal.
