@@ -325,6 +325,87 @@ func TestSubscribe_FirstSubscriberCancelDoesNotStopOthers(t *testing.T) {
 	}
 }
 
+// TestSubscribe_DottedBusIDProducesEvent drives the dotted-topology
+// parse path. Hub-attached devices have bus IDs like "1-1.2" or
+// "2-3.4.5"; pre-fix the devpath regex only matched the simple "N-P"
+// shape so ANY hub-attached device silently skipped the event map.
+// The domain BusID pattern accepts the full dotted form, so the
+// adapter must too. Covers pass-3 RANK 1.
+func TestSubscribe_DottedBusIDProducesEvent(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		action    string
+		devpath   string
+		wantKind  domain.EventKind
+		wantBusID domain.BusID
+	}{
+		{
+			name:      "remove_one_dot",
+			action:    "remove",
+			devpath:   "/devices/platform/vhci_hcd.0/usb1/1-1.2",
+			wantKind:  domain.EventPortDetached,
+			wantBusID: domain.BusID("1-1.2"),
+		},
+		{
+			name:      "add_two_dots",
+			action:    "add",
+			devpath:   "/devices/platform/vhci_hcd.0/usb2/2-3.4.5",
+			wantKind:  domain.EventPortAttached,
+			wantBusID: domain.BusID("2-3.4.5"),
+		},
+		{
+			name:      "change_one_dot",
+			action:    "change",
+			devpath:   "/devices/platform/vhci_hcd.0/usb1/1-2.3",
+			wantKind:  domain.EventPortErrored,
+			wantBusID: domain.BusID("1-2.3"),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			a, sock := newAdapterWithFakeSocket(t)
+			defer func() { _ = sock.Close() }()
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			ch, unsub, err := a.Subscribe(ctx)
+			require.NoError(t, err)
+
+			defer unsub()
+
+			sock.feed(uevent(map[string]string{
+				"ACTION":    tc.action,
+				"SUBSYSTEM": "usb",
+				"DEVPATH":   tc.devpath,
+			}))
+
+			select {
+			case ev := <-ch:
+				require.NotNil(t, ev)
+				require.Equal(t, tc.wantKind, ev.EventKind(),
+					"dotted devpath %q must still produce %s", tc.devpath, tc.wantKind)
+
+				switch e := ev.(type) {
+				case domain.PortAttachedEvent:
+					require.Equal(t, tc.wantBusID, e.Port.BusID)
+				case domain.PortDetachedEvent:
+					require.Equal(t, tc.wantBusID, e.Port.BusID)
+				case domain.PortErroredEvent:
+					require.Equal(t, tc.wantBusID, e.Port.BusID)
+				default:
+					t.Fatalf("unexpected event type %T", ev)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatalf("timed out waiting for event from dotted devpath %q", tc.devpath)
+			}
+		})
+	}
+}
+
 // TestSubscribe_RegistrationRaceDoesNotDropEvent drives the window
 // between Subscribe returning and the first event arriving. The
 // dispatcher must not be receiving events before the first subscriber
