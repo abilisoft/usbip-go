@@ -9,6 +9,7 @@
 package integration
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -18,6 +19,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/abilisoft/usbip-go/pkg/domain"
+	"github.com/abilisoft/usbip-go/pkg/usbip"
 )
 
 // harnessModuleNames enumerates the kernel modules the integration
@@ -106,6 +111,62 @@ func SetupVUDC(t *testing.T) *VUDCDevice {
 
 	return &VUDCDevice{BusID: udc, Name: name}
 }
+
+// RealBusIDEnv names the environment variable operators set to a real
+// USB bus id (e.g. "1-1.2") bindable via usbip-host. Tests that need
+// real-device semantics read it via RequireRealBusID; vudc devices do
+// not traverse the usbip-host bind path and so are not sufficient for
+// these scenarios per spec §8.4.
+const RealBusIDEnv = "USBIPGO_INTEGRATION_BUSID"
+
+// RequireRealBusID returns the BusID named by RealBusIDEnv or t.Skips
+// when unset. Centralising the env check here replaces the scatter of
+// `if rawBusID == "" { t.Skipf(...) }` across integration tests and
+// ensures a single consistent skip message.
+func RequireRealBusID(t *testing.T) domain.BusID {
+	t.Helper()
+
+	raw := os.Getenv(RealBusIDEnv)
+	if raw == "" {
+		t.Skipf("integration harness: %s unset; scenario requires a real usbip-host bindable busid (spec §8.4 env-gated)",
+			RealBusIDEnv)
+	}
+
+	return domain.BusID(raw)
+}
+
+// RequireBindable calls exp.Bind(ctx, busID) and t.Skips on failure,
+// registering a t.Cleanup that Unbinds the busid after the test returns.
+// requireModulesLoaded is already enforced by the caller's SetupVUDC
+// invocation; the bind skip here covers runtime states that module
+// preflight cannot detect (busid not present, already bound by another
+// driver, EACCES on /sys/bus/usb/drivers/usbip-host/bind).
+//
+// Centralising the skip keeps the wording consistent and drops the
+// ad-hoc `if err != nil { t.Skipf("bind %q ...") }` boilerplate from
+// every integration test that takes a real busid.
+func RequireBindable(t *testing.T, ctx context.Context, exp *usbip.Exporter, busID domain.BusID) { //nolint:revive // ctx after t matches integration-test convention used across the suite
+	t.Helper()
+
+	err := exp.Bind(ctx, busID)
+	if err != nil {
+		t.Skipf("integration harness: bind %q skipped: %v (busid not bindable via usbip-host on this runner)", busID, err)
+	}
+
+	t.Cleanup(func() {
+		uctx, ucancel := context.WithTimeout(context.Background(), unbindCleanupTimeout)
+
+		defer ucancel()
+
+		_ = exp.Unbind(uctx, busID)
+	})
+}
+
+// unbindCleanupTimeout bounds the Unbind call registered by
+// RequireBindable's t.Cleanup. Two seconds matches the value previously
+// inlined at every call site; kept as a named constant so mnd does not
+// flag the literal and future tuning has a single point of change.
+const unbindCleanupTimeout = 2 * time.Second
 
 // requireModulesLoaded scans /sys/module for each harnessModuleNames
 // entry and t.Skips when any is missing. Spec §8.4 documents t.Skip as

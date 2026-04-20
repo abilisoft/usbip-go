@@ -62,13 +62,7 @@ const daemonStartSignal = "usbipd accepting connections"
 func TestDaemonRestartSessionsSurvive(t *testing.T) {
 	integration.SetupVUDC(t)
 
-	rawBusID := os.Getenv(loopbackIntegrationBusIDEnv)
-	if rawBusID == "" {
-		t.Skipf("%s unset: daemon-restart scenario requires a real usbip-host busid",
-			loopbackIntegrationBusIDEnv)
-	}
-
-	busID := domain.BusID(rawBusID)
+	busID := integration.RequireRealBusID(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), daemonRestartDeadline)
 	defer cancel()
@@ -84,18 +78,7 @@ func TestDaemonRestartSessionsSurvive(t *testing.T) {
 	bindExporter, err := usbip.NewExporter()
 	require.NoError(t, err)
 
-	err = bindExporter.Bind(ctx, busID)
-	if err != nil {
-		t.Skipf("bind %q skipped: %v", busID, err)
-	}
-
-	t.Cleanup(func() {
-		uctx, ucancel := context.WithTimeout(context.Background(), 2*time.Second)
-
-		defer ucancel()
-
-		_ = bindExporter.Unbind(uctx, busID)
-	})
+	integration.RequireBindable(t, ctx, bindExporter, busID)
 
 	// Start daemon #1 on a parent-chosen port so daemon #2 can
 	// reuse the same addr after SIGKILL.
