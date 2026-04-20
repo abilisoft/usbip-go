@@ -131,3 +131,24 @@ func (c ExporterConfigForTest) ShutdownTimeoutForTest() time.Duration {
 func (c ExporterConfigForTest) MetricsRegistererForTest() prometheus.Registerer {
 	return c.inner.metricsRegisterer
 }
+
+// ExporterBuildInfoForTest is the test-only snapshot of the stored
+// build-info triple. Zero value means "no stamp"; callers assert
+// against the empty-string fields to verify the option was not
+// applied.
+type ExporterBuildInfoForTest struct {
+	Version   string
+	Commit    string
+	GoVersion string
+}
+
+// BuildInfoForTest returns the stored build-info labels as a snapshot
+// struct. A struct return keeps the assertion surface stable even if
+// the set of labels evolves.
+func (c ExporterConfigForTest) BuildInfoForTest() ExporterBuildInfoForTest {
+	return ExporterBuildInfoForTest{
+		Version:   c.inner.buildInfo.version,
+		Commit:    c.inner.buildInfo.commit,
+		GoVersion: c.inner.buildInfo.goVersion,
+	}
+}
