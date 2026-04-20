@@ -7,49 +7,34 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
-// Kernel module names probed by ProbeKernelModules. The set matches the
-// spec §11.5.4 triple plus the cmd/usbipd status JSON schema; exporter
-// binaries need usbip_core + usbip_host, importer binaries need
-// usbip_core + vhci_hcd, and usbipd's status endpoint reports all three
-// because an operator looking at /status may be sharing a host between
-// both roles.
-const (
-	moduleStatusLoaded  = "loaded"
-	moduleStatusMissing = "missing"
-)
-
-// probedModuleNames is the canonical triple returned by
-// ProbeKernelModules. Exposed as a function (not a var) so tests can't
-// mutate the slice.
+// probedModuleNames is the canonical §11.5.4 triple returned by
+// ProbeKernelModules. Exposed as a function (not a var) so tests
+// cannot mutate the slice.
 func probedModuleNames() []string {
 	return []string{"usbip_core", "vhci_hcd", "usbip_host"}
 }
 
-// moduleSysfsRoot is the sysfs root for loaded kernel modules. It is
-// declared via a getter so no mutable package-level variable is
-// exposed (which would trip gochecknoglobals); Phase 9 test helpers
-// that point the probe at a tmpdir will install a replacement
-// implementation through an option on NewExporter / NewImporter rather
-// than mutating a global.
+// moduleSysfsRoot is the sysfs root for loaded kernel modules. Paired
+// with probeOneAt so tests can inject a tmpdir root without mutating
+// a package-level variable.
 const moduleSysfsRoot = "/sys/module"
 
-// ProbeKernelModules reports which of the §11.5.4 USB/IP kernel modules
-// appear loaded according to /sys/module. The returned map always
-// contains the three expected keys ("usbip_core", "vhci_hcd",
-// "usbip_host"); a value of "loaded" means the module's sysfs entry
-// exists, "missing" means it doesn't.
+// ProbeKernelModules reports which of the §11.5.4 USB/IP kernel
+// modules appear loaded according to /sys/module. The returned map
+// always contains the three expected keys; the per-module value is
+// one of the three ModuleState constants.
 //
-// The function never returns an error today — every sysfs-stat failure
-// collapses into "missing" because that's what operators actually want:
-// a best-effort snapshot. The error return is kept on the signature so
-// a future Phase 9 expansion (permission errors, non-Linux stubbing)
-// can surface failure without a breaking-change bump.
-func ProbeKernelModules(ctx context.Context) (map[string]string, error) {
-	out := make(map[string]string, len(probedModuleNames()))
+// Only ctx cancellation produces an error; per-module stat failures
+// are classified into the tri-state value (Missing / Unknown) and
+// never break the rest of the probe.
+func ProbeKernelModules(ctx context.Context) (map[string]ModuleState, error) {
+	out := make(map[string]ModuleState, len(probedModuleNames()))
 
 	for _, name := range probedModuleNames() {
 		err := ctx.Err()
@@ -57,26 +42,53 @@ func ProbeKernelModules(ctx context.Context) (map[string]string, error) {
 			return out, fmt.Errorf("probe kernel modules: %w", err)
 		}
 
-		out[name] = probeOne(name)
+		out[name] = probeOneAt(moduleSysfsRoot, name)
 	}
 
 	return out, nil
 }
 
-// probeOne stats /sys/module/<name>. Present → "loaded", absent →
-// "missing". Non-ENOENT errors (e.g. EACCES) are reported as "missing"
-// too — the public contract is a binary signal; diagnosing why is the
-// next tier of operator tooling.
-func probeOne(name string) string {
-	path := filepath.Join(moduleSysfsRoot, name)
+// probeStatFn is the os.Stat indirection probeOneAt goes through.
+// Tests swap it via swapProbeStatFn to simulate EACCES or other stat
+// errors without touching filesystem permissions — chmod-based
+// simulation runs afoul of gosec G302 on dir traversal bits and is
+// brittle under parallel t.TempDir cleanup. probeStatMu serialises
+// the read/write so parallel tests that swap and other tests that
+// call probeOneAt do not data-race under -race.
+var (
+	probeStatMu sync.RWMutex
+	probeStatFn = os.Stat
+)
 
-	_, err := os.Stat(path)
+// probeOneAt stats <root>/<name> via probeStatFn. Used by
+// ProbeKernelModules with the production moduleSysfsRoot and by
+// export_test.go with a tmpdir + injected stat error.
+//
+//   - stat OK                 → Loaded
+//   - ENOENT / fs.ErrNotExist → Missing
+//   - any other error         → Unknown (logged at warn; the cause is
+//     an operator-visible signal, not a fatal)
+func probeOneAt(root, name string) ModuleState {
+	path := filepath.Join(root, name)
+
+	probeStatMu.RLock()
+
+	stat := probeStatFn
+
+	probeStatMu.RUnlock()
+
+	_, err := stat(path)
+
 	switch {
 	case err == nil:
-		return moduleStatusLoaded
+		return ModuleStateLoaded
 	case errors.Is(err, fs.ErrNotExist):
-		return moduleStatusMissing
+		return ModuleStateMissing
 	default:
-		return moduleStatusMissing
+		slog.Default().Warn("kernel module probe: sysfs stat failed",
+			slog.String("module", name), slog.String("path", path),
+			slog.Any("err", err))
+
+		return ModuleStateUnknown
 	}
 }

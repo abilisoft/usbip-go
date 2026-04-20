@@ -33,7 +33,7 @@ type fakeStatusSource struct {
 	accepting  bool
 	listenAddr string
 	activation bool
-	modules    map[string]string
+	modules    map[string]usbip.ModuleState
 
 	drainCalled atomic.Int32
 	drainErr    error
@@ -65,11 +65,11 @@ func (f *fakeStatusSource) Listening() listeningState {
 	}
 }
 
-func (f *fakeStatusSource) KernelModules(_ context.Context) (map[string]string, error) {
+func (f *fakeStatusSource) KernelModules(_ context.Context) (map[string]usbip.ModuleState, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	out := make(map[string]string, len(f.modules))
+	out := make(map[string]usbip.ModuleState, len(f.modules))
 	maps.Copy(out, f.modules)
 
 	return out, nil
@@ -169,10 +169,10 @@ func TestStatusUnlinkStale(t *testing.T) {
 	src := &fakeStatusSource{
 		listenAddr: "0.0.0.0:3240",
 		accepting:  true,
-		modules: map[string]string{
-			"usbip_core": "loaded",
-			"vhci_hcd":   "loaded",
-			"usbip_host": "loaded",
+		modules: map[string]usbip.ModuleState{
+			"usbip_core": usbip.ModuleStateLoaded,
+			"vhci_hcd":   usbip.ModuleStateLoaded,
+			"usbip_host": usbip.ModuleStateLoaded,
 		},
 	}
 
@@ -261,10 +261,10 @@ func TestStatusGetJSON(t *testing.T) {
 				StartedAt:  time.Unix(1_700_000_000, 0),
 			},
 		},
-		modules: map[string]string{
-			"usbip_core": "loaded",
-			"vhci_hcd":   "loaded",
-			"usbip_host": "missing",
+		modules: map[string]usbip.ModuleState{
+			"usbip_core": usbip.ModuleStateLoaded,
+			"vhci_hcd":   usbip.ModuleStateLoaded,
+			"usbip_host": usbip.ModuleStateMissing,
 		},
 	}
 
@@ -317,7 +317,7 @@ func TestStatusDrainTriggersShutdown(t *testing.T) {
 	src := &fakeStatusSource{
 		listenAddr: "0.0.0.0:3240",
 		accepting:  true,
-		modules:    map[string]string{"usbip_core": "loaded"},
+		modules:    map[string]usbip.ModuleState{"usbip_core": usbip.ModuleStateLoaded},
 	}
 
 	cleanup := startStatusTestServer(t, src, sockPath)
@@ -354,7 +354,7 @@ func TestStatusFileMode0660(t *testing.T) {
 	src := &fakeStatusSource{
 		listenAddr: "0.0.0.0:3240",
 		accepting:  true,
-		modules:    map[string]string{"usbip_core": "loaded"},
+		modules:    map[string]usbip.ModuleState{"usbip_core": usbip.ModuleStateLoaded},
 	}
 
 	cleanup := startStatusTestServer(t, src, sockPath)
@@ -379,7 +379,7 @@ func TestStatusGroupChownSkipsIfMissing(t *testing.T) {
 	src := &fakeStatusSource{
 		listenAddr: "0.0.0.0:3240",
 		accepting:  true,
-		modules:    map[string]string{"usbip_core": "loaded"},
+		modules:    map[string]usbip.ModuleState{"usbip_core": usbip.ModuleStateLoaded},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -434,7 +434,7 @@ func TestStatusBindSerialisedByFlock(t *testing.T) {
 	src := &fakeStatusSource{
 		listenAddr: "0.0.0.0:3240",
 		accepting:  true,
-		modules:    map[string]string{"usbip_core": "loaded"},
+		modules:    map[string]usbip.ModuleState{"usbip_core": usbip.ModuleStateLoaded},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
