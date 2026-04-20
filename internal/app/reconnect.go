@@ -344,6 +344,12 @@ func (i *Importer) portIsDetached(ctx context.Context, id domain.PortID) bool {
 // is exercised. On success, the old handle is removed and the loop
 // exits; the replacement watcher is already running inside the
 // successful Attach return.
+//
+// A successful Attach that follows a user-initiated Detach on the
+// original handle must be rolled back: Detach sets handle.detaching
+// before cancel; the watcher checks the flag after Attach returns and
+// issues kernel.DetachPort on the replacement port so the device the
+// user asked to release does not silently reappear (RANK 3).
 func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, source string) {
 	lastErr := fmt.Errorf("%w: port %d via %s", ErrPortDetached, p.portID, source)
 
@@ -363,14 +369,7 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 
 		newPort, err := i.Attach(ctx, p.endpoint, p.busID, p.opts)
 		if err == nil {
-			i.metrics.ImporterReconnectAttempt(ReconnectOutcomeOK)
-			i.removeHandle(p.portID, p.handle)
-			i.logger.Info("reconnect succeeded",
-				slog.Any("old_port_id", p.portID),
-				slog.Any("new_port_id", newPort.ID),
-				slog.Int("attempt", attempt),
-				slog.String("source", source),
-			)
+			i.finishReconnectSuccess(ctx, newPort, p, attempt, source)
 
 			return
 		}
@@ -406,6 +405,85 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 		slog.Int("max_attempts", p.opts.MaxAttempts),
 		slog.Any("last_err", lastErr),
 	)
+}
+
+// finishReconnectSuccess handles the post-Attach success branch of the
+// reconnect loop. If the original handle is flagged detaching (RANK 3)
+// the replacement kernel port is rolled back; otherwise the original
+// port id is removed and the success is logged. Extracted to keep
+// runReconnectLoop within the project's cognitive-complexity cap.
+func (i *Importer) finishReconnectSuccess(
+	ctx context.Context,
+	newPort domain.Port,
+	p reconnectParams,
+	attempt int,
+	source string,
+) {
+	if p.handle.detaching.Load() {
+		// Detach bounded-waited past our wedged Attach and removed
+		// the original handle already; the user expects the device
+		// to stay gone. Roll back the replacement kernel handoff
+		// before it wins the race (RANK 3).
+		i.rollbackSupersededReconnect(ctx, newPort.ID, p, source)
+		i.metrics.ImporterReconnectAttempt(ReconnectOutcomeCanceled)
+
+		return
+	}
+
+	i.metrics.ImporterReconnectAttempt(ReconnectOutcomeOK)
+	i.removeHandle(p.portID, p.handle)
+	i.logger.Info("reconnect succeeded",
+		slog.Any("old_port_id", p.portID),
+		slog.Any("new_port_id", newPort.ID),
+		slog.Int("attempt", attempt),
+		slog.String("source", source),
+	)
+}
+
+// rollbackSupersededReconnect releases the kernel port that a
+// reconnect-path Attach acquired after the user's Detach had already
+// bounded-waited past the wedged watcher (RANK 3). The replacement
+// handle is already registered in the map by Attach's finishAttach
+// call; remove it and issue kernel.DetachPort so the device the user
+// wanted gone stays gone. DetachPort failures are logged but do not
+// retry — the kernel port may be in an intermediate state, and the
+// handle has been removed from our bookkeeping either way.
+func (i *Importer) rollbackSupersededReconnect(
+	ctx context.Context, newID domain.PortID, p reconnectParams, source string,
+) {
+	i.mu.Lock()
+
+	fresh, ok := i.handles[newID]
+	if ok {
+		delete(i.handles, newID)
+	}
+
+	i.mu.Unlock()
+
+	// Cancel the fresh handle's own reconnect watcher (if any) so it
+	// does not stay parked waiting on a detach event that will never
+	// fire for a handle we are about to tear down ourselves.
+	if ok && fresh != nil {
+		fresh.cancel()
+	}
+
+	err := i.kernel.DetachPort(ctx, newID)
+	if err != nil {
+		i.logger.Warn("rollback reconnect detach failed",
+			slog.Any("new_port_id", newID),
+			slog.Any("old_port_id", p.portID),
+			slog.String("source", source),
+			slog.Any("err", err),
+		)
+	} else {
+		i.logger.Info("reconnect rolled back after Detach",
+			slog.Any("new_port_id", newID),
+			slog.Any("old_port_id", p.portID),
+			slog.String("source", source),
+		)
+	}
+
+	i.updateImporterPortsGauge()
 }
 
 // waitBackoff sleeps for Backoff.Next(attempt-1) using the injected
