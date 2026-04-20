@@ -4,6 +4,11 @@
 // WithExporterMetricsRegisterer, and serves /metrics on a separate
 // address so scrapers do not share the protocol listener.
 //
+// This example is the only one that pulls a third-party dependency
+// (github.com/prometheus/client_golang) because the Exporter metrics
+// registerer is a prometheus.Registerer. The other examples
+// (client, server, events, reconnect) use stdlib only.
+//
 // Usage:
 //
 //	sudo go run ./examples/metrics USBIP_ADDR METRICS_ADDR BUSID
