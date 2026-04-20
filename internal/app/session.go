@@ -264,6 +264,35 @@ func (e *Exporter) serveImport(
 
 	defer e.endSession(handle, "handler exited")
 
+	// Subscribe to KernelEvents BEFORE ExportOnConn (pass-2 RANK 1).
+	// The real adapter's ExportOnConn returns the moment the sysfs
+	// write lands, and the kernel can emit the matching detach uevent
+	// in the narrow gap between "kernel took the fd" and the first
+	// instruction after ExportOnConn returns. If we subscribed only
+	// after ExportOnConn, a kernel that published the event in that
+	// gap would be lost and the handler would park forever.
+	//
+	// Opening the subscription first guarantees the event is buffered
+	// into our channel regardless of timing. An already-pending event
+	// is consumed by the first iteration of waitForSessionEnd's select.
+	events, cancelEvents, evErr := e.events.Subscribe(ctx)
+	if evErr != nil {
+		e.logger.Warn("exporter session-end pre-subscribe failed",
+			slog.Any("busid", busID),
+			slog.Any("err", evErr))
+
+		// Subscribe is the only observation path for session end; if
+		// we cannot open one we must not hand the fd to the kernel
+		// (we would park forever after a successful handoff). Surface
+		// the subscribe failure the same way as a kernel-side error
+		// and let the deferred close tear the conn down.
+		e.metrics.ExporterDisconnect(DisconnectReasonKernelError)
+
+		return false
+	}
+
+	defer cancelEvents()
+
 	err = e.kernel.ExportOnConn(ctx, conn, busID)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
@@ -277,7 +306,7 @@ func (e *Exporter) serveImport(
 		return false
 	}
 
-	reason := e.waitForSessionEnd(ctx, busID, handle)
+	reason := e.waitForSessionEnd(ctx, busID, handle, events)
 
 	e.metrics.ExporterDisconnect(reason)
 
@@ -297,28 +326,19 @@ func (e *Exporter) serveImport(
 //       for the exported device — returns DisconnectReasonClientGone
 //       because the remote client's detach drove the signal.
 //     - DeviceUnboundEvent: local unbind of the busid — same treatment.
-//  4. KernelEvents Subscribe error — treated as best-effort: the
-//     handler cannot block on an unavailable event stream, so it
-//     returns DisconnectReasonKernelError immediately rather than
-//     stranding the accepted conn. The subscription error is logged.
 //
-// The subscription is unique per-handler (no shared filtering) so the
-// handler cannot interfere with Importer reconnect watchers or
-// WatchSessions consumers.
+// The subscription is opened by serveImport BEFORE kernel.ExportOnConn
+// (pass-2 RANK 1) so a detach uevent published in the gap between
+// "kernel took the fd" and the first post-ExportOnConn instruction is
+// buffered in the channel rather than lost. waitForSessionEnd consumes
+// the pre-opened events channel; the subscription cancel is owned by
+// serveImport's defer.
 func (e *Exporter) waitForSessionEnd(
-	ctx context.Context, busID domain.BusID, handle *sessionHandle,
+	ctx context.Context,
+	busID domain.BusID,
+	handle *sessionHandle,
+	events <-chan domain.Event,
 ) DisconnectReason {
-	events, cancel, err := e.events.Subscribe(ctx)
-	if err != nil {
-		e.logger.Warn("exporter session-end subscribe failed",
-			slog.Any("busid", busID),
-			slog.Any("err", err))
-
-		return DisconnectReasonKernelError
-	}
-
-	defer cancel()
-
 	for {
 		select {
 		case <-handle.done:
