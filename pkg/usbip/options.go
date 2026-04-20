@@ -16,6 +16,7 @@ type importerConfig struct {
 	logger             *slog.Logger
 	backoff            BackoffStrategy
 	statusPollInterval time.Duration
+	metricsRegisterer  prometheus.Registerer
 }
 
 // ImporterOption configures an Importer at construction time. Apply
@@ -46,6 +47,13 @@ func WithImporterStatusPollInterval(d time.Duration) ImporterOption {
 	return func(c *importerConfig) { c.statusPollInterval = d }
 }
 
+// WithImporterMetricsRegisterer records a Prometheus registerer that
+// the Importer uses to publish the §11.5.5 metric catalog. A nil
+// registerer (the default) yields a no-op metrics bundle.
+func WithImporterMetricsRegisterer(r prometheus.Registerer) ImporterOption {
+	return func(c *importerConfig) { c.metricsRegisterer = r }
+}
+
 // importerConfigToInternal translates the public-facing importerConfig
 // into the matching slice of internalapp.ImporterOption values. Fields
 // that have no internal counterpart yet (backoff, statusPollInterval)
@@ -53,10 +61,17 @@ func WithImporterStatusPollInterval(d time.Duration) ImporterOption {
 // Attach time; this keeps the public surface stable while the internal
 // Importer grows its per-Importer defaults.
 func importerConfigToInternal(cfg importerConfig) []internalapp.ImporterOption {
-	out := make([]internalapp.ImporterOption, 0, 1)
+	const importerInternalOptCap = 2
+
+	out := make([]internalapp.ImporterOption, 0, importerInternalOptCap)
 
 	if cfg.logger != nil {
 		out = append(out, internalapp.WithImporterLogger(cfg.logger))
+	}
+
+	if cfg.metricsRegisterer != nil {
+		out = append(out, internalapp.WithImporterMetrics(
+			internalapp.MustNewMetrics(cfg.metricsRegisterer)))
 	}
 
 	return out
@@ -160,27 +175,24 @@ func WithExporterShutdownTimeout(d time.Duration) ExporterOption {
 	return func(c *exporterConfig) { c.shutdownTimeout = d }
 }
 
-// WithExporterMetricsRegisterer records a Prometheus registerer for
-// Exporter-side collectors.
+// WithExporterMetricsRegisterer records a Prometheus registerer that
+// the Exporter uses to publish the §11.5.5 metric catalog. A nil
+// registerer (the default) yields a no-op metrics bundle: every typed
+// accessor inside the app layer is gated on the bundle's nop flag, so
+// call sites don't need pre-call nil guards.
 //
-// CURRENT BEHAVIOUR: the registerer is stored on the public exporter
-// config and is NOT consumed by the internal/app layer — no collectors
-// are registered as a result of calling this option today.
-//
-// The option exists today so the public API is stable from v1; the
-// Phase 9 metrics work consumes the stored value when the §11.5.5
-// collector catalog lands, again without a breaking-change bump.
+// Only the first non-nil registerer wins per Exporter; calling this
+// option twice replaces the previous value.
 func WithExporterMetricsRegisterer(r prometheus.Registerer) ExporterOption {
 	return func(c *exporterConfig) { c.metricsRegisterer = r }
 }
 
 // exporterConfigToInternal translates the public-facing exporterConfig
 // into the matching slice of internalapp.ExporterOption values.
-// shutdownTimeout and metricsRegisterer are deliberately dropped here:
-// they have no internal counterpart today and the matching public
-// options are stored-not-plumbed until Phase 9 wires them through.
-// See WithExporterShutdownTimeout and WithExporterMetricsRegisterer
-// for the full CURRENT BEHAVIOUR contract.
+// shutdownTimeout is deliberately dropped here: it has no internal
+// counterpart today. See WithExporterShutdownTimeout for the full
+// CURRENT BEHAVIOUR contract. metricsRegisterer is plumbed through
+// via internalapp.WithExporterMetrics(MustNewMetrics(registerer)).
 func exporterConfigToInternal(cfg exporterConfig) []internalapp.ExporterOption {
 	out := make([]internalapp.ExporterOption, 0, exporterInternalOptCap)
 
@@ -214,10 +226,15 @@ func exporterConfigToInternal(cfg exporterConfig) []internalapp.ExporterOption {
 		out = append(out, internalapp.WithExporterHandshakeTimeout(cfg.handshakeTimeout))
 	}
 
+	if cfg.metricsRegisterer != nil {
+		out = append(out, internalapp.WithExporterMetrics(
+			internalapp.MustNewMetrics(cfg.metricsRegisterer)))
+	}
+
 	return out
 }
 
 // exporterInternalOptCap is the ceiling used to preallocate the slice
 // returned by exporterConfigToInternal. It matches the number of
 // option branches inside that function.
-const exporterInternalOptCap = 7
+const exporterInternalOptCap = 8

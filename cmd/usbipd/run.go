@@ -7,11 +7,13 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/abilisoft/usbip-go/pkg/usbip"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // statusReadyTimeout bounds how long runDaemon waits for the status
@@ -56,7 +58,14 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 		defer func() { _ = os.Remove(cfg.StatusSocket) }()
 	}
 
-	exp, err := buildExporter(cfg, log)
+	// Build the Prometheus registry before constructing the exporter so
+	// the metric bundle is wired into the Serve/Shutdown path on the
+	// first session. The registry stays nil-safe when --metrics-addr is
+	// empty: the exporter's metricsRegisterer option simply leaves the
+	// bundle in its nop state.
+	metricsReg := prometheus.NewRegistry()
+
+	exp, err := buildExporter(cfg, log, metricsReg)
 	if err != nil {
 		return err
 	}
@@ -74,6 +83,16 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 	defer cancelStatus()
 
 	src := newStatusExporter(exp, listener, activated)
+
+	metricsStop, err := maybeStartMetricsServer(ctx, cfg, log, metricsReg, src)
+	if err != nil {
+		return err
+	}
+
+	if metricsStop != nil {
+		defer shutdownMetricsServer(ctx, metricsStop, cfg.ShutdownTimeout, log)
+	}
+
 	src.setDrain(func() {
 		cancelServe(errDrainRequested)
 	})
@@ -101,8 +120,12 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 
 // buildExporter constructs the pkg/usbip.Exporter from cfg. The
 // translation of Config fields to With* options lives here so runDaemon
-// stays focused on lifecycle rather than option plumbing.
-func buildExporter(cfg *Config, log *slog.Logger) (*usbip.Exporter, error) {
+// stays focused on lifecycle rather than option plumbing. reg is the
+// Prometheus registry the exporter publishes to; a nil reg opts into
+// the no-op metrics bundle.
+func buildExporter(
+	cfg *Config, log *slog.Logger, reg prometheus.Registerer,
+) (*usbip.Exporter, error) {
 	opts := []usbip.ExporterOption{
 		usbip.WithExporterLogger(log),
 		usbip.WithExporterMaxSessions(cfg.MaxSessions),
@@ -111,6 +134,10 @@ func buildExporter(cfg *Config, log *slog.Logger) (*usbip.Exporter, error) {
 		usbip.WithExporterMaxHandshakeBytes(cfg.MaxHandshakeBytes),
 		usbip.WithExporterHandshakeTimeout(cfg.HandshakeTimeout),
 		usbip.WithExporterShutdownTimeout(cfg.ShutdownTimeout),
+	}
+
+	if reg != nil {
+		opts = append(opts, usbip.WithExporterMetricsRegisterer(reg))
 	}
 
 	if len(cfg.AllowCIDR) > 0 {
@@ -123,6 +150,100 @@ func buildExporter(cfg *Config, log *slog.Logger) (*usbip.Exporter, error) {
 	}
 
 	return exp, nil
+}
+
+// maybeStartMetricsServer spins the Prometheus HTTP endpoint on a
+// separate listener when cfg.MetricsAddr is non-empty. Empty disables
+// the endpoint — the returned stop func is nil and runDaemon skips the
+// deferred shutdown branch. The readiness checker consults the
+// statusExporter for kernel-module state and accepting flag; the
+// "status socket writable" bit reads cfg.StatusSocket (empty means
+// "disabled, treat as writable for the purposes of readiness").
+func maybeStartMetricsServer(
+	ctx context.Context,
+	cfg *Config,
+	log *slog.Logger,
+	reg *prometheus.Registry,
+	src *statusExporter,
+) (func(context.Context) error, error) {
+	if cfg.MetricsAddr == "" {
+		return nil, nil //nolint:nilnil // documented "addr empty = disabled" signal
+	}
+
+	// Stamp build_info on the registry at startup so /metrics returns
+	// version metadata even if no other workload has run yet.
+	metrics := newMetricsBundle(reg)
+	metrics.SetBuildInfo(version, commit, runtime.Version())
+
+	probe := newDaemonReadinessProbe(cfg, src)
+
+	stop, err := startMetricsServer(ctx, cfg.MetricsAddr, reg,
+		newReadinessChecker(probe))
+	if err != nil {
+		return nil, err
+	}
+
+	log.Info("metrics endpoint listening",
+		slog.String("addr", cfg.MetricsAddr))
+
+	return stop, nil
+}
+
+// newDaemonReadinessProbe returns the readinessProbe consulted by
+// /readyz. It polls KernelModules via the cached statusExporter path,
+// reads the accepting flag from the exporter, and checks the status
+// socket file for writability (when configured).
+func newDaemonReadinessProbe(cfg *Config, src *statusExporter) readinessProbe {
+	return func(ctx context.Context) readinessState {
+		mods, modErr := src.KernelModules(ctx)
+		if modErr != nil {
+			// Fall through with an empty map: every "required" module
+			// read returns the zero ModuleState (Unknown) and
+			// readinessState.ready() correctly reports not-ready.
+			mods = map[string]usbip.ModuleState{}
+		}
+
+		return readinessState{
+			Accepting:      src.accepting.Load(),
+			StatusWritable: statusSocketWritable(cfg.StatusSocket),
+			Modules:        mods,
+		}
+	}
+}
+
+// shutdownMetricsServer performs the deferred HTTP shutdown under a
+// timeout derived from parentCtx so a wedged handler can't hang daemon
+// exit. Errors are logged at warn level — the process is unwinding and
+// cannot surface them via the main error path.
+func shutdownMetricsServer(
+	parentCtx context.Context,
+	stop func(context.Context) error,
+	timeout time.Duration,
+	log *slog.Logger,
+) {
+	sctx, cancel := context.WithTimeout(
+		context.WithoutCancel(parentCtx), timeout)
+	defer cancel()
+
+	err := stop(sctx)
+	if err != nil {
+		log.Warn("metrics server shutdown returned error", slog.Any("err", err))
+	}
+}
+
+// statusSocketWritable reports whether the daemon can drive status
+// writes at readiness-check time. An empty path (status disabled)
+// counts as "writable" because there is nothing to gate on. A non-empty
+// path must actually exist on the filesystem — missing file means the
+// UDS server failed to bind or was unlinked.
+func statusSocketWritable(path string) bool {
+	if path == "" {
+		return true
+	}
+
+	_, err := os.Stat(path)
+
+	return err == nil
 }
 
 // serveStatusFn is the indirection through which runDaemon launches
