@@ -171,18 +171,11 @@ func WithExporterHandshakeTimeout(d time.Duration) ExporterOption {
 	return func(c *exporterConfig) { c.handshakeTimeout = d }
 }
 
-// WithExporterShutdownTimeout records a Shutdown drain bound intended
-// for spec §5.7.
-//
-// CURRENT BEHAVIOUR: the value is stored on the public exporter
-// config and is NOT plumbed into the internal/app layer — no runtime
-// bound is enforced at Shutdown time by this option alone. Callers
-// that need a hard drain deadline must pass a bounded context.Context
-// to Exporter.Shutdown.
-//
-// The option exists today so the public API is stable from v1; the
-// Phase 9 metrics + lifecycle work wires the stored value into the
-// internal Shutdown path without a breaking-change bump.
+// WithExporterShutdownTimeout applies a backstop deadline to
+// Exporter.Shutdown(ctx) when the caller passes a ctx without its own
+// deadline. A positive value caps the drain; zero disables the
+// backstop; a caller-supplied ctx deadline always wins when tighter.
+// Spec §5.7 (RANK 9).
 func WithExporterShutdownTimeout(d time.Duration) ExporterOption {
 	return func(c *exporterConfig) { c.shutdownTimeout = d }
 }
@@ -221,14 +214,27 @@ func WithExporterBuildInfo(version, commit, goVersion string) ExporterOption {
 }
 
 // exporterConfigToInternal translates the public-facing exporterConfig
-// into the matching slice of internalapp.ExporterOption values.
-// shutdownTimeout is deliberately dropped here: it has no internal
-// counterpart today. See WithExporterShutdownTimeout for the full
-// CURRENT BEHAVIOUR contract. metricsRegisterer is plumbed through
-// via internalapp.WithExporterMetrics(MustNewMetrics(registerer)).
+// into the matching slice of internalapp.ExporterOption values. Every
+// non-zero field forwards to the internal option space; shutdownTimeout
+// is plumbed via internalapp.WithExporterShutdownTimeout (RANK 9).
+// metricsRegisterer is plumbed via internalapp.WithExporterMetrics
+// (MustNewMetrics(registerer)).
 func exporterConfigToInternal(cfg exporterConfig) []internalapp.ExporterOption {
 	out := make([]internalapp.ExporterOption, 0, exporterInternalOptCap)
 
+	out = appendExporterLoggerAndLimits(out, cfg)
+	out = appendExporterTimeouts(out, cfg)
+	out = appendExporterMetrics(out, cfg)
+
+	return out
+}
+
+// appendExporterLoggerAndLimits forwards the logger + capacity caps.
+// Split from exporterConfigToInternal so each helper stays under the
+// project's cyclomatic cap.
+func appendExporterLoggerAndLimits(
+	out []internalapp.ExporterOption, cfg exporterConfig,
+) []internalapp.ExporterOption {
 	if cfg.logger != nil {
 		out = append(out, internalapp.WithExporterLogger(cfg.logger))
 	}
@@ -251,6 +257,14 @@ func exporterConfigToInternal(cfg exporterConfig) []internalapp.ExporterOption {
 		out = append(out, internalapp.WithExporterACL(cfg.allowCIDRs...))
 	}
 
+	return out
+}
+
+// appendExporterTimeouts forwards the handshake / shutdown timing
+// knobs plus the handshake-byte cap.
+func appendExporterTimeouts(
+	out []internalapp.ExporterOption, cfg exporterConfig,
+) []internalapp.ExporterOption {
 	if cfg.maxHandshakeBytes != 0 {
 		out = append(out, internalapp.WithExporterMaxHandshakeBytes(cfg.maxHandshakeBytes))
 	}
@@ -259,6 +273,18 @@ func exporterConfigToInternal(cfg exporterConfig) []internalapp.ExporterOption {
 		out = append(out, internalapp.WithExporterHandshakeTimeout(cfg.handshakeTimeout))
 	}
 
+	if cfg.shutdownTimeout != 0 {
+		out = append(out, internalapp.WithExporterShutdownTimeout(cfg.shutdownTimeout))
+	}
+
+	return out
+}
+
+// appendExporterMetrics forwards the Prometheus registerer + build-
+// info stamp.
+func appendExporterMetrics(
+	out []internalapp.ExporterOption, cfg exporterConfig,
+) []internalapp.ExporterOption {
 	if cfg.metricsRegisterer != nil {
 		out = append(out, internalapp.WithExporterMetrics(
 			internalapp.MustNewMetrics(cfg.metricsRegisterer)))
@@ -281,6 +307,6 @@ func (bi exporterBuildInfo) isZero() bool {
 
 // exporterInternalOptCap is the ceiling used to preallocate the slice
 // returned by exporterConfigToInternal. It matches the number of
-// option branches inside that function (9 including the build-info
-// option wired by Finding 7).
-const exporterInternalOptCap = 9
+// option branches inside that function (10 now including shutdown
+// timeout plumbing wired by RANK 9).
+const exporterInternalOptCap = 10

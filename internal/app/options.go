@@ -91,6 +91,10 @@ type exporterConfig struct {
 	acceptBurst        int
 	maxHandshakeBytes  int
 	handshakeTimeout   time.Duration
+	// shutdownTimeout is the internal backstop applied by Exporter.Shutdown
+	// when the caller's ctx carries no deadline (RANK 9). Zero means
+	// "no backstop" — Shutdown respects only the caller's ctx.
+	shutdownTimeout time.Duration
 
 	aclCIDRs []string
 
@@ -213,6 +217,15 @@ func WithExporterMaxHandshakeBytes(n int) ExporterOption {
 // up the default; a negative value disables the timeout.
 func WithExporterHandshakeTimeout(d time.Duration) ExporterOption {
 	return func(c *exporterConfig) { c.handshakeTimeout = d }
+}
+
+// WithExporterShutdownTimeout is the backstop deadline applied by
+// Exporter.Shutdown when the caller's ctx carries no deadline (RANK
+// 9). A zero value disables the backstop; a positive value caps the
+// drain regardless of the caller's ctx. Always overridden by a
+// tighter caller-supplied deadline.
+func WithExporterShutdownTimeout(d time.Duration) ExporterOption {
+	return func(c *exporterConfig) { c.shutdownTimeout = d }
 }
 
 // WithExporterACL appends CIDR strings to the accept-path allow-list
