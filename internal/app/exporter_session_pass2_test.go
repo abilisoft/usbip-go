@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -175,4 +176,114 @@ func (k *preHandoffKernelEvents) publishDetach() {
 		default:
 		}
 	}
+}
+
+// TestExporterShutdown_DisconnectsActiveSessions proves the pass-2
+// RANK 3 fix. Closing handle.done alone only releases the handler from
+// its event wait; the kernel still owns the socket until the app
+// writes -1 to usbip_sockfd. Shutdown's graceful drain path MUST call
+// e.kernel.Disconnect(ctx, busid) for every active session so the
+// kernel releases the socket and the handler's waitForSessionEnd
+// observes the kernel-emitted detach uevent.
+//
+// The test asserts Disconnect is invoked with the session's busid
+// during Shutdown. Pre-fix Shutdown never calls Disconnect and the
+// counter stays at 0; post-fix it is exactly 1.
+func TestExporterShutdown_DisconnectsActiveSessions(t *testing.T) {
+	t.Parallel()
+
+	const sessionBusID = domain.BusID("5-5")
+
+	// Buffered by 1 so the Disconnect hook's publish is non-blocking
+	// even if the handler has not yet selected on the channel.
+	events := make(chan domain.Event, 1)
+
+	kev := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return events, func() {}, nil
+		},
+	}
+
+	exportEntered := make(chan struct{}, 1)
+
+	var disconnected atomic.Int32
+
+	kernel := &ExporterKernelMock{
+		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
+			select {
+			case exportEntered <- struct{}{}:
+			default:
+			}
+
+			return nil
+		},
+		DisconnectFunc: func(_ context.Context, id domain.BusID) error {
+			require.Equal(t, sessionBusID, id)
+
+			disconnected.Add(1)
+
+			// Model the real kernel: Disconnect writes -1 to
+			// usbip_sockfd; sysfs emits a remove uevent which the
+			// KernelEvents netlink reader turns into a
+			// PortDetachedEvent. The handler's waitForSessionEnd
+			// matches on busid and unwinds.
+			events <- domain.PortDetachedEvent{
+				At:     time.Now(),
+				Port:   domain.Port{BusID: sessionBusID},
+				Reason: "kernel disconnect",
+			}
+
+			return nil
+		},
+	}
+
+	codec := newSessionImportCodec(sessionBusID)
+
+	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 15), Port: 9100})
+
+	exp := newExporterForTest(t,
+		app.WithExporterKernel(kernel),
+		app.WithExporterEvents(kev),
+		app.WithExporterCodec(codec),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	serveDone := make(chan error, 1)
+
+	go func() { serveDone <- exp.Serve(ctx, lis) }()
+
+	client, err := lis.dial(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	_, err = client.Write(opHeader(wire.OpReqImport))
+	require.NoError(t, err)
+
+	select {
+	case <-exportEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ExportOnConn was not invoked")
+	}
+
+	require.Eventually(t, func() bool {
+		return len(exp.Sessions(context.Background())) == 1
+	}, 2*time.Second, 10*time.Millisecond)
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer shutdownCancel()
+
+	require.NoError(t, exp.Shutdown(shutdownCtx),
+		"Shutdown must drain gracefully once Disconnect is wired")
+
+	require.Equal(t, int32(1), disconnected.Load(),
+		"Shutdown must invoke kernel.Disconnect exactly once per active session")
+
+	require.Empty(t, exp.Sessions(context.Background()),
+		"Sessions() must be empty after Shutdown drains parked handlers")
+
+	cancel()
+
+	<-serveDone
 }
