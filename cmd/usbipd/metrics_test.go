@@ -277,7 +277,7 @@ func TestMaybeStartMetricsServerNoDoubleRegistration(t *testing.T) {
 		ShutdownTimeout: 5 * time.Second,
 	}
 
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := slog.New(slog.DiscardHandler)
 
 	exp, err := buildExporter(cfg, log, reg)
 	require.NoError(t, err)

@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/abilisoft/usbip-go/pkg/usbip"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -110,9 +112,12 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 		slog.String("addr", listener.Addr().String()),
 		slog.Bool("activation", activated))
 
-	src.markAccepting(true)
-
-	serveErr := exp.Serve(serveCtx, listener)
+	// Accepting now flips true on the FIRST successful Accept (Finding
+	// 5): an accept-intercepting wrapper fires src.markAccepting(true)
+	// exactly once. Previously the flag was stored true BEFORE Serve
+	// entered the accept loop, so /readyz would report 200 during the
+	// brief window where the accept loop might still fail to arm.
+	serveErr := exp.Serve(serveCtx, wrapListenerFirstAccept(listener, src))
 
 	src.markAccepting(false)
 
@@ -123,6 +128,46 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 	cancelStatus()
 
 	return completeShutdown(ctx, serveCtx, cfg, log, serveErr, statusErrCh)
+}
+
+// firstAcceptListener decorates a net.Listener with a one-shot hook
+// that fires on the first successful Accept return (Finding 5). The
+// hook transitions src.accepting from false to true so /readyz stops
+// reporting 200 on a merely-bound socket that has not yet produced
+// any accepted connection. Subsequent accepts pass through unchanged;
+// the hook pays for itself only on the startup edge.
+type firstAcceptListener struct {
+	net.Listener
+
+	once sync.Once
+	hook func()
+}
+
+// wrapListenerFirstAccept returns a listener that fires
+// src.markAccepting(true) on the first successful Accept. Production
+// uses this once per Serve; tests construct statusExporter directly
+// and drive markAccepting via their own path.
+func wrapListenerFirstAccept(lis net.Listener, src *statusExporter) net.Listener {
+	return &firstAcceptListener{
+		Listener: lis,
+		hook: func() {
+			src.markAccepting(true)
+		},
+	}
+}
+
+// Accept calls through to the wrapped listener and fires the hook on
+// the FIRST successful return. Errors bypass the hook so a transient
+// Accept failure cannot prematurely flip /readyz green.
+func (l *firstAcceptListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return conn, err //nolint:wrapcheck // preserving the listener's original error for isExpectedServeExit
+	}
+
+	l.once.Do(l.hook)
+
+	return conn, nil
 }
 
 // drainExporter is the deferred Exporter.Shutdown callpoint. Extracted
@@ -228,8 +273,9 @@ func maybeStartMetricsServer(
 
 // newDaemonReadinessProbe returns the readinessProbe consulted by
 // /readyz. It polls KernelModules via the cached statusExporter path,
-// reads the accepting flag from the exporter, and checks the status
-// socket file for writability (when configured).
+// reads the listenerBound + accepting flags from the exporter, and
+// consults syscall.Access(W_OK) on the status socket path. The four
+// inputs mirror the §11.5.5 readiness contract (Finding 5).
 func newDaemonReadinessProbe(cfg *Config, src *statusExporter) readinessProbe {
 	return func(ctx context.Context) readinessState {
 		mods, modErr := src.KernelModules(ctx)
@@ -241,6 +287,7 @@ func newDaemonReadinessProbe(cfg *Config, src *statusExporter) readinessProbe {
 		}
 
 		return readinessState{
+			ListenerBound:  src.listenerBound.Load(),
 			Accepting:      src.accepting.Load(),
 			StatusWritable: statusSocketWritable(cfg.StatusSocket),
 			Modules:        mods,
@@ -270,17 +317,27 @@ func shutdownMetricsServer(
 
 // statusSocketWritable reports whether the daemon can drive status
 // writes at readiness-check time. An empty path (status disabled)
-// counts as "writable" because there is nothing to gate on. A non-empty
-// path must actually exist on the filesystem — missing file means the
-// UDS server failed to bind or was unlinked.
+// counts as "writable" because there is nothing to gate on. A non-
+// empty path must exist AND be writable by the current uid.
+//
+// The check uses unix.Access(path, unix.W_OK) rather than os.Stat
+// (Finding 5): os.Stat only confirms the inode exists, which lets
+// /readyz report 200 in the case where the UDS file is present but
+// owned by a different user (0400 root:root, for instance). Access
+// consults the kernel's permission logic and returns an error
+// whenever a write would be refused, so /readyz stays red until the
+// daemon actually has the rights the §7.7 status write path needs.
+//
+// We prefer golang.org/x/sys/unix.Access over syscall.Access because
+// the stdlib syscall package does not export the W_OK constant on
+// Linux; unix.Access does, and the project already depends on x/sys
+// for other kernel-facing plumbing.
 func statusSocketWritable(path string) bool {
 	if path == "" {
 		return true
 	}
 
-	_, err := os.Stat(path)
-
-	return err == nil
+	return unix.Access(path, unix.W_OK) == nil
 }
 
 // serveStatusFn is the indirection through which runDaemon launches
