@@ -91,6 +91,7 @@ func TestImporterRollback_PreservesHandleOnKernelDetachFailure(t *testing.T) {
 	})
 
 	opts := attachOptionsWithBackoff()
+
 	opts.ShutdownTimeout = 50 * time.Millisecond
 
 	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), opts)
