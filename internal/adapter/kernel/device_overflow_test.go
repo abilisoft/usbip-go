@@ -78,3 +78,40 @@ func TestListLocalDevices_ConfigValueOverflowFailsClosed(t *testing.T) {
 	require.Empty(t, got,
 		"sysfs byte-width field past u8 max must not silently truncate")
 }
+
+// TestListLocalDevices_InterfaceOverflowFailsClosed proves the pass-2
+// RANK 8 fix. readInterface validates each byte-width interface
+// descriptor field (bInterfaceClass, bInterfaceSubClass,
+// bInterfaceProtocol, bAlternateSetting) and returns
+// errSysfsValueOutOfRange on overflow. Pre-fix readInterfaces treated
+// every non-missing error as "log-and-continue", so an out-of-range
+// interface class was swallowed and the device landed in the result
+// slice with a truncated Interfaces slice — the caller thinks the
+// device is well-formed when in fact sysfs surfaced malformed data.
+//
+// Fix: overflow errors are fatal for the device read; the whole entry
+// is skipped rather than surfaced with a silently-partial Interfaces
+// slice. Only genuine "file does not exist" errors (ENOENT on
+// optional attrs) are still tolerated.
+func TestListLocalDevices_InterfaceOverflowFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	dev := deviceSysfs("1-1", makeDeviceAttrs())
+
+	// Override the interface class to a value exceeding u8 max.
+	// ReadHex16 parses this as 0x100 and narrowByteErr surfaces
+	// errSysfsValueOutOfRange.
+	dev["sys/bus/usb/devices/1-1:1.0/bInterfaceClass"].Data = []byte("0100\n")
+
+	mfs := mergeFS(dev, moduleDirs())
+
+	a, err := kernel.NewExporterAdapter(kernel.WithFS(mfs))
+	require.NoError(t, err)
+
+	got, err := a.ListLocalDevices(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, got,
+		"sysfs interface-class overflow must fail the whole device "+
+			"read — emitting the device with a silently-truncated "+
+			"Interfaces slice would hide malformed sysfs data")
+}
