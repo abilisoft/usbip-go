@@ -131,11 +131,12 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 }
 
 // firstAcceptListener decorates a net.Listener with a one-shot hook
-// that fires on the first successful Accept return (Finding 5). The
-// hook transitions src.accepting from false to true so /readyz stops
-// reporting 200 on a merely-bound socket that has not yet produced
-// any accepted connection. Subsequent accepts pass through unchanged;
-// the hook pays for itself only on the startup edge.
+// that fires when the accept loop ENTERS its first Accept call. Pre-
+// RANK-7 the hook fired on the first successful Accept return, which
+// left an idle daemon (no clients) stuck at /readyz=503 forever — the
+// semantic ought to be "I will accept if something connects", not "I
+// have accepted ≥1". Firing on entry lets /readyz flip 200 as soon as
+// the accept loop is armed.
 type firstAcceptListener struct {
 	net.Listener
 
@@ -144,28 +145,38 @@ type firstAcceptListener struct {
 }
 
 // wrapListenerFirstAccept returns a listener that fires
-// src.markAccepting(true) on the first successful Accept. Production
-// uses this once per Serve; tests construct statusExporter directly
-// and drive markAccepting via their own path.
+// src.markAccepting(true) when the accept loop first enters Accept.
+// Production uses this once per Serve; tests construct statusExporter
+// directly and drive markAccepting via their own path.
 func wrapListenerFirstAccept(lis net.Listener, src *statusExporter) net.Listener {
+	return wrapListenerFirstAcceptWithHook(lis, func() {
+		src.markAccepting(true)
+	})
+}
+
+// wrapListenerFirstAcceptWithHook is the hook-observable variant tests
+// use to assert the firstAcceptListener lifecycle without wiring a
+// statusExporter. Production callers go through wrapListenerFirstAccept.
+func wrapListenerFirstAcceptWithHook(lis net.Listener, hook func()) net.Listener {
 	return &firstAcceptListener{
 		Listener: lis,
-		hook: func() {
-			src.markAccepting(true)
-		},
+		hook:     hook,
 	}
 }
 
-// Accept calls through to the wrapped listener and fires the hook on
-// the FIRST successful return. Errors bypass the hook so a transient
-// Accept failure cannot prematurely flip /readyz green.
+// Accept calls through to the wrapped listener and fires the hook
+// BEFORE blocking on the inner Accept so the readiness flip lands as
+// soon as the accept loop is armed (RANK 7). Pre-fix the hook fired
+// only on successful return, so an idle daemon stayed /readyz=503
+// forever. Preserves the listener's original error on the return
+// path so isExpectedServeExit still recognises graceful shutdowns.
 func (l *firstAcceptListener) Accept() (net.Conn, error) {
+	l.once.Do(l.hook)
+
 	conn, err := l.Listener.Accept()
 	if err != nil {
 		return conn, err //nolint:wrapcheck // preserving the listener's original error for isExpectedServeExit
 	}
-
-	l.once.Do(l.hook)
 
 	return conn, nil
 }
