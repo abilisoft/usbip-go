@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -175,6 +179,63 @@ func TestDrainSubcommandTimeout(t *testing.T) {
 	require.ErrorIs(t, err, errDrainTimeout)
 	require.Contains(t, stderr.String(), "drain timed out")
 }
+
+// TestIsDaemonGoneErrorClassification proves the transport-error
+// narrowing from Phase 8 review Finding 3: drain must only treat a
+// dial failure as "daemon gone" when the UDS is truly gone
+// (ENOENT / ErrNotExist) or the peer refused the connection
+// (ECONNREFUSED). Any other *net.OpError — including EACCES on bind,
+// ETIMEDOUT on dial, connection reset, or generic i/o errors — must
+// propagate so operators can tell "daemon drained" from "transport
+// wedged".
+func TestIsDaemonGoneErrorClassification(t *testing.T) {
+	t.Parallel()
+
+	// Synthetic *net.OpError carriers so we can drive the classifier
+	// with specific wrapped syscall errnos. DialContext-style OpErrors
+	// wrap the socket.connect errno under .Err, which errors.Is walks.
+	opErrWith := func(inner error) error {
+		return &net.OpError{
+			Op:   "dial",
+			Net:  "unix",
+			Addr: &net.UnixAddr{Name: "/tmp/does-not-matter.sock", Net: "unix"},
+			Err:  inner,
+		}
+	}
+
+	// Daemon-gone paths. Every one of these MUST classify as drained.
+	require.True(t, isDaemonGoneError(net.ErrClosed),
+		"net.ErrClosed → daemon gone")
+	require.True(t, isDaemonGoneError(opErrWith(syscall.ECONNREFUSED)),
+		"ECONNREFUSED → daemon gone (peer exited between polls)")
+	require.True(t, isDaemonGoneError(opErrWith(&os.PathError{
+		Op: "connect", Path: "/tmp/does-not-matter.sock", Err: syscall.ENOENT,
+	})), "ENOENT under OpError → daemon gone (socket unlinked)")
+	require.True(t, isDaemonGoneError(opErrWith(fs.ErrNotExist)),
+		"fs.ErrNotExist under OpError → daemon gone")
+
+	// Non-gone paths. Every one of these MUST propagate — the legacy
+	// "any *net.OpError counts as drained" heuristic mishandled them.
+	require.False(t, isDaemonGoneError(opErrWith(syscall.EACCES)),
+		"EACCES under OpError → transport error, not drained")
+	require.False(t, isDaemonGoneError(opErrWith(syscall.ETIMEDOUT)),
+		"ETIMEDOUT under OpError → transport error, not drained")
+	require.False(t, isDaemonGoneError(opErrWith(syscall.ECONNRESET)),
+		"ECONNRESET under OpError → transport error, not drained")
+	require.False(t, isDaemonGoneError(opErrWith(errWeirdIOFail)),
+		"arbitrary net.OpError → transport error, not drained")
+	require.False(t, isDaemonGoneError(errBareNonNet),
+		"bare error → not drained")
+	require.False(t, isDaemonGoneError(nil), "nil → not drained")
+}
+
+// errWeirdIOFail + errBareNonNet are test-scoped sentinels used to
+// exercise isDaemonGoneError with non-recognised errors; err113 wants
+// static errors for fixtures.
+var (
+	errWeirdIOFail = errors.New("weird io fail")
+	errBareNonNet  = errors.New("bare non-net error")
+)
 
 // TestDrainSubcommandUDSDisappears proves the client treats the daemon
 // exiting during drain (UDS gone) as success: a closed connection
