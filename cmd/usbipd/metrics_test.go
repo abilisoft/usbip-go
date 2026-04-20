@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -92,7 +94,8 @@ func TestReadyzReturns503WhenModuleMissing(t *testing.T) {
 
 	checker := newReadinessChecker(func(_ context.Context) readinessState {
 		return readinessState{
-			Accepting:     true,
+			ListenerBound:  true,
+			Accepting:      true,
 			StatusWritable: true,
 			Modules: map[string]usbip.ModuleState{
 				"usbip_core": usbip.ModuleStateMissing,
@@ -120,7 +123,8 @@ func TestReadyzReturns503WhenNotAccepting(t *testing.T) {
 
 	checker := newReadinessChecker(func(_ context.Context) readinessState {
 		return readinessState{
-			Accepting:     false,
+			ListenerBound:  true,
+			Accepting:      false,
 			StatusWritable: true,
 			Modules: map[string]usbip.ModuleState{
 				"usbip_core": usbip.ModuleStateLoaded,
@@ -152,6 +156,103 @@ func TestReadyzReturns200WhenReady(t *testing.T) {
 
 	handler.ServeHTTP(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code)
+}
+
+// TestReadyzReturns503WhenListenerNotBound proves /readyz fails closed
+// when the accept-path listener has not bound yet (Finding 5). The
+// previous contract inferred "listener up" from the Accepting flag
+// alone, which was set BEFORE Serve entered its accept loop, so a
+// kernel bind failure arriving after runDaemon announced readiness
+// would leave /readyz reporting 200 while no TCP listener was
+// actually live.
+func TestReadyzReturns503WhenListenerNotBound(t *testing.T) {
+	t.Parallel()
+
+	reg := prometheus.NewRegistry()
+
+	checker := newReadinessChecker(func(_ context.Context) readinessState {
+		return readinessState{
+			ListenerBound:  false,
+			Accepting:      true,
+			StatusWritable: true,
+			Modules: map[string]usbip.ModuleState{
+				"usbip_core": usbip.ModuleStateLoaded,
+				"vhci_hcd":   usbip.ModuleStateLoaded,
+				"usbip_host": usbip.ModuleStateLoaded,
+			},
+		}
+	})
+
+	handler := newMetricsMux(reg, checker)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/readyz", nil)
+
+	handler.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusServiceUnavailable, rr.Code)
+}
+
+// TestReadyzReturns503WhenStatusSockNotWritable proves /readyz fails
+// closed when the status UDS is missing or its parent dir is not
+// writable by the daemon uid (Finding 5). Previously statusSocketWritable
+// called os.Stat — a file that exists but is owned by root with 0600
+// would still return nil from Stat even when this process cannot write
+// to it. The syscall.Access(W_OK) replacement catches that case.
+func TestReadyzReturns503WhenStatusSockNotWritable(t *testing.T) {
+	t.Parallel()
+
+	reg := prometheus.NewRegistry()
+
+	checker := newReadinessChecker(func(_ context.Context) readinessState {
+		return readinessState{
+			ListenerBound:  true,
+			Accepting:      true,
+			StatusWritable: false,
+			Modules: map[string]usbip.ModuleState{
+				"usbip_core": usbip.ModuleStateLoaded,
+				"vhci_hcd":   usbip.ModuleStateLoaded,
+				"usbip_host": usbip.ModuleStateLoaded,
+			},
+		}
+	})
+
+	handler := newMetricsMux(reg, checker)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/readyz", nil)
+
+	handler.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusServiceUnavailable, rr.Code)
+}
+
+// TestStatusSocketWritableReportsMissingPath proves statusSocketWritable
+// returns false when the UDS path does not exist. The previous os.Stat
+// implementation returned false on missing too — this test guards the
+// new syscall.Access-based implementation against regressing the
+// missing-file case while the writability semantics change underneath.
+func TestStatusSocketWritableReportsMissingPath(t *testing.T) {
+	t.Parallel()
+
+	missing := filepath.Join(t.TempDir(), "does-not-exist.sock")
+
+	require.False(t, statusSocketWritable(missing),
+		"statusSocketWritable must report false for a missing UDS path")
+}
+
+// TestStatusSocketWritableReportsWritable proves statusSocketWritable
+// returns true when the path exists AND is writable by the current
+// uid. Pairs with the missing / readonly assertions to pin the full
+// truth table.
+func TestStatusSocketWritableReportsWritable(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "status.sock")
+
+	require.NoError(t, os.WriteFile(path, []byte{}, 0o600))
+
+	require.True(t, statusSocketWritable(path),
+		"statusSocketWritable must report true for a 0600 file owned by the test uid")
 }
 
 // TestMaybeStartMetricsServerNoDoubleRegistration proves the
@@ -304,7 +405,8 @@ func primeMetricsCatalog(m *app.Metrics) {
 // need the /readyz endpoint to return 200.
 func alwaysReady(_ context.Context) readinessState {
 	return readinessState{
-		Accepting:     true,
+		ListenerBound:  true,
+		Accepting:      true,
 		StatusWritable: true,
 		Modules: map[string]usbip.ModuleState{
 			"usbip_core": usbip.ModuleStateLoaded,
