@@ -22,6 +22,7 @@ func TestListLocalDevices_BusnumOverflowFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	attrs := makeDeviceAttrs()
+
 	attrs["busnum"] = "65536\n" // 0x10000 — one past u16 max.
 
 	dev := deviceSysfs("1-1", attrs)
@@ -42,6 +43,7 @@ func TestListLocalDevices_DevnumOverflowFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	attrs := makeDeviceAttrs()
+
 	attrs["devnum"] = "70000\n"
 
 	dev := deviceSysfs("1-1", attrs)
@@ -62,6 +64,7 @@ func TestListLocalDevices_ConfigValueOverflowFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	attrs := makeDeviceAttrs()
+
 	attrs["bConfigurationValue"] = "256\n" // 0x100 — one past u8 max.
 
 	dev := deviceSysfs("1-1", attrs)
