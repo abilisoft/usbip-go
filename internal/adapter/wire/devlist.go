@@ -20,6 +20,13 @@ const interfaceWireSize = 4
 // OP_REP_DEVLIST reply.
 const devlistCountSize = 4
 
+// MaxDevlistDevices caps the device count honoured by DecodeOpRepDevlist.
+// A peer that declares more devices than this has either a pathological
+// enumeration or is mounting a denial-of-service attack against the
+// importer's allocator. 1024 is already well past the plausible ceiling
+// for any real USB hub topology (RANK 2).
+const MaxDevlistDevices = 1024
+
 // Byte offsets inside a single interface descriptor.
 const (
 	offIntfClass    = 0
@@ -154,6 +161,15 @@ func DecodeOpRepDevlist(r io.Reader) ([]domain.Device, bool, error) {
 	}
 
 	count := binary.BigEndian.Uint32(countBuf)
+
+	// Cap the declared device count BEFORE allocating the destination
+	// slice. A hostile peer advertising near-MaxUint32 would otherwise
+	// trigger a makeslice panic (or in the best case a multi-GB
+	// allocation). RANK 2.
+	if count > MaxDevlistDevices {
+		return nil, false, fmt.Errorf("%w: devlist count %d exceeds cap %d",
+			domain.ErrProtocolMismatch, count, MaxDevlistDevices)
+	}
 
 	// Use a bufio.Reader so we can Peek to detect trailing bytes.
 	br, ok := r.(*bufio.Reader)
