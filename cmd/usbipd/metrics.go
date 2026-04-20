@@ -11,18 +11,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	internalapp "github.com/abilisoft/usbip-go/internal/app"
 	"github.com/abilisoft/usbip-go/pkg/usbip"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
-
-// newMetricsBundle is a thin forwarder to internal/app.MustNewMetrics
-// so cmd/usbipd can stamp build_info and exercise the §11.5.5 bundle
-// without importing internal/app at every call site.
-func newMetricsBundle(reg prometheus.Registerer) *internalapp.Metrics {
-	return internalapp.MustNewMetrics(reg)
-}
 
 // metricsReadHeaderTimeout bounds HTTP header reads on the metrics
 // server. Prometheus scrapes are short by design — 5 seconds is ample
