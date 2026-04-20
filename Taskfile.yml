@@ -122,9 +122,9 @@ tasks:
       - go clean -testcache
 
   release:snapshot:
-    desc: Snapshot release build via GoReleaser
+    desc: Full snapshot release (archives + nfpms + checksums). SBOM + cosign sign skipped; those need syft + cosign on PATH and a real tag.
     cmds:
-      - goreleaser build --snapshot --clean
+      - goreleaser release --snapshot --clean --skip=sign,sbom,publish
 
   release:
     desc: Tagged release via GoReleaser
