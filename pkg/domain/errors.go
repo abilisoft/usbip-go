@@ -41,4 +41,11 @@ var (
 	// ErrKernelModuleMissing indicates a required kernel module
 	// (usbip-core/usbip-host/vhci-hcd) is not loaded.
 	ErrKernelModuleMissing = errors.New("required kernel module not loaded")
+	// ErrAttachInProgress indicates Attach is already running for the
+	// same (remote, busid) pair. Concurrent Attach calls race the
+	// fd-passing handoff and the handle-map insert, so the deduper
+	// rejects the second caller with this sentinel (spec §5.5,
+	// pass-2 RANK 6 — promoted to pkg/domain so the public facade
+	// can re-export it alongside the other spec-listed sentinels).
+	ErrAttachInProgress = errors.New("attach already in progress for this endpoint")
 )
