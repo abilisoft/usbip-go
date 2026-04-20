@@ -54,12 +54,13 @@ func TestStatusBoundDevicesErrorSurfaced(t *testing.T) {
 
 	src := &erroringStatusSource{}
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 
 	handleStatusGet(rec, req, src)
 
 	resp := rec.Result()
+
 	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)

@@ -40,11 +40,11 @@ type fakeStatusSource struct {
 	mu          sync.Mutex
 }
 
-func (f *fakeStatusSource) BoundDevices(_ context.Context) []usbip.Device {
+func (f *fakeStatusSource) BoundDevices(_ context.Context) ([]usbip.Device, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	return append([]usbip.Device{}, f.bound...)
+	return append([]usbip.Device{}, f.bound...), nil
 }
 
 func (f *fakeStatusSource) Sessions(_ context.Context) []usbip.Session {

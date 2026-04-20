@@ -23,8 +23,13 @@ import (
 // live daemon state. Production wiring is *statusExporter in run.go;
 // unit tests replace it with a struct stub to exercise the handler
 // without a Linux kernel.
+//
+// BoundDevices returns (devices, nil) on success and (nil, err) when
+// the underlying ListAvailable fails. The handler surfaces the err
+// via the bound_devices_error JSON field rather than silently serving
+// an empty bound_devices array (RANK 12).
 type statusSource interface {
-	BoundDevices(ctx context.Context) []usbip.Device
+	BoundDevices(ctx context.Context) ([]usbip.Device, error)
 	Sessions(ctx context.Context) []usbip.Session
 	Listening() listeningState
 	KernelModules(ctx context.Context) (map[string]usbip.ModuleState, error)
@@ -42,15 +47,20 @@ type listeningState struct {
 // statusResponse is the typed JSON envelope served on GET /. Declared
 // as a concrete struct (not map[string]any) so the compiler guards the
 // schema-v1 contract against drift (spec §7.7).
+//
+// BoundDevicesError carries the human-readable reason ListAvailable
+// failed when bound_devices would otherwise be an empty slice (RANK
+// 12). The field is omitempty so the happy-path JSON stays unchanged.
 type statusResponse struct {
-	Schema        string                        `json:"schema"`
-	Version       string                        `json:"version"`
-	Commit        string                        `json:"commit"`
-	UptimeSec     int64                         `json:"uptime_sec"`
-	Listening     listeningState                `json:"listening"`
-	BoundDevices  []boundDeviceJSON             `json:"bound_devices"`
-	Sessions      []sessionJSON                 `json:"sessions"`
-	KernelModules map[string]usbip.ModuleState  `json:"kernel_modules"`
+	Schema             string                       `json:"schema"`
+	Version            string                       `json:"version"`
+	Commit             string                       `json:"commit"`
+	UptimeSec          int64                        `json:"uptime_sec"`
+	Listening          listeningState               `json:"listening"`
+	BoundDevices       []boundDeviceJSON            `json:"bound_devices"`
+	BoundDevicesError  string                       `json:"bound_devices_error,omitempty"`
+	Sessions           []sessionJSON                `json:"sessions"`
+	KernelModules      map[string]usbip.ModuleState `json:"kernel_modules"`
 }
 
 // boundDeviceJSON is the schema-v1 shape for a bound device row.
@@ -335,15 +345,29 @@ func handleStatusGet(w http.ResponseWriter, r *http.Request, src statusSource) {
 			slog.Any("err", err))
 	}
 
+	devs, bdErr := src.BoundDevices(r.Context())
+
+	bdErrStr := ""
+	if bdErr != nil {
+		// ListAvailable failure (typically /sys inaccessible). Surface
+		// via bound_devices_error rather than pretending the export
+		// list is empty (RANK 12). Operators polling / can distinguish
+		// "no exports" from "sysfs unreachable".
+		bdErrStr = bdErr.Error()
+		slog.Default().Warn("status: list bound devices failed",
+			slog.Any("err", bdErr))
+	}
+
 	resp := statusResponse{
-		Schema:        "v1",
-		Version:       version,
-		Commit:        commit,
-		UptimeSec:     int64(time.Since(processStartTime).Seconds()),
-		Listening:     src.Listening(),
-		BoundDevices:  devicesToJSON(src.BoundDevices(r.Context())),
-		Sessions:      sessionsToJSON(src.Sessions(r.Context())),
-		KernelModules: km,
+		Schema:            "v1",
+		Version:           version,
+		Commit:            commit,
+		UptimeSec:         int64(time.Since(processStartTime).Seconds()),
+		Listening:         src.Listening(),
+		BoundDevices:      devicesToJSON(devs),
+		BoundDevicesError: bdErrStr,
+		Sessions:          sessionsToJSON(src.Sessions(r.Context())),
+		KernelModules:     km,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
