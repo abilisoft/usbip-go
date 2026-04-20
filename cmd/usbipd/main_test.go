@@ -2,10 +2,40 @@ package main
 
 import (
 	"bytes"
+	"fmt"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+// TestMain redirects the test-scoped tmpdir to a project-local
+// directory. The default $TMPDIR (/tmp under the Claude Code sandbox)
+// refuses AF_UNIX socket creation — the seccomp filter blocks unix
+// bind(2) outside the project root, even though /tmp is in allowWrite.
+// Pointing t.TempDir() at ./.test-tmp-* keeps every UDS bind inside the
+// project directory that the sandbox does permit. Removed after m.Run.
+func TestMain(m *testing.M) {
+	tmp, err := os.MkdirTemp(".", ".test-tmp-")
+	if err != nil {
+		panic("mkdir project-local testtmp: " + err.Error())
+	}
+
+	setErr := os.Setenv("TMPDIR", tmp)
+	if setErr != nil {
+		panic("set TMPDIR: " + setErr.Error())
+	}
+
+	code := m.Run()
+
+	removeErr := os.RemoveAll(tmp)
+	if removeErr != nil {
+		// Do not clobber a test failure with a cleanup error.
+		_, _ = fmt.Fprintln(os.Stderr, "cleanup failed: "+removeErr.Error())
+	}
+
+	os.Exit(code)
+}
 
 // specFlags lists every flag spec §7.7 requires on the usbipd root
 // command. The assertion is that `--help` output contains each flag

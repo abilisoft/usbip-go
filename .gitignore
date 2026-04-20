@@ -5,6 +5,7 @@
 /coverage.html
 *.log
 .task/
+.test-tmp-*/
 
 # Sandbox bind-mount shadows of $HOME dotfiles — created by Claude
 # Code when the harness sandbox is enabled; never contain project

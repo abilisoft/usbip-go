@@ -452,11 +452,7 @@ func TestStatusBindSerialisedByFlock(t *testing.T) {
 	var wg sync.WaitGroup
 
 	for range racers {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			started := make(chan struct{})
 
 			doneStart := make(chan struct{})
@@ -464,16 +460,18 @@ func TestStatusBindSerialisedByFlock(t *testing.T) {
 			go func() {
 				select {
 				case <-started:
-					close(doneStart)
 				case <-time.After(2 * time.Second):
-					close(doneStart)
 				}
+
+				close(doneStart)
 			}()
 
 			err := serveStatus(ctx, sockPath, "", src, started)
+
 			<-doneStart
+
 			results <- result{err: err, started: true}
-		}()
+		})
 	}
 
 	// Give both goroutines a chance to reach the bind path, then
@@ -543,20 +541,22 @@ func TestStatusGroupChownResolvesCallerGroup(t *testing.T) {
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "status.sock")
 
-	// Create the file mode-0660 so the chown-only helper has a valid
+	// Create the file mode 0600 so the chown-only helper has a valid
 	// target. We're unit-testing the group-chown helper in isolation;
-	// mode is now set atomically by listenWithUmask's pre-bind umask.
-	// filepath.Clean reassures gosec G304 that the test-generated path
-	// has no traversal.
+	// mode is now set by bindStatusSocket's post-bind os.Chmod so the
+	// ACL helper no longer touches permissions. filepath.Clean
+	// reassures gosec G304 that the test-generated path has no
+	// traversal. 0o600 avoids gosec G302 "file permissions 0600 or
+	// less" — the mode under test here is chown, not chmod.
 	f, err := os.OpenFile(filepath.Clean(sockPath),
-		os.O_CREATE|os.O_RDWR, 0o660)
+		os.O_CREATE|os.O_RDWR, 0o600)
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
-	require.NoError(t, os.Chmod(sockPath, 0o660))
 
-	require.NoError(t, applyStatusSocketACL(sockPath, gname))
+	applyStatusSocketACL(sockPath, gname)
 
 	info, err := os.Stat(sockPath)
 	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o660), info.Mode().Perm())
+	// Mode is untouched by the chown-only helper; 0o600 remains.
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }
