@@ -59,6 +59,9 @@ func startExporterImportSession(
 
 			return nil
 		},
+		// Pass-2 RANK 3: fixture helper needs a DisconnectFunc so the
+		// cleanup-time Shutdown does not panic the mock.
+		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
 	}
 
 	codec := newSessionImportCodec(domain.BusID("3-1"))
@@ -268,6 +271,11 @@ func TestExporterShutdown_DeadlineExceededForcesConnClose(t *testing.T) {
 
 			return io.EOF
 		},
+		// Pass-2 RANK 3: the deadline-exceeded fixture deliberately
+		// models a kernel that never unwinds Disconnect gracefully.
+		// The stub returns nil without emitting an event so the
+		// bounded drain falls through to the force-close path.
+		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
 	}
 
 	codec := newSessionImportCodec(domain.BusID("3-1"))

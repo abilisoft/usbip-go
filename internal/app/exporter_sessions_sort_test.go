@@ -56,6 +56,11 @@ func TestExporterSessions_SortStableOnEqualStartedAt(t *testing.T) {
 
 			return nil
 		},
+		// Pass-2 RANK 3: Shutdown issues a graceful Disconnect per
+		// active session. Tests that drive Shutdown through an active
+		// session need a stub; the handler unwinds via the conn close
+		// triggered by close(release) regardless.
+		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
 	}
 
 	// DecodeOpReqImport returns distinct busids per call so the two

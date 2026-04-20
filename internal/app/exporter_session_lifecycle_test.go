@@ -101,8 +101,10 @@ func TestExporterSession_LifecycleFollowsKernelDetachEvent(t *testing.T) {
 
 // TestExporterSession_ShutdownEndsKernelOwnedSession asserts that
 // Shutdown unwinds a handler parked in waitForSessionEnd (RANK 1). The
-// handler must exit without the kernel detach event — Shutdown signals
-// via handle.done so the waiter terminates with DisconnectReasonShutdown.
+// handler must exit without the kernel emitting a detach event —
+// Shutdown cancels handle.done alongside its pass-2 RANK 3 graceful
+// Disconnect call so the waiter terminates with DisconnectReasonShutdown
+// even if the mock kernel's Disconnect is a silent no-op.
 func TestExporterSession_ShutdownEndsKernelOwnedSession(t *testing.T) {
 	t.Parallel()
 
@@ -112,10 +114,15 @@ func TestExporterSession_ShutdownEndsKernelOwnedSession(t *testing.T) {
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
 			return nil
 		},
+		// Pass-2 RANK 3: Shutdown invokes Disconnect per active
+		// session. Silent no-op here; handle.cancel() drives the
+		// actual handler exit for this scenario.
+		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
 	}
 
-	// Events channel stays open but never delivers — Shutdown must still
-	// terminate the parked handler via handle.done.
+	// Events channel stays open but never delivers — Shutdown must
+	// still terminate the parked handler via handle.cancel() (the
+	// handle.done branch of waitForSessionEnd).
 	events := make(chan domain.Event)
 
 	kernelEvents := &KernelEventsMock{
