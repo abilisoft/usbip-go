@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/sys/unix"
 )
 
 // Metric-label typed enums. The spec §11.5.5 catalog fixes the allowed
@@ -110,6 +111,114 @@ const (
 	ReconnectOutcomeExhausted ReconnectOutcome = "exhausted"
 	ReconnectOutcomeCanceled  ReconnectOutcome = "canceled"
 )
+
+// SysfsWritePath labels usbip_adapter_sysfs_write_failures_total{path}.
+// The value universe is the seven sysfs write targets the adapter
+// touches (spec §5.4) plus "other" for anything that doesn't match the
+// whitelist. Clamping here keeps cardinality bounded regardless of
+// what raw path strings flow through the emission site.
+type SysfsWritePath string
+
+// SysfsWritePath values.
+const (
+	SysfsWritePathBind         SysfsWritePath = "bind"
+	SysfsWritePathUnbind       SysfsWritePath = "unbind"
+	SysfsWritePathMatchBusID   SysfsWritePath = "match_busid"
+	SysfsWritePathRebind       SysfsWritePath = "rebind"
+	SysfsWritePathAttach       SysfsWritePath = "attach"
+	SysfsWritePathDetach       SysfsWritePath = "detach"
+	SysfsWritePathUsbipSockfd  SysfsWritePath = "usbip_sockfd"
+	SysfsWritePathOther        SysfsWritePath = "other"
+)
+
+// SysfsErrno labels usbip_adapter_sysfs_write_failures_total{errno}.
+// Values are the POSIX-named errnos the sysfs write path surfaces
+// (ENOENT / EACCES / EPERM / EBUSY / ENODEV / EIO) plus "other" for
+// anything else. Closed set per spec §11.5.5.
+type SysfsErrno string
+
+// SysfsErrno values.
+const (
+	SysfsErrnoENOENT SysfsErrno = "ENOENT"
+	SysfsErrnoEACCES SysfsErrno = "EACCES"
+	SysfsErrnoEPERM  SysfsErrno = "EPERM"
+	SysfsErrnoEBUSY  SysfsErrno = "EBUSY"
+	SysfsErrnoENODEV SysfsErrno = "ENODEV"
+	SysfsErrnoEIO    SysfsErrno = "EIO"
+	SysfsErrnoOther  SysfsErrno = "other"
+)
+
+// SysfsErrnoFromError collapses an arbitrary error into the closed
+// SysfsErrno set. Uses errors.As to walk the chain so wrapped errnos
+// (fmt.Errorf("...%w...", unix.EACCES)) still classify correctly; any
+// non-errno error returns SysfsErrnoOther. A nil error also returns
+// SysfsErrnoOther — call sites only ever reach this helper on the
+// failure branch.
+func SysfsErrnoFromError(err error) SysfsErrno {
+	if err == nil {
+		return SysfsErrnoOther
+	}
+
+	var errno unix.Errno
+	if !errors.As(err, &errno) {
+		return SysfsErrnoOther
+	}
+
+	switch errno {
+	case unix.ENOENT:
+		return SysfsErrnoENOENT
+	case unix.EACCES:
+		return SysfsErrnoEACCES
+	case unix.EPERM:
+		return SysfsErrnoEPERM
+	case unix.EBUSY:
+		return SysfsErrnoEBUSY
+	case unix.ENODEV:
+		return SysfsErrnoENODEV
+	case unix.EIO:
+		return SysfsErrnoEIO
+	default:
+		return SysfsErrnoOther
+	}
+}
+
+// SysfsWritePathFromAbs maps an absolute sysfs path to its closed-set
+// label. Matching is by suffix on the final path segment for the usbip
+// driver files because the busid-dependent per-device paths
+// (/sys/bus/usb/devices/<busid>/usbip_sockfd) share a file name but
+// not a parent. Anything that doesn't match collapses to
+// SysfsWritePathOther so ad-hoc paths cannot explode cardinality.
+func SysfsWritePathFromAbs(path string) SysfsWritePath {
+	switch {
+	case hasSysfsSuffix(path, "/usbip-host/bind"):
+		return SysfsWritePathBind
+	case hasSysfsSuffix(path, "/usbip-host/unbind"):
+		return SysfsWritePathUnbind
+	case hasSysfsSuffix(path, "/usbip-host/match_busid"):
+		return SysfsWritePathMatchBusID
+	case hasSysfsSuffix(path, "/usbip-host/rebind"):
+		return SysfsWritePathRebind
+	case hasSysfsSuffix(path, "/vhci_hcd.0/attach"):
+		return SysfsWritePathAttach
+	case hasSysfsSuffix(path, "/vhci_hcd.0/detach"):
+		return SysfsWritePathDetach
+	case hasSysfsSuffix(path, "/usbip_sockfd"):
+		return SysfsWritePathUsbipSockfd
+	default:
+		return SysfsWritePathOther
+	}
+}
+
+// hasSysfsSuffix returns true when path ends with suffix. Exists so
+// the switch above stays readable without importing strings for a
+// single helper; a separate func keeps the intent self-documenting.
+func hasSysfsSuffix(path, suffix string) bool {
+	if len(path) < len(suffix) {
+		return false
+	}
+
+	return path[len(path)-len(suffix):] == suffix
+}
 
 // KernelModule labels usbip_kernel_modules_loaded. Closed set per spec
 // §11.5.4 / §11.5.5.
@@ -285,15 +394,17 @@ func (m *Metrics) ImporterReconnectAttempt(outcome ReconnectOutcome) {
 }
 
 // AdapterSysfsWriteFailure increments
-// usbip_adapter_sysfs_write_failures_total. path and errno must come
-// from the closed sets documented in §11.5.5 to keep cardinality
-// bounded; the typed-string argument is a contract with callers.
-func (m *Metrics) AdapterSysfsWriteFailure(path, errno string) {
+// usbip_adapter_sysfs_write_failures_total with the given closed-set
+// path + errno labels. Both arguments are typed enums so a call site
+// cannot leak an unbounded raw string into the label space; see
+// SysfsWritePathFromAbs and SysfsErrnoFromError for the raw-to-typed
+// helpers adapters use at emission time.
+func (m *Metrics) AdapterSysfsWriteFailure(path SysfsWritePath, errno SysfsErrno) {
 	if m.nop {
 		return
 	}
 
-	m.adapterSysfsWriteFailuresTotal.WithLabelValues(path, errno).Inc()
+	m.adapterSysfsWriteFailuresTotal.WithLabelValues(string(path), string(errno)).Inc()
 }
 
 // KernelModuleLoaded sets usbip_kernel_modules_loaded{module=name} to 1
