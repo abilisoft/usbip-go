@@ -34,6 +34,7 @@ type Importer struct {
 	codec     ProtocolCodec
 	clock     Clock
 	logger    *slog.Logger
+	metrics   *Metrics
 
 	mu        sync.RWMutex
 	closed    bool
@@ -115,6 +116,10 @@ func NewImporter(opts ...ImporterOption) *Importer {
 		cfg.logger = slog.Default()
 	}
 
+	if cfg.metrics == nil {
+		cfg.metrics = MustNewMetrics(nil)
+	}
+
 	return &Importer{
 		kernel:    cfg.kernel,
 		events:    cfg.events,
@@ -122,6 +127,7 @@ func NewImporter(opts ...ImporterOption) *Importer {
 		codec:     cfg.codec,
 		clock:     cfg.clock,
 		logger:    cfg.logger,
+		metrics:   cfg.metrics,
 		handles:   make(map[domain.PortID]*portHandle),
 	}
 }
@@ -263,9 +269,17 @@ func (i *Importer) Attach(
 
 	err := i.kernel.ModulesAvailable(ctx)
 	if err != nil {
+		i.metrics.ImporterAttached(AttachOutcomeKernelError)
+
 		return domain.Port{}, fmt.Errorf("vhci modules unavailable: %w", err)
 	}
 
+	// attachOverDialed emits the outcome-specific metric itself at each
+	// failure branch (dial/kernel/...) so the classification lives with
+	// the error origin. On success, it records OK and updates the ports
+	// gauge before returning. Keeping the metric emission adjacent to
+	// the state transition means a future new error path cannot slip
+	// past unclassified.
 	return i.attachOverDialed(ctx, endpoint, busID, opts)
 }
 
@@ -289,6 +303,8 @@ func (i *Importer) Detach(ctx context.Context, id domain.PortID) error {
 	h, ok := i.handles[id]
 	if !ok {
 		i.mu.Unlock()
+
+		i.metrics.ImporterDetached(DetachOutcomeNotFound)
 
 		return fmt.Errorf("detach port %d: %w", id, domain.ErrDeviceNotBound)
 	}
@@ -317,6 +333,8 @@ func (i *Importer) Detach(ctx context.Context, id domain.PortID) error {
 
 	err := i.kernel.DetachPort(ctx, id)
 	if err != nil {
+		i.metrics.ImporterDetached(DetachOutcomeError)
+
 		// Preserve the handle so callers can retry; the cancelled
 		// context is harmless — any future watcher starts fresh from
 		// the next successful Attach which regenerates the handle.
@@ -326,6 +344,9 @@ func (i *Importer) Detach(ctx context.Context, id domain.PortID) error {
 	i.mu.Lock()
 	delete(i.handles, id)
 	i.mu.Unlock()
+
+	i.metrics.ImporterDetached(DetachOutcomeOK)
+	i.updateImporterPortsGauge()
 
 	return nil
 }
@@ -473,6 +494,8 @@ func (i *Importer) attachOverDialed(
 ) (domain.Port, error) {
 	conn, err := i.transport.Dial(ctx, endpoint)
 	if err != nil {
+		i.metrics.ImporterAttached(AttachOutcomeDialFailed)
+
 		return domain.Port{}, fmt.Errorf("dial %s: %w", endpoint.String(), err)
 	}
 
@@ -490,11 +513,15 @@ func (i *Importer) attachOverDialed(
 
 	err = i.codec.EncodeOpReqImport(conn, busID)
 	if err != nil {
+		i.metrics.ImporterAttached(AttachOutcomeProtocolMismatch)
+
 		return domain.Port{}, fmt.Errorf("encode OP_REQ_IMPORT for %s: %w", busID, err)
 	}
 
 	dev, err := i.codec.DecodeOpRepImport(conn)
 	if err != nil {
+		i.metrics.ImporterAttached(AttachOutcomeProtocolMismatch)
+
 		return domain.Port{}, fmt.Errorf("decode OP_REP_IMPORT from %s: %w", endpoint.String(), err)
 	}
 
@@ -509,13 +536,33 @@ func (i *Importer) attachOverDialed(
 
 	portID, err := i.kernel.AttachRemote(ctx, conn, spec)
 	if err != nil {
+		i.metrics.ImporterAttached(AttachOutcomeKernelError)
+
 		return domain.Port{}, fmt.Errorf("attach %s on %s: %w", busID, endpoint.String(), err)
 	}
 
 	handedOff = true
 
+	return i.finishAttach(ctx, portID, busID, endpoint, dev, devID, opts)
+}
+
+// finishAttach performs the post-handoff bookkeeping: registers the
+// port in the handle map, spawns the reconnect watcher when enabled,
+// and emits the success metric. Extracted from attachOverDialed so the
+// parent function stays under the project funlen cap.
+func (i *Importer) finishAttach(
+	ctx context.Context,
+	portID domain.PortID,
+	busID domain.BusID,
+	endpoint domain.RemoteEndpoint,
+	dev domain.Device,
+	devID domain.DeviceID,
+	opts AttachOptions,
+) (domain.Port, error) {
 	h, err := i.registerHandle(portID, busID, endpoint, resolveShutdownTimeout(opts.ShutdownTimeout))
 	if err != nil {
+		i.metrics.ImporterAttached(AttachOutcomeKernelError)
+
 		// Importer closed between AttachRemote and registerHandle.
 		// We hold a live kernel port that no handle tracks, so
 		// Close's sweep cannot reach it. Best-effort release; log
@@ -532,6 +579,9 @@ func (i *Importer) attachOverDialed(
 		return domain.Port{}, err
 	}
 
+	i.metrics.ImporterAttached(AttachOutcomeOK)
+	i.updateImporterPortsGauge()
+
 	if opts.AutoReconnect {
 		i.spawnReconnectWatcher(ctx, h, portID, endpoint, busID, opts)
 	}
@@ -544,6 +594,20 @@ func (i *Importer) attachOverDialed(
 		Remote:   endpoint,
 		BusID:    busID,
 	}, nil
+}
+
+// updateImporterPortsGauge snapshots the handle-map size under the
+// Importer RLock and pushes it to usbip_importer_ports_active. Called
+// on every transition that changes the live-port count (successful
+// Attach, successful Detach, Close sweep).
+func (i *Importer) updateImporterPortsGauge() {
+	i.mu.RLock()
+
+	n := len(i.handles)
+
+	i.mu.RUnlock()
+
+	i.metrics.ImporterPortsActive(n)
 }
 
 // registerHandle records a successful attach in the handle map. If an

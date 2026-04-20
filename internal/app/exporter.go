@@ -26,6 +26,7 @@ type Exporter struct {
 	codec     ProtocolCodec
 	clock     Clock
 	logger    *slog.Logger
+	metrics   *Metrics
 
 	cfg       exporterLimits
 	acceptLim acceptLimiter
@@ -105,6 +106,10 @@ func NewExporterWithError(opts ...ExporterOption) (*Exporter, error) {
 		return nil, err
 	}
 
+	if cfg.metrics == nil {
+		cfg.metrics = MustNewMetrics(nil)
+	}
+
 	return &Exporter{
 		kernel:    cfg.kernel,
 		events:    cfg.events,
@@ -112,6 +117,7 @@ func NewExporterWithError(opts ...ExporterOption) (*Exporter, error) {
 		codec:     cfg.codec,
 		clock:     cfg.clock,
 		logger:    cfg.logger,
+		metrics:   cfg.metrics,
 		cfg:       resolveExporterLimits(&cfg),
 		acceptLim: newAcceptLimiter(resolveAcceptRate(&cfg), resolveAcceptBurst(&cfg)),
 		acl:       acl,
@@ -146,8 +152,12 @@ func requireExporterDeps(cfg *exporterConfig) {
 func (e *Exporter) Bind(ctx context.Context, busID domain.BusID) error {
 	err := e.kernel.Bind(ctx, busID)
 	if err != nil {
+		e.metrics.ExporterBind(classifyBindError(err))
+
 		return fmt.Errorf("bind %s: %w", busID, err)
 	}
+
+	e.metrics.ExporterBind(BindOutcomeOK)
 
 	return nil
 }
@@ -157,10 +167,43 @@ func (e *Exporter) Bind(ctx context.Context, busID domain.BusID) error {
 func (e *Exporter) Unbind(ctx context.Context, busID domain.BusID) error {
 	err := e.kernel.Unbind(ctx, busID)
 	if err != nil {
+		e.metrics.ExporterUnbind(classifyUnbindError(err))
+
 		return fmt.Errorf("unbind %s: %w", busID, err)
 	}
 
+	e.metrics.ExporterUnbind(UnbindOutcomeOK)
+
 	return nil
+}
+
+// classifyBindError maps a kernel Bind error onto the §11.5.5
+// bind_total outcome label. Only the well-known domain sentinels get
+// a specific label; anything else falls through to "error" so the
+// catalog never grows an unbounded outcome string.
+func classifyBindError(err error) BindOutcome {
+	switch {
+	case errors.Is(err, domain.ErrDeviceAlreadyBound):
+		return BindOutcomeAlreadyBound
+	case errors.Is(err, domain.ErrDeviceNotFound):
+		return BindOutcomeNotFound
+	case errors.Is(err, domain.ErrPermission):
+		return BindOutcomePermission
+	}
+
+	return BindOutcomeError
+}
+
+// classifyUnbindError mirrors classifyBindError for the unbind path.
+func classifyUnbindError(err error) UnbindOutcome {
+	switch {
+	case errors.Is(err, domain.ErrDeviceNotBound):
+		return UnbindOutcomeNotBound
+	case errors.Is(err, domain.ErrPermission):
+		return UnbindOutcomePermission
+	}
+
+	return UnbindOutcomeError
 }
 
 // ListAvailable forwards to kernel.ListLocalDevices per spec §5.3. The
@@ -309,6 +352,7 @@ func (e *Exporter) acceptLoop(ctx context.Context, listener net.Listener) error 
 		}
 
 		if !e.acl.allow(conn.RemoteAddr()) {
+			e.metrics.ExporterSessionAccepted(OutcomeRejectedACL)
 			e.logger.Info("exporter accept rejected by ACL",
 				slog.String("remote", conn.RemoteAddr().String()))
 
@@ -318,6 +362,7 @@ func (e *Exporter) acceptLoop(ctx context.Context, listener net.Listener) error 
 		}
 
 		if !e.acceptLim.allow() {
+			e.metrics.ExporterSessionAccepted(OutcomeRejectedRate)
 			e.logger.Debug("exporter accept rate-limited",
 				slog.String("remote", conn.RemoteAddr().String()))
 
@@ -457,10 +502,11 @@ func (e *Exporter) registerSession(sess domain.Session, peerKey string, conn net
 // presence check.
 func (e *Exporter) unregisterSession(id domain.SessionID) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 
 	h, ok := e.sessions[id]
 	if !ok {
+		e.mu.Unlock()
+
 		return
 	}
 
@@ -474,6 +520,15 @@ func (e *Exporter) unregisterSession(id domain.SessionID) {
 		delete(e.perPeer, h.peerKey)
 	}
 
+	n := len(e.sessions)
+
+	e.mu.Unlock()
+
 	h.cancel()
+
+	// Push the updated session count to the gauge OUTSIDE the lock so a
+	// slow prometheus accessor cannot back-pressure the session-close
+	// path.
+	e.metrics.ExporterSessionsActive(n)
 }
 
