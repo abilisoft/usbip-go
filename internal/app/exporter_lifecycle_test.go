@@ -145,12 +145,16 @@ func TestExporterWatchSessions_StartEnd(t *testing.T) {
 	}()
 
 	// Give the watcher a moment to subscribe; session end happens when
-	// release fires.
+	// release fires and the outer ctx cancel unwinds the post-ExportOnConn
+	// waitForSessionEnd helper (RANK 1). In the real kernel the analogue
+	// of the release-channel is the kernel detach uevent; here the test
+	// uses ctx cancel since the default KernelEvents mock never delivers.
 	require.Eventually(t, func() bool {
 		return len(exp.Sessions(context.Background())) == 1
 	}, 2*time.Second, 10*time.Millisecond)
 
 	close(release)
+	cancel()
 
 	// Expect a SessionEndedEvent after the handler unwinds.
 	var gotEnded bool
@@ -170,8 +174,6 @@ waitEnded:
 	}
 
 	require.True(t, gotEnded, "expected a SessionEndedEvent within 2s")
-
-	cancel()
 
 	_ = client.Close()
 
