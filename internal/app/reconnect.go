@@ -444,44 +444,59 @@ func (i *Importer) finishReconnectSuccess(
 // reconnect-path Attach acquired after the user's Detach had already
 // bounded-waited past the wedged watcher (RANK 3). The replacement
 // handle is already registered in the map by Attach's finishAttach
-// call; remove it and issue kernel.DetachPort so the device the user
-// wanted gone stays gone. DetachPort failures are logged but do not
-// retry — the kernel port may be in an intermediate state, and the
-// handle has been removed from our bookkeeping either way.
+// call.
+//
+// Pass-2 RANK 2: kernel.DetachPort fires BEFORE the handle map entry
+// is removed, and the entry is removed only on DetachPort success. If
+// DetachPort fails the handle stays registered so the user can retry
+// Detach(newID) and eventually release the kernel port. Pre-fix the
+// entry was deleted unconditionally, stranding the kernel port with
+// no owner on the failure path.
+//
+// The fresh handle's reconnect watcher (if any) is cancelled either
+// way — the user has expressed intent for the device to stay gone;
+// letting the watcher keep running would spawn another Attempt on
+// every detach uevent.
 func (i *Importer) rollbackSupersededReconnect(
 	ctx context.Context, newID domain.PortID, p reconnectParams, source string,
 ) {
-	i.mu.Lock()
+	i.mu.RLock()
 
 	fresh, ok := i.handles[newID]
-	if ok {
-		delete(i.handles, newID)
-	}
 
-	i.mu.Unlock()
+	i.mu.RUnlock()
 
-	// Cancel the fresh handle's own reconnect watcher (if any) so it
-	// does not stay parked waiting on a detach event that will never
-	// fire for a handle we are about to tear down ourselves.
 	if ok && fresh != nil {
 		fresh.cancel()
 	}
 
 	err := i.kernel.DetachPort(ctx, newID)
 	if err != nil {
-		i.logger.Warn("rollback reconnect detach failed",
+		i.logger.Warn("rollback reconnect detach failed; handle preserved for retry",
 			slog.Any("new_port_id", newID),
 			slog.Any("old_port_id", p.portID),
 			slog.String("source", source),
 			slog.Any("err", err),
 		)
-	} else {
-		i.logger.Info("reconnect rolled back after Detach",
-			slog.Any("new_port_id", newID),
-			slog.Any("old_port_id", p.portID),
-			slog.String("source", source),
-		)
+
+		// Handle intentionally left in the map so a user retry of
+		// Detach(newID) can drive a fresh kernel.DetachPort call.
+		return
 	}
+
+	i.mu.Lock()
+
+	if cur, stillOurs := i.handles[newID]; stillOurs && cur == fresh {
+		delete(i.handles, newID)
+	}
+
+	i.mu.Unlock()
+
+	i.logger.Info("reconnect rolled back after Detach",
+		slog.Any("new_port_id", newID),
+		slog.Any("old_port_id", p.portID),
+		slog.String("source", source),
+	)
 
 	i.updateImporterPortsGauge()
 }
