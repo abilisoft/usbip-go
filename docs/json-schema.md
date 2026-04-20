@@ -245,7 +245,7 @@ Every record has these three fields as its leading keys:
 
 ## Daemon status socket document
 
-Served on `GET /status` via the UDS configured with `--status-socket`.
+Served on `GET /` via the UDS configured with `--status-socket`.
 Shape is `statusResponse` in
 [`cmd/usbipd/status.go`](../cmd/usbipd/status.go).
 
