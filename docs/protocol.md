@@ -65,15 +65,16 @@ Body: none. Header alone, 8 bytes. The server replies with
 ```
 offset  size   field
 ------  -----  ----------------------------------------------------
-   0      4    reserved                 (u32, zero on encode)
-   4      4    nDevices                 (u32, device count)
-   8      -    device[0]                (312 bytes + 4 * nInterfaces)
+   0      4    nDevices                 (u32, device count)
+   4      -    device[0]                (312 bytes + 4 * nInterfaces)
   ...    ...   device[1] ...
 ```
 
-Each device record is a 312-byte fixed descriptor followed by
-`bNumInterfaces` 4-byte interface descriptors. See the descriptor
-layouts below.
+Offsets are relative to the start of the body (the 8-byte OP header
+precedes it on the wire, so the `nDevices` field sits at absolute
+offset 8 in the full reply). Each device record is a 312-byte fixed
+descriptor followed by `bNumInterfaces` 4-byte interface descriptors.
+See the descriptor layouts below.
 
 `nDevices = 0` is legal. The codec returns `(nil, nil)` for an empty
 listing.
