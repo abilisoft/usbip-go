@@ -62,8 +62,13 @@ func TestOpRepImportRoundTrip(t *testing.T) {
 	require.Equal(t, dev.VendorID, got.VendorID)
 }
 
-// TestOpRepImportStatusError decodes a reply whose status is non-zero
-// and expects ErrProtocolError.
+// TestOpRepImportStatusError decodes a reply whose status is non-zero.
+// Per spec §6.2 (and RANK 5), a non-zero OP_REP_IMPORT status means
+// the peer rejected the import — device unavailable / busy / not
+// found. The decoder surfaces domain.ErrDeviceNotFound so callers
+// classify the rejection as a domain-level signal rather than a wire
+// framing error (pre-fix this reply was misclassified as
+// ErrProtocolError via DecodeHeader's generic reply-status check).
 func TestOpRepImportStatusError(t *testing.T) {
 	t.Parallel()
 
@@ -71,5 +76,5 @@ func TestOpRepImportStatusError(t *testing.T) {
 	buf := []byte{0x01, 0x11, 0x00, 0x03, 0, 0, 0, 1}
 
 	_, err := wire.DecodeOpRepImport(bytes.NewReader(buf))
-	require.ErrorIs(t, err, domain.ErrProtocolError)
+	require.ErrorIs(t, err, domain.ErrDeviceNotFound)
 }
