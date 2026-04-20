@@ -122,6 +122,116 @@ func TestImporterOnReconnectCallbackTrackedByWG(t *testing.T) {
 		"OnReconnect goroutine must exit after the callback unblocks")
 }
 
+// TestImporterOnReconnectCallbackGoroutine_ObservedByWG is the
+// strengthened RANK 11 assertion: it observes, via Close's bounded
+// wait, that the OnReconnect callback goroutine IS enrolled in i.wg.
+// The original RANK 11 test asserts post-release cleanup but cannot
+// distinguish "callback was tracked, wait timed out, callback finished"
+// from "callback was not tracked, Close returned on empty wg". This
+// test pins the wg-tracking contract directly: Close with a 50ms
+// ShutdownTimeout on a wedged OnReconnect must observe at least
+// ~40ms of wall-clock wait, because the tracked goroutine blocks
+// wg.Wait(). Pre-RANK 11 fix, Close returned in microseconds — the
+// wg was empty and the callback was running under a raw `go`.
+func TestImporterOnReconnectCallbackGoroutine_ObservedByWG(t *testing.T) {
+	t.Parallel()
+
+	var nextID atomic.Uint32
+
+	attachFn := func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+		return domain.PortID(nextID.Add(1)), nil
+	}
+
+	// Use a real clock so the ShutdownTimeout elapses in wall time —
+	// we need to measure Close's actual duration to distinguish the
+	// wg-tracked case from the un-tracked one.
+	registry := newEventChannelRegistry()
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			ch, cancel := registry.subscribe()
+
+			return ch, cancel, nil
+		},
+	}
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc:     attachFn,
+		DetachPortFunc:       func(_ context.Context, _ domain.PortID) error { return nil },
+		ListPortsFunc:        func(_ context.Context) ([]domain.Port, error) { return nil, nil },
+	}
+
+	transport := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+			return newFakeConn(), nil
+		},
+	}
+
+	codec := &ProtocolCodecMock{
+		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
+		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
+	}
+
+	// Zero-delay backoff so the reconnect attempt fires immediately
+	// after the detach event — real clock, no manual advance needed.
+	imp := app.NewImporter(
+		app.WithImporterKernel(kernel),
+		app.WithImporterEvents(events),
+		app.WithImporterTransport(transport),
+		app.WithImporterCodec(codec),
+	)
+
+	releaseCallback := make(chan struct{})
+
+	var callbackEntered atomic.Int32
+
+	opts := app.AttachOptions{
+		AutoReconnect:      true,
+		Backoff:            app.FixedBackoff{Delay: 0},
+		StatusPollInterval: -1,
+		ShutdownTimeout:    50 * time.Millisecond,
+		OnReconnect: func(_ int, _ error) {
+			callbackEntered.Add(1)
+			<-releaseCallback
+		},
+	}
+
+	t.Cleanup(func() {
+		select {
+		case <-releaseCallback:
+		default:
+			close(releaseCallback)
+		}
+	})
+
+	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), opts)
+	require.NoError(t, err)
+
+	registry.waitFor(t, 1)
+
+	registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
+
+	require.Eventually(t, func() bool {
+		return callbackEntered.Load() >= 1
+	}, reconnectTestSettleBudget, 5*time.Millisecond,
+		"OnReconnect must fire so the callback goroutine is live")
+
+	start := time.Now()
+
+	require.NoError(t, imp.Close())
+
+	elapsed := time.Since(start)
+
+	// Post-fix: Close's bounded wait observes the tracked goroutine and
+	// waits ~ShutdownTimeout (50ms) before the bounded timer fires.
+	// Pre-fix: wg is empty so Close returns essentially immediately.
+	// The 30ms lower bound allows for scheduling jitter but catches
+	// any regression where the callback goroutine leaves i.wg.
+	require.GreaterOrEqual(t, elapsed, 30*time.Millisecond,
+		"Close must wait on wg for the wg-tracked OnReconnect callback (RANK 11)")
+}
+
 // TestImporterCloseTimeoutBoundedWaiterDoesNotLeak proves the RANK 10
 // fix. Repeated Close-with-timeout calls against an importer with a
 // blocking callback must NOT accumulate leaked waitgroup-waiter
