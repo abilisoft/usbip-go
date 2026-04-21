@@ -520,9 +520,17 @@ func mapUsbipHostEvent(action, devpath string) (domain.Event, bool) {
 // on the first '-': "<bus>-<port>" → 2 pieces.
 const busIDSplitCount = 2
 
-// extractPortFromBusID parses "N-P" and returns the port number as a
-// domain.PortID. A malformed input falls through to zero; the caller
-// still gets the busid in the event body for correlation.
+// extractPortFromBusID parses a Linux USB busid of the form "B-P" or
+// "B-P.H1.H2..." (hub-chained) and returns the root PortID P as a
+// domain.PortID. The hub suffix is topology path, not port identity —
+// the VHCI root-slot number is always the leading segment before the
+// first '.'. A malformed input falls through to zero; the caller still
+// gets the busid in the event body for correlation.
+//
+// Pass-4 RANK 1: pre-fix the function passed the whole tail ("1.2") to
+// strconv.ParseUint, which rejects the '.' and returned 0 — silently
+// dropping hub-attached detach uevents in the reconnect watcher
+// because d.Port.ID (0) never matched the real p.portID.
 func extractPortFromBusID(busID string) domain.PortID {
 	parts := strings.SplitN(busID, "-", busIDSplitCount)
 
@@ -530,7 +538,17 @@ func extractPortFromBusID(busID string) domain.PortID {
 		return 0
 	}
 
-	v, err := strconv.ParseUint(parts[1], 10, 32)
+	// Reject leading dash ("-1") and empty bus prefix. An empty port
+	// tail ("1-") is caught by the ParseUint step below.
+	if parts[0] == "" {
+		return 0
+	}
+
+	// Split the port tail on the first '.' so hub-chained busids
+	// ("1-1.2", "2-3.4.5") keep only the root-slot segment.
+	portSeg, _, _ := strings.Cut(parts[1], ".")
+
+	v, err := strconv.ParseUint(portSeg, 10, 32)
 	if err != nil {
 		return 0
 	}
