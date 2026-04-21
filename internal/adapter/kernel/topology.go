@@ -345,10 +345,19 @@ func hubByRank(rank int) HubType {
 }
 
 // loadTopology is the adapter-facing wrapper that reads the topology
-// from the adapter's injected fs.FS. Task 2 and beyond consume this
-// cached snapshot for every VHCI port calculation; re-reading on each
-// call would race a live kernel's topology changes only in contrived
-// tests.
+// from the adapter's injected fs.FS once per adapter instance and
+// returns the memoised result on every subsequent call. Task 2 and
+// beyond consume this cached snapshot for every VHCI port calculation;
+// re-reading on each call would race a live kernel's topology changes
+// and pay a full sysfs walk per port operation.
+//
+// The cache is shared across every copy of commonAdapter because it is
+// held through a pointer; see commonAdapter / topologyCache in
+// adapter.go.
 func (a *commonAdapter) loadTopology() (Topology, error) {
-	return discoverTopology(a.fs)
+	a.topoCache.once.Do(func() {
+		a.topoCache.topo, a.topoCache.err = discoverTopology(a.fs)
+	})
+
+	return a.topoCache.topo, a.topoCache.err
 }
