@@ -96,12 +96,6 @@ var errTopologyInconsistent = errors.New("vhci topology: nports not divisible by
 // truncation.
 var errTopologyIncomplete = errors.New("vhci topology: controller missing one or more usb child hubs")
 
-// maxControllerProbe caps the status.N probe loop. The kernel's
-// VHCI_NR_HCS default is 1 and is rarely reconfigured above single
-// digits; capping at 16 is well above any realistic deployment and
-// prevents unbounded directory scans on a malformed sysfs.
-const maxControllerProbe = 16
-
 // vhciHCDPlatformFmt is the format for the per-controller platform
 // device directory. Controller 0 is "vhci_hcd.0", controller N is
 // "vhci_hcd.<N>".
@@ -173,10 +167,14 @@ func discoverTopology(fsys fs.FS) (Topology, error) {
 // open failure (EACCES, EIO, transient kernel error) propagates
 // immediately — silently folding those into "present" would mask the
 // real failure.
+//
+// No upper bound is imposed: ENOENT is the natural termination signal
+// and always fires on the first unused index, so the loop runs in
+// O(nControllers) and cannot exceed that regardless of deployment size.
 func probeControllerCount(fsys fs.FS) (uint32, error) {
 	var count uint32
 
-	for i := range uint32(maxControllerProbe) {
+	for i := uint32(0); ; i++ {
 		exists, err := statusFileState(fsys, i)
 		if err != nil {
 			return 0, err
