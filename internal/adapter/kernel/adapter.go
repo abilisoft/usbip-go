@@ -16,19 +16,22 @@ import (
 // injected fs.FS, WriteFunc, NetlinkDialer, logger, and clock without
 // duplicating option plumbing.
 //
-// topoCache memoises the result of discoverTopology so downstream port
-// arithmetic (Task 2+) pays the sysfs walk at most once per adapter
-// instance. The cache is heap-allocated (pointer embed) so that
+// topoCache memoises the full discoverTopology result (BusMap
+// inclusive) for BusMap consumers; statusTopoCache memoises the
+// lighter discoverStatusTopology for the status-reading path so a
+// transient BusMap shortfall does not hard-fail ListPorts /
+// findFreePort. Both caches are heap-allocated (pointer embed) so that
 // embedding commonAdapter by value in role-adapter structs remains
 // safe under vet's copylocks check — a sync.Once inside a value-copied
 // struct would fail vet and silently duplicate the memoised state.
 type commonAdapter struct {
-	fs        fs.FS
-	write     WriteFunc
-	nlDial    NetlinkDialer
-	logger    *slog.Logger
-	clock     app.Clock
-	topoCache *topologyCache
+	fs              fs.FS
+	write           WriteFunc
+	nlDial          NetlinkDialer
+	logger          *slog.Logger
+	clock           app.Clock
+	topoCache       *topologyCache
+	statusTopoCache *statusTopologyCache
 }
 
 // topologyCache memoises a single discoverTopology result. It is kept
@@ -37,6 +40,15 @@ type commonAdapter struct {
 type topologyCache struct {
 	once sync.Once
 	topo Topology
+	err  error
+}
+
+// statusTopologyCache memoises a single discoverStatusTopology result.
+// Separate from topologyCache so the status-reading path does not pay
+// the BusMap walk (or its failure) that full-Topology consumers need.
+type statusTopologyCache struct {
+	once sync.Once
+	topo StatusTopology
 	err  error
 }
 
@@ -111,12 +123,13 @@ func NewEventsAdapter(opts ...Option) (*EventsAdapter, error) {
 // snapshot.
 func newCommon(opts ...Option) commonAdapter {
 	c := commonAdapter{
-		fs:        osDirFS(),
-		write:     defaultWriteFunc(),
-		nlDial:    defaultNetlinkDialer(),
-		logger:    noopLogger(),
-		clock:     app.RealClock{},
-		topoCache: &topologyCache{},
+		fs:              osDirFS(),
+		write:           defaultWriteFunc(),
+		nlDial:          defaultNetlinkDialer(),
+		logger:          noopLogger(),
+		clock:           app.RealClock{},
+		topoCache:       &topologyCache{},
+		statusTopoCache: &statusTopologyCache{},
 	}
 
 	for _, opt := range opts {

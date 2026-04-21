@@ -38,10 +38,31 @@ type VHCILocation struct {
 	Hub HubType
 }
 
+// StatusTopology is the minimal VHCI topology the status-reading path
+// (readStatusRows, ListPorts, findFreePort) needs: controller count and
+// per-controller VHCI_PORTS stride only. It deliberately omits the
+// BusMap — status reading never consumes usb*/busnum, so requiring
+// complete usb* children here would hard-fail ListPorts during live-
+// host mid-probe races that the parser is otherwise equipped to
+// handle. BusMap-dependent paths (uevent mapping) consume the full
+// Topology instead.
+type StatusTopology struct {
+	// NControllers is the count of vhci_hcd.<N> platform devices.
+	NControllers uint32
+	// HCPorts is VHCI_HC_PORTS from the kernel's perspective — the
+	// per-hub port count. Derived as nports/(nControllers*2).
+	HCPorts uint32
+	// VHCIPorts is the per-controller total (HCPorts*2, one HS hub +
+	// one SS hub). Guaranteed nonzero on any StatusTopology returned
+	// successfully by discoverStatusTopology.
+	VHCIPorts uint32
+}
+
 // Topology is the read-once, cached snapshot of the VHCI sysfs
-// topology. All downstream VHCI port arithmetic (attach, detach, status
-// row renumbering) consumes this snapshot rather than re-reading sysfs
-// on every call.
+// topology. All BusMap-consuming code paths (uevent mapping, future
+// port-to-bus translation) consume this snapshot rather than re-reading
+// sysfs on every call. The status-reading path uses the lighter
+// StatusTopology which omits BusMap.
 type Topology struct {
 	// NControllers is the count of vhci_hcd.<N> platform devices.
 	NControllers uint32
@@ -55,6 +76,17 @@ type Topology struct {
 	// usbN/busnum) to the VHCI location (controller + hub) backing
 	// that bus.
 	BusMap map[uint32]VHCILocation
+}
+
+// Status returns the BusMap-free projection of t. Used by callers that
+// have a full Topology in hand but want to pass a StatusTopology to
+// the status-reading helpers.
+func (t Topology) Status() StatusTopology {
+	return StatusTopology{
+		NControllers: t.NControllers,
+		HCPorts:      t.HCPorts,
+		VHCIPorts:    t.VHCIPorts,
+	}
 }
 
 // FlatPort converts a (location, rhport0) pair into the flat port
@@ -126,42 +158,67 @@ const (
 // hubsPerController) reads self-documenting.
 const hubsPerController = 2
 
-// discoverTopology reads the full vhci_hcd topology from fsys. fsys
-// must be rooted at "/" (e.g. os.DirFS("/") in production, a MapFS in
-// tests). Errors: missing nports, inconsistent nports, zero
-// controllers discovered, or any controller failing the
-// len(BusMap) == nControllers * hubsPerController invariant.
-func discoverTopology(fsys fs.FS) (Topology, error) {
+// discoverStatusTopology reads the status-reading slice of the vhci_hcd
+// topology from fsys: nports + controller count, producing only
+// NControllers / HCPorts / VHCIPorts. It does NOT walk usb* children,
+// so a controller that is mid-probe or has a missing sibling hub still
+// produces a usable snapshot for the status-reading path. fsys must be
+// rooted at "/" (os.DirFS("/") in production, MapFS in tests). Errors:
+// missing nports, zero or inconsistent nports, or zero controllers
+// discovered.
+func discoverStatusTopology(fsys fs.FS) (StatusTopology, error) {
 	nports, err := ReadUint(fsys, path.Join(SysfsVHCIHCD, SysfsVHCINPorts))
 	if err != nil {
-		return Topology{}, err
+		return StatusTopology{}, err
 	}
 
 	nControllers, err := probeControllerCount(fsys)
 	if err != nil {
-		return Topology{}, err
+		return StatusTopology{}, err
 	}
 
 	hcPorts, err := deriveHCPorts(nports, nControllers)
 	if err != nil {
-		return Topology{}, err
+		return StatusTopology{}, err
 	}
 
-	busMap, err := buildBusMap(fsys, nControllers)
+	return StatusTopology{
+		NControllers: nControllers,
+		HCPorts:      hcPorts,
+		VHCIPorts:    hcPorts * hubsPerController,
+	}, nil
+}
+
+// discoverTopology reads the full vhci_hcd topology from fsys,
+// including the BusMap produced by walking each controller's usb*
+// children. fsys must be rooted at "/" (e.g. os.DirFS("/") in
+// production, a MapFS in tests). Errors: any status-layer failure,
+// any controller failing the len(BusMap) == nControllers *
+// hubsPerController invariant. Status-reading callers should use
+// discoverStatusTopology instead — this function's BusMap
+// completeness check is irrelevant to row parsing and hard-fails
+// live-host mid-probe races ListPorts would otherwise tolerate.
+func discoverTopology(fsys fs.FS) (Topology, error) {
+	status, err := discoverStatusTopology(fsys)
 	if err != nil {
 		return Topology{}, err
 	}
 
-	expected := int(nControllers) * hubsPerController
+	busMap, err := buildBusMap(fsys, status.NControllers)
+	if err != nil {
+		return Topology{}, err
+	}
+
+	expected := int(status.NControllers) * hubsPerController
 	if len(busMap) != expected {
 		return Topology{}, fmt.Errorf("%w: got %d bus entries, want %d (nControllers=%d)",
-			errTopologyIncomplete, len(busMap), expected, nControllers)
+			errTopologyIncomplete, len(busMap), expected, status.NControllers)
 	}
 
 	return Topology{
-		NControllers: nControllers,
-		HCPorts:      hcPorts,
-		VHCIPorts:    hcPorts * hubsPerController,
+		NControllers: status.NControllers,
+		HCPorts:      status.HCPorts,
+		VHCIPorts:    status.VHCIPorts,
 		BusMap:       busMap,
 	}, nil
 }
@@ -357,12 +414,12 @@ func hubByRank(rank int) HubType {
 	return HubTypeHS
 }
 
-// loadTopology is the adapter-facing wrapper that reads the topology
-// from the adapter's injected fs.FS once per adapter instance and
-// returns the memoised result on every subsequent call. Task 2 and
-// beyond consume this cached snapshot for every VHCI port calculation;
-// re-reading on each call would race a live kernel's topology changes
-// and pay a full sysfs walk per port operation.
+// loadTopology is the adapter-facing wrapper that reads the full
+// BusMap-inclusive topology from the adapter's injected fs.FS once per
+// adapter instance and returns the memoised result on every subsequent
+// call. BusMap consumers (uevent mapping, port-to-bus translation)
+// route through here; the status-reading path uses the lighter
+// loadStatusTopology which does not assert BusMap completeness.
 //
 // The cache is shared across every copy of commonAdapter because it is
 // held through a pointer; see commonAdapter / topologyCache in
@@ -373,4 +430,18 @@ func (a *commonAdapter) loadTopology() (Topology, error) {
 	})
 
 	return a.topoCache.topo, a.topoCache.err
+}
+
+// loadStatusTopology is the status-reading variant of loadTopology. It
+// returns only NControllers / HCPorts / VHCIPorts — the fields
+// readStatusRows / parseStatusFile need — and never asserts BusMap
+// completeness. Cached independently from the full Topology so a
+// transient BusMap shortfall (e.g. a controller mid-probe) does not
+// poison the status-reading path.
+func (a *commonAdapter) loadStatusTopology() (StatusTopology, error) {
+	a.statusTopoCache.once.Do(func() {
+		a.statusTopoCache.topo, a.statusTopoCache.err = discoverStatusTopology(a.fs)
+	})
+
+	return a.statusTopoCache.topo, a.statusTopoCache.err
 }
