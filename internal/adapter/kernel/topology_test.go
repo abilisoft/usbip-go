@@ -3,7 +3,6 @@
 package kernel_test
 
 import (
-	"io/fs"
 	"testing"
 	"testing/fstest"
 
@@ -14,10 +13,11 @@ import (
 )
 
 // topoFS builds a MapFS that models the vhci_hcd platform-device
-// subtree. files maps absolute paths to file contents; dirs is a list
-// of absolute directory paths (used when only directory existence
-// matters, e.g. usbN containers without explicit attributes).
-func topoFS(files map[string]string, dirs ...string) fstest.MapFS {
+// subtree. files maps absolute paths to file contents. Directory
+// existence is inferred by fstest.MapFS from the file entries (a file
+// at "a/b/c" implies "a" and "a/b"); tests that need empty directories
+// can insert a zero-data entry at that path.
+func topoFS(files map[string]string) fstest.MapFS {
 	m := fstest.MapFS{}
 
 	for p, d := range files {
@@ -27,15 +27,6 @@ func topoFS(files map[string]string, dirs ...string) fstest.MapFS {
 		}
 
 		m[rel] = &fstest.MapFile{Data: []byte(d)}
-	}
-
-	for _, d := range dirs {
-		rel := d
-		if len(rel) > 0 && rel[0] == '/' {
-			rel = rel[1:]
-		}
-
-		m[rel] = &fstest.MapFile{Mode: fs.ModeDir}
 	}
 
 	return m
@@ -203,13 +194,13 @@ func TestTopology_FlatPort(t *testing.T) {
 	topo, err := kernel.DiscoverTopologyForTest(mfs)
 	require.NoError(t, err)
 
-	require.EqualValues(t, domain.PortID(0),
+	require.Equal(t, domain.PortID(0),
 		topo.FlatPort(kernel.VHCILocation{ControllerIdx: 0, Hub: kernel.HubTypeHS}, 0))
-	require.EqualValues(t, domain.PortID(8),
+	require.Equal(t, domain.PortID(8),
 		topo.FlatPort(kernel.VHCILocation{ControllerIdx: 0, Hub: kernel.HubTypeSS}, 0))
-	require.EqualValues(t, domain.PortID(16),
+	require.Equal(t, domain.PortID(16),
 		topo.FlatPort(kernel.VHCILocation{ControllerIdx: 1, Hub: kernel.HubTypeHS}, 0))
-	require.EqualValues(t, domain.PortID(25),
+	require.Equal(t, domain.PortID(25),
 		topo.FlatPort(kernel.VHCILocation{ControllerIdx: 1, Hub: kernel.HubTypeSS}, 1))
 }
 

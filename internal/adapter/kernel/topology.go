@@ -112,6 +112,14 @@ const (
 // 2.0 high-speed is 480 Mbps.
 const superSpeedThresholdMbps = 5000
 
+// hubsPerController is the number of root hubs vhci_hcd registers per
+// controller: exactly two — one HS hub, one SS hub — per vhci_hcd.c's
+// hcd_name_hs / hcd_name_ss pair in add_platform_device. The constant
+// is named rather than embedded as a literal so the algebra
+// (VHCIPorts = HCPorts * hubsPerController, divisor = nControllers *
+// hubsPerController) reads self-documenting.
+const hubsPerController = 2
+
 // discoverTopology reads the full vhci_hcd topology from fsys. fsys
 // must be rooted at "/" (e.g. os.DirFS("/") in production, a MapFS in
 // tests). Errors: missing nports, inconsistent nports, or zero
@@ -140,7 +148,7 @@ func discoverTopology(fsys fs.FS) (Topology, error) {
 	return Topology{
 		NControllers: nControllers,
 		HCPorts:      hcPorts,
-		VHCIPorts:    hcPorts * 2,
+		VHCIPorts:    hcPorts * hubsPerController,
 		BusMap:       busMap,
 	}, nil
 }
@@ -189,7 +197,7 @@ func statusFileExists(fsys fs.FS, i uint32) bool {
 // inexact the kernel reported inconsistent state and we refuse to make
 // up a value.
 func deriveHCPorts(nports, nControllers uint32) (uint32, error) {
-	divisor := nControllers * 2
+	divisor := nControllers * hubsPerController
 	if divisor == 0 || nports%divisor != 0 {
 		return 0, fmt.Errorf("%w: nports=%d nControllers=%d", errTopologyInconsistent, nports, nControllers)
 	}
