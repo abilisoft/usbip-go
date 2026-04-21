@@ -27,6 +27,14 @@ const statusFieldCount = 7
 // it would be wrong.
 var errStatusRowControllerMismatch = errors.New("status row's flat port does not belong to its controller file")
 
+// errStatusRowZeroVHCIPorts surfaces when parseStatusFile is called
+// with vhciPorts=0. The caller must source vhciPorts from a validated
+// Topology, and the topology layer already rejects nports=0 — this
+// guard is defense-in-depth so a caller that bypasses discoverTopology
+// (e.g. a future unit-test driver) cannot panic the parser with
+// integer divide by zero.
+var errStatusRowZeroVHCIPorts = errors.New("status row parser: vhciPorts must be nonzero")
+
 // Indexes into a split status-row line.
 const (
 	rowIdxHub     = 0
@@ -110,6 +118,10 @@ func statusFileName(idx uint32) string {
 // fails the whole call. vhciPorts is the per-controller width
 // (VHCI_PORTS, i.e. HCPorts*2) sourced from the cached topology.
 func (a *commonAdapter) parseStatusFile(body, source string, controllerIdx, vhciPorts uint32) ([]parsedPort, error) {
+	if vhciPorts == 0 {
+		return nil, fmt.Errorf("%w: source=%s controllerIdx=%d", errStatusRowZeroVHCIPorts, source, controllerIdx)
+	}
+
 	out := make([]parsedPort, 0)
 
 	scanner := bufio.NewScanner(strings.NewReader(body))
