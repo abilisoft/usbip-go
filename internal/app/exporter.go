@@ -292,6 +292,7 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 	// the Serve ctx) parked Serve on Accept forever and the contract
 	// "Shutdown stops accepting new connections" was silently broken.
 	listener := e.listener
+
 	e.listener = nil
 
 	handles := make([]*sessionHandle, 0, len(e.sessions))
