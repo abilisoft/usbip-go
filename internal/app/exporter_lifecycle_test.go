@@ -345,9 +345,11 @@ func TestExporterShutdown_ReturnsEvenWhenHandlerIgnoresClose(t *testing.T) {
 	t.Parallel()
 
 	exportStarted := make(chan struct{}, 1)
+
 	// hang is NEVER closed by the test (only unblocked in t.Cleanup so
 	// the test goroutine itself does not leak past the test run).
 	hang := make(chan struct{})
+
 	t.Cleanup(func() { close(hang) })
 
 	kernel := &ExporterKernelMock{
