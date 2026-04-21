@@ -532,6 +532,28 @@ func topologiesEqual(a, b kernel.Topology) bool {
 	return true
 }
 
+// TestDiscoverTopology_RejectsZeroNports pins Bug A: an nports value of
+// zero divided by 2*nControllers yields HCPorts=0 and VHCIPorts=0. A
+// Topology with VHCIPorts=0 poisons every downstream status-row parser
+// that uses `port / VHCIPorts` to locate a controller block — the
+// division panics. discoverTopology must refuse the snapshot outright
+// so the poisoned value never leaves this layer.
+func TestDiscoverTopology_RejectsZeroNports(t *testing.T) {
+	t.Parallel()
+
+	mfs := topoFS(map[string]string{
+		"/sys/devices/platform/vhci_hcd.0/nports":      "0\n",
+		"/sys/devices/platform/vhci_hcd.0/status":      "",
+		"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
+		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
+	})
+
+	topo, err := kernel.DiscoverTopologyForTest(mfs)
+	require.Error(t, err, "nports=0 must be rejected — not silently accepted as Topology{VHCIPorts:0}")
+	require.Zero(t, topo.NControllers, "on error discoverTopology must return the zero Topology")
+	require.Zero(t, topo.VHCIPorts, "VHCIPorts must never surface as zero through a successful path")
+}
+
 // TestImporterAdapter_LoadTopology confirms the importer adapter
 // exposes a cached topology post-construction. Task 2 and later consume
 // this cached value rather than re-reading sysfs on every call.
