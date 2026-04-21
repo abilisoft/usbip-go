@@ -18,11 +18,16 @@ import (
 // statusFS builds a MapFS for findFreePort / ListPorts tests. status
 // is the primary status file contents; statusN maps controller index
 // (1, 2, …) to the contents of the corresponding status.N file.
+//
+// The map is also seeded with the minimal usb* children discoverTopology
+// requires (one HS + one SS sibling per controller), so Task 2's
+// topology-driven readStatusRows path finds a valid BusMap. The
+// controller count is inferred from len(statusN)+1.
 func statusFS(status string, statusN map[int]string, nports int) fstest.MapFS {
 	m := fstest.MapFS{
-		"sys/module/usbip_core": &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/vhci_hcd":   &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host": &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/usbip_core":                  &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/vhci_hcd":                    &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/usbip_host":                  &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/devices/platform/vhci_hcd.0":        &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/devices/platform/vhci_hcd.0/nports": &fstest.MapFile{Data: []byte(itoaBytes(nports))},
 		"sys/devices/platform/vhci_hcd.0/status": &fstest.MapFile{Data: []byte(status)},
@@ -30,6 +35,19 @@ func statusFS(status string, statusN map[int]string, nports int) fstest.MapFS {
 
 	for i, body := range statusN {
 		m[fmt.Sprintf("sys/devices/platform/vhci_hcd.0/status.%d", i)] = &fstest.MapFile{Data: []byte(body)}
+	}
+
+	// Seed usb* children: one HS + one SS per controller. Bus numbers
+	// are allocated 2*idx+1 (HS) and 2*idx+2 (SS); controller count is
+	// the number of status files present (primary + len(statusN)).
+	ctrlCount := len(statusN) + 1
+	for idx := range ctrlCount {
+		hsBus := 2*idx + 1
+		ssBus := 2*idx + 2
+		m[fmt.Sprintf("sys/devices/platform/vhci_hcd.%d/usb%d/busnum", idx, hsBus)] =
+			&fstest.MapFile{Data: []byte(itoaBytes(hsBus))}
+		m[fmt.Sprintf("sys/devices/platform/vhci_hcd.%d/usb%d/busnum", idx, ssBus)] =
+			&fstest.MapFile{Data: []byte(itoaBytes(ssBus))}
 	}
 
 	return m
@@ -42,7 +60,9 @@ func itoaBytes(n int) string {
 }
 
 // TestFindFreePort_HappyHS verifies the hs-row selection at 3 rows (0
-// free, 1 used, 2 free). SpeedHigh picks port 0.
+// free, 1 used, 2 free). SpeedHigh picks port 0. Kernel default
+// VHCI_HC_PORTS=8, so HS ports are flat 0..7 and SS ports are flat
+// 8..15 on a single controller (nports=16).
 func TestFindFreePort_HappyHS(t *testing.T) {
 	t.Parallel()
 
@@ -50,8 +70,8 @@ func TestFindFreePort_HappyHS(t *testing.T) {
 		"hs  0000 000 000 00000000 000000 0-0\n" +
 		"hs  0001 003 003 01020304 000005 1-1\n" +
 		"hs  0002 000 000 00000000 000000 0-0\n" +
-		"ss  0003 003 005 01020304 000005 1-1\n" +
-		"ss  0004 000 000 00000000 000000 0-0\n"
+		"ss  0008 003 005 01020304 000005 1-1\n" +
+		"ss  0009 000 000 00000000 000000 0-0\n"
 
 	a, err := kernel.NewImporterAdapter(kernel.WithFS(statusFS(status, nil, 16)))
 	require.NoError(t, err)
@@ -62,41 +82,51 @@ func TestFindFreePort_HappyHS(t *testing.T) {
 }
 
 // TestFindFreePort_FlatSSNumbering exercises flat port numbering
-// across status and status.1.
+// across status and status.1. The kernel already writes flat port
+// identifiers in every row of every status file (see status_show_vhci
+// in vhci_sysfs.c: flat = pdev_nr*VHCI_PORTS + hubOffset + rhport), so
+// the parser must trust the value verbatim — no per-controller offset
+// is applied on top of what the kernel emitted.
 func TestFindFreePort_FlatSSNumbering(t *testing.T) {
 	t.Parallel()
 
-	// status.0: 2 hs + 2 ss rows (all ss busy).
+	// Default VHCI_HC_PORTS=8 layout. Controller 0 owns flat ports
+	// 0..15 (HS 0..7, SS 8..15); controller 1 owns flat ports 16..31
+	// (HS 16..23, SS 24..31). primary is status (controller 0) and
+	// secondary is status.1 (controller 1); nports=32 = 2*VHCI_PORTS.
 	primary := "hub port sta spd dev      sockfd local_busid\n" +
 		"hs  0000 000 000 00000000 000000 0-0\n" +
 		"hs  0001 003 003 01020304 000005 1-1\n" +
-		"ss  0002 003 005 01020304 000005 1-1\n" +
-		"ss  0003 003 005 01020304 000005 1-1\n"
+		"ss  0008 003 005 01020304 000005 1-1\n" +
+		"ss  0009 003 005 01020304 000005 1-1\n"
 
-	// status.1: one more ss row, free. Its port number on the wire
-	// is 0000, and the parser offsets by vhciPortsPerController (16).
-	secondary := "hs  0000 003 003 01020304 000005 1-1\n" +
-		"ss  0001 000 000 00000000 000000 0-0\n"
+	// status.1: one free SS row at flat port 25 (pdev_nr=1, hub
+	// offset 8, rhport 1). Pre-fix the parser added controllerIdx*16
+	// on top and this test asserted 17; under the new trust-flat
+	// contract the port ID comes through untouched.
+	secondary := "hs  0016 003 003 01020304 000005 1-1\n" +
+		"ss  0025 000 000 00000000 000000 0-0\n"
 
-	mfs := statusFS(primary, map[int]string{1: secondary}, 17)
+	mfs := statusFS(primary, map[int]string{1: secondary}, 32)
 
 	a, err := kernel.NewImporterAdapter(kernel.WithFS(mfs))
 	require.NoError(t, err)
 
 	got, err := kernel.FindFreePortForTest(a, domain.SpeedSuper)
 	require.NoError(t, err)
-	require.EqualValues(t, 17, got, "flat numbering: status.1 row offset by 16")
+	require.EqualValues(t, 25, got, "kernel-emitted flat port is trusted verbatim")
 }
 
 // TestFindFreePort_AllSSBusyReturnsNoFreePort covers the all-full
-// speed-class path.
+// speed-class path. SS rows sit in the flat range 8..15 on a
+// single-controller default-build kernel.
 func TestFindFreePort_AllSSBusyReturnsNoFreePort(t *testing.T) {
 	t.Parallel()
 
 	status := "hub port sta spd dev      sockfd local_busid\n" +
 		"hs  0000 000 000 00000000 000000 0-0\n" +
-		"ss  0001 003 005 01020304 000005 1-1\n" +
-		"ss  0002 003 005 01020304 000005 1-1\n"
+		"ss  0008 003 005 01020304 000005 1-1\n" +
+		"ss  0009 003 005 01020304 000005 1-1\n"
 
 	a, err := kernel.NewImporterAdapter(kernel.WithFS(statusFS(status, nil, 16)))
 	require.NoError(t, err)
@@ -107,14 +137,15 @@ func TestFindFreePort_AllSSBusyReturnsNoFreePort(t *testing.T) {
 }
 
 // TestListPorts_ReturnsAllRowsIncludingFree confirms ListPorts surfaces
-// free rows as well as used ones.
+// free rows as well as used ones. SS row lives in the flat 8..15 range
+// of a default single-controller build.
 func TestListPorts_ReturnsAllRowsIncludingFree(t *testing.T) {
 	t.Parallel()
 
 	status := "hub port sta spd dev      sockfd local_busid\n" +
 		"hs  0000 000 000 00000000 000000 0-0\n" +
 		"hs  0001 003 003 01020304 000005 1-1\n" +
-		"ss  0002 003 005 01020304 000005 1-1\n"
+		"ss  0008 003 005 01020304 000005 1-1\n"
 
 	a, err := kernel.NewImporterAdapter(kernel.WithFS(statusFS(status, nil, 16)))
 	require.NoError(t, err)
@@ -180,4 +211,117 @@ func TestListPorts_ModuleMissingReturnsBoth(t *testing.T) {
 	ports, err := a.ListPorts(context.Background())
 	require.Empty(t, ports)
 	require.ErrorIs(t, err, domain.ErrKernelModuleMissing)
+}
+
+// TestListPorts_TrustsFlatPortSingleController pins BUG 2a for the
+// single-controller case. Under the new contract the parser must
+// emit each row's PortID verbatim from the "port" column — the kernel
+// already computed the flat index via status_show_vhci and a
+// controllerIdx-based re-offset would double-count. With nports=16
+// (one controller, default VHCI_HC_PORTS=8), the HS row at flat port
+// 0 and the SS row at flat port 8 must surface as domain.PortID(0)
+// and domain.PortID(8) respectively.
+func TestListPorts_TrustsFlatPortSingleController(t *testing.T) {
+	t.Parallel()
+
+	status := "hub port sta spd dev      sockfd local_busid\n" +
+		"hs  0000 000 000 00000000 000000 0-0\n" +
+		"ss  0008 000 000 00000000 000000 0-0\n"
+
+	a, err := kernel.NewImporterAdapter(kernel.WithFS(statusFS(status, nil, 16)))
+	require.NoError(t, err)
+
+	ports, err := a.ListPorts(context.Background())
+	require.NoError(t, err)
+	require.Len(t, ports, 2)
+	require.EqualValues(t, 0, ports[0].ID, "HS row's flat port is trusted verbatim")
+	require.EqualValues(t, 8, ports[1].ID, "SS row's flat port is trusted verbatim")
+}
+
+// TestListPorts_TrustsFlatPortMultiController pins BUG 2a across two
+// controllers. Every row's PortID must come out exactly as the kernel
+// wrote it: the controllerIdx-based offset that the pre-fix parser
+// added would have pushed status.1's flat-16 row to 32 and its flat-24
+// row to 40 (nports=32, default VHCI_HC_PORTS=8, 2 controllers).
+func TestListPorts_TrustsFlatPortMultiController(t *testing.T) {
+	t.Parallel()
+
+	primary := "hub port sta spd dev      sockfd local_busid\n" +
+		"hs  0000 000 000 00000000 000000 0-0\n" +
+		"ss  0008 000 000 00000000 000000 0-0\n"
+
+	secondary := "hs  0016 000 000 00000000 000000 0-0\n" +
+		"ss  0024 000 000 00000000 000000 0-0\n"
+
+	mfs := statusFS(primary, map[int]string{1: secondary}, 32)
+
+	a, err := kernel.NewImporterAdapter(kernel.WithFS(mfs))
+	require.NoError(t, err)
+
+	ports, err := a.ListPorts(context.Background())
+	require.NoError(t, err)
+	require.Len(t, ports, 4)
+	require.EqualValues(t, 0, ports[0].ID)
+	require.EqualValues(t, 8, ports[1].ID)
+	require.EqualValues(t, 16, ports[2].ID, "no +controllerIdx*16 double-add on status.1 HS row")
+	require.EqualValues(t, 24, ports[3].ID, "no +controllerIdx*16 double-add on status.1 SS row")
+}
+
+// TestListPorts_NonDefaultHCPorts pins BUG 2a for a kernel built with
+// VHCI_HC_PORTS=4 (nports=16, 2 controllers). The hardcoded
+// vhciPortsPerController=16 in the pre-fix parser over-counted by 4×
+// for every status.1 row; only a topology-sourced VHCIPorts (HCPorts*2
+// = 8 in this fixture) correctly renders the kernel's already-flat
+// values. status.0 rows are flat 0..7 and status.1 rows are flat
+// 8..15; the parser emits every row exactly as written.
+func TestListPorts_NonDefaultHCPorts(t *testing.T) {
+	t.Parallel()
+
+	// status.0: HS flat 0, SS flat 4 (HCPorts=4 → SS offset is 4).
+	primary := "hub port sta spd dev      sockfd local_busid\n" +
+		"hs  0000 000 000 00000000 000000 0-0\n" +
+		"ss  0004 000 000 00000000 000000 0-0\n"
+
+	// status.1: HS flat 8 (pdev_nr=1 * VHCI_PORTS=8), SS flat 12.
+	secondary := "hs  0008 000 000 00000000 000000 0-0\n" +
+		"ss  0012 000 000 00000000 000000 0-0\n"
+
+	mfs := statusFS(primary, map[int]string{1: secondary}, 16)
+
+	a, err := kernel.NewImporterAdapter(kernel.WithFS(mfs))
+	require.NoError(t, err)
+
+	ports, err := a.ListPorts(context.Background())
+	require.NoError(t, err)
+	require.Len(t, ports, 4)
+	require.EqualValues(t, 0, ports[0].ID)
+	require.EqualValues(t, 4, ports[1].ID)
+	require.EqualValues(t, 8, ports[2].ID, "non-default VHCI_HC_PORTS=4: status.1 HS at flat 8")
+	require.EqualValues(t, 12, ports[3].ID, "non-default VHCI_HC_PORTS=4: status.1 SS at flat 12")
+}
+
+// TestListPorts_RowInWrongFileErrors pins BUG 2b: a row whose declared
+// flat port does not belong to its controller's block (port / VHCIPorts
+// != controllerIdx) is a kernel-state inconsistency. The adapter must
+// refuse the whole call instead of silently surfacing an out-of-range
+// port that downstream attach/detach logic would trust. Here status.1
+// claims flat port 5, which belongs to controller 0 (0 <= 5 < 16) and
+// violates the per-file invariant.
+func TestListPorts_RowInWrongFileErrors(t *testing.T) {
+	t.Parallel()
+
+	primary := "hub port sta spd dev      sockfd local_busid\n" +
+		"hs  0000 000 000 00000000 000000 0-0\n"
+
+	// Row claims flat port 5, but status.1 owns flat 16..31 on
+	// default VHCI_HC_PORTS=8.
+	secondary := "hs  0005 000 000 00000000 000000 0-0\n"
+
+	mfs := statusFS(primary, map[int]string{1: secondary}, 32)
+
+	a, err := kernel.NewImporterAdapter(kernel.WithFS(mfs))
+	require.NoError(t, err)
+
+	_, err = a.ListPorts(context.Background())
+	require.Error(t, err, "a row whose flat port falls outside its controller's block must error")
 }
