@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -442,3 +443,135 @@ func TestExporterWatchSessions_AfterShutdown(t *testing.T) {
 
 	require.Equal(t, int32(0), count.Load())
 }
+
+// stableNumGoroutines reads runtime.NumGoroutine several times with a
+// small sleep between samples and returns the minimum. Shutdown-driven
+// cleanup churn (timers firing, wg.Wait returning) produces transient
+// goroutine spikes; the min across samples is a stable floor we can
+// compare pre vs post without flakes from unrelated runtime activity.
+func stableNumGoroutines(t *testing.T) int {
+	t.Helper()
+
+	const (
+		samples = 10
+		pause   = 5 * time.Millisecond
+	)
+
+	best := runtime.NumGoroutine()
+
+	for range samples - 1 {
+		time.Sleep(pause)
+
+		n := runtime.NumGoroutine()
+		if n < best {
+			best = n
+		}
+	}
+
+	return best
+}
+
+// TestExporterShutdown_ReusesSessionsWaitGoroutine locks in the Pass-5
+// RANK A fix: repeated Shutdown calls on a truly-stuck handler must not
+// leak one `go e.sessionsWG.Wait()` waiter per call.
+//
+// Pre-fix: waitSessionsBounded does `go func() { e.sessionsWG.Wait(); close(done) }()`
+// on every invocation. When a handler is parked forever, Wait() never
+// returns and every Shutdown call adds one more permanently parked
+// goroutine. N extra Shutdown calls => +N goroutines that never
+// unwind.
+//
+// Post-fix: the drain future is shared (sync.Once-guarded) so only the
+// first Shutdown spawns a waiter; subsequent calls observe the same
+// shared channel. N extra Shutdown calls => at most +1 goroutine.
+func TestExporterShutdown_ReusesSessionsWaitGoroutine(t *testing.T) {
+	t.Parallel()
+
+	exportStarted := make(chan struct{}, 1)
+	hang := make(chan struct{})
+
+	t.Cleanup(func() { close(hang) })
+
+	kernel := &ExporterKernelMock{
+		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
+			select {
+			case exportStarted <- struct{}{}:
+			default:
+			}
+
+			<-hang
+
+			return io.EOF
+		},
+		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
+	}
+
+	codec := newSessionImportCodec(domain.BusID("3-1"))
+
+	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 7), Port: 9000})
+
+	exp := newExporterForTest(t,
+		app.WithExporterKernel(kernel),
+		app.WithExporterCodec(codec),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	serveDone := make(chan error, 1)
+
+	go func() { serveDone <- exp.Serve(ctx, lis) }()
+
+	client, err := lis.dial(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	_, err = client.Write(opHeader(wire.OpReqImport))
+	require.NoError(t, err)
+
+	select {
+	case <-exportStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ExportOnConn did not begin blocking within 2s")
+	}
+
+	require.Eventually(t, func() bool {
+		return len(exp.Sessions(context.Background())) == 1
+	}, 2*time.Second, 10*time.Millisecond)
+
+	// One priming Shutdown to kick off the (possibly shared) waiter;
+	// its timer-goroutines then settle out before we measure.
+	primeCtx, primeCancel := context.WithTimeout(
+		context.Background(), 100*time.Millisecond)
+	_ = exp.Shutdown(primeCtx)
+
+	primeCancel()
+
+	// Baseline after the first Shutdown has finished its transient
+	// bookkeeping.
+	baseline := stableNumGoroutines(t)
+
+	const extraShutdowns = 5
+
+	for range extraShutdowns {
+		shutdownCtx, shutdownCancel := context.WithTimeout(
+			context.Background(), 50*time.Millisecond)
+		_ = exp.Shutdown(shutdownCtx)
+
+		shutdownCancel()
+	}
+
+	after := stableNumGoroutines(t)
+
+	delta := after - baseline
+
+	// Allow a small slack for unrelated scheduler noise (pprof, gc,
+	// net poller). Pre-fix delta is >= extraShutdowns (one leaked
+	// waiter per call). Post-fix delta is <= 1.
+	const maxDelta = 1
+
+	require.LessOrEqualf(t, delta, maxDelta,
+		"repeated Shutdown leaked waiter goroutines: baseline=%d after=%d delta=%d extraShutdowns=%d",
+		baseline, after, delta, extraShutdowns)
+}
+
