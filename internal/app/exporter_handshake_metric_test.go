@@ -39,9 +39,14 @@ func TestExporter_HandshakeDurationMetricStopsBeforeSessionRuntime(t *testing.T)
 
 	const sessionBusID = domain.BusID("5-1")
 
-	// ExportOnConn returns success immediately; the session lifetime
-	// is driven by the KernelEvents detach notification below. Pre-fix
-	// the handshake metric would observe the whole post-handoff wait.
+	// ExportOnConn returns nil immediately, mirroring the real sysfs
+	// write semantics. The test advances the fake clock AFTER the
+	// session is registered; on the post-fix code path the handler
+	// already observed its handshake metric sample at the
+	// ExportOnConn-return boundary (delta ≈ 0 fake-clock seconds),
+	// while on the pre-fix code path the observation is deferred
+	// until after waitForSessionEnd unwinds, so the 5-second clock
+	// advance gets rolled into the sample.
 	kernel := &ExporterKernelMock{
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, id domain.BusID) error {
 			require.Equal(t, sessionBusID, id)
@@ -92,10 +97,45 @@ func TestExporter_HandshakeDurationMetricStopsBeforeSessionRuntime(t *testing.T)
 		return len(exp.Sessions(context.Background())) == 1
 	}, 2*time.Second, 10*time.Millisecond, "session must register after handshake")
 
-	// Session is live and handler is parked on waitForSessionEnd —
-	// advance the fake clock by a long, obviously-session-lifetime
-	// amount of time. Pre-fix this gets rolled into the handshake
-	// duration observation when the handler finally exits.
+	// Wait (with a bounded deadline) for the post-fix
+	// observeImportHandshakeDuration call to land. On the post-fix
+	// path the handler invokes it immediately after ExportOnConn
+	// returns, so the sample lands within a scheduler tick. On the
+	// pre-fix path the observation is deferred to handleConn after
+	// waitForSessionEnd, so no sample lands here — the Eventually
+	// times out cleanly and the test proceeds; the final assertion
+	// then fails because the clock advance below gets rolled into
+	// the deferred observation.
+	//
+	// This deterministic sync point eliminates the race under -race
+	// between "handler schedules observeHandshakeDuration" and "test
+	// advances fake clock": the post-fix path is guaranteed to have
+	// already observed (sample_count >= 1) before the advance.
+	const preAdvanceSettle = 200 * time.Millisecond
+
+	deadline := time.After(preAdvanceSettle)
+
+waitSample:
+	for {
+		if handshakeImportSampleCount(t, reg) >= 1 {
+			break waitSample
+		}
+
+		select {
+		case <-deadline:
+			break waitSample
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	// Session is live and the handler is parked on
+	// waitForSessionEnd. Advance the fake clock by a long,
+	// obviously-session-lifetime amount of time. On the pre-fix path
+	// this gets rolled into the handshake duration observation when
+	// the handler finally exits. On the post-fix path the handler
+	// already observed the metric at the ExportOnConn-return
+	// boundary with a sub-ms handshake delta, so the advance below
+	// is purely session runtime and does not leak into the sample.
 	const sessionLifetime = 5 * time.Second
 
 	clk.Advance(sessionLifetime)
