@@ -268,6 +268,51 @@ func TestDiscoverTopology_StatusFilePermissionErrorSurfaces(t *testing.T) {
 		"the wrapped error must chain back to fs.ErrPermission")
 }
 
+// TestDiscoverTopology_IncompleteControllerErrors pins BUG 3: the
+// post-condition len(BusMap) == NControllers * hubsPerController must
+// hold — a controller that exposes only one usb child (the other is
+// mid-probe, the sysfs is partially populated, or the kernel is in an
+// unsupported state) must surface as an error rather than a silent
+// partial topology that downstream flat-port arithmetic trusts as
+// authoritative.
+//
+// Two fixtures exercise the two shapes: (a) a single controller with
+// only one usb child; (b) two controllers where the second controller
+// has no usb children at all.
+func TestDiscoverTopology_IncompleteControllerErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("single controller missing one hub", func(t *testing.T) {
+		t.Parallel()
+
+		mfs := topoFS(map[string]string{
+			"/sys/devices/platform/vhci_hcd.0/nports":      "16\n",
+			"/sys/devices/platform/vhci_hcd.0/status":      "",
+			"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
+		})
+
+		_, err := kernel.DiscoverTopologyForTest(mfs)
+		require.Error(t, err,
+			"a controller with fewer than hubsPerController usb children is incomplete")
+	})
+
+	t.Run("second controller has zero hubs", func(t *testing.T) {
+		t.Parallel()
+
+		mfs := topoFS(map[string]string{
+			"/sys/devices/platform/vhci_hcd.0/nports":      "32\n",
+			"/sys/devices/platform/vhci_hcd.0/status":      "",
+			"/sys/devices/platform/vhci_hcd.0/status.1":    "",
+			"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
+			"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
+		})
+
+		_, err := kernel.DiscoverTopologyForTest(mfs)
+		require.Error(t, err,
+			"nControllers * hubsPerController must equal len(BusMap)")
+	})
+}
+
 // TestDiscoverTopology_ClassifyHubBySiblingOrder pins BUG 1: when the
 // speed attribute is absent or empty, classification must fall back to
 // sibling order (lower busnum = HS, higher busnum = SS) because
