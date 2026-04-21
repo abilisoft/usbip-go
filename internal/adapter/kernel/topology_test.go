@@ -3,6 +3,7 @@
 package kernel_test
 
 import (
+	"io/fs"
 	"testing"
 	"testing/fstest"
 
@@ -30,6 +31,34 @@ func topoFS(files map[string]string) fstest.MapFS {
 	}
 
 	return m
+}
+
+// errFS wraps an fs.FS and returns errOn for every Open whose
+// fs-relative path matches block. Used to synthesise a non-ENOENT
+// failure on a specific sysfs attribute without touching the real
+// filesystem.
+type errFS struct {
+	inner fs.FS
+	block string
+	errOn error
+}
+
+// Open implements fs.FS. When the requested name equals the blocked
+// path, the pre-canned error is returned; all other opens are
+// delegated to the inner fs.FS. The inner error is wrapped in a
+// PathError so the caller sees the same shape io/fs users expect from
+// real filesystems.
+func (e errFS) Open(name string) (fs.File, error) {
+	if name == e.block {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: e.errOn}
+	}
+
+	f, err := e.inner.Open(name)
+	if err != nil {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: err}
+	}
+
+	return f, nil
 }
 
 // TestDiscoverTopology_SingleControllerDefault covers the default
@@ -202,6 +231,41 @@ func TestTopology_FlatPort(t *testing.T) {
 		topo.FlatPort(kernel.VHCILocation{ControllerIdx: 1, Hub: kernel.HubTypeHS}, 0))
 	require.Equal(t, domain.PortID(25),
 		topo.FlatPort(kernel.VHCILocation{ControllerIdx: 1, Hub: kernel.HubTypeSS}, 1))
+}
+
+// TestDiscoverTopology_StatusFilePermissionErrorSurfaces pins BUG 2:
+// the controller probe must propagate any non-ENOENT failure opening a
+// status.N file instead of silently treating the file as present and
+// continuing. A permission-denied read would otherwise either terminate
+// enumeration with a wrong controller count or fold the probe into a
+// downstream "sysfs is healthy" success that masks the real failure.
+//
+// Fixture: the usual base layout plus a status.1 entry that the fake
+// fs.FS refuses to open with fs.ErrPermission. discoverTopology must
+// return a non-nil error that wraps fs.ErrPermission.
+func TestDiscoverTopology_StatusFilePermissionErrorSurfaces(t *testing.T) {
+	t.Parallel()
+
+	inner := topoFS(map[string]string{
+		"/sys/devices/platform/vhci_hcd.0/nports":      "32\n",
+		"/sys/devices/platform/vhci_hcd.0/status":      "",
+		"/sys/devices/platform/vhci_hcd.0/status.1":    "",
+		"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
+		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
+		"/sys/devices/platform/vhci_hcd.1/usb3/busnum": "3\n",
+		"/sys/devices/platform/vhci_hcd.1/usb4/busnum": "4\n",
+	})
+
+	fake := errFS{
+		inner: inner,
+		block: "sys/devices/platform/vhci_hcd.0/status.1",
+		errOn: fs.ErrPermission,
+	}
+
+	_, err := kernel.DiscoverTopologyForTest(fake)
+	require.Error(t, err, "permission-denied on status.N must surface as an error")
+	require.ErrorIs(t, err, fs.ErrPermission,
+		"the wrapped error must chain back to fs.ErrPermission")
 }
 
 // TestDiscoverTopology_ClassifyHubBySiblingOrder pins BUG 1: when the
