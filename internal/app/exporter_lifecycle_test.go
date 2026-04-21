@@ -543,6 +543,7 @@ func TestExporterShutdown_ReusesSessionsWaitGoroutine(t *testing.T) {
 	// its timer-goroutines then settle out before we measure.
 	primeCtx, primeCancel := context.WithTimeout(
 		context.Background(), 100*time.Millisecond)
+
 	_ = exp.Shutdown(primeCtx)
 
 	primeCancel()
@@ -556,6 +557,7 @@ func TestExporterShutdown_ReusesSessionsWaitGoroutine(t *testing.T) {
 	for range extraShutdowns {
 		shutdownCtx, shutdownCancel := context.WithTimeout(
 			context.Background(), 50*time.Millisecond)
+
 		_ = exp.Shutdown(shutdownCtx)
 
 		shutdownCancel()
