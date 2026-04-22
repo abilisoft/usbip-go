@@ -343,6 +343,12 @@ func (d *eventDispatcher) broadcast(ev domain.Event) {
 // unmappable payloads. The interface-typed return is mandatory:
 // domain.Event is a closed union, and this function's job is
 // precisely to produce a value of that union.
+//
+// Deprecated within the package: callers that have a Topology in hand
+// (EventsAdapter.Subscribe) route through vhciEventMapper.mapEvent so
+// the devpath → flat Port.ID translation uses the kernel's port
+// layout. This free function is retained for the transitional window
+// while the Task 3 wiring lands.
 func parseUevent(payload []byte) (domain.Event, bool) {
 	fields := parseUeventFields(payload)
 
@@ -350,6 +356,46 @@ func parseUevent(payload []byte) (domain.Event, bool) {
 		return nil, false
 	}
 
+	return mapUeventToDomain(fields)
+}
+
+// vhciEventMapper is the stateful counterpart of parseUevent. It holds
+// the cached VHCI topology so mapEvent can translate a uevent's (usb
+// bus, root port) pair into the flat Port.ID the kernel status file
+// emits and the attach/detach sysfs writes consume.
+//
+// Task 3 introduces the struct with a transitional mapEvent body that
+// still delegates to the legacy string-parse path; the follow-up fix
+// replaces the body with BusMap-driven flat-port math.
+type vhciEventMapper struct {
+	topo Topology
+}
+
+// newVHCIEventMapper returns a mapper keyed on the supplied topology
+// snapshot. Construction is allocation-free — Topology is a value
+// type — so the adapter can embed one per dispatcher without a
+// dedicated pointer.
+func newVHCIEventMapper(topo Topology) vhciEventMapper {
+	return vhciEventMapper{topo: topo}
+}
+
+// mapEvent is the topology-aware entry point used by the dispatcher.
+// It mirrors parseUevent's contract (returns a domain.Event + an ok
+// flag) but uses the embedded Topology for the vhci devpath branch.
+// Non-vhci subsystems (usbip_host) bypass the topology entirely.
+func (m vhciEventMapper) mapEvent(fields map[string]string) (domain.Event, bool) {
+	if !isInterestingUevent(fields) {
+		return nil, false
+	}
+
+	return m.mapUeventToDomain(fields)
+}
+
+// mapUeventToDomain is the method counterpart of the free function of
+// the same name. Transitional body delegates to the free function so
+// the RED commit compiles; GREEN replaces the body with BusMap-keyed
+// flat-port math.
+func (m vhciEventMapper) mapUeventToDomain(fields map[string]string) (domain.Event, bool) {
 	return mapUeventToDomain(fields)
 }
 
