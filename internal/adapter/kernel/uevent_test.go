@@ -499,6 +499,131 @@ func TestSubscribe_DottedBusIDProducesEvent(t *testing.T) {
 	}
 }
 
+// TestSubscribe_FailsWhenTopologyUnavailable pins the Task-3 wiring
+// contract: Subscribe must load the VHCI topology before accepting
+// subscribers so every downstream event already knows its flat
+// Port.ID. A host where vhci_hcd is not loaded (or sysfs is missing)
+// yields an errTopologyNoControllers / missing-nports failure that
+// Subscribe must surface — proceeding with an empty BusMap would
+// silently drop every vhci event as "non-VHCI bus".
+func TestSubscribe_FailsWhenTopologyUnavailable(t *testing.T) {
+	t.Parallel()
+
+	sock := newFakeSocket()
+
+	defer func() { _ = sock.Close() }()
+
+	dialer := func() (kernel.NetlinkSocket, error) { return sock, nil }
+
+	// Empty MapFS — no vhci_hcd.0/nports, so discoverTopology fails at
+	// the first sysfs read.
+	a, err := kernel.NewEventsAdapter(
+		kernel.WithFS(topoFS(nil)),
+		kernel.WithNetlinkDialer(dialer),
+	)
+	require.NoError(t, err)
+
+	_, _, err = a.Subscribe(t.Context())
+	require.Error(t, err,
+		"Subscribe must fail when the VHCI topology cannot be loaded")
+}
+
+// TestSubscribe_EmitsFlatPortIDForVhciEvent is the end-to-end contract
+// test for the Task-3 wiring: an event delivered through the
+// dispatcher must carry the kernel's flat Port.ID (BusMap-resolved)
+// rather than the legacy leading-busid-segment value. Devpath
+// "/vhci_hcd.0/usb1/1-5" on a single-controller topology (BusMap[1] =
+// (0, HS), HCPorts=8, VHCIPorts=16) must flatten to Port.ID = 0*16 +
+// 0 + (5-1) = 4. The legacy extractPortFromBusID returned 5, so any
+// downstream consumer relying on the dispatcher's Port.ID was
+// unaligned with the kernel's status file.
+func TestSubscribe_EmitsFlatPortIDForVhciEvent(t *testing.T) {
+	t.Parallel()
+
+	sock := newFakeSocket()
+
+	defer func() { _ = sock.Close() }()
+
+	dialer := func() (kernel.NetlinkSocket, error) { return sock, nil }
+
+	a, err := kernel.NewEventsAdapter(
+		kernel.WithFS(singleControllerTopoFS()),
+		kernel.WithNetlinkDialer(dialer),
+	)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	ch, unsub, err := a.Subscribe(ctx)
+	require.NoError(t, err)
+
+	defer unsub()
+
+	sock.feed(uevent(map[string]string{
+		"ACTION":    "add",
+		"SUBSYSTEM": "usb",
+		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb1/1-5",
+	}))
+
+	select {
+	case ev := <-ch:
+		attach, ok := ev.(domain.PortAttachedEvent)
+		require.True(t, ok, "expected PortAttachedEvent, got %T", ev)
+		require.Equal(t, domain.PortID(4), attach.Port.ID,
+			"rhport0=4 on HS hub of controller 0 must flatten to Port.ID=4")
+		require.Equal(t, domain.BusID("1-5"), attach.Port.BusID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for flat-port event")
+	}
+}
+
+// TestSubscribe_EmitsFlatPortIDForMultiController covers the multi-
+// controller flat-port arithmetic end-to-end: devpath through
+// vhci_hcd.1/usb4 (controller 1, SS hub) with rootPort=2 → rhport0=1
+// → flat Port.ID = 1*16 + 8 + 1 = 25. The legacy path hard-coded
+// vhci_hcd.0 in the regex and lost the multi-controller axis entirely.
+func TestSubscribe_EmitsFlatPortIDForMultiController(t *testing.T) {
+	t.Parallel()
+
+	sock := newFakeSocket()
+
+	defer func() { _ = sock.Close() }()
+
+	dialer := func() (kernel.NetlinkSocket, error) { return sock, nil }
+
+	a, err := kernel.NewEventsAdapter(
+		kernel.WithFS(dualControllerTopoFS()),
+		kernel.WithNetlinkDialer(dialer),
+	)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	ch, unsub, err := a.Subscribe(ctx)
+	require.NoError(t, err)
+
+	defer unsub()
+
+	sock.feed(uevent(map[string]string{
+		"ACTION":    "remove",
+		"SUBSYSTEM": "usb",
+		"DEVPATH":   "/devices/platform/vhci_hcd.1/usb4/4-2",
+	}))
+
+	select {
+	case ev := <-ch:
+		detach, ok := ev.(domain.PortDetachedEvent)
+		require.True(t, ok, "expected PortDetachedEvent, got %T", ev)
+		require.Equal(t, domain.PortID(25), detach.Port.ID,
+			"rhport0=1 on SS hub of controller 1 must flatten to Port.ID=25")
+		require.Equal(t, domain.BusID("4-2"), detach.Port.BusID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for multi-controller flat-port event")
+	}
+}
+
 // TestSubscribe_RegistrationRaceDoesNotDropEvent drives the window
 // between Subscribe returning and the first event arriving. The
 // dispatcher must not be receiving events before the first subscriber
