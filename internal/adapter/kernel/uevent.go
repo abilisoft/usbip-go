@@ -548,7 +548,17 @@ func isInterestingUevent(fields map[string]string) bool {
 //	[2] fullBusID — the entire "<bus>-<port>[.hub...]" suffix.
 //	[3] rootPort1indexed — the integer between the first '-' and the
 //	    first '.' (or end-of-segment for non-hub devices).
-var vhciDevpathPattern = regexp.MustCompile(`/devices/platform/vhci_hcd\.\d+/usb(\d+)/(\d+-(\d+)(?:\.\d+)*)`)
+//
+// The pattern is anchored at both ends. Without the trailing "$"
+// anchor, FindStringSubmatch would match any DEVPATH that merely
+// starts with the expected prefix — so a USB interface sub-path such
+// as "/devices/platform/vhci_hcd.0/usb1/1-1/1-1:1.0" would truncate to
+// busid "1-1" and emit a spurious PortDetachedEvent on interface-level
+// unbind, mid-terminating an active exporter session. The leading "^"
+// is symmetric belt-and-suspenders: the uevent payload always delivers
+// a full absolute DEVPATH, so a leading-anchor mismatch cannot arise
+// in production, but start-anchoring makes the regex intent explicit.
+var vhciDevpathPattern = regexp.MustCompile(`^/devices/platform/vhci_hcd\.\d+/usb(\d+)/(\d+-(\d+)(?:\.\d+)*)$`)
 
 // Regex group indices for vhciDevpathPattern. Named so the extraction
 // code reads without magic numbers.
