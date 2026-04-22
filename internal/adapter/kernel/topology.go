@@ -415,21 +415,33 @@ func hubByRank(rank int) HubType {
 }
 
 // loadTopology is the adapter-facing wrapper that reads the full
-// BusMap-inclusive topology from the adapter's injected fs.FS once per
-// adapter instance and returns the memoised result on every subsequent
-// call. BusMap consumers (uevent mapping, port-to-bus translation)
-// route through here; the status-reading path uses the lighter
-// loadStatusTopology which does not assert BusMap completeness.
+// BusMap-inclusive topology from the adapter's injected fs.FS and
+// returns the memoised result on every subsequent call after the first
+// success. Errors are not memoised — any transient sysfs failure is
+// surfaced to the caller but leaves the cache empty, so the next call
+// re-runs discoverTopology. This allows long-lived daemons to recover
+// automatically after a vhci_hcd module reload.
 //
 // The cache is shared across every copy of commonAdapter because it is
 // held through a pointer; see commonAdapter / topologyCache in
 // adapter.go.
 func (a *commonAdapter) loadTopology() (Topology, error) {
-	a.topoCache.once.Do(func() {
-		a.topoCache.topo, a.topoCache.err = discoverTopology(a.fs)
-	})
+	a.topoCache.mu.Lock()
+	defer a.topoCache.mu.Unlock()
 
-	return a.topoCache.topo, a.topoCache.err
+	if a.topoCache.ok {
+		return a.topoCache.topo, nil
+	}
+
+	topo, err := discoverTopology(a.fs)
+	if err != nil {
+		return Topology{}, err
+	}
+
+	a.topoCache.topo = topo
+	a.topoCache.ok = true
+
+	return topo, nil
 }
 
 // loadStatusTopology is the status-reading variant of loadTopology. It
@@ -437,11 +449,23 @@ func (a *commonAdapter) loadTopology() (Topology, error) {
 // readStatusRows / parseStatusFile need — and never asserts BusMap
 // completeness. Cached independently from the full Topology so a
 // transient BusMap shortfall (e.g. a controller mid-probe) does not
-// poison the status-reading path.
+// poison the status-reading path. Errors are not memoised for the
+// same retry-after-transient-failure reason as loadTopology.
 func (a *commonAdapter) loadStatusTopology() (StatusTopology, error) {
-	a.statusTopoCache.once.Do(func() {
-		a.statusTopoCache.topo, a.statusTopoCache.err = discoverStatusTopology(a.fs)
-	})
+	a.statusTopoCache.mu.Lock()
+	defer a.statusTopoCache.mu.Unlock()
 
-	return a.statusTopoCache.topo, a.statusTopoCache.err
+	if a.statusTopoCache.ok {
+		return a.statusTopoCache.topo, nil
+	}
+
+	topo, err := discoverStatusTopology(a.fs)
+	if err != nil {
+		return StatusTopology{}, err
+	}
+
+	a.statusTopoCache.topo = topo
+	a.statusTopoCache.ok = true
+
+	return topo, nil
 }
