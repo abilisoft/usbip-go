@@ -99,14 +99,21 @@ func uevent(fields map[string]string) []byte {
 }
 
 // newAdapterWithFakeSocket returns an EventsAdapter wired up with a
-// fakeSocket dialer.
+// fakeSocket dialer AND the canonical single-controller topology
+// fixture. Every Subscribe path now loads Topology via the injected
+// fs.FS; tests that want a concrete flat Port.ID assert against the
+// (ControllerIdx=0, Hub=HS) bus=1 / (ControllerIdx=0, Hub=SS) bus=2
+// mapping.
 func newAdapterWithFakeSocket(t *testing.T) (*kernel.EventsAdapter, *fakeSocket) {
 	t.Helper()
 
 	sock := newFakeSocket()
 	dialer := func() (kernel.NetlinkSocket, error) { return sock, nil }
 
-	a, err := kernel.NewEventsAdapter(kernel.WithNetlinkDialer(dialer))
+	a, err := kernel.NewEventsAdapter(
+		kernel.WithFS(singleControllerTopoFS()),
+		kernel.WithNetlinkDialer(dialer),
+	)
 	require.NoError(t, err)
 
 	return a, sock
@@ -248,11 +255,14 @@ func TestSubscribe_ExplicitUnsubReleasesCtxWatcher(t *testing.T) {
 func TestSubscribe_DialFailurePropagates(t *testing.T) {
 	t.Parallel()
 
-	a, err := kernel.NewEventsAdapter(kernel.WithNetlinkDialer(
-		func() (kernel.NetlinkSocket, error) {
-			return nil, errDialFailed
-		},
-	))
+	a, err := kernel.NewEventsAdapter(
+		kernel.WithFS(singleControllerTopoFS()),
+		kernel.WithNetlinkDialer(
+			func() (kernel.NetlinkSocket, error) {
+				return nil, errDialFailed
+			},
+		),
+	)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(t.Context())
