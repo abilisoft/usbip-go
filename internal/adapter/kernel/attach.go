@@ -66,6 +66,27 @@ func (a *ImporterAdapter) AttachRemote(
 		return 0, err
 	}
 
+	return a.attachAtPort(ctx, conn, portID, spec)
+}
+
+// attachAtPort is the post-port-selection half of AttachRemote. It
+// assumes the caller has already acquired attachMu (if any
+// serialization is required) and produces the sysfs write + conn-
+// lifecycle transitions for a concrete (portID, fd, devID, speed)
+// tuple. The split exists so tests can drive the attach flow with an
+// explicit port without routing through findFreePort; production
+// always reaches this helper via AttachRemote, which picks the port
+// upstream.
+//
+// The fd-lifecycle invariants documented on AttachRemote (spec §5.4
+// write-first-close-second, caller owns conn on error) apply here
+// verbatim because this helper owns the sysfs write.
+func (a *ImporterAdapter) attachAtPort(
+	_ context.Context,
+	conn net.Conn,
+	portID domain.PortID,
+	spec app.RemoteDeviceSpec,
+) (domain.PortID, error) {
 	fd, err := extractFD(conn)
 	if err != nil {
 		return 0, err
