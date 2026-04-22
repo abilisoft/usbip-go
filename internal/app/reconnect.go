@@ -359,9 +359,21 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 	attempt := 1
 
 	for ; p.opts.MaxAttempts == 0 || attempt <= p.opts.MaxAttempts; attempt++ {
+		// Register the backoff deadline on the watcher goroutine
+		// BEFORE firing OnReconnect. Tests that synchronise on the
+		// callback (TestImporterReconnectBackoffRespected being the
+		// canonical one) then call clk.Advance(delay) and expect the
+		// deadline to fire; pre-fix OnReconnect fired first, so the
+		// FakeClock's pending list was empty at Advance time and the
+		// timer registered later against the already-advanced now —
+		// the watcher then waited for another full delay that no
+		// Advance ever delivered. Register-first makes the callback a
+		// sound sync point for deterministic clock control.
+		delayCh := i.armBackoff(p, attempt)
+
 		i.fireOnReconnect(p.opts.OnReconnect, attempt, lastErr, p.portID, source)
 
-		if !i.waitBackoff(ctx, p, attempt) {
+		if !i.waitBackoffChan(ctx, delayCh) {
 			i.metrics.ImporterReconnectAttempt(ReconnectOutcomeCanceled)
 
 			return
@@ -529,22 +541,48 @@ func (i *Importer) rollbackSupersededReconnect(
 	i.updateImporterPortsGauge()
 }
 
-// waitBackoff sleeps for Backoff.Next(attempt-1) using the injected
-// Clock. Returns false when cancellation fires during the sleep so the
-// caller can exit without issuing a reconnect attempt.
-func (i *Importer) waitBackoff(ctx context.Context, p reconnectParams, attempt int) bool {
+// armBackoff computes Backoff.Next(attempt-1) and, when positive,
+// registers the deadline with the injected Clock synchronously on the
+// watcher goroutine. The returned channel is the After-channel the
+// subsequent waitBackoffChan call parks on; nil means the backoff is
+// zero (or negative) and the wait is a no-op.
+//
+// Registering the deadline BEFORE the runReconnectLoop iteration fires
+// OnReconnect is the ordering invariant that makes the OnReconnect
+// callback a sound synchronisation point for tests driving the
+// FakeClock. See runReconnectLoop for the rationale.
+func (i *Importer) armBackoff(p reconnectParams, attempt int) <-chan time.Time {
 	delay := p.opts.Backoff.Next(attempt - 1)
 	if delay <= 0 {
-		return ctx.Err() == nil
+		return nil
 	}
 
-	timer := i.clock.After(delay)
+	return i.clock.After(delay)
+}
+
+// waitBackoffChan blocks until either ch fires (backoff elapsed) or
+// ctx cancellation interrupts. A nil ch denotes a zero-delay backoff
+// and the wait completes immediately with the result of a single
+// ctx.Err() check so a ctx that was cancelled between the arm call and
+// this wait still aborts the reconnect attempt. Returns true when the
+// caller may proceed with the next Attach, false to exit the loop
+// with ReconnectOutcomeCanceled.
+func (i *Importer) waitBackoffChan(ctx context.Context, ch <-chan time.Time) bool {
+	if ch == nil {
+		return ctx.Err() == nil
+	}
 
 	select {
 	case <-ctx.Done():
 		return false
-	case <-timer:
-		return true
+	case <-ch:
+		// If ctx was also ready the select picks uniformly at random;
+		// a second ctx check after the channel branch ensures a
+		// cancellation always wins on tie, so a watcher whose handle
+		// was superseded mid-backoff cannot sneak a spurious Attach
+		// past the just-cancelled ctx (reconnect_test.go flake:
+		// TestImporterReconnectSupersededWatcherDropsEvent).
+		return ctx.Err() == nil
 	}
 }
 
