@@ -181,19 +181,20 @@ func (a *EventsAdapter) Subscribe(ctx context.Context) (<-chan domain.Event, fun
 // dispatcher; the caller uses this signal to start the run goroutine
 // AFTER registering the first subscriber.
 //
-// Topology is loaded before the netlink socket so a sysfs error
-// surfaces Subscribe without leaking a socket fd. Without a complete
-// Topology the dispatcher cannot compute the kernel's flat Port.ID
-// and every emitted event would be wrong; refusing the Subscribe is
-// the only safe behaviour.
+// The VHCI topology is NOT loaded here — the mapper receives a loader
+// that fires lazily on the first VHCI-shaped event. Exporter-only
+// deployments (hosts running usbip_host without vhci_hcd) therefore
+// succeed at Subscribe and continue delivering DeviceBoundEvent /
+// DeviceUnboundEvent from the usbip_host subsystem; only VHCI-shaped
+// events would fail to map, and those never arrive on exporter-only
+// hosts. A sysfs error at first VHCI-event time degrades only the
+// VHCI branch — the usbip_host stream is unaffected, and the adapter-
+// level topology cache (see topology.go: loadTopology) retries on
+// every call so the mapper can pick up a successful load once the
+// vhci_hcd module is (re)loaded.
 func (a *EventsAdapter) ensureDispatcher() (*eventDispatcher, bool, error) {
 	if a.disp != nil {
 		return a.disp, false, nil
-	}
-
-	topo, err := a.loadTopology()
-	if err != nil {
-		return nil, false, fmt.Errorf("load vhci topology: %w", err)
 	}
 
 	sock, err := a.nlDial()
@@ -201,7 +202,9 @@ func (a *EventsAdapter) ensureDispatcher() (*eventDispatcher, bool, error) {
 		return nil, false, fmt.Errorf("dial netlink: %w", err)
 	}
 
-	d := newDispatcher(sock, a.logger, newVHCIEventMapper(topo))
+	mapper := newVHCIEventMapperWithLoader(a.loadTopology)
+
+	d := newDispatcher(sock, a.logger, mapper)
 
 	a.disp = d
 
