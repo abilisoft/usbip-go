@@ -3,6 +3,7 @@
 package kernel_test
 
 import (
+	"errors"
 	"testing"
 	"testing/fstest"
 
@@ -11,6 +12,11 @@ import (
 	"github.com/abilisoft/usbip-go/internal/adapter/kernel"
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
+
+// errMapperLoaderFailed is the canned error returned by the loader in
+// the degraded-VHCI test below. Declared at package scope so the
+// errors.Is assertion can reference the same sentinel.
+var errMapperLoaderFailed = errors.New("mapper loader failed")
 
 // singleControllerTopoFS is the canonical single-vhci_hcd fixture used
 // by the mapper unit tests: one controller, HCPorts=8, VHCIPorts=16,
@@ -358,6 +364,122 @@ func TestVhciEventMapper_AnchoredRegexPreservesValidBusIDs(t *testing.T) {
 				"full dotted busid must be preserved verbatim")
 		})
 	}
+}
+
+// TestVhciEventMapper_LazyLoaderDegradesVHCIButPassesUsbipHost pins the
+// combined contract Pass-3 Task-3.1 BUG-1 requires:
+//
+//  1. Mapper construction MUST NOT invoke the topology loader. A
+//     caller building the mapper during exporter-only Subscribe (no
+//     vhci_hcd module loaded) cannot afford to pay a topology read;
+//     the lazy init keeps that path unaffected.
+//  2. usbip_host events MUST bypass the VHCI topology entirely — they
+//     do not need it, and firing the loader on a usbip_host bind would
+//     defeat point 1.
+//  3. The first VHCI-shaped event fires the loader exactly once. On
+//     loader error, VHCI events are dropped (ok=false) — no panic, no
+//     surfaced error; the mapper is degraded for VHCI only.
+//  4. A loader-error result is memoised: subsequent VHCI events do not
+//     re-invoke the loader.
+//
+// A loader that always fails exercises the degraded path; a usbip_host
+// event issued alongside still maps. This is the exporter-only
+// deployment contract: the netlink listener must keep delivering
+// DeviceBoundEvent/DeviceUnboundEvent regardless of VHCI availability.
+func TestVhciEventMapper_LazyLoaderDegradesVHCIButPassesUsbipHost(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+
+	loader := func() (kernel.Topology, error) {
+		calls++
+
+		return kernel.Topology{}, errMapperLoaderFailed
+	}
+
+	mapper := kernel.NewVHCIEventMapperWithLoaderForTest(loader)
+
+	require.Zero(t, calls,
+		"mapper construction must not call the topology loader — lazy init "+
+			"keeps exporter-only deployments (no vhci_hcd) unaffected")
+
+	// usbip_host event must NOT trigger the VHCI topology loader.
+	hostFields := map[string]string{
+		"ACTION":    "add",
+		"SUBSYSTEM": "usbip_host",
+		"DEVPATH":   "/devices/pci0000:00/0000:00:14.0/usb1/1-1",
+	}
+
+	hostEvent, hostOK := mapper.MapEventForTest(hostFields)
+	require.True(t, hostOK,
+		"usbip_host event must map even when the VHCI topology is absent")
+
+	bound, isBound := hostEvent.(domain.DeviceBoundEvent)
+	require.True(t, isBound, "expected DeviceBoundEvent, got %T", hostEvent)
+	require.Equal(t, domain.BusID("1-1"), bound.Device.BusID)
+	require.Zero(t, calls,
+		"usbip_host events must bypass the VHCI topology entirely — "+
+			"the loader must still not have been called")
+
+	// First VHCI-shaped event triggers the loader exactly once; since
+	// the loader errors, the VHCI event is dropped but no caller-
+	// visible error is produced.
+	vhciFields := map[string]string{
+		"ACTION":    "remove",
+		"SUBSYSTEM": "usb",
+		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb1/1-1",
+	}
+
+	vhciEvent, vhciOK := mapper.MapEventForTest(vhciFields)
+	require.False(t, vhciOK,
+		"VHCI event must be dropped when the topology loader fails — "+
+			"the exporter-only deployment has no vhci_hcd module to query")
+	require.Nil(t, vhciEvent, "dropped VHCI event must carry no payload")
+
+	require.Equal(t, 1, calls,
+		"the loader must be invoked exactly once on the first VHCI event")
+
+	// Subsequent VHCI events reuse the cached error — no further
+	// loader calls.
+	_, _ = mapper.MapEventForTest(vhciFields)
+
+	require.Equal(t, 1, calls,
+		"loader failure must be memoised after the first attempt")
+}
+
+// TestVhciEventMapper_LazyLoaderSuccessCachedAcrossVHCIEvents mirrors
+// the degraded test above but with a successful loader. Pins the
+// "load once on first VHCI event, reuse thereafter" cache contract.
+func TestVhciEventMapper_LazyLoaderSuccessCachedAcrossVHCIEvents(t *testing.T) {
+	t.Parallel()
+
+	topo := loadTopoForMapperTest(t, singleControllerTopoFS())
+
+	var calls int
+
+	loader := func() (kernel.Topology, error) {
+		calls++
+
+		return topo, nil
+	}
+
+	mapper := kernel.NewVHCIEventMapperWithLoaderForTest(loader)
+
+	require.Zero(t, calls, "construction must be lazy")
+
+	vhciFields := map[string]string{
+		"ACTION":    "remove",
+		"SUBSYSTEM": "usb",
+		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb1/1-1",
+	}
+
+	_, ok := mapper.MapEventForTest(vhciFields)
+	require.True(t, ok, "first VHCI event maps once the loader succeeds")
+	require.Equal(t, 1, calls, "loader fires exactly once on first VHCI event")
+
+	_, ok = mapper.MapEventForTest(vhciFields)
+	require.True(t, ok)
+	require.Equal(t, 1, calls, "loader success must be memoised")
 }
 
 // TestVhciEventMapper_UsbipHostPassThrough confirms the mapper does not

@@ -129,6 +129,23 @@ func NewVHCIEventMapperForTest(topo Topology) VHCIEventMapperForTest {
 	return VHCIEventMapperForTest{inner: newVHCIEventMapper(topo)}
 }
 
+// NewVHCIEventMapperWithLoaderForTest constructs a mapper whose
+// topology is produced by the supplied loader. Tests drive this to
+// exercise the exporter-only contract the Task-3 BUG-1 fix installs:
+//   - deferred-load: the loader must only fire on the first VHCI-
+//     shaped event, never at construction;
+//   - graceful degradation: a loader that returns an error must not
+//     break usbip_host-path event mapping.
+//
+// Implementation note: while the production mapper retains the
+// Topology-valued constructor for backwards compatibility, the loader
+// form gives tests fine-grained control over invocation count and
+// error injection. The helper delegates to the internal loader-aware
+// entrypoint.
+func NewVHCIEventMapperWithLoaderForTest(loader func() (Topology, error)) VHCIEventMapperForTest {
+	return VHCIEventMapperForTest{inner: newVHCIEventMapperWithLoader(loader)}
+}
+
 // MapEventForTest calls the internal mapEvent and returns its
 // (domain.Event, bool) pair verbatim.
 func (m VHCIEventMapperForTest) MapEventForTest(fields map[string]string) (domain.Event, bool) {
