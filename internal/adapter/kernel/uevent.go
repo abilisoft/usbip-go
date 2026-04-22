@@ -377,9 +377,10 @@ func newVHCIEventMapper(topo Topology) vhciEventMapper {
 }
 
 // mapEvent is the topology-aware entry point used by the dispatcher.
-// It mirrors parseUevent's contract (returns a domain.Event + an ok
-// flag) but uses the embedded Topology for the vhci devpath branch.
-// Non-vhci subsystems (usbip_host) bypass the topology entirely.
+// It classifies a parsed uevent field map into a domain.Event using
+// the cached Topology for the vhci devpath branch; non-vhci subsystems
+// (usbip_host) bypass the topology entirely and produce device-level
+// bind/unbind events.
 func (m vhciEventMapper) mapEvent(fields map[string]string) (domain.Event, bool) {
 	if !isInterestingUevent(fields) {
 		return nil, false

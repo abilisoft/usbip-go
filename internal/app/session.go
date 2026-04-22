@@ -415,11 +415,11 @@ func (e *Exporter) waitForSessionEnd(
 // eventEndsSessionForBusID returns true iff ev is a kernel-side signal
 // that the exporter session for busID has ended. The spec §5.4 contract
 // says the kernel emits a `remove` uevent on the exported device's
-// DEVPATH when the session tears down; parseUevent turns that into a
-// PortDetachedEvent or DeviceUnboundEvent depending on the SUBSYSTEM.
-// Matching on BusID is sufficient — both events carry the busid verbatim
-// and the handler's subscription is per-session so no cross-talk can
-// masquerade as an end signal.
+// DEVPATH when the session tears down; the EventsAdapter's dispatcher
+// turns that into a PortDetachedEvent or DeviceUnboundEvent depending
+// on the SUBSYSTEM. Matching on BusID is sufficient — both events
+// carry the busid verbatim and the handler's subscription is per-
+// session so no cross-talk can masquerade as an end signal.
 func eventEndsSessionForBusID(ev domain.Event, busID domain.BusID) bool {
 	switch e := ev.(type) {
 	case domain.PortDetachedEvent:
