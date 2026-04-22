@@ -217,6 +217,17 @@ func (a *ImporterAdapter) DetachPort(ctx context.Context, id domain.PortID) erro
 
 	return a.writeClassified(
 		path.Join(SysfsVHCIHCD, SysfsVHCIDetach),
-		strconv.FormatUint(uint64(id), 10),
+		formatDetachPayload(id),
 	)
+}
+
+// formatDetachPayload renders the kernel-flat port as a bare decimal
+// integer. Matches upstream libsrc/vhci_driver.c for byte-for-byte
+// interop with vhci_sysfs.c::detach_store, whose kstrtoint(buf, 10,
+// &port) accepts the bare integer and tolerates (but does not
+// require) a single trailing '\n'. Keeping the adapter's wire shape
+// newline-free matches upstream and avoids a needless one-byte
+// deviation callers might parse-test against.
+func formatDetachPayload(id domain.PortID) string {
+	return strconv.FormatUint(uint64(id), 10)
 }

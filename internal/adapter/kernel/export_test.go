@@ -96,6 +96,17 @@ func FormatAttachPayloadForTest(
 	return formatAttachPayload(portID, fd, devID, speed)
 }
 
+// FormatDetachPayloadForTest exposes the unexported formatDetachPayload
+// so tests can pin the exact byte-for-byte shape the adapter writes to
+// the vhci_hcd detach sysfs node. Parallel to
+// FormatAttachPayloadForTest: a lock-in test consuming this helper
+// catches any silent drift (newline added, hex, leading zeros, sign
+// prefix) in the decimal-integer rendering vhci_sysfs.c::detach_store
+// consumes via kstrtoint(buf, 10, &port).
+func FormatDetachPayloadForTest(portID domain.PortID) string {
+	return formatDetachPayload(portID)
+}
+
 // AttachAtPortForTest exposes the unexported attachAtPort so tests
 // can drive the post-selection half of AttachRemote with an explicit
 // flat port — the synthetic "a bad port somehow reached attach"
