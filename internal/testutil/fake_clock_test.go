@@ -140,6 +140,44 @@ func TestFakeClockConcurrentSafe(t *testing.T) {
 	require.Equal(t, expected, clock.Now())
 }
 
+// TestFakeClockPendingReflectsRegistrations asserts the Pending()
+// accessor reports the live count of After-channels awaiting their
+// deadline: each After call increments, each fired deadline (via
+// Advance) decrements, and sub-zero or zero durations never register.
+// The accessor exists so tests asserting a "register-before-return"
+// contract on watcher goroutines can verify registration synchronously
+// without polling or wall-clock sleeps.
+func TestFakeClockPendingReflectsRegistrations(t *testing.T) {
+	t.Parallel()
+
+	epoch := newFakeClockEpoch()
+	clock := testutil.NewFakeClockAt(epoch)
+
+	require.Equal(t, 0, clock.Pending(),
+		"a fresh FakeClock has no pending deadlines")
+
+	_ = clock.After(1 * time.Second)
+	require.Equal(t, 1, clock.Pending(),
+		"After registers one pending deadline")
+
+	_ = clock.After(2 * time.Second)
+	require.Equal(t, 2, clock.Pending(),
+		"a second After bumps pending to two")
+
+	// After(0) fires immediately and must NOT add to the pending list.
+	_ = clock.After(0)
+	require.Equal(t, 2, clock.Pending(),
+		"After(0) fires immediately and does not register")
+
+	clock.Advance(1 * time.Second)
+	require.Equal(t, 1, clock.Pending(),
+		"Advance consumes deadlines it fires")
+
+	clock.Advance(1 * time.Second)
+	require.Equal(t, 0, clock.Pending(),
+		"all deadlines consumed after their time advances")
+}
+
 // TestFakeClockSatisfiesInterface asserts FakeClock implements the
 // app.Clock interface at compile time.
 func TestFakeClockSatisfiesInterface(t *testing.T) {
