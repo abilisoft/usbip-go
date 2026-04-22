@@ -85,12 +85,12 @@ func (a *ImporterAdapter) AttachRemote(
 // Defence-in-depth: the flat port is validated against the cached
 // topology before any sysfs write. vhci_sysfs.c::attach_store
 // returns -EINVAL when port >= nports, but surfacing that bare
-// errno gives operators no context; the pre-write check returns
-// domain.ErrPortOutOfRange wrapping port + nports so a stale-cache
-// race or a bypassed findFreePort path produces a diagnosable
-// failure instead of a silent EINVAL. The check is cheap (one map
-// lookup + two uint32 comparisons) and runs ahead of the expensive
-// sysfs write regardless of caller.
+// errno gives operators no context; the pre-write check wraps
+// the adapter-local errPortOutOfRange with port + nports so a
+// stale-cache race or a bypassed findFreePort path produces a
+// diagnosable failure instead of a silent EINVAL. The check is
+// cheap (one map lookup + two uint32 comparisons) and runs ahead
+// of the expensive sysfs write regardless of caller.
 //
 // The bounds check consumes only NControllers + VHCIPorts, so it
 // routes through loadStatusTopology — the BusMap-free projection
@@ -138,9 +138,12 @@ func (a *ImporterAdapter) attachAtPort(
 // port space [0, NControllers*VHCIPorts). vhci_sysfs.c::attach_store
 // derives (pdev_nr, rhport) from the flat id and returns -EINVAL
 // when pdev_nr >= VHCI_NR_HCS (our NControllers); the adapter
-// surfaces that pre-write as domain.ErrPortOutOfRange wrapping port
-// + nports so a stale-cache race or bypassed findFreePort path
-// produces a diagnosable failure rather than a bare EINVAL.
+// surfaces that pre-write as the adapter-local errPortOutOfRange
+// wrapping port + nports so a stale-cache race or bypassed
+// findFreePort path produces a diagnosable failure rather than a
+// bare EINVAL. The sentinel is kernel-package-local because the
+// flat-port concept is VHCI-specific; pkg/domain and pkg/usbip
+// must not carry kernel implementation details.
 //
 // VHCIPorts is guaranteed nonzero by discoverStatusTopology's nports
 // validation, which loadStatusTopology routes through before
@@ -164,7 +167,7 @@ func (a *ImporterAdapter) attachAtPort(
 func validateAttachPort(topo StatusTopology, port domain.PortID) error {
 	nports := topo.NControllers * topo.VHCIPorts
 	if uint32(port) >= nports {
-		return fmt.Errorf("%w: port=%d nports=%d", domain.ErrPortOutOfRange, uint32(port), nports)
+		return fmt.Errorf("%w: port=%d nports=%d", errPortOutOfRange, uint32(port), nports)
 	}
 
 	return nil

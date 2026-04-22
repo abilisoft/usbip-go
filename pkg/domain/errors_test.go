@@ -27,7 +27,6 @@ func TestSentinels_AreDistinctAndNonNil(t *testing.T) {
 		{"ErrBusIDInvalid", domain.ErrBusIDInvalid, "invalid bus id"},
 		{"ErrPermission", domain.ErrPermission, "operation requires elevated privileges"},
 		{"ErrKernelModuleMissing", domain.ErrKernelModuleMissing, "required kernel module not loaded"},
-		{"ErrPortOutOfRange", domain.ErrPortOutOfRange, "vhci port out of range"},
 	}
 
 	seen := make(map[error]string, len(sentinels))

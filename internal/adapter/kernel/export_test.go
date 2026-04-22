@@ -77,6 +77,13 @@ func FindFreePortForTest(a *ImporterAdapter, speed domain.Speed) (domain.PortID,
 	return a.findFreePort(speed)
 }
 
+// ErrPortOutOfRangeForTest exposes the adapter-local errPortOutOfRange
+// sentinel for white-box tests. The production symbol stays unexported
+// because the flat-port concept is VHCI-specific and has no place on
+// pkg/domain or pkg/usbip — public callers see only a wrapped
+// fmt.Errorf whose message carries port + nports context.
+var ErrPortOutOfRangeForTest = errPortOutOfRange
+
 // FormatAttachPayloadForTest exposes the unexported formatAttachPayload
 // so tests can pin the exact byte-for-byte shape the adapter writes to
 // the vhci_hcd attach sysfs node. The payload is the single source of
