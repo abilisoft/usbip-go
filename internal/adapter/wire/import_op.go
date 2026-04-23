@@ -47,7 +47,18 @@ func DecodeOpReqImport(r io.Reader) (domain.BusID, error) {
 		return "", err
 	}
 
-	return domain.BusID(busid), nil
+	// Validate against the permissive wire acceptance rule so a peer
+	// supplying NUL/control bytes or whitespace-wrapped input is
+	// rejected with ErrBusIDInvalid here, well before the sysfs layer
+	// receives it. The stricter topology-pattern check belongs at the
+	// user-input boundary (ParseBusID) because valid real-world
+	// busids include non-topology shapes like "usbip-vudc.0".
+	parsed, err := domain.ValidateWireBusID(busid)
+	if err != nil {
+		return "", fmt.Errorf("decode OP_REQ_IMPORT: %w", err)
+	}
+
+	return parsed, nil
 }
 
 // EncodeOpRepImport writes a success OP_REP_IMPORT reply (status=0)
