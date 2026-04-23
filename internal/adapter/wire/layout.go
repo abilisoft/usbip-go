@@ -137,12 +137,18 @@ func decodeDeviceBuf(buf []byte) (domain.Device, error) {
 		return domain.Device{}, fmt.Errorf("%w: devnum=%d", errDeviceFieldTooLarge, devnum32)
 	}
 
+	speedValue := domain.Speed(speed)
+	if !speedValue.IsKnown() {
+		return domain.Device{}, fmt.Errorf("%w: speed %d not in kernel enum_device_speed",
+			domain.ErrProtocolError, speed)
+	}
+
 	return domain.Device{
 		Path:          path,
 		BusID:         domain.BusID(busidStr),
 		BusNum:        uint16(busnum32),
 		DevNum:        uint16(devnum32),
-		Speed:         domain.Speed(speed),
+		Speed:         speedValue,
 		VendorID:      binary.BigEndian.Uint16(buf[offDevVendorID:]),
 		ProductID:     binary.BigEndian.Uint16(buf[offDevProductID:]),
 		BcdDevice:     binary.BigEndian.Uint16(buf[offDevBcdDevice:]),
