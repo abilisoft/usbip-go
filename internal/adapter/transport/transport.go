@@ -2,10 +2,12 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"sync"
+	"syscall"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
@@ -90,8 +92,20 @@ func (t *NetTransport) Dial(ctx context.Context, r domain.RemoteEndpoint) (net.C
 	// just with Nagle's coalescing. Dropping a valid conn on a perf
 	// knob failure would convert a recoverable warning into an
 	// availability outage; log at warn instead and keep the conn.
+	//
+	// Dead-conn classes (net.ErrClosed, ENOTCONN, EBADF) are the
+	// exception: the sockopt only fails with those when the conn is
+	// already broken, so returning it to the caller postpones the
+	// failure to the next Write with a wrapping that obscures the
+	// true cause. Surface the errno and close the conn.
 	nerr := tcpConn.SetNoDelay(true)
 	if nerr != nil {
+		if isSockoptFatal(nerr) {
+			_ = conn.Close()
+
+			return nil, fmt.Errorf("dial %s: set TCP_NODELAY: %w", addr, nerr)
+		}
+
 		t.logger.LogAttrs(ctx, slog.LevelWarn, "transport.Dial TCP_NODELAY rejected",
 			slog.String("remote", addr), slog.Any("err", nerr))
 	}
@@ -100,6 +114,17 @@ func (t *NetTransport) Dial(ctx context.Context, r domain.RemoteEndpoint) (net.C
 		slog.String("remote", addr), slog.Bool("tcp", true), slog.Bool("nodelay", nerr == nil))
 
 	return conn, nil
+}
+
+// isSockoptFatal reports whether a sockopt-setting error classifies
+// as "conn is already dead" rather than "sockopt rejected on a live
+// conn". A fatal errno (net.ErrClosed, ENOTCONN, EBADF) means the
+// kernel already considers the socket unusable; returning it up the
+// call chain would only delay the real failure.
+func isSockoptFatal(err error) bool {
+	return errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, syscall.ENOTCONN) ||
+		errors.Is(err, syscall.EBADF)
 }
 
 // Listen binds addr and returns a ctx-bound net.Listener. The listener
