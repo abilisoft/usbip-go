@@ -94,20 +94,19 @@ func TestExporter_HandshakeDurationMetricStopsBeforeSessionRuntime(t *testing.T)
 		return len(exp.Sessions(context.Background())) == 1
 	}, 2*time.Second, 10*time.Millisecond, "session must register after handshake")
 
-	// Wait (with a bounded deadline) for the post-fix
-	// observeImportHandshakeDuration call to land. On the post-fix
-	// path the handler invokes it immediately after ExportOnConn
-	// returns, so the sample lands within a scheduler tick. On the
-	// pre-fix path the observation is deferred to handleConn after
-	// waitForSessionEnd, so no sample lands here — the Eventually
-	// times out cleanly and the test proceeds; the final assertion
-	// then fails because the clock advance below gets rolled into
-	// the deferred observation.
+	// Wait (with a bounded deadline) for observeImportHandshakeDuration
+	// to land. The handler invokes it immediately after ExportOnConn
+	// returns, so the sample lands within a scheduler tick. If the
+	// observation were instead deferred to handleConn after
+	// waitForSessionEnd, no sample would land here — the Eventually
+	// would time out cleanly and the test would proceed; the final
+	// assertion would then fail because the clock advance below would
+	// be rolled into the deferred observation.
 	//
 	// This deterministic sync point eliminates the race under -race
 	// between "handler schedules observeHandshakeDuration" and "test
-	// advances fake clock": the post-fix path is guaranteed to have
-	// already observed (sample_count >= 1) before the advance.
+	// advances fake clock": the observation is guaranteed to have
+	// already landed (sample_count >= 1) before the advance.
 	const preAdvanceSettle = 200 * time.Millisecond
 
 	deadline := time.After(preAdvanceSettle)
@@ -127,12 +126,12 @@ waitSample:
 
 	// Session is live and the handler is parked on
 	// waitForSessionEnd. Advance the fake clock by a long,
-	// obviously-session-lifetime amount of time. On the pre-fix path
-	// this gets rolled into the handshake duration observation when
-	// the handler finally exits. On the post-fix path the handler
-	// already observed the metric at the ExportOnConn-return
-	// boundary with a sub-ms handshake delta, so the advance below
-	// is purely session runtime and does not leak into the sample.
+	// obviously-session-lifetime amount of time. The handler has
+	// already observed the metric at the ExportOnConn-return boundary
+	// with a sub-ms handshake delta, so the advance below is purely
+	// session runtime and does not leak into the sample. If the
+	// observation were deferred to handler exit, the advance would
+	// instead be rolled into the handshake duration.
 	const sessionLifetime = 5 * time.Second
 
 	clk.Advance(sessionLifetime)
@@ -147,10 +146,9 @@ waitSample:
 		return len(exp.Sessions(context.Background())) == 0
 	}, 2*time.Second, 10*time.Millisecond, "session must unregister after detach event")
 
-	// Wait for the metric sample to land — handshake metric is
-	// observed in handleConn (pre-fix, AFTER serveImport; post-fix,
-	// inside serveImport at the handoff boundary) which runs after
-	// unregisterSession returns.
+	// Wait for the metric sample to land — the handshake metric is
+	// observed inside serveImport at the handoff boundary, which runs
+	// before unregisterSession returns.
 	require.Eventually(t, func() bool {
 		return handshakeImportSampleCount(t, reg) >= 1
 	}, 2*time.Second, 10*time.Millisecond, "handshake metric must land")
@@ -159,9 +157,9 @@ waitSample:
 
 	// The handshake work is "instant" on fake clock — the only way
 	// observed is even close to sessionLifetime is if the session
-	// runtime was rolled into the measurement. Post-fix: observed
-	// must be far below the session lifetime. Use 1s as a generous
-	// upper bound (sessionLifetime is 5s).
+	// runtime was rolled into the measurement. Observed must be far
+	// below the session lifetime. Use 1s as a generous upper bound
+	// (sessionLifetime is 5s).
 	require.Less(t, observed, 1.0,
 		"handshake histogram sample (%.3fs) leaked session lifetime (%s) — "+
 			"metric must be recorded at the handshake boundary, not after session end",

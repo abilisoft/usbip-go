@@ -267,12 +267,12 @@ func TestAttachRemote_RejectsOutOfRangePort(t *testing.T) {
 // completeness check, so an attach with a perfectly in-range port
 // spuriously failed on a transient BusMap shortfall.
 //
-// Post-fix: attachAtPort validates via loadStatusTopology (mirrors
+// attachAtPort validates via loadStatusTopology (mirrors
 // readStatusRows's Task 2.1 split). A fixture with nports=8 and no
 // usb* children still exposes enough topology for the bounds check;
 // port 0 (in range under [0, 8)) must attach successfully.
 //
-// Before the split, routing attach through loadTopology would surface
+// Routing attach through loadTopology would surface
 // errTopologyIncomplete from the BusMap completeness check whenever
 // vhci_hcd.0 had zero usb children (hubsPerController=2 expected).
 func TestAttachRemote_SucceedsDespiteIncompleteBusMap(t *testing.T) {
@@ -318,7 +318,7 @@ func TestAttachRemote_SucceedsDespiteIncompleteBusMap(t *testing.T) {
 	_, err = kernel.AttachAtPortForTest(context.Background(), a, wrapped, domain.PortID(0), spec)
 	require.NoError(t, err,
 		"attach bounds validation must not depend on BusMap completeness; "+
-			"pre-fix returns errTopologyIncomplete from loadTopology")
+			"routing through loadTopology would return errTopologyIncomplete")
 	require.EqualValues(t, 1, writes.Load(),
 		"valid in-range port must reach sysfs write exactly once")
 	require.EqualValues(t, 1, wrapped.closes.Load(),
@@ -912,7 +912,7 @@ func TestFindFreePort_SSMatchesFlatBoundary(t *testing.T) {
 
 	got, err := kernel.FindFreePortForTest(a, domain.SpeedSuper)
 	require.NoError(t, err,
-		"fixture must emit an ss-labelled row at flat %d; pre-fix all rows are hs and SS finds nothing",
+		"fixture must emit an ss-labelled row at flat %d; if all rows are hs then SS finds nothing",
 		freeSSFlatPort)
 	require.GreaterOrEqual(t, int(got), testHCPorts,
 		"SS free port must sit in the SS range (>= HCPorts)")

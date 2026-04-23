@@ -1032,11 +1032,10 @@ func TestImporterWatchSubscribeErrorYieldsEmpty(t *testing.T) {
 // Attach → registerHandle nil-map race. AttachRemote is gated so the
 // kernel handoff has already succeeded (i.e. we are past the fd-hand-off
 // commitment point) but the caller has not yet recorded the handle.
-// Close runs concurrently and nils the handle map. With the pre-fix
-// code, registerHandle's unconditional map write panics with
-// "assignment to entry in nil map". With the fix, registerHandle
-// detects the closed state, the kernel port is released via DetachPort,
-// and the Attach returns ErrImporterClosed.
+// Close runs concurrently and nils the handle map. registerHandle must
+// detect the closed state, release the kernel port via DetachPort, and
+// return ErrImporterClosed from Attach — never "assignment to entry in
+// nil map" from an unconditional map write.
 func TestImporterAttachConcurrentWithCloseNoPanic(t *testing.T) {
 	t.Parallel()
 
@@ -1144,11 +1143,10 @@ func TestImporterAttachConcurrentWithCloseNoPanic(t *testing.T) {
 	<-closeDone
 	require.Nil(t, closeErr.Load(), "Close must not return an error")
 
-	// Post-fix contract: each attach either returned a live Port (ran
-	// entirely before Close nilled the map) or ErrImporterClosed
-	// (registerHandle saw closed and released the kernel port). No
-	// other outcome is acceptable, and in particular no goroutine may
-	// have panicked.
+	// Contract: each attach either returned a live Port (ran entirely
+	// before Close nilled the map) or ErrImporterClosed (registerHandle
+	// saw closed and released the kernel port). No other outcome is
+	// acceptable, and in particular no goroutine may have panicked.
 	released := 0
 
 	for _, r := range results {

@@ -1005,11 +1005,10 @@ func TestImporterReconnectSupersededWatcherDropsEvent(t *testing.T) {
 }
 
 // TestImporterReconnectDetachShutdownTimeoutDisabled asserts that a
-// negative ShutdownTimeout opts the Detach wait out of the bound —
-// the wait reverts to the pre-Fix-3 semantics (block on watcherDone
-// indefinitely). The watcher here exits promptly so the unbounded wait
-// completes immediately; the assertion is simply that Detach returns
-// cleanly, proving the branch is live.
+// negative ShutdownTimeout opts the Detach wait out of the bound: the
+// wait blocks on watcherDone indefinitely. The watcher here exits
+// promptly so the unbounded wait completes immediately; the assertion
+// is simply that Detach returns cleanly, proving the branch is live.
 func TestImporterReconnectDetachShutdownTimeoutDisabled(t *testing.T) {
 	t.Parallel()
 
@@ -1064,8 +1063,8 @@ func TestImporterReconnectCloseShutdownTimeoutDisabled(t *testing.T) {
 // returns within AttachOptions.ShutdownTimeout even when the watcher is
 // wedged (here: the reconnect-path AttachRemote ignores ctx cancellation
 // and blocks forever, so h.watcherDone never closes on its own). Per
-// spec §5.5, Detach's wait on watcherDone is bounded; pre-fix the wait
-// was unbounded and Detach would hang indefinitely.
+// spec §5.5, Detach's wait on watcherDone is bounded; an unbounded
+// wait would hang indefinitely.
 func TestImporterReconnectDetachShutdownTimeoutBounded(t *testing.T) {
 	t.Parallel()
 
@@ -1119,8 +1118,8 @@ func TestImporterReconnectDetachShutdownTimeoutBounded(t *testing.T) {
 	}, reconnectTestSettleBudget, 5*time.Millisecond, "reconnect attempt must enter AttachRemote")
 
 	// Detach with a wedged watcher: must return within ShutdownTimeout
-	// (plus scheduling slack) — pre-fix it would hang forever waiting
-	// on watcherDone.
+	// (plus scheduling slack). An unbounded wait on watcherDone would
+	// hang forever.
 	detachDone := make(chan error, 1)
 
 	go func() {
@@ -1148,8 +1147,8 @@ func TestImporterReconnectDetachShutdownTimeoutBounded(t *testing.T) {
 // watcher goroutine BEFORE firing OnReconnect. Tests that synchronise
 // on OnReconnect firing (TestImporterReconnectBackoffRespected being
 // the canonical one) then call clk.Advance(delay) and expect the
-// backoff channel to fire; pre-fix, OnReconnect fires first and the
-// clk.After call happens AFTER Advance, so the deadline is registered
+// backoff channel to fire. If OnReconnect fires first and the
+// clk.After call happens AFTER Advance, the deadline is registered
 // against the already-advanced now and the test deadlocks on a channel
 // that will never receive.
 //

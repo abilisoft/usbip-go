@@ -219,10 +219,10 @@ func TestSubscribe_CancelStopsConsumer(t *testing.T) {
 // TestSubscribe_ExplicitUnsubReleasesCtxWatcher drives the explicit
 // unsub path: the caller subscribes with a long-lived ctx (not
 // cancelled for the lifetime of the test), calls the returned unsub
-// func, and returns. With the pre-fix code, the per-subscription
-// ctx-watcher goroutine is still parked on ctx.Done() after unsub ran,
-// so goleak.VerifyTestMain flags it at suite teardown. With the fix,
-// unsub signals the watcher to exit, goleak is quiet.
+// func, and returns. unsub must signal the per-subscription
+// ctx-watcher goroutine to exit so goleak.VerifyTestMain is quiet at
+// suite teardown. A watcher left parked on ctx.Done() after unsub
+// would leak and goleak would flag it.
 //
 // Using context.Background directly (rather than t.Context()) is
 // intentional: t.Context() is cancelled when the test returns, which
