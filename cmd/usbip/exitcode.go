@@ -25,6 +25,13 @@ const (
 	ExitTimeout          = 9
 	ExitNoFreePort       = 10
 	ExitProtocolError    = 11
+	// ExitInterrupted signals context.Canceled: the user interrupted
+	// via SIGINT or a parent cancelled the call without a deadline.
+	// The value follows the Unix SIGINT convention (128 + signal
+	// number 2) so shells that surface $? can distinguish an
+	// interrupted run from a timeout (exit 9) or a permission fault
+	// (exit 3).
+	ExitInterrupted = 130
 )
 
 // errorEntry pairs a sentinel (matched via errors.Is) with the spec
@@ -61,8 +68,8 @@ func errorRegistry() []errorEntry {
 			"usbip: peer reported an error: %s"},
 		{context.DeadlineExceeded, ExitTimeout,
 			"usbip: operation timed out: %s"},
-		{context.Canceled, ExitTimeout,
-			"usbip: operation timed out: %s"},
+		{context.Canceled, ExitInterrupted,
+			"usbip: operation interrupted: %s"},
 	}
 }
 
