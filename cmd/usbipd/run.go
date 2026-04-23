@@ -433,7 +433,12 @@ func maybeStartStatusServer(
 			slog.String("path", cfg.StatusSocket),
 			slog.Duration("budget", statusReadyTimeout))
 
-		return statusErrCh, true, nil
+		// A timeout means the goroutine has not proven a successful
+		// bind. Granting ownership on guess would register an unlink
+		// defer that wipes the incumbent peer's socket if the bind
+		// later fails. The caller still gets the error channel so
+		// shutdown can drain the goroutine; bound stays false.
+		return statusErrCh, false, nil
 	}
 }
 
