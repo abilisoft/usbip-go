@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"net"
 	"syscall"
 	"testing"
@@ -47,7 +46,7 @@ func TestDetectAlreadyRunningSurfacesUnknownErrors(t *testing.T) {
 
 			require.Error(t, err,
 				"%s must surface as a non-nil error, not be silently reclassified as stale", tc.name)
-			require.True(t, errors.Is(err, tc.err),
+			require.ErrorIs(t, err, tc.err,
 				"wrapped error chain must preserve the original errno for operator diagnostics")
 		})
 	}
