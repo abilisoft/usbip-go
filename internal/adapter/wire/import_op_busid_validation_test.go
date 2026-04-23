@@ -19,10 +19,10 @@ import (
 func TestDecodeOpReqImportRejectsInvalidBusID(t *testing.T) {
 	t.Parallel()
 
-	// Build the header by hand, then a 32-byte NUL-padded payload that
-	// does not satisfy the BusID topology pattern. "not a busid" has
-	// printable ASCII so it will round-trip through any NUL-scan
-	// decoder; the topology-pattern check is the only gate.
+	// Build the header by hand, then a 32-byte NUL-padded payload the
+	// sysfs-safe charset check must reject. Printable ASCII bytes like
+	// a leading space round-trip through ReadPaddedString; the wire
+	// validator is the only gate that catches them.
 	var buf bytes.Buffer
 
 	buf.Write(wire.EncodeHeader(wire.OpReqImport, 0))
