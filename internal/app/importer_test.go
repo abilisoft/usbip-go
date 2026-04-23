@@ -1229,11 +1229,28 @@ func TestImporterAttachCloseRaceDetachFailureLogged(t *testing.T) {
 		t.Fatal("AttachRemote was not entered in time")
 	}
 
-	// Close first — commit closed=true — then release the gate so
-	// registerHandle sees closed and takes the release-and-log branch.
-	require.NoError(t, imp.Close())
+	// Close commits closed=true and drains the in-flight Attach; the
+	// Attach goroutine is still parked on the gate, so release it from
+	// a helper goroutine after Close has entered its wg drain. That
+	// ordering is the point of the test: registerHandle must see
+	// closed=true and take the release-and-log branch before Close
+	// returns.
+	closeDone := make(chan error, 1)
 
+	go func() {
+		closeDone <- imp.Close()
+	}()
+
+	// Give Close a moment to commit closed=true and start draining.
+	time.Sleep(50 * time.Millisecond)
 	close(gate)
+
+	select {
+	case err := <-closeDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not return after gate release")
+	}
 
 	select {
 	case err := <-attachResult:
