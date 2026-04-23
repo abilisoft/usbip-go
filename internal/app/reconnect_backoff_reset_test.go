@@ -41,11 +41,11 @@ func (c *countingBackoff) ResetCalls() int32 { return c.reset.Load() }
 // TestReconnect_ResetsBackoffAfterSuccess locks in the spec §5.5
 // Backoff.Reset contract (internal/app/backoff.go:20 — "Reset is
 // called after a successful reconnect so the next failure starts
-// from the smallest delay again"). Pre pass-3 RANK 4, neither
-// finishReconnectSuccess nor runReconnectLoop invoked Reset on the
-// injected strategy; a stateful backoff (custom BackoffStrategy that
-// carries per-outage state) stayed escalated across outages and the
-// next failure paid the last-attempt delay instead of the floor.
+// from the smallest delay again"). If finishReconnectSuccess did not
+// invoke Reset on the injected strategy, a stateful backoff (custom
+// BackoffStrategy that carries per-outage state) would stay escalated
+// across outages and the next failure would pay the last-attempt
+// delay instead of the floor.
 func TestReconnect_ResetsBackoffAfterSuccess(t *testing.T) {
 	t.Parallel()
 

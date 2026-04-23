@@ -16,13 +16,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestExporterSession_SubscribesBeforeHandoff proves the pass-2 RANK 1
-// fix. The real kernel adapter's ExportOnConn returns immediately once
-// the sysfs handoff lands; the matching detach uevent may then fire
-// before the session handler gets a chance to Subscribe to KernelEvents.
-// If the handler subscribes AFTER ExportOnConn, a fast kernel that
-// publishes the detach event in the gap between ExportOnConn-returns
-// and Subscribe loses the event, parking the handler forever.
+// TestExporterSession_SubscribesBeforeHandoff pins the subscribe-
+// before-handoff invariant. The real kernel adapter's ExportOnConn
+// returns immediately once the sysfs handoff lands; the matching
+// detach uevent may then fire before the session handler gets a chance
+// to Subscribe to KernelEvents. If the handler subscribes AFTER
+// ExportOnConn, a fast kernel that publishes the detach event in the
+// gap between ExportOnConn-returns and Subscribe loses the event,
+// parking the handler forever.
 //
 // The preHandoffKernelEvents mock models that race deterministically:
 // the set of subscribers is snapshotted AT THE MOMENT ExportOnConn is
@@ -30,10 +31,8 @@ import (
 // channel (the API contract is preserved) but the pending detach
 // event is broadcast ONLY to the pre-ExportOnConn set.
 //
-// Pre-fix: waitForSessionEnd calls Subscribe after kernel.ExportOnConn,
-// so the event is lost and the handler parks. Test times out waiting
-// for Sessions() to empty. Post-fix: the handler Subscribes BEFORE
-// ExportOnConn, sees the pre-sent event, and unwinds.
+// The handler must Subscribe BEFORE ExportOnConn, see the pre-sent
+// event, and unwind.
 func TestExporterSession_SubscribesBeforeHandoff(t *testing.T) {
 	t.Parallel()
 
@@ -85,10 +84,9 @@ func TestExporterSession_SubscribesBeforeHandoff(t *testing.T) {
 	_, err = client.Write(opHeader(wire.OpReqImport))
 	require.NoError(t, err)
 
-	// Post-fix: the handler subscribed BEFORE ExportOnConn, received
-	// the pre-ExportOnConn-published detach event on its buffered
-	// channel, and unwound. Sessions() must empty within the settle
-	// budget.
+	// The handler subscribed BEFORE ExportOnConn, received the
+	// pre-ExportOnConn-published detach event on its buffered channel,
+	// and unwound. Sessions() must empty within the settle budget.
 	require.Eventually(t, func() bool {
 		return len(exp.Sessions(context.Background())) == 0
 	}, 2*time.Second, 10*time.Millisecond,
@@ -180,14 +178,14 @@ func (k *preHandoffKernelEvents) publishDetach() {
 	}
 }
 
-// TestExporterSession_ClosesAcceptedConnAfterSessionEnd proves the
-// pass-2 RANK 4 fix. Per spec §5.4 the kernel dups the accepted fd on
-// ExportOnConn success and holds its own ref; the app's original ref
-// MUST be closed after the session ends so only the kernel's ref keeps
-// the socket alive. Pre-fix, serveImport's handedOff=true suppresses
-// the deferred close AND no later close fires on the success path,
-// leaking the accepted conn for the full session lifetime plus
-// whatever comes after.
+// TestExporterSession_ClosesAcceptedConnAfterSessionEnd pins the
+// close-after-session-end invariant. Per spec §5.4 the kernel dups the
+// accepted fd on ExportOnConn success and holds its own ref; the app's
+// original ref MUST be closed after the session ends so only the
+// kernel's ref keeps the socket alive. A handedOff guard that
+// suppresses the deferred close on the success path would leak the
+// accepted conn for the full session lifetime plus whatever comes
+// after.
 //
 // The test observes the close by wrapping the accepted conn through
 // the project's countingListener helper: each accepted conn is a
@@ -263,10 +261,10 @@ func TestExporterSession_ClosesAcceptedConnAfterSessionEnd(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond,
 		"Sessions() must empty after detach event")
 
-	// Post-fix: the handler closes the accepted conn exactly once
-	// after waitForSessionEnd returns. Pre-fix the handedOff guard
-	// suppresses the deferred close on the success path and no other
-	// close fires — closeCount stays 0.
+	// The handler closes the accepted conn exactly once after
+	// waitForSessionEnd returns. A handedOff guard that suppresses the
+	// deferred close on the success path (with no other close firing)
+	// would leave closeCount at 0.
 	require.Eventually(t, func() bool {
 		snap := lis.snapshot()
 
@@ -285,9 +283,9 @@ func TestExporterSession_ClosesAcceptedConnAfterSessionEnd(t *testing.T) {
 var errSubscribeFailed = errors.New("subscribe failed (mock)")
 
 // TestExporterSession_ClosesAcceptedConnOnSubscribeFailure exercises
-// the RANK 5 error branch folded into RANK 4: when Subscribe fails in
-// the pre-handoff path the handler returns early. The accepted conn
-// must still be closed on handler exit regardless of handedOff.
+// the Subscribe-failure branch of the pre-handoff path: when Subscribe
+// fails the handler returns early. The accepted conn must still be
+// closed on handler exit regardless of handedOff.
 func TestExporterSession_ClosesAcceptedConnOnSubscribeFailure(t *testing.T) {
 	t.Parallel()
 
@@ -342,7 +340,7 @@ func TestExporterSession_ClosesAcceptedConnOnSubscribeFailure(t *testing.T) {
 }
 
 // TestExporterSession_ClosesAcceptedConnOnEventsChannelClosed covers
-// the second RANK 5 error branch: the KernelEvents source channel
+// the events-channel-closed branch: the KernelEvents source channel
 // closes before any matching event arrives. The handler interprets
 // that as a kernel-side teardown and exits; the accepted conn must
 // still close exactly once.
@@ -418,17 +416,16 @@ func TestExporterSession_ClosesAcceptedConnOnEventsChannelClosed(t *testing.T) {
 	<-serveDone
 }
 
-// TestExporterShutdown_DisconnectsActiveSessions proves the pass-2
-// RANK 3 fix. Closing handle.done alone only releases the handler from
-// its event wait; the kernel still owns the socket until the app
+// TestExporterShutdown_DisconnectsActiveSessions pins the graceful-
+// drain contract. Closing handle.done alone only releases the handler
+// from its event wait; the kernel still owns the socket until the app
 // writes -1 to usbip_sockfd. Shutdown's graceful drain path MUST call
 // e.kernel.Disconnect(ctx, busid) for every active session so the
 // kernel releases the socket and the handler's waitForSessionEnd
 // observes the kernel-emitted detach uevent.
 //
 // The test asserts Disconnect is invoked with the session's busid
-// during Shutdown. Pre-fix Shutdown never calls Disconnect and the
-// counter stays at 0; post-fix it is exactly 1.
+// exactly once during Shutdown.
 func TestExporterShutdown_DisconnectsActiveSessions(t *testing.T) {
 	t.Parallel()
 
@@ -528,17 +525,15 @@ func TestExporterShutdown_DisconnectsActiveSessions(t *testing.T) {
 	<-serveDone
 }
 
-// TestExporterShutdown_TimeoutIsMinOfCtxAndConfig proves the pass-2
-// RANK 7 fix. applyShutdownBackstop must derive the drain deadline as
-// min(ctx deadline, configured shutdownTimeout). Pre-fix, ANY
-// caller-supplied deadline disables the backstop entirely, so a
-// caller with a generous 10s ctx but a 50ms configured timeout waits
-// 10s despite the explicit configuration.
+// TestExporterShutdown_TimeoutIsMinOfCtxAndConfig pins the drain-
+// deadline contract. applyShutdownBackstop derives the drain deadline
+// as min(ctx deadline, configured shutdownTimeout) so a caller-
+// supplied deadline does not silently disable the configured backstop.
 //
 // The test pins the kernel in a forever-wedged ExportOnConn so
 // Shutdown has to rely on the backstop to unwedge. It passes a ctx
 // with a generous 10s deadline and a configured 50ms shutdown timeout;
-// post-fix Shutdown returns in ~50ms; pre-fix it waits up to 10s.
+// Shutdown must return in ~50ms, not wait up to 10s.
 func TestExporterShutdown_TimeoutIsMinOfCtxAndConfig(t *testing.T) {
 	t.Parallel()
 
@@ -559,10 +554,10 @@ func TestExporterShutdown_TimeoutIsMinOfCtxAndConfig(t *testing.T) {
 
 			return io.EOF
 		},
-		// Pass-2 RANK 3: Shutdown now issues Disconnect per session;
-		// the scenario deliberately models a kernel that silently
-		// swallows Disconnect without emitting the matching uevent,
-		// forcing the backstop deadline to be the only exit path.
+		// Shutdown issues Disconnect per session; this scenario
+		// deliberately models a kernel that silently swallows
+		// Disconnect without emitting the matching uevent, forcing the
+		// backstop deadline to be the only exit path.
 		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
 	}
 
@@ -613,8 +608,9 @@ func TestExporterShutdown_TimeoutIsMinOfCtxAndConfig(t *testing.T) {
 
 	require.Less(t, elapsed, callerBudget/2,
 		"Shutdown timeout must be min(ctx deadline, configured timeout); "+
-			"pre-fix any ctx deadline disables the backstop and Shutdown "+
-			"waits the caller budget instead of the configured %s", configTimeout)
+			"any regression where a ctx deadline disables the backstop "+
+			"makes Shutdown wait the caller budget instead of the "+
+			"configured %s", configTimeout)
 
 	cancel()
 

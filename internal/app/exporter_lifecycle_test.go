@@ -60,8 +60,8 @@ func startExporterImportSession(
 
 			return nil
 		},
-		// Pass-2 RANK 3: fixture helper needs a DisconnectFunc so the
-		// cleanup-time Shutdown does not panic the mock.
+		// Fixture helper needs a DisconnectFunc so the cleanup-time
+		// Shutdown does not panic the mock.
 		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
 	}
 
@@ -150,9 +150,9 @@ func TestExporterWatchSessions_StartEnd(t *testing.T) {
 
 	// Give the watcher a moment to subscribe; session end happens when
 	// release fires and the outer ctx cancel unwinds the post-ExportOnConn
-	// waitForSessionEnd helper (RANK 1). In the real kernel the analogue
-	// of the release-channel is the kernel detach uevent; here the test
-	// uses ctx cancel since the default KernelEvents mock never delivers.
+	// waitForSessionEnd helper. In the real kernel the analogue of the
+	// release-channel is the kernel detach uevent; here the test uses
+	// ctx cancel since the default KernelEvents mock never delivers.
 	require.Eventually(t, func() bool {
 		return len(exp.Sessions(context.Background())) == 1
 	}, 2*time.Second, 10*time.Millisecond)
@@ -248,11 +248,10 @@ func TestExporterShutdown_DeadlineExceeded(t *testing.T) {
 
 // TestExporterShutdown_DeadlineExceededForcesConnClose asserts that
 // Shutdown unwedges a session whose kernel.ExportOnConn blocks forever.
-// Pre-fix: Shutdown closes handle.done but the handler is parked in
-// ExportOnConn with no signal path, so Shutdown times out AND the
-// session stays live after Shutdown returns (and the waitSessionsBounded
-// bg goroutine leaks). Post-fix: Shutdown force-closes every tracked
-// session conn so ExportOnConn errors out and the handler drains.
+// Shutdown force-closes every tracked session conn so ExportOnConn
+// errors out and the handler drains; without that the session would
+// stay live after Shutdown returns (and waitSessionsBounded's bg
+// goroutine would leak).
 func TestExporterShutdown_DeadlineExceededForcesConnClose(t *testing.T) {
 	t.Parallel()
 
@@ -272,10 +271,10 @@ func TestExporterShutdown_DeadlineExceededForcesConnClose(t *testing.T) {
 
 			return io.EOF
 		},
-		// Pass-2 RANK 3: the deadline-exceeded fixture deliberately
-		// models a kernel that never unwinds Disconnect gracefully.
-		// The stub returns nil without emitting an event so the
-		// bounded drain falls through to the force-close path.
+		// The deadline-exceeded fixture deliberately models a kernel
+		// that never unwinds Disconnect gracefully. The stub returns
+		// nil without emitting an event so the bounded drain falls
+		// through to the force-close path.
 		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
 	}
 
@@ -319,8 +318,9 @@ func TestExporterShutdown_DeadlineExceededForcesConnClose(t *testing.T) {
 	_ = exp.Shutdown(shutdownCtx)
 
 	// Post-Shutdown: the session handler must have drained, i.e. the
-	// session bookkeeping entry is gone. Without force-close the handler
-	// is still parked in ExportOnConn and Sessions() still reports 1.
+	// session bookkeeping entry is gone. Without force-close the
+	// handler would still be parked in ExportOnConn and Sessions()
+	// would still report 1.
 	require.Eventually(t, func() bool {
 		return len(exp.Sessions(context.Background())) == 0
 	}, 500*time.Millisecond, 10*time.Millisecond,
@@ -331,17 +331,17 @@ func TestExporterShutdown_DeadlineExceededForcesConnClose(t *testing.T) {
 	<-serveDone
 }
 
-// TestExporterShutdown_ReturnsEvenWhenHandlerIgnoresClose locks in
-// the Pass-4 RANK 2 fix: Shutdown's drain must be bounded by the
+// TestExporterShutdown_ReturnsEvenWhenHandlerIgnoresClose pins the
+// bounded-drain contract: Shutdown's drain must be bounded by the
 // caller ctx deadline even when a handler is truly stuck (ignores
-// conn.Close() and never unwinds). Pre-fix waitSessionsBounded does
-// `<-done` unbounded after forceCloseSessionConns, so a handler that
-// never returns parks Shutdown forever.
+// conn.Close() and never unwinds). If waitSessionsBounded did an
+// unbounded <-done after forceCloseSessionConns, a handler that never
+// returns would park Shutdown forever.
 //
-// Post-fix: Shutdown returns within a small grace after the ctx
-// deadline with a ctx.DeadlineExceeded-wrapped error; the truly stuck
-// handler goroutine is accepted as a leak (logged) but does not block
-// the Shutdown return.
+// Shutdown returns within a small grace after the ctx deadline with a
+// ctx.DeadlineExceeded-wrapped error; the truly stuck handler
+// goroutine is accepted as a leak (logged) but does not block the
+// Shutdown return.
 func TestExporterShutdown_ReturnsEvenWhenHandlerIgnoresClose(t *testing.T) {
 	t.Parallel()
 
@@ -471,19 +471,19 @@ func stableNumGoroutines(t *testing.T) int {
 	return best
 }
 
-// TestExporterShutdown_ReusesSessionsWaitGoroutine locks in the Pass-5
-// RANK A fix: repeated Shutdown calls on a truly-stuck handler must not
-// leak one `go e.sessionsWG.Wait()` waiter per call.
+// TestExporterShutdown_ReusesSessionsWaitGoroutine pins the shared-
+// drain-future contract: repeated Shutdown calls on a truly-stuck
+// handler must not leak one `go e.sessionsWG.Wait()` waiter per call.
 //
-// Pre-fix: waitSessionsBounded does `go func() { e.sessionsWG.Wait(); close(done) }()`
-// on every invocation. When a handler is parked forever, Wait() never
-// returns and every Shutdown call adds one more permanently parked
-// goroutine. N extra Shutdown calls => +N goroutines that never
-// unwind.
+// If waitSessionsBounded did `go func() { e.sessionsWG.Wait(); close(done) }()`
+// on every invocation, a parked handler would never return from Wait()
+// and every Shutdown call would add one more permanently parked
+// goroutine (N extra Shutdown calls => +N goroutines that never
+// unwind).
 //
-// Post-fix: the drain future is shared (sync.Once-guarded) so only the
-// first Shutdown spawns a waiter; subsequent calls observe the same
-// shared channel. N extra Shutdown calls => at most +1 goroutine.
+// The drain future is shared (sync.Once-guarded) so only the first
+// Shutdown spawns a waiter; subsequent calls observe the same shared
+// channel. N extra Shutdown calls => at most +1 goroutine.
 func TestExporterShutdown_ReusesSessionsWaitGoroutine(t *testing.T) {
 	t.Parallel()
 
@@ -568,8 +568,9 @@ func TestExporterShutdown_ReusesSessionsWaitGoroutine(t *testing.T) {
 	delta := after - baseline
 
 	// Allow a small slack for unrelated scheduler noise (pprof, gc,
-	// net poller). Pre-fix delta is >= extraShutdowns (one leaked
-	// waiter per call). Post-fix delta is <= 1.
+	// net poller). A regression that leaked one waiter per call would
+	// push delta >= extraShutdowns; the shared drain future keeps
+	// delta <= 1.
 	const maxDelta = 1
 
 	require.LessOrEqualf(t, delta, maxDelta,
@@ -577,29 +578,25 @@ func TestExporterShutdown_ReusesSessionsWaitGoroutine(t *testing.T) {
 		baseline, after, delta, extraShutdowns)
 }
 
-// TestExporterShutdown_RecoversFromSpuriousDeadlineRace locks in the
-// Pass-5 RANK B fix: when the shared drain future is ALREADY closed
-// and the caller ctx is already cancelled, waitSessionsBounded's
-// first select has two ready cases. Go's select picks randomly among
-// ready cases, so without a non-blocking re-check of `done` after
-// ctx.Done is observed, Shutdown returns a spurious context.Canceled
-// wrap roughly 50% of the time even though the drain completed.
+// TestExporterShutdown_RecoversFromSpuriousDeadlineRace pins the
+// non-blocking re-check invariant: when the shared drain future is
+// ALREADY closed and the caller ctx is already cancelled,
+// waitSessionsBounded's first select has two ready cases. Go's select
+// picks randomly among ready cases, so without a non-blocking re-check
+// of `done` after ctx.Done is observed, Shutdown would return a
+// spurious context.Canceled wrap roughly 50% of the time even though
+// the drain completed.
 //
 // Trigger: on each iteration, construct an Exporter, call Shutdown
 // once to prime the drain future, then call Shutdown a SECOND time
-// with an already-cancelled ctx. By the second call the drain future
-// (pass-5 RANK A: shared sync.Once channel) is already closed from
-// the first Shutdown; the ctx is also already cancelled. Both select
-// cases are ready simultaneously. Pre-fix a substantial fraction of
-// iterations out of 100 surface the spurious error; post-fix the
-// non-blocking re-check deterministically returns nil.
-//
-// Pre-fix empirical: the first iteration that hits the unlucky
-// random select branch fails with
+// with an already-cancelled ctx. By the second call the shared drain
+// future is already closed from the first Shutdown; the ctx is also
+// already cancelled. Both select cases are ready simultaneously. The
+// non-blocking re-check deterministically returns nil; without it a
+// substantial fraction of iterations out of 100 would surface the
+// spurious error
 //
 //	"exporter shutdown: context canceled"
-//
-// confirming the race.
 func TestExporterShutdown_RecoversFromSpuriousDeadlineRace(t *testing.T) {
 	t.Parallel()
 

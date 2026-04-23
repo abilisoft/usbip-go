@@ -13,13 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestExporterShutdownHonoursConfiguredTimeout proves the RANK 9 fix.
-// WithExporterShutdownTimeout on the internal Exporter must bound a
-// Shutdown(ctx) whose ctx has no deadline: the option is the last-
-// resort backstop against a wedged ExportOnConn. Pre-RANK-9 the
-// public option existed but stored only on the public config and
-// NEVER plumbed into the internal Shutdown path, so operators relying
-// on the option saw Shutdown block indefinitely.
+// TestExporterShutdownHonoursConfiguredTimeout pins the configured-
+// timeout contract. WithExporterShutdownTimeout on the internal
+// Exporter must bound a Shutdown(ctx) whose ctx has no deadline: the
+// option is the last-resort backstop against a wedged ExportOnConn.
+// Regressing the plumbing so the option never reaches the internal
+// Shutdown path would make Shutdown block indefinitely.
 func TestExporterShutdownHonoursConfiguredTimeout(t *testing.T) {
 	t.Parallel()
 
@@ -36,10 +35,10 @@ func TestExporterShutdownHonoursConfiguredTimeout(t *testing.T) {
 
 			return io.EOF
 		},
-		// Pass-2 RANK 3: Shutdown now issues a graceful kernel
-		// Disconnect before the bounded drain. The fixture needs a
-		// stub even when the scenario exercises the backstop path
-		// (kernel ignores Disconnect and Shutdown must still bound).
+		// Shutdown issues a graceful kernel Disconnect before the
+		// bounded drain. The fixture needs a stub even when the
+		// scenario exercises the backstop path (kernel ignores
+		// Disconnect and Shutdown must still bound).
 		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
 	}
 

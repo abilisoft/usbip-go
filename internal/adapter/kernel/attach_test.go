@@ -205,11 +205,11 @@ func TestAttachRemote_PortOutOfRangeSentinelIsAdapterLocal(t *testing.T) {
 // adapter therefore validates proactively and wraps the adapter-
 // local errPortOutOfRange sentinel with port + nports context.
 //
-// Pre-fix: attachAtPort writes the payload regardless of port range,
-// so the write spy records one call and the adapter returns nil.
-// Post-fix: validateAttachPort short-circuits before writeClassified,
-// the spy records zero calls, and errors.Is surfaces the adapter-
-// local sentinel via its test shim.
+// validateAttachPort short-circuits before writeClassified, the write
+// spy records zero calls, and errors.Is surfaces the adapter-local
+// sentinel via its test shim. A regression where attachAtPort wrote
+// the payload regardless of port range would let the spy record one
+// call and the adapter return nil.
 //
 // attachFS() has nports=8, so port 20 is well outside [0, 8).
 // AttachAtPortForTest drives the post-selection attach path
@@ -272,9 +272,9 @@ func TestAttachRemote_RejectsOutOfRangePort(t *testing.T) {
 // usb* children still exposes enough topology for the bounds check;
 // port 0 (in range under [0, 8)) must attach successfully.
 //
-// Pre-fix failure mode: AttachRemote returns errTopologyIncomplete
-// because loadTopology's BusMap completeness check fails when
-// vhci_hcd.0 has zero usb children (hubsPerController=2 expected).
+// Before the split, routing attach through loadTopology would surface
+// errTopologyIncomplete from the BusMap completeness check whenever
+// vhci_hcd.0 had zero usb children (hubsPerController=2 expected).
 func TestAttachRemote_SucceedsDespiteIncompleteBusMap(t *testing.T) {
 	t.Parallel()
 
@@ -492,11 +492,10 @@ func TestFormatDetachPayload_MatchesKernelContract(t *testing.T) {
 // vhci_hcd module reload) would silently fall through to writeClassified
 // and fail with a bare EINVAL the operator cannot classify.
 //
-// Pre-fix: DetachPort ignores port range entirely, so the write spy
-// records one call and the adapter returns nil.
-// Post-fix: validateDetachPort short-circuits before writeClassified,
-// the spy records zero calls, and errors.Is surfaces the adapter-local
-// sentinel via its test shim.
+// validateDetachPort short-circuits before writeClassified, the write
+// spy records zero calls, and errors.Is surfaces the adapter-local
+// sentinel via its test shim. If DetachPort ignored port range the
+// spy would record one call and the adapter would return nil.
 //
 // attachFS() has nports=8, so port 20 is well outside [0, 8).
 func TestDetachPort_RejectsOutOfRangePort(t *testing.T) {
@@ -574,10 +573,10 @@ func TestDetachPort_AcceptsInRangePort(t *testing.T) {
 // with valid nports + status but no usb* children must succeed for
 // an in-range port.
 //
-// Pre-fix failure mode (only if detach ever routes through
-// loadTopology): DetachPort returns errTopologyIncomplete because
-// loadTopology's BusMap completeness check fails when vhci_hcd.0 has
-// zero usb children (hubsPerController=2 expected).
+// If detach ever routed through loadTopology, DetachPort would
+// surface errTopologyIncomplete whenever loadTopology's BusMap
+// completeness check failed (vhci_hcd.0 with zero usb children where
+// hubsPerController=2 was expected).
 func TestDetachPort_SucceedsDespiteIncompleteBusMap(t *testing.T) {
 	t.Parallel()
 
@@ -775,7 +774,7 @@ const portStatusInUse = 3
 // perspective). The kernel splits the flat port space into a HS block
 // at flat 0..hcPorts-1 and a SS block at flat hcPorts..nports-1; the
 // fixture must reproduce that split so SS-targeted tests find ss-
-// labelled rows in the upper half (Bug C).
+// labelled rows in the upper half of the status table.
 type singlePortStatus struct {
 	mu      sync.Mutex
 	nports  int
@@ -868,19 +867,18 @@ func (m *mutableStatusFS) Open(name string) (fs.File, error) {
 	return f, nil
 }
 
-// TestFindFreePort_SSMatchesFlatBoundary pins Bug C: the
-// singlePortStatus fixture must classify rows by the kernel's flat HS
-// / SS boundary (HS rows at flat 0..HCPorts-1, SS rows at flat
-// HCPorts..VHCIPorts-1). Pre-fix it emitted "hs" on every row
-// regardless of flat index, so any SS-targeted search found zero
-// matches and returned ErrNoFreePort even when a free SS slot
-// existed in the kernel's actual layout.
+// TestFindFreePort_SSMatchesFlatBoundary pins the HS/SS row
+// classification contract: the singlePortStatus fixture must classify
+// rows by the kernel's flat HS/SS boundary (HS rows at flat
+// 0..HCPorts-1, SS rows at flat HCPorts..VHCIPorts-1). Emitting "hs"
+// on every row regardless of flat index would make any SS-targeted
+// search find zero matches and return ErrNoFreePort even when a free
+// SS slot existed in the kernel's actual layout.
 //
 // With nports=8 and one controller the kernel's HCPorts is 4: HS
 // rows occupy flat 0..3 and SS rows occupy flat 4..7. The fixture
 // marks only port 4 free (the first SS slot); findFreePort for
-// SpeedSuper must return 4. Under the broken fixture every row is
-// "hs" so SS finds nothing and errors — that is the RED condition.
+// SpeedSuper must return 4.
 func TestFindFreePort_SSMatchesFlatBoundary(t *testing.T) {
 	t.Parallel()
 
@@ -924,8 +922,7 @@ func TestFindFreePort_SSMatchesFlatBoundary(t *testing.T) {
 
 // TestAttachRemote_SerializedUnderContention exercises spec §3.4:
 // concurrent AttachRemote callers contending for a single free port
-// must produce exactly one success and one ErrNoFreePort. Codex
-// Phase 4 review finding 3.
+// must produce exactly one success and one ErrNoFreePort.
 func TestAttachRemote_SerializedUnderContention(t *testing.T) {
 	t.Parallel()
 

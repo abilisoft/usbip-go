@@ -420,11 +420,11 @@ func TestStatusGroupChownSkipsIfMissing(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-// TestStatusBindSerialisedByFlock proves the TOCTOU-free bind path
-// (Phase 8 review Finding 2): two concurrent serveStatus goroutines
-// pointed at the same path MUST serialise — exactly one binds and
-// serves, the other observes errAlreadyRunning (or equivalent) without
-// racing the first daemon's detect/unlink/bind sequence.
+// TestStatusBindSerialisedByFlock proves the TOCTOU-free bind path:
+// two concurrent serveStatus goroutines pointed at the same path MUST
+// serialise — exactly one binds and serves, the other observes
+// errAlreadyRunning (or equivalent) without racing the first daemon's
+// detect/unlink/bind sequence.
 func TestStatusBindSerialisedByFlock(t *testing.T) {
 	t.Parallel()
 

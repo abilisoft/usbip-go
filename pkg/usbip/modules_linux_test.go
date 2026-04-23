@@ -66,11 +66,11 @@ func TestProbeKernelModulesReturnsTriState(t *testing.T) {
 	}
 }
 
-// TestProbeOneAtEACCESReturnsUnknown proves the Phase 8 Finding 5
-// tri-state contract: a non-ENOENT stat error (the typical one being
-// EACCES on a root directory with mode 0000) maps to Unknown, not
-// Missing. The previous two-state design silently produced "missing"
-// here, losing the "probe was blocked, not proven negative" signal.
+// TestProbeOneAtEACCESReturnsUnknown pins the tri-state module-probe
+// contract: a non-ENOENT stat error (the typical one being EACCES on
+// a root directory with mode 0000) maps to Unknown, not Missing. A
+// two-state design would silently produce "missing" here, losing the
+// "probe was blocked, not proven negative" signal.
 func TestProbeOneAtEACCESReturnsUnknown(t *testing.T) {
 	t.Parallel()
 

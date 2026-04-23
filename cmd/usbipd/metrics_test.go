@@ -159,12 +159,11 @@ func TestReadyzReturns200WhenReady(t *testing.T) {
 }
 
 // TestReadyzReturns503WhenListenerNotBound proves /readyz fails closed
-// when the accept-path listener has not bound yet (Finding 5). The
-// previous contract inferred "listener up" from the Accepting flag
-// alone, which was set BEFORE Serve entered its accept loop, so a
-// kernel bind failure arriving after runDaemon announced readiness
-// would leave /readyz reporting 200 while no TCP listener was
-// actually live.
+// when the accept-path listener has not bound yet. Inferring "listener
+// up" from the Accepting flag alone (set BEFORE Serve entered its
+// accept loop) would let a kernel bind failure arriving after
+// runDaemon announced readiness leave /readyz reporting 200 while no
+// TCP listener was actually live.
 func TestReadyzReturns503WhenListenerNotBound(t *testing.T) {
 	t.Parallel()
 
@@ -194,10 +193,10 @@ func TestReadyzReturns503WhenListenerNotBound(t *testing.T) {
 
 // TestReadyzReturns503WhenStatusSockNotWritable proves /readyz fails
 // closed when the status UDS is missing or its parent dir is not
-// writable by the daemon uid (Finding 5). Previously statusSocketWritable
-// called os.Stat — a file that exists but is owned by root with 0600
-// would still return nil from Stat even when this process cannot write
-// to it. The syscall.Access(W_OK) replacement catches that case.
+// writable by the daemon uid. An os.Stat-based check would still
+// return nil for a file that exists but is owned by root with 0600
+// even when this process cannot write to it; the syscall.Access(W_OK)
+// replacement catches that case.
 func TestReadyzReturns503WhenStatusSockNotWritable(t *testing.T) {
 	t.Parallel()
 
@@ -257,10 +256,10 @@ func TestStatusSocketWritableReportsWritable(t *testing.T) {
 
 // TestMaybeStartMetricsServerNoDoubleRegistration proves the
 // metrics-server startup path shares a SINGLE metric registration with
-// the exporter's own bundle (Finding 7). Before the fix, buildExporter
-// registered the §11.5.5 collectors once via NewExporter, then
-// maybeStartMetricsServer re-invoked MustNewMetrics against the same
-// registry and panicked on duplicate registration at daemon startup.
+// the exporter's own bundle. If buildExporter registered the §11.5.5
+// collectors once via NewExporter and maybeStartMetricsServer then
+// re-invoked MustNewMetrics against the same registry, the process
+// would panic on duplicate registration at daemon startup.
 //
 // The test wires a single *prometheus.Registry through both paths, the
 // same way runDaemon does, and asserts:

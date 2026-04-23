@@ -29,7 +29,8 @@ func TestListLocalDevices_SkipsMissingOptionalInterface(t *testing.T) {
 	// entries never get created so the reader's first ReadHex16
 	// (bInterfaceClass) returns ErrDeviceNotFound-via-ENOENT. The
 	// documented tolerance says: skip the absent interface, keep the
-	// device. Pre-fix: ListLocalDevices returns an error.
+	// device. A regression that returned an error from
+	// ListLocalDevices would break that tolerance.
 	attrs["bNumInterfaces"] = "2\n"
 
 	mfs := mergeFS(deviceSysfs("1-1", attrs), moduleDirs())

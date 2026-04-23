@@ -8,10 +8,9 @@ import (
 )
 
 // Codec is the wire-level USBIP protocol codec. All methods forward to
-// the package-level encode/decode helpers. Per spec §5.1 this type is
-// intended to implement the (still-unreleased) app.ProtocolCodec
-// interface once Phase 5 declares it; the compile-time assertion is
-// therefore deferred.
+// the package-level encode/decode helpers. Per spec §5.1 this type
+// implements the app.ProtocolCodec interface; the compile-time
+// assertion lives with the interface declaration in internal/app.
 //
 // Codec carries a *slog.Logger so permissive-read signals surfaced by
 // the package-level helpers (e.g. trailing bytes after OP_REP_DEVLIST,

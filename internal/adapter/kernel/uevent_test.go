@@ -277,8 +277,7 @@ var errDialFailed = errors.New("fake dial failed")
 // TestSubscribe_FirstSubscriberCancelDoesNotStopOthers exercises the
 // spec §5.1 "last Unsubscribe stops it" contract. If the first
 // subscriber's ctx cancellation tore down the dispatcher, remaining
-// subscribers would stop receiving events. Codex Phase 4 review
-// finding 1.
+// subscribers would stop receiving events.
 func TestSubscribe_FirstSubscriberCancelDoesNotStopOthers(t *testing.T) {
 	t.Parallel()
 
@@ -336,13 +335,13 @@ func TestSubscribe_FirstSubscriberCancelDoesNotStopOthers(t *testing.T) {
 }
 
 // TestSubscribe_UsbipHostEmitsDeviceBindEvents drives the usbip_host
-// bind/unbind notification shape. Pre pass-3 RANK 3, mapUeventToDomain
-// only produced vhci_hcd-shaped Port* events and never returned a
-// DeviceBoundEvent / DeviceUnboundEvent. Downstream consumers
+// bind/unbind notification shape. mapUeventToDomain must produce
+// DeviceBoundEvent / DeviceUnboundEvent in addition to the
+// vhci_hcd-shaped Port* events so downstream consumers
 // (cmd/usbip/events.go, session.go, importer.go) that branch on those
-// event types were dead code. Post-fix: SUBSYSTEM=usbip_host
-// ACTION=add → DeviceBoundEvent; ACTION=remove → DeviceUnboundEvent;
-// the bus ID is the trailing path segment that matches the domain
+// event types are live. SUBSYSTEM=usbip_host ACTION=add →
+// DeviceBoundEvent; ACTION=remove → DeviceUnboundEvent; the bus ID is
+// the trailing path segment that matches the domain
 // busid topology pattern.
 func TestSubscribe_UsbipHostEmitsDeviceBindEvents(t *testing.T) {
 	t.Parallel()
@@ -428,10 +427,10 @@ func TestSubscribe_UsbipHostEmitsDeviceBindEvents(t *testing.T) {
 
 // TestSubscribe_DottedBusIDProducesEvent drives the dotted-topology
 // parse path. Hub-attached devices have bus IDs like "1-1.2" or
-// "2-3.4.5"; pre-fix the devpath regex only matched the simple "N-P"
-// shape so ANY hub-attached device silently skipped the event map.
+// "2-3.4.5"; a devpath regex that only matched the simple "N-P" shape
+// would silently drop every hub-attached device from the event map.
 // The domain BusID pattern accepts the full dotted form, so the
-// adapter must too. Covers pass-3 RANK 1.
+// adapter must too.
 func TestSubscribe_DottedBusIDProducesEvent(t *testing.T) {
 	t.Parallel()
 
@@ -509,13 +508,12 @@ func TestSubscribe_DottedBusIDProducesEvent(t *testing.T) {
 	}
 }
 
-// TestEventsAdapter_SubscribeSucceedsWithoutVHCI pins the Pass-3
-// Task-3.1 BUG-1 contract: exporter-only deployments (hosts running
-// usbip_host with no vhci_hcd module loaded) MUST be able to open a
-// Subscribe and receive DeviceBoundEvent / DeviceUnboundEvent from
-// the usbip_host subsystem. VHCI is an importer concern — forcing
-// Subscribe to fail when the VHCI topology is absent strands every
-// exporter-only server.
+// TestEventsAdapter_SubscribeSucceedsWithoutVHCI pins the
+// exporter-only-deployment contract: hosts running usbip_host with no
+// vhci_hcd module loaded MUST be able to open a Subscribe and receive
+// DeviceBoundEvent / DeviceUnboundEvent from the usbip_host subsystem.
+// VHCI is an importer concern — forcing Subscribe to fail when the
+// VHCI topology is absent would strand every exporter-only server.
 //
 // Fixture: an fs.FS with ONLY the usbip_host sysfs skeleton and no
 // vhci_hcd.0/nports attribute. Subscribe must succeed. A synthesised
@@ -689,7 +687,7 @@ func TestSubscribe_EmitsFlatPortIDForMultiController(t *testing.T) {
 // TestSubscribe_RegistrationRaceDoesNotDropEvent drives the window
 // between Subscribe returning and the first event arriving. The
 // dispatcher must not be receiving events before the first subscriber
-// is registered in the fan-out map. Codex Phase 4 review finding 2.
+// is registered in the fan-out map.
 func TestSubscribe_RegistrationRaceDoesNotDropEvent(t *testing.T) {
 	t.Parallel()
 

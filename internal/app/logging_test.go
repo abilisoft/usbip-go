@@ -114,9 +114,8 @@ func TestAttachKernelErrorRecordCarriesBusIDAndRemote(t *testing.T) {
 	_, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{})
 	require.Error(t, err)
 
-	// Find the attach-failure log line. It's emitted by the adapter
-	// post-Finding 4 inside attachOverDialed's kernel.AttachRemote
-	// branch.
+	// Find the attach-failure log line. It is emitted by the adapter
+	// inside attachOverDialed's kernel.AttachRemote branch.
 	records := parseJSONRecords(t, buf.Bytes())
 
 	found := false
@@ -263,11 +262,11 @@ func TestReconnectGiveUpRecordCarriesPortIDAndAttempt(t *testing.T) {
 }
 
 // TestReconnectGiveUpRecordCarriesAttemptAndSource proves the
-// "reconnect giving up" record surfaces attempt + source attrs
-// (Finding 9). Operators correlating a give-up event with the retry
-// trail need the final attempt number AND the detection source
-// (uevent vs poll) that kicked the retry loop off in the first place;
-// without them, log consumers cannot reconstruct the retry sequence.
+// "reconnect giving up" record surfaces attempt + source attrs.
+// Operators correlating a give-up event with the retry trail need the
+// final attempt number AND the detection source (uevent vs poll) that
+// kicked the retry loop off in the first place; without them, log
+// consumers cannot reconstruct the retry sequence.
 func TestReconnectGiveUpRecordCarriesAttemptAndSource(t *testing.T) {
 	t.Parallel()
 
@@ -384,10 +383,10 @@ func TestReconnectGiveUpRecordCarriesAttemptAndSource(t *testing.T) {
 
 // TestReconnectOnReconnectPanicRecordCarriesPortIDAndSource proves the
 // "OnReconnect callback panicked" record surfaces port_id + source
-// attrs (Finding 9). Without port_id operators cannot identify which
-// attached device triggered the buggy callback; without source they
-// cannot tell whether the retry loop was entered via uevent or the
-// polling backstop.
+// attrs. Without port_id operators cannot identify which attached
+// device triggered the buggy callback; without source they cannot
+// tell whether the retry loop was entered via uevent or the polling
+// backstop.
 func TestReconnectOnReconnectPanicRecordCarriesPortIDAndSource(t *testing.T) {
 	t.Parallel()
 

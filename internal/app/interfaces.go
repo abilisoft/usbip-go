@@ -2,9 +2,9 @@ package app
 
 // Mock-generation directives for matryer/moq. Running
 // `go generate ./internal/app/...` emits the fakes into *_mock_test.go
-// files that Phase 5.2+ service tests consume. The directives live
-// next to the interface declarations so a single go generate
-// bootstraps every fake.
+// files that service tests consume. The directives live next to the
+// interface declarations so a single go generate bootstraps every
+// fake.
 //
 //go:generate moq -out kernel_importer_mock_test.go -pkg app_test . ImporterKernel
 //go:generate moq -out kernel_exporter_mock_test.go -pkg app_test . ExporterKernel

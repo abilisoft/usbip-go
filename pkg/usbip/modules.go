@@ -6,10 +6,11 @@ import (
 )
 
 // ModuleState is the tri-state classification of a USB/IP kernel
-// module probe result. Added by Phase 8 review Finding 5: the previous
-// two-state "loaded" / "missing" design silently collapsed EACCES /
-// EIO / any-other-error into "missing", masking the difference between
-// "probe was blocked" and "probe proved the module is absent".
+// module probe result. A two-state "loaded" / "missing" design
+// silently collapses EACCES / EIO / any-other-error into "missing",
+// masking the difference between "probe was blocked" and "probe
+// proved the module is absent"; this tri-state preserves that
+// distinction.
 //
 // JSON marshaling emits the lowercase string form so the §7.7 status
 // schema retains its stable `{"usbip_core": "loaded"}` shape.

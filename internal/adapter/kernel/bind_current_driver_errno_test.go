@@ -55,8 +55,8 @@ func TestBind_CurrentDriver_SurfacesPermissionError(t *testing.T) {
 	// Poison the driver_name read with fs.ErrPermission; readLink on
 	// "driver" will still return fs.ErrNotExist via the MapFS fallback
 	// in readLink. ifaceDir itself stays present so the stat branch
-	// succeeds. Pre-fix: Bind returns ErrDeviceNotBound. Post-fix:
-	// Bind surfaces ErrPermission.
+	// succeeds. Bind must surface ErrPermission (not
+	// ErrDeviceNotBound).
 	poisoned := poisonFS{
 		inner:     base,
 		target:    "sys/bus/usb/devices/" + iface + "/driver/driver_name",

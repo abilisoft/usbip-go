@@ -10,8 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDecodeOpRepDevlistRejectsUnboundedCount proves RANK 2: an
-// OP_REP_DEVLIST header whose device count declares near-MaxUint32
+// TestDecodeOpRepDevlistRejectsUnboundedCount pins the devlist-count
+// DoS guard: an OP_REP_DEVLIST header whose device count declares
+// near-MaxUint32
 // must NOT be honoured by allocating a matching []domain.Device
 // slice. A hostile peer sending count=0x7FFFFFFF would otherwise OOM
 // the process at make-slice time; DecodeOpRepDevlist must reject the

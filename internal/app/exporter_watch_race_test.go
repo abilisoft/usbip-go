@@ -13,10 +13,10 @@ import (
 
 // TestExporterWatchSessions_PublishVsUnsubscribeRace hammers
 // subscribe/unsubscribe concurrently with the session-event publish
-// path. Pre-fix: removeSubscriber closes sub.ch while publishSessionEvent
-// is mid-send, producing a send-on-closed-channel panic (and a race
-// detector hit). Post-fix: subscribers use a done signal so the publish
-// path can bail out without closing the event channel.
+// path. Subscribers use a done signal so publishSessionEvent can bail
+// out without closing the event channel; otherwise removeSubscriber
+// closing sub.ch while publishSessionEvent is mid-send would produce a
+// send-on-closed-channel panic and a race-detector hit.
 func TestExporterWatchSessions_PublishVsUnsubscribeRace(t *testing.T) {
 	t.Parallel()
 

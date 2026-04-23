@@ -82,9 +82,9 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 		return err
 	}
 
-	// Two-stage LIFO shutdown (Finding 6): the metrics HTTP server must
-	// go down BEFORE exporter drain so /readyz and /metrics cannot hand
-	// out stale "accepting=true" or fresh session counters while the
+	// Two-stage LIFO shutdown: the metrics HTTP server must go down
+	// BEFORE exporter drain so /readyz and /metrics cannot hand out
+	// stale "accepting=true" or fresh session counters while the
 	// exporter is winding down. LIFO means the LAST-registered defer
 	// runs FIRST, so we register exp-drain first, then metrics-stop.
 	defer drainExporter(ctx, cfg, exp, log)
@@ -114,11 +114,11 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 		slog.String("addr", listener.Addr().String()),
 		slog.Bool("activation", activated))
 
-	// Accepting now flips true on the FIRST successful Accept (Finding
-	// 5): an accept-intercepting wrapper fires src.markAccepting(true)
-	// exactly once. Previously the flag was stored true BEFORE Serve
-	// entered the accept loop, so /readyz would report 200 during the
-	// brief window where the accept loop might still fail to arm.
+	// Accepting flips true on the FIRST successful Accept: an accept-
+	// intercepting wrapper fires src.markAccepting(true) exactly once.
+	// Setting the flag true BEFORE Serve entered the accept loop would
+	// let /readyz report 200 during the brief window where the accept
+	// loop might still fail to arm.
 	serveErr := exp.Serve(serveCtx, wrapListenerFirstAccept(listener, src))
 
 	src.markAccepting(false)
@@ -133,12 +133,12 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 }
 
 // firstAcceptListener decorates a net.Listener with a one-shot hook
-// that fires when the accept loop ENTERS its first Accept call. Pre-
-// RANK-7 the hook fired on the first successful Accept return, which
-// left an idle daemon (no clients) stuck at /readyz=503 forever — the
-// semantic ought to be "I will accept if something connects", not "I
-// have accepted ≥1". Firing on entry lets /readyz flip 200 as soon as
-// the accept loop is armed.
+// that fires when the accept loop ENTERS its first Accept call. The
+// readiness semantic is "I will accept if something connects", not
+// "I have accepted ≥1" — firing on first successful Accept return
+// would leave an idle daemon (no clients) stuck at /readyz=503
+// forever. Firing on entry lets /readyz flip 200 as soon as the
+// accept loop is armed.
 type firstAcceptListener struct {
 	net.Listener
 
@@ -168,8 +168,8 @@ func wrapListenerFirstAcceptWithHook(lis net.Listener, hook func()) net.Listener
 
 // Accept calls through to the wrapped listener and fires the hook
 // BEFORE blocking on the inner Accept so the readiness flip lands as
-// soon as the accept loop is armed (RANK 7). Pre-fix the hook fired
-// only on successful return, so an idle daemon stayed /readyz=503
+// soon as the accept loop is armed. Firing the hook only on
+// successful return would leave an idle daemon stuck at /readyz=503
 // forever. Preserves the listener's original error on the return
 // path so isExpectedServeExit still recognises graceful shutdowns.
 func (l *firstAcceptListener) Accept() (net.Conn, error) {
@@ -184,10 +184,10 @@ func (l *firstAcceptListener) Accept() (net.Conn, error) {
 }
 
 // drainExporter is the deferred Exporter.Shutdown callpoint. Extracted
-// from completeShutdown (Finding 6) so the deferred-stack ordering —
-// metrics HTTP server down FIRST, exporter drain SECOND — is visible in
-// runDaemon without hiding the ordering inside completeShutdown's
-// branch-heavy body.
+// from completeShutdown so the deferred-stack ordering — metrics HTTP
+// server down FIRST, exporter drain SECOND — is visible in runDaemon
+// without hiding the ordering inside completeShutdown's branch-heavy
+// body.
 func drainExporter(
 	parentCtx context.Context,
 	cfg *Config,
@@ -211,7 +211,7 @@ func drainExporter(
 // the no-op metrics bundle.
 //
 // When reg is non-nil, WithExporterBuildInfo stamps the usbip_build_info
-// gauge during construction. This replaces the pre-Finding 7 pattern of
+// gauge during construction. This replaces the previous pattern of
 // calling Metrics.SetBuildInfo from maybeStartMetricsServer, which
 // built a SECOND bundle against the same registry and panicked on
 // duplicate collector registration.
@@ -265,10 +265,10 @@ func maybeStartMetricsServer(
 	}
 
 	// Build-info is stamped at Exporter construction via
-	// WithExporterBuildInfo (Finding 7); the metrics-HTTP server just
-	// serves promhttp.HandlerFor(reg) on the already-populated
-	// registry. A second MustNewMetrics call here would re-register
-	// the §11.5.5 collectors and panic on duplicate registration.
+	// WithExporterBuildInfo; the metrics-HTTP server just serves
+	// promhttp.HandlerFor(reg) on the already-populated registry. A
+	// second MustNewMetrics call here would re-register the §11.5.5
+	// collectors and panic on duplicate registration.
 
 	probe := newDaemonReadinessProbe(cfg, src)
 
@@ -288,7 +288,7 @@ func maybeStartMetricsServer(
 // /readyz. It polls KernelModules via the cached statusExporter path,
 // reads the listenerBound + accepting flags from the exporter, and
 // consults syscall.Access(W_OK) on the status socket path. The four
-// inputs mirror the §11.5.5 readiness contract (Finding 5).
+// inputs mirror the §11.5.5 readiness contract.
 func newDaemonReadinessProbe(cfg *Config, src *statusExporter) readinessProbe {
 	return func(ctx context.Context) readinessState {
 		mods, modErr := src.KernelModules(ctx)
@@ -333,13 +333,13 @@ func shutdownMetricsServer(
 // counts as "writable" because there is nothing to gate on. A non-
 // empty path must exist AND be writable by the current uid.
 //
-// The check uses unix.Access(path, unix.W_OK) rather than os.Stat
-// (Finding 5): os.Stat only confirms the inode exists, which lets
-// /readyz report 200 in the case where the UDS file is present but
-// owned by a different user (0400 root:root, for instance). Access
-// consults the kernel's permission logic and returns an error
-// whenever a write would be refused, so /readyz stays red until the
-// daemon actually has the rights the §7.7 status write path needs.
+// The check uses unix.Access(path, unix.W_OK) rather than os.Stat:
+// os.Stat only confirms the inode exists, which lets /readyz report
+// 200 in the case where the UDS file is present but owned by a
+// different user (0400 root:root, for instance). Access consults the
+// kernel's permission logic and returns an error whenever a write
+// would be refused, so /readyz stays red until the daemon actually
+// has the rights the §7.7 status write path needs.
 //
 // We prefer golang.org/x/sys/unix.Access over syscall.Access because
 // the stdlib syscall package does not export the W_OK constant on
@@ -356,9 +356,9 @@ func statusSocketWritable(path string) bool {
 // serveStatusFn is the indirection through which runDaemon launches
 // the status UDS server. Production wiring is serveStatus itself; unit
 // tests override this variable to inject a fake that deliberately
-// SKIPS the listener/unlink cleanup so the Finding 4 invariant ("run()
-// owns the unlink") can be RED-tested. Protected by serveStatusFnMu
-// so parallel tests replacing the hook are race-free.
+// SKIPS the listener/unlink cleanup so the "run() owns the unlink"
+// invariant can be RED-tested. Protected by serveStatusFnMu so
+// parallel tests replacing the hook are race-free.
 var (
 	serveStatusFn   = serveStatus
 	serveStatusFnMu sync.RWMutex

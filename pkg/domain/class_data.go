@@ -3,7 +3,7 @@
 // This file is a hand-maintained seed of the USB class-code table. It
 // is committed in the generated-code form so that the future
 // `go generate ./...` replacement can overwrite it wholesale without
-// churning review. The generator itself is a Phase 1 follow-up.
+// churning review.
 
 package domain
 

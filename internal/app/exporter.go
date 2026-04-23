@@ -55,10 +55,9 @@ type Exporter struct {
 	// sessionsDrainedOnce lazily spawns a single goroutine that waits
 	// on sessionsWG and closes sessionsDrained. Multiple Shutdown
 	// calls share this drain future so a truly-stuck handler cannot
-	// leak one waiter goroutine per Shutdown (pass-5 RANK A). The
-	// once-init happens inside waitSessionsBounded — at construction
-	// time Serve may not be up yet, so sessionsWG has no participants
-	// to wait for.
+	// leak one waiter goroutine per Shutdown. The once-init happens
+	// inside waitSessionsBounded — at construction time Serve may not
+	// be up yet, so sessionsWG has no participants to wait for.
 	sessionsDrainedOnce sync.Once
 	sessionsDrained     chan struct{}
 }
@@ -258,12 +257,12 @@ func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
 	loopErr := e.acceptLoop(ctx, listener)
 
 	// Release the ctx-listener-closer before waiting on wg. When
-	// acceptLoop exits via Shutdown-driven listener close (pass-3
-	// RANK 2) the ctx is still live and the watcher is parked on
-	// ctx.Done; without this explicit stop, wg.Wait would block
-	// forever. When acceptLoop exits via ctx cancel the watcher has
-	// already returned via its ctx.Done branch, so this call is a
-	// no-op on the stop channel's close-once guard.
+	// acceptLoop exits via Shutdown-driven listener close the ctx is
+	// still live and the watcher is parked on ctx.Done; without this
+	// explicit stop, wg.Wait would block forever. When acceptLoop
+	// exits via ctx cancel the watcher has already returned via its
+	// ctx.Done branch, so this call is a no-op on the stop channel's
+	// close-once guard.
 	stopWatcher()
 
 	// Wait for the ctx-listener-closer only. Session handlers run on
@@ -284,9 +283,8 @@ func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
 //
 // When the caller's ctx carries no deadline and the Exporter was built
 // with WithExporterShutdownTimeout(d>0), the option's value is applied
-// as an internal backstop deadline (RANK 9). Pre-fix an unbounded ctx
-// would let a wedged ExportOnConn block Shutdown forever despite a
-// configured timeout.
+// as an internal backstop deadline so a wedged ExportOnConn cannot
+// block Shutdown forever despite a configured timeout.
 func (e *Exporter) Shutdown(ctx context.Context) error {
 	e.mu.Lock()
 
@@ -297,11 +295,11 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 	// Capture and clear the tracked listener under the same lock so
 	// Shutdown closes it exactly once even if called concurrently. The
 	// listener-close drives acceptLoop to return via acceptShouldStop,
-	// which unwinds Serve. Pre pass-3 RANK 2, Shutdown never closed
-	// the listener — the only listener-close path was the ctx-cancel
-	// watcher, so a caller that used Shutdown alone (without cancelling
-	// the Serve ctx) parked Serve on Accept forever and the contract
-	// "Shutdown stops accepting new connections" was silently broken.
+	// which unwinds Serve. Without this listener-close the only
+	// listener-close path would be the ctx-cancel watcher, so a caller
+	// that used Shutdown alone (without cancelling the Serve ctx) would
+	// park Serve on Accept forever and silently break the "Shutdown
+	// stops accepting new connections" contract.
 	listener := e.listener
 
 	e.listener = nil
@@ -321,9 +319,9 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	// Graceful: ask the kernel to release each active session's socket
-	// (pass-2 RANK 3). Disconnect writes -1 to usbip_sockfd; the
-	// kernel-side session teardown emits the remove uevent that the
+	// Graceful: ask the kernel to release each active session's socket.
+	// Disconnect writes -1 to usbip_sockfd; the kernel-side session
+	// teardown emits the remove uevent that the
 	// handler's pre-opened subscription observes. Failures are logged
 	// but not fatal — the bounded drain falls through to force-close
 	// + handle.cancel() so a kernel that ignores Disconnect still
@@ -360,11 +358,10 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 // When no backstop is configured (shutdownTimeout <= 0) the caller's
 // ctx is returned unchanged with a no-op cancel. Otherwise the drain
 // deadline is min(caller ctx deadline, now + shutdownTimeout) — the
-// tighter of the two wins per the spec's "tighter wins" rule
-// (pass-2 RANK 7). Pre-fix any caller deadline disabled the backstop
-// entirely, so a caller with a generous ctx deadline waited the
-// caller-budget even when the configured timeout was orders of
-// magnitude tighter.
+// tighter of the two wins per the spec's "tighter wins" rule. If a
+// caller deadline disabled the backstop entirely a caller with a
+// generous ctx deadline would wait the caller-budget even when the
+// configured timeout was orders of magnitude tighter.
 //
 // The returned cancel is always non-nil; when no new ctx is derived
 // it is a no-op.
@@ -388,9 +385,8 @@ func (e *Exporter) applyShutdownBackstop(ctx context.Context) (context.Context, 
 // ErrAlreadyShutdown when Shutdown has run or ErrServeAlreadyRunning
 // when Serve is already running. The listener is stored on the
 // Exporter so Shutdown can close it and unwind acceptLoop without
-// depending on ctx-cancel (pass-3 RANK 2: the documented contract is
-// "Shutdown stops accepting new connections" — Shutdown alone must
-// suffice).
+// depending on ctx-cancel (the documented contract is "Shutdown stops
+// accepting new connections" — Shutdown alone must suffice).
 func (e *Exporter) startServing(listener net.Listener) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -509,7 +505,7 @@ func (e *Exporter) drainFuture() <-chan struct{} {
 // waitSessionsBounded allows after force-closing session conns before
 // giving up and returning — long enough for a cooperative handler to
 // unwind on the net.ErrClosed read, short enough to keep Shutdown's
-// total deadline contract honest (pass-4 RANK 2).
+// total deadline contract honest.
 const shutdownResidualGrace = 100 * time.Millisecond
 
 // waitSessionsBounded blocks until sessionsWG drains or ctx deadline
@@ -523,22 +519,21 @@ const shutdownResidualGrace = 100 * time.Millisecond
 // returns the wrapped ctx error anyway — a truly stuck handler
 // (one that ignores conn.Close) is accepted as a leaked goroutine
 // tradeoff because Shutdown-blocks-forever is a worse failure mode
-// than a bounded goroutine leak. See pass-4 RANK 2.
+// than a bounded goroutine leak.
 //
 // The `sessionsWG.Wait()` observer is a single lazily-spawned
-// goroutine shared across every Shutdown call (pass-5 RANK A). A
-// truly-stuck handler keeps Wait() blocked forever; pre-fix every
-// Shutdown spawned its own waiter so N repeated Shutdowns leaked N
-// parked goroutines. Post-fix sessionsDrainedOnce gates the spawn so
-// the waiter is allocated at most once per Exporter.
+// goroutine shared across every Shutdown call. A truly-stuck handler
+// keeps Wait() blocked forever; sessionsDrainedOnce gates the spawn
+// so the waiter is allocated at most once per Exporter rather than
+// leaking one parked waiter per Shutdown.
 //
 // After observing ctx.Done, a non-blocking re-check of `done` guards
 // against the select-race where both channels are ready at once and
-// Go picks the ctx branch (pass-5 RANK B). Without the re-check a
-// completed drain can surface a spurious ctx-wrapped error to the
-// caller. The same re-check applies to the post-grace observation
-// so a drain that happened to complete alongside the grace expiry
-// is reported as a successful drain rather than a force-close miss.
+// Go picks the ctx branch. Without the re-check a completed drain
+// can surface a spurious ctx-wrapped error to the caller. The same
+// re-check applies to the post-grace observation so a drain that
+// happened to complete alongside the grace expiry is reported as a
+// successful drain rather than a force-close miss.
 func (e *Exporter) waitSessionsBounded(ctx context.Context) error {
 	done := e.drainFuture()
 
@@ -551,7 +546,7 @@ func (e *Exporter) waitSessionsBounded(ctx context.Context) error {
 	// Non-blocking re-check: ctx.Done and done may have become ready
 	// concurrently. Go's select picks randomly among ready cases, so
 	// without this guard a completed drain can still surface a
-	// ctx-wrapped error (pass-5 RANK B).
+	// ctx-wrapped error.
 	select {
 	case <-done:
 		return nil

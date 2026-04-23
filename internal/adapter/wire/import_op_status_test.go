@@ -9,8 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDecodeOpRepImportStatusNonZeroIsDeviceNotFound pins the RANK 5
-// classification fix: an OP_REP_IMPORT reply whose header status is
+// TestDecodeOpRepImportStatusNonZeroIsDeviceNotFound pins the
+// OP_REP_IMPORT status classification contract: a reply whose header
+// status is
 // non-zero is a legitimate peer rejection (device unavailable / busid
 // not found / busy), NOT a protocol-level failure. The caller must
 // observe ErrDeviceNotFound so Importer.Attach can surface the

@@ -12,18 +12,19 @@ import (
 	"github.com/abilisoft/usbip-go/internal/adapter/kernel"
 )
 
-// TestSubscribe_ConcurrentInitOpensOneSocket proves the RANK 4 race.
-// Previously EventsAdapter.dispMu was lazy-initialised inside
-// initDispatcherMu: the `if a.dispMu == nil` check was itself
-// unsynchronized so two goroutines racing the first Subscribe would
-// each allocate a fresh *sync.Mutex and lock DIFFERENT mutexes,
-// letting ensureDispatcher() call nlDial twice and leaving one
-// dispatcher and its netlink socket leaked forever.
+// TestSubscribe_ConcurrentInitOpensOneSocket pins the
+// single-dispatcher contract for concurrent first Subscribers.
+// Lazy-initialising EventsAdapter.dispMu inside the first Subscribe
+// would make the `if a.dispMu == nil` check unsynchronised so two
+// goroutines racing the first Subscribe would each allocate a fresh
+// *sync.Mutex, lock DIFFERENT mutexes, let ensureDispatcher() call
+// nlDial twice, and leak one dispatcher and its netlink socket
+// forever.
 //
-// Under -race the old code surfaces a data race on the dispMu pointer
-// write + the underlying dialCount observation. Post-fix the mutex is
-// initialised in NewEventsAdapter so the race vanishes and the dialer
-// is called exactly once.
+// The mutex is initialised in NewEventsAdapter so the race vanishes
+// and the dialer is called exactly once; the race detector would
+// otherwise surface a data race on the dispMu pointer write and the
+// underlying dialCount observation.
 func TestSubscribe_ConcurrentInitOpensOneSocket(t *testing.T) {
 	t.Parallel()
 

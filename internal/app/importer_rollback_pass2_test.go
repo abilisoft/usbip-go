@@ -18,18 +18,14 @@ import (
 // the failure path without reaching into slog output.
 var errRollbackDetachFailed = errors.New("rollback detach failed (mock)")
 
-// TestImporterRollback_PreservesHandleOnKernelDetachFailure proves the
-// pass-2 RANK 2 fix. rollbackSupersededReconnect used to delete the
-// handle map entry BEFORE calling kernel.DetachPort; if DetachPort
-// failed the handle was already gone but the kernel port was still
-// live and owned by no handle. Subsequent explicit Detach(newID) from
-// the user would return ErrDeviceNotBound, permanently orphaning the
-// port until a daemon restart.
-//
-// Fix: rollback calls kernel.DetachPort FIRST and only deletes the
-// handle entry on success. On failure the handle stays registered so
-// the user can retry Detach(newID) and eventually release the kernel
-// port.
+// TestImporterRollback_PreservesHandleOnKernelDetachFailure pins the
+// rollback contract. rollbackSupersededReconnect calls
+// kernel.DetachPort FIRST and only deletes the handle entry on
+// success. Deleting the handle entry before the kernel DetachPort
+// succeeded would, on kernel failure, leave the kernel port live and
+// owned by no handle: a subsequent explicit Detach(newID) from the
+// user would return ErrDeviceNotBound and permanently orphan the port
+// until a daemon restart.
 //
 // Test flow:
 //  1. Initial Attach succeeds with PortID=1; watcher spawned.
@@ -39,9 +35,9 @@ var errRollbackDetachFailed = errors.New("rollback detach failed (mock)")
 //     wedged watcher and succeeds.
 //  4. Stuck AttachRemote returns PortID=2; rollback path invokes
 //     kernel.DetachPort(2) which is rigged to fail.
-//  5. Post-fix the handle for PortID=2 MUST remain in i.handles. The
-//     user explicit Detach(2) MUST reach the kernel (3rd DetachPort
-//     call) and succeed this time — the handle was preserved.
+//  5. The handle for PortID=2 MUST remain in i.handles. The user
+//     explicit Detach(2) MUST reach the kernel (3rd DetachPort call)
+//     and succeed this time — the handle was preserved.
 func TestImporterRollback_PreservesHandleOnKernelDetachFailure(t *testing.T) {
 	t.Parallel()
 
