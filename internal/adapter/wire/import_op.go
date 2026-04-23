@@ -38,21 +38,29 @@ func DecodeOpReqImport(r io.Reader) (domain.BusID, error) {
 			domain.ErrProtocolMismatch, uint16(op))
 	}
 
-	// Field-level truncation is advisory and not surfaced here; the
-	// busid-is-non-NUL-terminated case is rare and documented in
-	// ReadPaddedString. Callers who need to observe it use the Codec
-	// method on a higher layer.
-	busid, _, err := ReadPaddedString(r, domain.BusIDSize)
+	busid, truncated, err := ReadPaddedString(r, domain.BusIDSize)
 	if err != nil {
 		return "", err
 	}
 
-	// Validate against the permissive wire acceptance rule so a peer
-	// supplying NUL/control bytes or whitespace-wrapped input is
-	// rejected with ErrBusIDInvalid here, well before the sysfs layer
-	// receives it. The stricter topology-pattern check belongs at the
-	// user-input boundary (ParseBusID) because valid real-world
-	// busids include non-topology shapes like "usbip-vudc.0".
+	// A truncated busid field means ReadPaddedString stopped at a NUL
+	// or non-printable byte with junk still following (the field was
+	// not well-formed NUL padding). Surfacing the printable prefix
+	// silently would let a peer pre-load a valid-looking busid in front
+	// of arbitrary bytes, misleading operator logs and every sysfs
+	// helper downstream.
+	if truncated {
+		return "", fmt.Errorf("decode OP_REQ_IMPORT: %w: busid field is not NUL-padded",
+			domain.ErrBusIDInvalid)
+	}
+
+	// Validate against the sysfs-safe charset so a peer supplying
+	// whitespace, control bytes, or path separators is rejected with
+	// ErrBusIDInvalid here, well before the sysfs layer receives it.
+	// The stricter topology pattern belongs at the user-input boundary
+	// (ParseBusID); the wire rule stays permissive enough to accept
+	// real-world shapes like "usbip-vudc.0" while blocking basename
+	// escape bytes.
 	parsed, err := domain.ValidateWireBusID(busid)
 	if err != nil {
 		return "", fmt.Errorf("decode OP_REQ_IMPORT: %w", err)
