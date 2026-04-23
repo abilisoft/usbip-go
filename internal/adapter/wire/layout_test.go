@@ -118,7 +118,7 @@ func assertDeviceFixture(t *testing.T, name string) {
 
 	require.NoError(t, json.Unmarshal(jsonBytes, &want))
 
-	got, err := wire.DecodeDevice(bytes.NewReader(binBytes))
+	got, _, err := wire.DecodeDevice(bytes.NewReader(binBytes))
 	require.NoError(t, err)
 	require.Equal(t, want.Path, got.Path)
 	require.Equal(t, domain.BusID(want.BusID), got.BusID)
@@ -146,7 +146,7 @@ func assertDeviceFixture(t *testing.T, name string) {
 func TestDecodeDeviceShortRead(t *testing.T) {
 	t.Parallel()
 
-	_, err := wire.DecodeDevice(bytes.NewReader(make([]byte, wire.DeviceWireSize-1)))
+	_, _, err := wire.DecodeDevice(bytes.NewReader(make([]byte, wire.DeviceWireSize-1)))
 	require.Error(t, err)
 }
 

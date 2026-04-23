@@ -9,6 +9,36 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
+// DecodeFlags carries advisory signals produced by a decode call that
+// the spec §6.2 permissive-read rule keeps out of the error channel.
+// Codec methods consume the flags and emit slog.Warn records; direct
+// callers of the package-level decoders can inspect the struct or
+// ignore it. An empty DecodeFlags represents a clean decode.
+type DecodeFlags struct {
+	// TruncatedPaddedStrings records every fixed-width string field
+	// whose bytes reached the end of the field without a NUL
+	// terminator. Each entry names the field and the device index
+	// inside the reply (0 for single-device replies, -1 when the
+	// decode was not inside a devlist).
+	TruncatedPaddedStrings []PaddedStringTruncation
+	// TrailingBytes is true when the decoder observed bytes after the
+	// declared frame boundary. Currently set only by
+	// DecodeOpRepDevlist.
+	TrailingBytes bool
+}
+
+// PaddedStringTruncation identifies one truncated padded-string
+// field in a decoded payload.
+type PaddedStringTruncation struct {
+	// Field is a dotted identifier naming the truncated field
+	// (e.g. "device.path", "device.busid").
+	Field string
+	// DeviceIndex is the 0-based position inside a devlist reply, or
+	// -1 when the decode was not inside a devlist (single-device
+	// replies use 0 for consistency with the devlist case).
+	DeviceIndex int
+}
+
 // WritePaddedString writes s NUL-padded to exactly size bytes into w.
 //
 // The USBIP wire format encodes path and busid fields as fixed-width

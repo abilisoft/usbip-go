@@ -25,7 +25,7 @@ func TestDecodeOpRepImportStatusNonZeroIsDeviceNotFound(t *testing.T) {
 	// attempting to decode the device.
 	buf := []byte{0x01, 0x11, 0x00, 0x03, 0, 0, 0, 1}
 
-	_, err := wire.DecodeOpRepImport(bytes.NewReader(buf))
+	_, _, err := wire.DecodeOpRepImport(bytes.NewReader(buf))
 	require.ErrorIs(t, err, domain.ErrDeviceNotFound,
 		"non-zero reply status is the peer saying 'device not available', not a wire framing fault")
 }

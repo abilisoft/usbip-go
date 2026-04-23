@@ -92,7 +92,7 @@ func TestCodecEncodeOpReqDevlist(t *testing.T) {
 
 // TestCodecDecodeOpRepDevlistLogsTrailingBytes verifies that
 // Codec.DecodeOpRepDevlist, given a WithLogger injection, emits the
-// "trailing bytes after devlist" warn when the wire frame carries
+// "trailing bytes after payload" warn when the wire frame carries
 // extra bytes past the declared count. The test uses a per-instance
 // capture handler; no slog.Default() mutation, no shared state, fully
 // parallel.
@@ -114,7 +114,7 @@ func TestCodecDecodeOpRepDevlistLogsTrailingBytes(t *testing.T) {
 
 	msgs := capture.snapshot()
 	require.NotEmpty(t, msgs, "Codec must log trailing-bytes warn via injected logger")
-	require.Contains(t, msgs[0], "trailing bytes after devlist")
+	require.Contains(t, msgs[0], "trailing bytes after payload")
 }
 
 // TestCodecDecodeOpRepDevlistNilLogger checks that WithLogger(nil)

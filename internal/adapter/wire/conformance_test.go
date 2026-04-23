@@ -120,7 +120,7 @@ func TestConformance_OpRepDevlist(t *testing.T) {
 
 	devices, trailing, err := wire.DecodeOpRepDevlist(bytes.NewReader(raw))
 	require.NoError(t, err)
-	require.False(t, trailing)
+	require.False(t, trailing.TrailingBytes)
 	require.Len(t, devices, 1)
 	require.Equal(t, upstreamVudcDevice(), devices[0])
 
@@ -143,7 +143,7 @@ func TestConformance_OpRepImport(t *testing.T) {
 	raw := mustDecodeHex(t, upstreamOpRepImportHex)
 	require.Len(t, raw, 320)
 
-	d, err := wire.DecodeOpRepImport(bytes.NewReader(raw))
+	d, _, err := wire.DecodeOpRepImport(bytes.NewReader(raw))
 	require.NoError(t, err)
 	// OP_REP_IMPORT does not carry the interfaces array, so the decoded
 	// Device has a nil Interfaces slice even though NumInterfaces is a
