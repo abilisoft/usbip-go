@@ -162,14 +162,27 @@ func (a *ExporterAdapter) currentDriver(iface string) (string, error) {
 		return path.Base(link), nil
 	}
 
-	// Both lookups failed. Distinguish "device missing entirely" from
-	// "device present but unbound" by asking whether the interface
-	// directory itself exists. If it does, the absent driver paths
-	// mean the device is unbound, so return ErrDeviceNotBound; the
-	// caller (Bind) can interpret that however it needs. If the
-	// interface directory is missing too, the lookup error is
-	// authoritative and we surface it (already wraps
-	// ErrDeviceNotFound).
+	// Both lookups failed. Before collapsing the result into
+	// ErrDeviceNotBound, distinguish "present but absent driver" (the
+	// only case that shape is legitimate for) from "present but read
+	// failed with a real I/O or permission fault". The driver-attachment
+	// conclusion is only sound when both failures reduce to ENOENT-ish —
+	// a non-ENOENT errno means we cannot see the driver state, not that
+	// there is none, and surfacing ErrDeviceNotBound there would hide a
+	// permission or I/O fault behind a wrong error class.
+	if !isMissing(nameErr) {
+		return "", nameErr
+	}
+
+	if linkErr != nil && !isMissing(linkErr) {
+		return "", linkErr
+	}
+
+	// Both failures are absence-shaped. Distinguish "device missing
+	// entirely" from "device present but unbound" via the interface
+	// directory itself. Present + no driver → ErrDeviceNotBound; missing
+	// → ErrDeviceNotFound (nameErr already carries that via the ENOENT
+	// classifier, but we re-wrap for a uniform message).
 	_, statErr := fs.Stat(a.fs, fsPathFromAbs(ifaceDir))
 	if statErr == nil {
 		return "", fmt.Errorf("%w: no driver attached to %s", domain.ErrDeviceNotBound, iface)
