@@ -65,6 +65,12 @@ commit_parsers = [
     { message = "^ci",       group = "CI & Build" },
     { message = "^build",    group = "CI & Build" },
     { message = "^deps",     group = "Dependencies" },
+    # Drop the release commit itself — the chore(release): vX.Y.Z
+    # commit is the one that ships the regenerated CHANGELOG, and
+    # listing it inside the very section it created creates an
+    # un-amendable circular dependency (every regen would change
+    # its own short-SHA entry, never converging).
+    { message = "^chore\\(release\\)", skip = true },
     { message = "^chore",    group = "Chores" },
     { message = "^style",    group = "Style" },
     # Anything with BREAKING CHANGE or ! after type — surfaced first.
