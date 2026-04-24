@@ -326,7 +326,7 @@ tasks:
         # launched by systemd in the VM due to ownership rules), so
         # the Go build helper cannot stamp VCS info. Turn it off — the
         # test itself does not depend on version stamping.
-        go test -race -buildvcs=false -tags=integration_linux -timeout=5m ./test/integration/...
+        go test -race -v -count=1 -buildvcs=false -tags=integration_linux -timeout=5m ./test/integration/...
         echo VM_INTEGRATION_OK
         EOF
       - chmod +x {{.BUILD_DIR}}/vm/cmd.sh

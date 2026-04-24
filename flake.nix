@@ -78,6 +78,18 @@
           "systemd.show_status=false"
         ];
         boot.kernelModules = microvmKernelModules;
+
+        # modprobe.d entry so the kernel uses num=16 whether the module
+        # is loaded by us explicitly or (as in early-boot init paths)
+        # auto-loaded before our systemd unit fires. modprobe in the
+        # systemd unit with options alone is racy: if initrd already
+        # loaded usbip_vudc with the default num=1, a later
+        # `modprobe usbip_vudc num=16` is a silent no-op and leaves
+        # the integration suite starved for vudc instances.
+        boot.extraModprobeConfig = ''
+          options usbip_vudc num=16
+        '';
+
         boot.initrd.availableKernelModules = [
           "virtio_pci" "virtio_blk" "virtio_net" "virtio_console"
           "9p" "9pnet_virtio"
@@ -159,6 +171,10 @@
             set -eu
             echo "[vm] loading USBIP kernel modules"
             for m in ${lib.concatStringsSep " " microvmKernelModules}; do
+              # usbip_vudc's `num=16` is set via /etc/modprobe.d (see
+              # boot.extraModprobeConfig); passing it here too would be
+              # redundant and could conflict if the module is already
+              # loaded.
               modprobe "$m"
             done
             echo "[vm] snapshotting /src/build/vm/cmd.sh -> /run/vm-cmd.sh"
