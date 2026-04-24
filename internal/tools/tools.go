@@ -1,8 +1,12 @@
 //go:build tools
 // +build tools
 
-// Package tools pins dev-tool versions via go.mod.
-// Run `task install-tools` to install into $GOBIN.
+// Package tools pins dev-tool versions via go.mod blank imports so
+// `go install -mod=mod <import-path>` resolves the pinned version
+// instead of @latest. The hermetic devShell (flake.nix) ships most
+// of these binaries directly; this file is the escape hatch for the
+// few that are not in nixpkgs (gremlins) or are installed ad-hoc by
+// CI jobs (apidiff in the api-surface workflow).
 package tools
 
 import (
