@@ -45,3 +45,5 @@ codex-*.log
 # internal/adapter/wire/conformance_test.go).
 /internal/adapter/wire/testdata/real_*.bin
 /internal/adapter/wire/testdata/real_capture.*
+buck-out/
+.buckd/
