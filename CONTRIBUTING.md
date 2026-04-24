@@ -55,6 +55,15 @@ task clean                  # clears build/ caches
 task setup                  # re-seeds from scratch
 ```
 
+When switching back to a pre-migration branch (or reverting the
+hermetic-tooling merge), remove the nested module marker too — its
+presence outside this branch family confuses `go test ./...`:
+
+```
+docker compose down -v
+rm -rf build                # including /build/go.mod on the old branch
+```
+
 ## Dev loop
 
 ```
@@ -184,7 +193,7 @@ items per the plan's progressive-enforcement policy (Task 0.7 Step 8):
 | Gate | What | Enforcement |
 |---|---|---|
 | 1 | `task lint` clean (gofumpt, wsl_v5, mnd, goconst, nolintlint, complexity ≤ 10, etc.) | CI: `lint-and-vet` job runs `task lint`. |
-| 2 | `task test` clean with `-race` on linux + macos | CI: `unit-linux` + `unit-macos` jobs run `task test`. A dedicated `conformance` job additionally runs `task test:conformance` against upstream usbip-utils. |
+| 2 | `task test` clean with `-race` on linux + macos | CI: `unit-linux` + `unit-macos` jobs run `task ci:test`. A dedicated `conformance` job runs `task ci:test:conformance`; upstream-binary cross-checks inside it skip when `usbip` is not on PATH (the flake closure does not pin usbip-utils). |
 | 3 | RED→GREEN commit chain (every `*_test.go`-adding commit is followed by implementation or a `refactor:` commit) | CI: `test-tdd-discipline` job on pull requests. |
 | 4 | Coverage thresholds per §8.7 (domain 95, app 90, wire 95, kernel 70, transport 80, cmd 60) | CI: `coverage` job runs `task test:cover` + `vladopajic/go-test-coverage` against `.testcoverage.yaml`. |
 | 5 | DDD layering: `pkg/` ↛ `internal/`; `internal/app` ↛ `internal/adapter/` | CI: `ddd-boundary` job greps both directions. |
