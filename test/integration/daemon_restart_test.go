@@ -339,7 +339,11 @@ func buildDaemonBinary(t *testing.T) string {
 	out := filepath.Join(t.TempDir(), "usbipd")
 	repoRoot := findModuleRoot(t)
 
-	cmd := exec.Command("go", "build", "-o", out, "./cmd/usbipd/")
+	// -buildvcs=false: see process_death_test.go buildKillHelper for
+	// rationale — the helper runs where `go build`'s VCS stamp cannot
+	// reach .git under the test UID, and version info is not surfaced
+	// anywhere that would notice its absence.
+	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", out, "./cmd/usbipd/")
 	cmd.Dir = repoRoot
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 
