@@ -3,7 +3,6 @@ package wire_test
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"log/slog"
 	"testing"
 
@@ -106,14 +105,15 @@ func TestCodecDecodeOpRepDevlistLogsTruncatedFields(t *testing.T) {
 	devBuf := encodeDeviceForFlagTest()
 	fillPaddedRegion(devBuf, 0, 256)
 
+	// The fixture device advertises NumInterfaces=0 so the devlist
+	// body is exactly the device descriptor. Writing extra bytes here
+	// would muddy the test: DecodeOpRepDevlist would emit both a
+	// truncation warn AND a trailing-bytes warn, which dilutes the
+	// assertion about the truncation signal specifically.
 	var body bytes.Buffer
 
 	body.Write(header)
 	body.Write(devBuf)
-
-	buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf, 0)
-	body.Write(buf)
 
 	sink := newSlogSink()
 	c := wire.NewCodec(wire.WithLogger(slog.New(sink)))
