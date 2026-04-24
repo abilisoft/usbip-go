@@ -138,6 +138,20 @@ sudo systemctl status usbipd
 Metrics, drain, and readiness endpoints are in
 [`docs/ops.md`](docs/ops.md).
 
+## Development
+
+The dev toolchain is hermetic: the only host-side prerequisites are
+**Docker** and **[Task](https://taskfile.dev)**. Go, linters,
+formatters, and every release tool (goreleaser, syft, cosign, nfpm,
+git-cliff) are pinned in `flake.nix` and delivered through a Nix
+container — `task setup` seeds the store once, then `task test`,
+`task lint`, and friends reuse it.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md#prerequisites) for the full
+onboarding flow, the hermetic-cache layout under `./build/`, and
+the microVM path that runs integration tests against a real Linux
+kernel without requiring the USBIP modules on your host.
+
 ## Documentation
 
 - [`docs/architecture.md`](docs/architecture.md) — layering and
