@@ -122,14 +122,19 @@ func (i *Importer) runReconnectWatcher(parent context.Context, p reconnectParams
 	defer cancel()
 
 	// Derive the ctx cancellation from handle.done so Subscribe and
-	// any ctx-aware downstream respects user Detach/Close.
-	go func() {
+	// any ctx-aware downstream respects user Detach/Close. The helper
+	// goroutine is enrolled in i.wg via wg.Go so Close's bounded
+	// drain observes it; the outer watcher's deferred cancel + the
+	// inner ctx.Done branch keep the lifetime bounded even when
+	// handle.done never closes (e.g. the watcher returns normally
+	// after a successful reconnect).
+	i.wg.Go(func() {
 		select {
 		case <-p.handle.done:
 			cancel()
 		case <-ctx.Done():
 		}
-	}()
+	})
 
 	events, unsubscribe, err := i.events.Subscribe(ctx)
 	if err != nil {
