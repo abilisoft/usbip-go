@@ -92,6 +92,9 @@ tasks:
   release:snapshot: { desc: 'GoReleaser snapshot',    cmds: [{ task: _run, vars: { INNER: 'ci:release:snapshot' } }] }
   release:          { desc: 'GoReleaser release',     cmds: [{ task: _run, vars: { INNER: 'ci:release' } }] }
 
+  vm:build:         { desc: 'Build microVM closure',   cmds: [{ task: _run, vars: { INNER: 'ci:vm:build' } }] }
+  vm:smoke:         { desc: 'Boot microVM, verify USBIP modules load', cmds: [{ task: _run, vars: { INNER: 'ci:vm:smoke' } }] }
+
   clean:
     desc: Remove build artefacts (preserves tracked build/go.mod marker)
     cmds:
@@ -134,6 +137,10 @@ tasks:
     internal: true
     cmds:
       - mkdir -p {{.BUILD_DIR}}/cache
+      # If a prior compose run on a machine without these files created
+      # them as directories (docker's default when the bind source is
+      # absent), remove the dirs before writing the real files.
+      - rm -rf {{.BUILD_DIR}}/cache/passwd {{.BUILD_DIR}}/cache/group
       - 'printf ''dev:x:%s:%s::/src/build/cache/home:/bin/sh\n'' {{.UID}} {{.GID}} > {{.BUILD_DIR}}/cache/passwd'
       - 'printf ''dev:x:%s:\n'' {{.GID}} > {{.BUILD_DIR}}/cache/group'
 
@@ -250,3 +257,41 @@ tasks:
   ci:release:
     deps: [_check:tooling]
     cmds: [goreleaser release --clean]
+
+  # ----------------------------------------------------------------------------
+  # microVM — hermetic integration-test rig. flake.nix exposes
+  # packages.x86_64-linux.microvm-run, a shell application whose closure
+  # pins the kernel (with USBIP modules), initrd, toplevel, and qemu_kvm
+  # binary. ci:vm:build materialises that closure under build/vm/run so
+  # the runner can be re-invoked without re-evaluating the flake; ci:vm:smoke
+  # stages a shell payload, boots the VM, and asserts every required USBIP
+  # kernel module is present in /proc/modules before powering off.
+  # ----------------------------------------------------------------------------
+  ci:vm:build:
+    deps: [_check:tooling]
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}/vm
+      - nix build .#microvm-run -o {{.BUILD_DIR}}/vm/run
+
+  ci:vm:smoke:
+    deps: [ci:vm:build]
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}/vm
+      - |
+        cat > {{.BUILD_DIR}}/vm/cmd.sh <<'EOF'
+        set -eu
+        echo "[smoke] asserting USBIP kernel modules are loaded"
+        for m in usbip_core vhci_hcd usbip_host usbip_vudc libcomposite; do
+          if grep -qw "$m" /proc/modules; then
+            echo "  ok: $m"
+          else
+            echo "  MISSING: $m" >&2
+            exit 1
+          fi
+        done
+        echo "VM_SMOKE_OK"
+        EOF
+      - chmod +x {{.BUILD_DIR}}/vm/cmd.sh
+      # ci:vm:smoke only runs inside the dev container (via _run → compose
+      # dispatch), so the src path the runner shares into the VM is /src.
+      - USBIP_GO_VM_SRC=/src {{.BUILD_DIR}}/vm/run/bin/usbip-go-microvm-run
