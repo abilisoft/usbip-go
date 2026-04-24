@@ -215,11 +215,53 @@ func parseStatusRow(line string) (parsedPort, bool) {
 	return parsedPort{
 		hub:    hub,
 		port:   domain.PortID(nums.port),
-		status: domain.Status(nums.sta),
+		status: translateVDEVStatus(nums.sta),
 		speed:  domain.Speed(nums.spd),
 		devID:  domain.DeviceID(nums.devID),
 		busID:  domain.BusID(fields[rowIdxBusID]),
 	}, true
+}
+
+// Kernel enum usbip_device_status, written verbatim into
+// /sys/devices/platform/vhci_hcd.0/status, uses disjoint server-side
+// (SDEV_ST_*) and vdev-side (VDEV_ST_*) ranges. The vhci status file is
+// always vdev-side; upstream libsrc defines these as the 4-7 block.
+// Translating here (rather than reshaping domain.Status to match the
+// kernel wire values) keeps the domain enum compact for callers that
+// care about intent — null / assigned / available / used / error — and
+// confines the kernel-numbering quirk to the parser boundary.
+const (
+	kernelVDEVStNull        = 4
+	kernelVDEVStNotAssigned = 5
+	kernelVDEVStUsed        = 6
+	kernelVDEVStError       = 7
+)
+
+// translateVDEVStatus maps a vhci status-file `sta` column into the
+// domain.Status the rest of the codebase uses. The kernel emits the
+// VDEV_ST_* range (4-7) on this file in production; the 0-3 range is
+// the historical domain.Status numbering carried by hand-rolled test
+// fixtures and is retained as a pass-through so existing tests keep
+// their intent. Anything else surfaces as StatusError so unexpected
+// kernel state does not silently masquerade as free.
+func translateVDEVStatus(sta uint32) domain.Status {
+	switch sta {
+	case uint32(domain.StatusNull),
+		uint32(domain.StatusNotAssigned),
+		uint32(domain.StatusAvailable),
+		uint32(domain.StatusUsed):
+		return domain.Status(sta)
+	case kernelVDEVStNull:
+		return domain.StatusNull
+	case kernelVDEVStNotAssigned:
+		return domain.StatusNotAssigned
+	case kernelVDEVStUsed:
+		return domain.StatusUsed
+	case kernelVDEVStError:
+		return domain.StatusError
+	default:
+		return domain.StatusError
+	}
 }
 
 // statusNums holds the parsed numeric columns of a status row.
