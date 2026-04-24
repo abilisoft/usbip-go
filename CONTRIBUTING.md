@@ -12,16 +12,18 @@ PR.
 The dev environment is hermetic: every tool (Go, golangci-lint,
 gofumpt, govulncheck, goreleaser, syft, cosign, nfpm, git-cliff, gh,
 moq, gotools) is pinned in [`flake.nix`](flake.nix) and delivered
-via a Nix container. The only host-side dependencies are:
+via a Nix container. The project is Linux-only — it speaks to the
+Linux kernel USB/IP stack through sysfs and configfs, so macOS and
+Windows are not supported targets.
+
+The only host-side dependencies are:
 
 - **Docker Engine 20.10+** (or a compatible daemon exposing the
-  `docker` CLI and `docker compose`). On Linux install via your
-  distro's package manager; on macOS use
-  [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+  `docker` CLI and `docker compose`), installed via your distro's
+  package manager.
 - **[Task](https://taskfile.dev)** — install with
-  `go install github.com/go-task/task/v3/cmd/task@latest`, or via
-  `brew install go-task` on macOS, or any of the options on the
-  Taskfile install page.
+  `go install github.com/go-task/task/v3/cmd/task@latest` or your
+  distro's package for `go-task`.
 
 That is everything. No host Go, no host golangci-lint, no host
 goreleaser; the flake closure provides all of them.
@@ -97,12 +99,8 @@ task vm:test:integration    # run ./test/integration/... inside the VM
 
 The microVM needs `/dev/kvm` on the host for acceptable speed —
 KVM gives ~15 s end-to-end, TCG fallback (opt-in via
-`USBIP_GO_VM_ALLOW_TCG=1`) is ~70 s. The default compose path
-unconditionally maps `/dev/kvm` into the dev service; Docker
-Desktop on macOS does not expose `/dev/kvm`, so `task vm:*` is not
-supported there — use a Linux host (including a Linux VM on macOS)
-or wait for CI, which runs the integration tier on a self-hosted
-`kvm`-labelled runner.
+`USBIP_GO_VM_ALLOW_TCG=1`) is ~70 s. CI runs the integration tier
+on a self-hosted `kvm`-labelled runner.
 
 ## TDD discipline
 
@@ -184,7 +182,7 @@ items per the plan's progressive-enforcement policy (Task 0.7 Step 8):
 | Gate | What | Enforcement |
 |---|---|---|
 | 1 | `task lint` clean (gofumpt, wsl_v5, mnd, goconst, nolintlint, complexity ≤ 10, etc.) | CI: `lint-and-vet` job runs `task lint`. |
-| 2 | `task test` clean with `-race` on linux + macos | CI: `unit-linux` + `unit-macos` jobs run `task test`. A dedicated `conformance` job additionally runs `task test:conformance` against upstream usbip-utils. |
+| 2 | `task test` clean with `-race` on linux | CI: `unit-linux` job runs `task ci:test` inside the pinned nixos/nix container. A dedicated `conformance` job runs `task ci:test:conformance` in the same container; upstream-binary checks inside it skip when `usbip` is absent. |
 | 3 | RED→GREEN commit chain (every `*_test.go`-adding commit is followed by implementation or a `refactor:` commit) | CI: `test-tdd-discipline` job on pull requests. |
 | 4 | Coverage thresholds per §8.7 (domain 95, app 90, wire 95, kernel 70, transport 80, cmd 60) | CI: `coverage` job runs `task test:cover` + `vladopajic/go-test-coverage` against `.testcoverage.yaml`. |
 | 5 | DDD layering: `pkg/` ↛ `internal/`; `internal/app` ↛ `internal/adapter/` | CI: `ddd-boundary` job greps both directions. |
