@@ -36,6 +36,14 @@
         "usbip_host"
         "usbip_vudc"
         "libcomposite"
+        # SCSI + USB storage stack so the E2E data-transfer test can
+        # attach a mass_storage gadget, have vhci_hcd import it, and
+        # read the backing bytes back through a real /dev/sdN block
+        # device. Pulling these in at boot time avoids racing `modprobe`
+        # from inside the test.
+        "scsi_mod"
+        "sd_mod"
+        "usb_storage"
       ];
 
       # NixOS config for the integration-test microVM. Kept minimal: tmpfs

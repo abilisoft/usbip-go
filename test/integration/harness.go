@@ -80,6 +80,27 @@ type VUDCDevice struct {
 func SetupVUDC(t *testing.T) *VUDCDevice {
 	t.Helper()
 
+	return setupVUDCWithBacking(t, nil)
+}
+
+// SetupVUDCWithData is SetupVUDC with caller-provided bytes written to
+// the mass_storage lun backing file. The E2E data-transfer test uses
+// this to plant a deterministic payload that the importer side can
+// read back through the /dev/sdN block device the kernel creates when
+// vhci_hcd imports the vudc gadget.
+//
+// len(backing) must be at least one 512-byte SCSI sector; callers
+// typically pass 64 KiB – 1 MiB so the kernel round-trips multiple
+// URBs during verification.
+func SetupVUDCWithData(t *testing.T, backing []byte) *VUDCDevice {
+	t.Helper()
+
+	return setupVUDCWithBacking(t, backing)
+}
+
+func setupVUDCWithBacking(t *testing.T, backing []byte) *VUDCDevice {
+	t.Helper()
+
 	requireModulesLoaded(t)
 
 	if _, err := os.Stat(configfsUSBGadgetRoot); err != nil {
@@ -91,7 +112,7 @@ func SetupVUDC(t *testing.T) *VUDCDevice {
 
 	cleanup := registerGadgetCleanup(t, root)
 
-	err := writeGadgetTree(t, root, name)
+	err := writeGadgetTreeWithBacking(t, root, name, backing)
 	if err != nil {
 		cleanup()
 		t.Skipf("integration harness: configfs write failed: %v (usbip-vudc UDC instance may be exhausted)", err)
@@ -370,6 +391,12 @@ func removeConfigfsTreeDepthFirst(root string) error {
 func writeGadgetTree(t *testing.T, root, _ string) error {
 	t.Helper()
 
+	return writeGadgetTreeWithBacking(t, root, "", nil)
+}
+
+func writeGadgetTreeWithBacking(t *testing.T, root, _ string, backing []byte) error {
+	t.Helper()
+
 	err := os.MkdirAll(root, 0o755)
 	if err != nil {
 		return fmt.Errorf("mkdir gadget root: %w", err)
@@ -395,7 +422,7 @@ func writeGadgetTree(t *testing.T, root, _ string) error {
 		return err
 	}
 
-	err = writeGadgetFunction(t, root)
+	err = writeGadgetFunctionWithBacking(t, root, backing)
 	if err != nil {
 		return err
 	}
@@ -436,6 +463,17 @@ func writeGadgetStrings(root string) error {
 func writeGadgetFunction(t *testing.T, root string) error {
 	t.Helper()
 
+	return writeGadgetFunctionWithBacking(t, root, nil)
+}
+
+// writeGadgetFunctionWithBacking is writeGadgetFunction plus an
+// optional caller-provided backing payload. nil or empty falls back to
+// the historical 1 MiB zero-filled file the conformance fixtures were
+// captured against; callers that need a specific payload (E2E data-
+// transfer) pass the exact bytes to plant on the LUN.
+func writeGadgetFunctionWithBacking(t *testing.T, root string, backing []byte) error {
+	t.Helper()
+
 	cfgDir := filepath.Join(root, "configs", "c.1", "strings", "0x409")
 
 	err := os.MkdirAll(cfgDir, 0o755)
@@ -455,14 +493,18 @@ func writeGadgetFunction(t *testing.T, root string) error {
 		return fmt.Errorf("mkdir function: %w", err)
 	}
 
-	backing := filepath.Join(t.TempDir(), "msd.img")
+	backingPath := filepath.Join(t.TempDir(), "msd.img")
 
-	err = os.WriteFile(backing, make([]byte, 1<<20), 0o600)
+	if len(backing) == 0 {
+		backing = make([]byte, 1<<20)
+	}
+
+	err = os.WriteFile(backingPath, backing, 0o600)
 	if err != nil {
 		return fmt.Errorf("allocate backing file: %w", err)
 	}
 
-	err = writeFile(filepath.Join(funcDir, "lun.0", "file"), backing)
+	err = writeFile(filepath.Join(funcDir, "lun.0", "file"), backingPath)
 	if err != nil {
 		return fmt.Errorf("set lun backing: %w", err)
 	}
