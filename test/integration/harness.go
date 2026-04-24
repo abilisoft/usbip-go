@@ -253,11 +253,13 @@ func registerGadgetCleanup(t *testing.T, root string) func() {
 func runGadgetCleanup(root string) error {
 	var errs []error
 
-	// Unbind UDC first: writing empty detaches the gadget so the
-	// later rmdir stack is not rejected with EBUSY. A missing UDC
+	// Unbind UDC first: kernel configfs rejects a zero-byte write
+	// (fill_write_buffer → copy_from_iter copies 0 → -EFAULT), so we
+	// write a newline that the UDC store handler strips before the
+	// empty-name branch triggers unregister_gadget. A missing UDC
 	// attribute ("not bound in the first place") is not treated as
 	// an error — errors.Is(err, fs.ErrNotExist) filters those.
-	if err := writeFile(filepath.Join(root, "UDC"), ""); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := writeFile(filepath.Join(root, "UDC"), "\n"); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		errs = append(errs, fmt.Errorf("unbind UDC: %w", err))
 	}
 
@@ -294,13 +296,31 @@ func runGadgetCleanup(root string) error {
 	return errors.Join(errs...)
 }
 
+// implicitConfigfsGadgetDirs are directory names the kernel creates
+// automatically inside a gadget root and that refuse explicit rmdir.
+// The gadget-root rmdir removes them as part of the gadget teardown
+// handler, so we skip them during the walk and let the root cleanup
+// do the work. `lun.0` is the same story for the mass_storage
+// function: the function's rmdir drops its own children.
+var implicitConfigfsGadgetDirs = map[string]bool{
+	"configs":   true,
+	"functions": true,
+	"strings":   true,
+	"os_desc":   true,
+	"webusb":    true,
+	"lun.0":     true,
+}
+
 // removeConfigfsTreeDepthFirst walks root depth-first and rmdirs every
-// directory. configfs directories reject os.Remove on attribute files
-// (they are not regular files) so os.RemoveAll fails halfway through;
-// this routine skips files and only attempts rmdir on directories.
-// Per-rmdir failures are joined via errors.Join so a partial teardown
-// surfaces every stuck directory, not just the first one. fs.ErrNotExist
-// is filtered because a concurrent cleanup can unlink before we do.
+// user-created directory, skipping the implicit kernel-managed ones
+// listed in implicitConfigfsGadgetDirs (those are cleaned up when
+// their parent rmdir fires, not by direct removal). configfs directories
+// reject os.Remove on attribute files (they are not regular files) so
+// os.RemoveAll fails halfway through; this routine skips files and
+// only attempts rmdir on directories. Per-rmdir failures are joined
+// via errors.Join so a partial teardown surfaces every stuck directory.
+// fs.ErrNotExist is filtered because a concurrent cleanup can unlink
+// before we do.
 func removeConfigfsTreeDepthFirst(root string) error {
 	paths := make([]string, 0, 16)
 
@@ -325,10 +345,17 @@ func removeConfigfsTreeDepthFirst(root string) error {
 
 	// rmdir leaves first: reverse the accumulated order so each
 	// directory's children are already gone when its rmdir fires.
+	// Skip implicit kernel-managed dirs — the root rmdir below
+	// removes them transitively.
 	for i := len(paths) - 1; i >= 0; i-- {
-		rmErr := os.Remove(paths[i])
+		p := paths[i]
+		if p != root && implicitConfigfsGadgetDirs[filepath.Base(p)] {
+			continue
+		}
+
+		rmErr := os.Remove(p)
 		if rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
-			errs = append(errs, fmt.Errorf("rmdir %s: %w", paths[i], rmErr))
+			errs = append(errs, fmt.Errorf("rmdir %s: %w", p, rmErr))
 		}
 	}
 

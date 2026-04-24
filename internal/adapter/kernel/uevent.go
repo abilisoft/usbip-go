@@ -37,7 +37,13 @@ type realNetlinkSocket struct {
 	fd int
 }
 
-// Receive blocks until one uevent payload is delivered.
+// Receive blocks until one uevent payload is delivered OR the socket's
+// SO_RCVTIMEO expires. A timeout surfaces as unix.EAGAIN so the
+// dispatcher's run loop can re-check its stop channel without the
+// recvfrom syscall holding an unclosable file descriptor — a plain
+// unix.Close on a blocked netlink fd does not unblock recvfrom on
+// Linux, which caused `imp.Close()` to hang the whole integration
+// suite in the microVM environment.
 func (s *realNetlinkSocket) Receive() ([]byte, error) {
 	buf := make([]byte, netlinkUeventBufSize)
 
@@ -59,8 +65,19 @@ func (s *realNetlinkSocket) Close() error {
 	return nil
 }
 
+// netlinkRecvTimeout bounds a single blocked Receive call before the
+// kernel returns EAGAIN so the dispatcher's run loop can check its
+// stop channel. Shutdown latency is bounded by this value. 1s keeps
+// the worst case comfortably under test teardown budgets while adding
+// no measurable overhead to the hot path.
+const netlinkRecvTimeout = 1 * time.Second
+
 // openRealNetlinkSocket opens and binds a real
-// AF_NETLINK/NETLINK_KOBJECT_UEVENT socket.
+// AF_NETLINK/NETLINK_KOBJECT_UEVENT socket. SO_RCVTIMEO is armed so
+// the dispatcher's run loop sees periodic wakes, because plain
+// unix.Close on a blocked Recvfrom does not unblock it on Linux;
+// without the timeout a shutdown would deadlock on the final
+// `<-d.done` in tearDownDispatcher.
 func openRealNetlinkSocket() (*realNetlinkSocket, error) {
 	fd, err := unix.Socket(unix.AF_NETLINK, unix.SOCK_RAW|unix.SOCK_CLOEXEC, unix.NETLINK_KOBJECT_UEVENT)
 	if err != nil {
@@ -77,6 +94,15 @@ func openRealNetlinkSocket() (*realNetlinkSocket, error) {
 		_ = unix.Close(fd)
 
 		return nil, fmt.Errorf("bind netlink socket: %w", err)
+	}
+
+	tv := unix.NsecToTimeval(netlinkRecvTimeout.Nanoseconds())
+
+	err = unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv)
+	if err != nil {
+		_ = unix.Close(fd)
+
+		return nil, fmt.Errorf("set SO_RCVTIMEO: %w", err)
 	}
 
 	return &realNetlinkSocket{fd: fd}, nil
@@ -321,6 +347,14 @@ func (d *eventDispatcher) run() {
 
 		payload, err := d.sock.Receive()
 		if err != nil {
+			if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) {
+				// SO_RCVTIMEO woke us up. Loop back so the top-of-
+				// loop stop check has a chance to fire; then re-enter
+				// Receive. No event was lost — the timeout fires only
+				// when the socket queue is empty.
+				continue
+			}
+
 			d.handleReceiveErr(err)
 
 			return
@@ -463,7 +497,55 @@ func (m *vhciEventMapper) mapEvent(fields map[string]string) (domain.Event, bool
 		return mapUsbipHostEvent(action, devpath)
 	}
 
+	if fields["SUBSYSTEM"] == ueventSubsystemUDC {
+		return mapUDCEvent(action, devpath)
+	}
+
 	return m.mapVhciEvent(action, devpath)
+}
+
+// udcDevpathPattern captures the UDC instance id from a UDC-shaped
+// devpath. Kernel emits UDC events on the platform path
+// `/devices/platform/usbip-vudc.<N>/udc/usbip-vudc.<N>` (configfs
+// UDC-attribute write, observed on Linux 6.18) and also on the class
+// path `/class/udc/usbip-vudc.<N>` (driver (un)load). The regex is
+// scoped to usbip-vudc instances specifically — other UDC controllers
+// (dwc3, chipidea, dummy_hcd, etc.) are not part of the usbip
+// exporter surface, and emitting DeviceBoundEvent / DeviceUnboundEvent
+// for their lifecycle would inject spurious signal into the reconnect
+// watcher and session consumers.
+var udcDevpathPattern = regexp.MustCompile(`/udc/(usbip-vudc\.\d+)$`)
+
+// mapUDCEvent translates a SUBSYSTEM=udc uevent into a
+// DeviceBoundEvent or DeviceUnboundEvent. The kernel emits KOBJ_CHANGE
+// on configfs UDC-attribute transitions alongside the add/remove pair
+// the class lifecycle emits; for the exporter-side bind/unbind
+// observability we treat add+change as "bound" and remove as "unbound".
+// The event carries the UDC's name (e.g. usbip-vudc.0) as its BusID
+// because that is the handle configfs writers and the usbip tooling
+// address the device by.
+func mapUDCEvent(action, devpath string) (domain.Event, bool) {
+	match := udcDevpathPattern.FindStringSubmatch(devpath)
+	if match == nil {
+		return nil, false
+	}
+
+	busID := domain.BusID(match[1])
+
+	switch action {
+	case ueventActionAdd, ueventActionChange:
+		return domain.DeviceBoundEvent{
+			At:     time.Now(),
+			Device: domain.Device{BusID: busID, Path: devpath},
+		}, true
+	case ueventActionRemove:
+		return domain.DeviceUnboundEvent{
+			At:     time.Now(),
+			Device: domain.Device{BusID: busID, Path: devpath},
+		}, true
+	default:
+		return nil, false
+	}
 }
 
 // mapVhciEvent handles the vhci_hcd-shaped devpath using the cached
@@ -602,12 +684,23 @@ const (
 	ueventActionChange = "change"
 )
 
+// ueventSubsystemUDC names the UDC class subsystem. Kernel emits add /
+// remove uevents on /sys/class/udc/* when a UDC (such as usbip-vudc.N)
+// is bound or released by configfs UDC attribute writes; the
+// DeviceBoundEvent / DeviceUnboundEvent semantics extend naturally to
+// that transition for the exporter side.
+const ueventSubsystemUDC = "udc"
+
 // isInterestingUevent filters for subsystems we care about:
-// SUBSYSTEM=usb and SUBSYSTEM=usbip_host. Everything else is ignored.
+// SUBSYSTEM=usb, SUBSYSTEM=usbip_host, SUBSYSTEM=usb-hc, SUBSYSTEM=udc.
+// Everything else is ignored.
 func isInterestingUevent(fields map[string]string) bool {
 	sub := fields["SUBSYSTEM"]
 
-	return sub == ueventSubsystemUSB || sub == ueventSubsystemUSBIPHost || sub == ueventSubsystemUSBHC
+	return sub == ueventSubsystemUSB ||
+		sub == ueventSubsystemUSBIPHost ||
+		sub == ueventSubsystemUSBHC ||
+		sub == ueventSubsystemUDC
 }
 
 // vhciDevpathPattern matches the vhci-managed USB devpath shape:

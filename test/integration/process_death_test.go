@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -295,7 +296,12 @@ func buildKillHelper(t *testing.T) string {
 	// cmd path. Three hops covers test/integration/..
 	repoRoot := findModuleRoot(t)
 
-	cmd := exec.Command("go", "build", "-o", out, "./cmd/usbip-test-killable/")
+	// -buildvcs=false: the helper runs in environments (integration
+	// microVM, CI containers, bind-mounted worktrees) where `go build`
+	// cannot reach a usable .git tree under the test UID, and the
+	// stamp would abort the build with "error obtaining VCS status".
+	// The helper does not surface version information — no value lost.
+	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", out, "./cmd/usbip-test-killable/")
 	cmd.Dir = repoRoot
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 
@@ -338,8 +344,14 @@ func findModuleRoot(t *testing.T) string {
 // OP_REP_IMPORT reply so the child's Importer progresses to the
 // AttachRemote kernel call. Tracks accepts and closes so the tests
 // can assert on observable side-effects.
+//
+// nAccepts and nClosed are protected by mu — acceptLoop increments
+// them from a dedicated goroutine, while the test body reads them
+// from `require.Eventually`'s polling goroutine. -race would flag
+// the unsynchronised access otherwise.
 type fakeOpRepImportServer struct {
 	lis      net.Listener
+	mu       sync.Mutex
 	nAccepts int
 	nClosed  int
 	done     chan struct{}
@@ -369,9 +381,8 @@ func startFakeOpRepImportServer(t *testing.T) (*fakeOpRepImportServer, string) {
 }
 
 // acceptLoop accepts successive connections, handles them, and
-// increments counters under the server's mutex (implicit via
-// goroutine ownership — only one handler runs at a time). Exits when
-// Close fires and the listener returns net.ErrClosed.
+// increments counters under the server's mutex. Exits when Close
+// fires and the listener returns net.ErrClosed.
 func (s *fakeOpRepImportServer) acceptLoop() {
 	defer close(s.done)
 
@@ -381,11 +392,15 @@ func (s *fakeOpRepImportServer) acceptLoop() {
 			return
 		}
 
+		s.mu.Lock()
 		s.nAccepts++
+		s.mu.Unlock()
 
 		s.handle(conn)
 
+		s.mu.Lock()
 		s.nClosed++
+		s.mu.Unlock()
 	}
 }
 
@@ -421,11 +436,21 @@ func (s *fakeOpRepImportServer) handle(conn net.Conn) {
 
 // accepts returns the current accept counter. Safe to call after
 // close because the acceptLoop owns the increment and exits at Close.
-func (s *fakeOpRepImportServer) accepts() int { return s.nAccepts }
+func (s *fakeOpRepImportServer) accepts() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.nAccepts
+}
 
 // closed reports whether at least one accepted connection has been
 // closed. Used by after_dial to assert "server observed RST/FIN".
-func (s *fakeOpRepImportServer) closed() bool { return s.nClosed >= 1 }
+func (s *fakeOpRepImportServer) closed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.nClosed >= 1
+}
 
 // close tears the listener down and waits for the acceptLoop to exit.
 // Safe to call multiple times via the lis.Close idempotency + done

@@ -15,6 +15,10 @@ version: 2
 
 project_name: usbip-go
 
+# All GoReleaser output lands under ./build/dist so every build artefact
+# in the tree is beneath ./build/ and `task clean` is a single rm.
+dist: build/dist
+
 before:
   hooks:
     - go mod tidy
