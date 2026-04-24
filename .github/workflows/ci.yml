@@ -12,110 +12,144 @@ on:
 permissions:
   contents: read
 
-env:
-  GO_VERSION: '1.26'
-  GOTOOLCHAIN: local
+# Every job runs inside the upstream nixos/nix container so the only
+# host-side dep on GitHub-hosted runners is Docker (already present).
+# The flake drives the toolchain; jobs invoke the `task ci:*` inner
+# targets directly without going through docker-compose — inside the
+# container we are already in the hermetic environment that compose
+# provides for local dev.
+#
+# NIX_IMAGE is pinned to the same digest the Taskfile uses locally;
+# bump both together when a newer base is needed.
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   lint-and-vet:
     name: Lint & vuln
     runs-on: ubuntu-24.04
+    container:
+      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
+    env:
+      NIX_CONFIG: |
+        experimental-features = nix-command flakes
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: "safe.directory"
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-      - uses: actions/cache@v4
+      - name: Cache /nix store and db
+        uses: actions/cache@v4
         with:
           path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+            /nix/store
+            /nix/var/nix/db
+          # Image-digest prefix in the cache key so a cache produced on
+          # one nixos/nix baseline is never restored over a different
+          # baseline — `/nix/var/nix/db` registrations are baseline-
+          # specific, and mismatching stores would leave Nix in an
+          # inconsistent "path referenced but missing" state.
+          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
           restore-keys: |
-            ${{ runner.os }}-go-
-      - name: Install task
-        run: go install github.com/go-task/task/v3/cmd/task@latest
-      - name: Install dev tools
-        run: task install-tools
+            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
+            nix-${{ runner.os }}-img-e2fe74e9-
       - name: Lint
-        run: task lint
+        run: nix develop --command task ci:lint
       - name: Vuln
-        run: task vuln
+        run: nix develop --command task ci:vuln
 
   unit-linux:
     name: Unit tests (linux)
     runs-on: ubuntu-24.04
+    container:
+      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
+    env:
+      NIX_CONFIG: |
+        experimental-features = nix-command flakes
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: "safe.directory"
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
       - uses: actions/cache@v4
         with:
           path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+            /nix/store
+            /nix/var/nix/db
+          # Image-digest prefix in the cache key so a cache produced on
+          # one nixos/nix baseline is never restored over a different
+          # baseline — `/nix/var/nix/db` registrations are baseline-
+          # specific, and mismatching stores would leave Nix in an
+          # inconsistent "path referenced but missing" state.
+          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
           restore-keys: |
-            ${{ runner.os }}-go-
-      - name: Install task
-        run: go install github.com/go-task/task/v3/cmd/task@latest
+            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
+            nix-${{ runner.os }}-img-e2fe74e9-
       - name: Test
-        run: task test
+        run: nix develop --command task ci:test
 
   unit-macos:
     name: Unit tests (macos)
     runs-on: macos-14
+    # macOS runners cannot run the nixos/nix linux container. Install
+    # nix natively via the Determinate Systems installer and run the
+    # same ci:* inner targets — macOS's role here is catching
+    # linux-only imports in shared packages, not exercising kernel
+    # behaviour.
+    env:
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: "safe.directory"
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/Library/Caches/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-      - name: Install task
-        run: go install github.com/go-task/task/v3/cmd/task@latest
+      - uses: DeterminateSystems/nix-installer-action@v13
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
       - name: Test (catches Linux-only imports in shared packages)
-        run: task test
+        run: nix develop --command task ci:test
 
   conformance:
     name: Conformance (upstream usbip-utils)
     runs-on: ubuntu-24.04
+    container:
+      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
+    env:
+      NIX_CONFIG: |
+        experimental-features = nix-command flakes
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: "safe.directory"
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
       - uses: actions/cache@v4
         with:
           path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+            /nix/store
+            /nix/var/nix/db
+          # Image-digest prefix in the cache key so a cache produced on
+          # one nixos/nix baseline is never restored over a different
+          # baseline — `/nix/var/nix/db` registrations are baseline-
+          # specific, and mismatching stores would leave Nix in an
+          # inconsistent "path referenced but missing" state.
+          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
           restore-keys: |
-            ${{ runner.os }}-go-
-      - name: Install task
-        run: go install github.com/go-task/task/v3/cmd/task@latest
-      - name: Install upstream usbip-utils
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y linux-tools-common "linux-tools-$(uname -r)"
+            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
+            nix-${{ runner.os }}-img-e2fe74e9-
       - name: Conformance tests
-        run: task test:conformance
+        run: nix develop --command task ci:test:conformance
 
   test-tdd-discipline:
     name: TDD discipline (Compliance Gate 3)
@@ -157,34 +191,58 @@ jobs:
   api-surface:
     name: API surface (Compliance Gate 6)
     runs-on: ubuntu-24.04
+    container:
+      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
+    env:
+      NIX_CONFIG: |
+        experimental-features = nix-command flakes
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: "safe.directory"
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/cache@v4
         with:
-          go-version: ${{ env.GO_VERSION }}
-      - name: Install apidiff
-        run: go install golang.org/x/exp/cmd/apidiff@latest
+          path: |
+            /nix/store
+            /nix/var/nix/db
+          # Image-digest prefix in the cache key so a cache produced on
+          # one nixos/nix baseline is never restored over a different
+          # baseline — `/nix/var/nix/db` registrations are baseline-
+          # specific, and mismatching stores would leave Nix in an
+          # inconsistent "path referenced but missing" state.
+          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
+          restore-keys: |
+            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
+            nix-${{ runner.os }}-img-e2fe74e9-
       - name: Diff exported API against baselines
         run: |
-          set -euo pipefail
-          # Baseline filenames per plan Task 6.6: api/pkg_usbip.json, api/pkg_domain.json.
-          for pkg in github.com/abilisoft/usbip-go/pkg/usbip github.com/abilisoft/usbip-go/pkg/domain; do
-            short="${pkg##*/}"          # usbip | domain
-            baseline="api/pkg_${short}.json"
-            if [ ! -f "$baseline" ]; then
-              echo "no baseline for $pkg at $baseline; skipping (Task 6.6 establishes baselines)"
-              continue
-            fi
-            apidiff "$pkg" "$baseline" > diff.txt
-            cat diff.txt
-            if grep -qE '^(Incompatible|Removed)' diff.txt; then
-              if ! git log -1 --format=%s | grep -q '^BREAKING:' ; then
-                echo "API break without BREAKING: commit"; exit 1
+          nix develop --command bash -eu -c '
+            # devShell does not export GOBIN (unlike the compose dev
+            # service which sets it via docker-compose.yml), so pin one
+            # under the hermetic cache tree before `go install`.
+            export GOBIN="$PWD/build/cache/go-bin"
+            mkdir -p "$GOBIN"
+            go install golang.org/x/exp/cmd/apidiff
+            for pkg in github.com/abilisoft/usbip-go/pkg/usbip github.com/abilisoft/usbip-go/pkg/domain; do
+              short="${pkg##*/}"
+              baseline="api/pkg_${short}.json"
+              if [ ! -f "$baseline" ]; then
+                echo "no baseline for $pkg at $baseline; skipping (Task 6.6 establishes baselines)"
+                continue
               fi
-            fi
-          done
+              "$GOBIN/apidiff" "$pkg" "$baseline" > diff.txt
+              cat diff.txt
+              if grep -qE "^(Incompatible|Removed)" diff.txt; then
+                if ! git log -1 --format=%s | grep -q "^BREAKING:" ; then
+                  echo "API break without BREAKING: commit"; exit 1
+                fi
+              fi
+            done
+          '
 
   ddd-boundary:
     name: DDD boundary (Compliance Gate 5)
@@ -209,46 +267,62 @@ jobs:
   no-cgo:
     name: No cgo (Compliance Gate 8)
     runs-on: ubuntu-24.04
+    container:
+      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
+    env:
+      NIX_CONFIG: |
+        experimental-features = nix-command flakes
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: "safe.directory"
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/cache@v4
         with:
-          go-version: ${{ env.GO_VERSION }}
+          path: |
+            /nix/store
+            /nix/var/nix/db
+          # Image-digest prefix in the cache key so a cache produced on
+          # one nixos/nix baseline is never restored over a different
+          # baseline — `/nix/var/nix/db` registrations are baseline-
+          # specific, and mismatching stores would leave Nix in an
+          # inconsistent "path referenced but missing" state.
+          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
+          restore-keys: |
+            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
+            nix-${{ runner.os }}-img-e2fe74e9-
       - name: Authoritative cgo detection via go list
         # `go list -deps -f '{{.ImportPath}} {{.CgoFiles}}'` surfaces every
         # package that has cgo files — catches both single-line
         # `import "C"` and block-imports, generated cgo, and dotimports.
-        # Skip the tools package (has build tag `tools`) which has no cgo anyway.
         run: |
-          set -euo pipefail
-          cgo_pkgs="$(go list -deps -f '{{if .CgoFiles}}{{.ImportPath}}{{end}}' ./... | grep -v '^$' || true)"
-          if [ -n "$cgo_pkgs" ]; then
-            echo "found packages with cgo files — CGO_ENABLED=0 policy violation:"
-            echo "$cgo_pkgs"
-            exit 1
-          fi
-          # Belt-and-suspenders: raw source grep for both single-line and
-          # block-form `"C"` imports. Catches non-building packages too.
-          if grep -rnE '(^|[[:space:]])import[[:space:]]+"C"' --include='*.go' . ; then
-            echo "found single-line import \"C\" — CGO_ENABLED=0 policy violation"
-            exit 1
-          fi
-          # Block-form: search each Go file for an import ( ... "C" ... ) pattern.
-          # Using awk for multi-line accuracy.
-          if find . -name '*.go' -not -path './.git/*' -print0 | xargs -0 -r awk '
-              /^import[[:space:]]*\(/ { in_blk=1; next }
-              in_blk && /^\)/          { in_blk=0; next }
-              in_blk && /^[[:space:]]*"C"/ {
-                  print FILENAME ":" FNR ": block-form import \"C\" (cgo)"
-                  found=1
-              }
-              END { exit found ? 1 : 0 }
-            '; then
-            :
-          else
-            echo "found block-form import \"C\" — CGO_ENABLED=0 policy violation"
-            exit 1
-          fi
+          nix develop --command bash -eu -c '
+            cgo_pkgs="$(go list -deps -f "{{if .CgoFiles}}{{.ImportPath}}{{end}}" ./... | grep -v "^$" || true)"
+            if [ -n "$cgo_pkgs" ]; then
+              echo "found packages with cgo files — CGO_ENABLED=0 policy violation:"
+              echo "$cgo_pkgs"
+              exit 1
+            fi
+            if grep -rnE "(^|[[:space:]])import[[:space:]]+\"C\"" --include="*.go" . ; then
+              echo "found single-line import \"C\" — CGO_ENABLED=0 policy violation"
+              exit 1
+            fi
+            if find . -name "*.go" -not -path "./.git/*" -print0 | xargs -0 -r awk "
+                /^import[[:space:]]*\\(/ { in_blk=1; next }
+                in_blk && /^\\)/          { in_blk=0; next }
+                in_blk && /^[[:space:]]*\"C\"/ {
+                    print FILENAME \":\" FNR \": block-form import \\\"C\\\" (cgo)\"
+                    found=1
+                }
+                END { exit found ? 1 : 0 }
+              "; then
+              :
+            else
+              echo "found block-form import \"C\" — CGO_ENABLED=0 policy violation"
+              exit 1
+            fi
+          '
 
   changelog-check:
     name: Changelog check (git-cliff) — release tags only
@@ -259,102 +333,140 @@ jobs:
     # PRs don't need a perfectly-synced changelog; the release
     # workflow runs `task changelog` as its first step.
     if: startsWith(github.ref, 'refs/tags/v')
+    container:
+      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
+    env:
+      NIX_CONFIG: |
+        experimental-features = nix-command flakes
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: "safe.directory"
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Install git-cliff
-        env:
-          GIT_CLIFF_VERSION: '2.12.0'
-        run: |
-          set -euo pipefail
-          url="https://github.com/orhun/git-cliff/releases/download/v${GIT_CLIFF_VERSION}/git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
-          curl -sSL "$url" | tar -xz -C /tmp
-          sudo install "/tmp/git-cliff-${GIT_CLIFF_VERSION}/git-cliff" /usr/local/bin/git-cliff
-          git-cliff --version
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /nix/store
+            /nix/var/nix/db
+          # Image-digest prefix in the cache key so a cache produced on
+          # one nixos/nix baseline is never restored over a different
+          # baseline — `/nix/var/nix/db` registrations are baseline-
+          # specific, and mismatching stores would leave Nix in an
+          # inconsistent "path referenced but missing" state.
+          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
+          restore-keys: |
+            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
+            nix-${{ runner.os }}-img-e2fe74e9-
       - name: Verify CHANGELOG.md matches history at this tag
-        run: |
-          set -euo pipefail
-          git-cliff --config cliff.toml > /tmp/cliff-expected.md
-          if ! diff -u CHANGELOG.md /tmp/cliff-expected.md; then
-            echo ""
-            echo "CHANGELOG.md does not match git-cliff output at this tag."
-            echo "Re-run 'task changelog' and commit the result before tagging."
-            exit 1
-          fi
+        run: nix develop --command task ci:changelog:check
 
   coverage:
     name: Coverage (Compliance Gate 4)
     runs-on: ubuntu-24.04
+    container:
+      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
+    env:
+      NIX_CONFIG: |
+        experimental-features = nix-command flakes
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: "safe.directory"
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
       - uses: actions/cache@v4
         with:
           path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+            /nix/store
+            /nix/var/nix/db
+          # Image-digest prefix in the cache key so a cache produced on
+          # one nixos/nix baseline is never restored over a different
+          # baseline — `/nix/var/nix/db` registrations are baseline-
+          # specific, and mismatching stores would leave Nix in an
+          # inconsistent "path referenced but missing" state.
+          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
           restore-keys: |
-            ${{ runner.os }}-go-
-      - name: Install task
-        run: go install github.com/go-task/task/v3/cmd/task@latest
+            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
+            nix-${{ runner.os }}-img-e2fe74e9-
       - name: Produce coverage profile
-        run: task test:cover
+        run: nix develop --command task ci:test:cover
       - name: Enforce thresholds
         uses: vladopajic/go-test-coverage@v2
         with:
           config: ./.testcoverage.yaml
+          profile: ./build/coverage/coverage.out
 
   cross-compile:
     name: Cross-compile (Compliance Gate 12)
     runs-on: ubuntu-24.04
+    container:
+      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
+    env:
+      NIX_CONFIG: |
+        experimental-features = nix-command flakes
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: "safe.directory"
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
       - uses: actions/cache@v4
         with:
           path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+            /nix/store
+            /nix/var/nix/db
+          # Image-digest prefix in the cache key so a cache produced on
+          # one nixos/nix baseline is never restored over a different
+          # baseline — `/nix/var/nix/db` registrations are baseline-
+          # specific, and mismatching stores would leave Nix in an
+          # inconsistent "path referenced but missing" state.
+          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
           restore-keys: |
-            ${{ runner.os }}-go-
+            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
+            nix-${{ runner.os }}-img-e2fe74e9-
       - name: Phase-0 minimal cross build
         run: |
-          set -euo pipefail
-          GOOS=linux GOARCH=amd64 go build ./...
-          GOOS=linux GOARCH=arm64 go build ./...
-          GOOS=linux GOARCH=arm GOARM=7 go build ./...
+          nix develop --command bash -eu -c '
+            GOOS=linux GOARCH=amd64 go build ./...
+            GOOS=linux GOARCH=arm64 go build ./...
+            GOOS=linux GOARCH=arm GOARM=7 go build ./...
+          '
 
   mutation:
     name: Mutation testing
     runs-on: ubuntu-24.04
     if: github.event_name == 'schedule'
+    container:
+      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
+    env:
+      NIX_CONFIG: |
+        experimental-features = nix-command flakes
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: "safe.directory"
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
       - uses: actions/cache@v4
         with:
           path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+            /nix/store
+            /nix/var/nix/db
+          # Image-digest prefix in the cache key so a cache produced on
+          # one nixos/nix baseline is never restored over a different
+          # baseline — `/nix/var/nix/db` registrations are baseline-
+          # specific, and mismatching stores would leave Nix in an
+          # inconsistent "path referenced but missing" state.
+          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
           restore-keys: |
-            ${{ runner.os }}-go-
-      - name: Install task
-        run: go install github.com/go-task/task/v3/cmd/task@latest
-      - name: Install gremlins
-        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
+            nix-${{ runner.os }}-img-e2fe74e9-
       - name: Mutation tests
-        run: task test:mutation
+        run: nix develop --command task ci:test:mutation
