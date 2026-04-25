@@ -183,19 +183,23 @@ to a public sentinel:
 | Clean EOF before any header byte | `io.EOF` (unchanged) | not wrapped |
 | `version != 0x0111` | `ErrProtocolMismatch` | `oops.With("got", v).With("want", 0x0111)` |
 | Unknown opcode in received header | `ErrProtocolMismatch` | `oops.With("opcode", op)` |
-| `status != 0` on a reply | `ErrProtocolError` | `oops.With("status", s).With("op", op)` |
+| `status != 0` on a reply (non-`OP_REP_IMPORT`) | `ErrProtocolError` | `oops.With("status", s).With("op", op)` |
+| `status != 0` on `OP_REP_IMPORT` | `ErrDeviceNotFound` | `oops.With("status", s)` — protocol-idiomatic "bus id unavailable" |
 | Short read in body (truncated mid-field) | `io.ErrUnexpectedEOF` | `oops.With("field", name).Wrap(err)` |
 | Padded string exceeds its fixed size | `ErrBusIDInvalid` (busid) / `ErrProtocolError` (path) | `oops.With("len", len).With("max", max)` |
 | Non-NUL-terminated padded string | truncated at first non-printable / end of buffer; logged as `slog.Warn` | — |
-| `OP_REP_DEVLIST` with `nDevices = 0` | valid; returns `(nil, nil)` | — |
+| `OP_REP_DEVLIST` with `nDevices = 0` | valid; returns `(nil, DecodeFlags{}, nil)` | — |
 | `OP_REP_DEVLIST` truncated mid-device | `io.ErrUnexpectedEOF` | `oops.With("truncated_at", N)` |
 | `OP_REP_DEVLIST` with extra trailing bytes | logged as `slog.Warn`; silently ignored | — |
 | Interface count exceeds remaining bytes | `io.ErrUnexpectedEOF` | `oops.With("msg", "truncated interfaces")` |
 
 `ErrProtocolMismatch` covers "bytes don't match the spec at all".
 `ErrProtocolError` covers "well-formed frames that encode a server-
-reported failure" (non-zero `status`). They are two distinct
-sentinels in `pkg/usbip/errors.go`.
+reported failure" (non-zero `status`) on every reply *except*
+`OP_REP_IMPORT`, which maps a non-zero `status` to
+`ErrDeviceNotFound` per the row above. The three sentinels
+(`ErrProtocolMismatch`, `ErrProtocolError`, `ErrDeviceNotFound`)
+are all declared in `pkg/usbip/errors.go`.
 
 Consumers match via `errors.Is` for sentinels or
 `errors.As(&oopsErr)` for the enriched context attributes.
