@@ -267,15 +267,20 @@ func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
 // systemd activation or other foreign listener wiring.
 //
 // A Listen failure short-circuits the call: ListenAndServe surfaces
-// the wrapped error and never invokes Serve. The returned listener
-// closes on either ctx cancellation (via the transport adapter's own
-// ctx-bound listener) or Serve's natural exit, so callers do not need
-// to track the listener separately.
+// the wrapped error and never invokes Serve. The bound listener is
+// closed deterministically on Serve's return — the transport
+// adapter's ctxListener already closes on ctx cancellation, but a
+// Serve early-return path (e.g. startServing rejecting a second
+// concurrent caller, ErrAlreadyShutdown) might exit before any ctx
+// signal lands. ListenAndServe's deferred Close covers that gap so
+// the bound port never outlives the call.
 func (e *Exporter) ListenAndServe(ctx context.Context, addr string) error {
 	listener, err := e.transport.Listen(ctx, addr, e.cfg.transportOptions)
 	if err != nil {
 		return fmt.Errorf("usbip.Exporter.ListenAndServe: %w", err)
 	}
+
+	defer func() { _ = listener.Close() }()
 
 	return translateInternalErr(e.inner.Serve(ctx, listener))
 }

@@ -93,3 +93,67 @@ func TestExporterListenAndServeReturnsListenErrorVerbatim(t *testing.T) {
 	err := exp.ListenAndServe(t.Context(), "127.0.0.1:0")
 	require.ErrorIs(t, err, errStubListenSentinel)
 }
+
+// closeRecordingListener wraps a net.Listener and records the number
+// of Close calls it observes. The wrap is identity for Accept/Addr; a
+// counter exposes whether ListenAndServe closed the listener on its
+// way out, which is the contract being asserted by
+// TestExporterListenAndServeClosesListenerOnServeReturn below.
+type closeRecordingListener struct {
+	net.Listener
+
+	closes int
+}
+
+// Close increments the counter and forwards to the wrapped listener.
+func (l *closeRecordingListener) Close() error {
+	l.closes++
+
+	return l.Listener.Close() //nolint:wrapcheck // test fixture: pass-through
+}
+
+// TestExporterListenAndServeClosesListenerOnServeReturn locks in the
+// no-listener-leak invariant: when Serve returns (whether on ctx
+// cancellation, a startServing rejection, or a permanent listener
+// error), the listener that ListenAndServe bound must be closed
+// before the call returns. The transport adapter's ctxListener
+// closes on ctx cancellation, but a Serve early-return path might
+// exit before any ctx signal lands; ListenAndServe must close the
+// listener itself in that window.
+func TestExporterListenAndServeClosesListenerOnServeReturn(t *testing.T) {
+	t.Parallel()
+
+	s := newInternalExporterForTest(t)
+
+	var lc net.ListenConfig
+
+	loopback, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	wrapped := &closeRecordingListener{Listener: loopback}
+
+	s.trans.listenFn = func(
+		_ context.Context,
+		_ string,
+		_ internalapp.TransportOptions,
+	) (net.Listener, error) {
+		return wrapped, nil
+	}
+
+	exp := usbip.NewExporterFromInternalForTestWithTransportOptions(
+		s.inner, s.trans,
+		netopts.TransportOptions{},
+	)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	// Serve returns nil on graceful ctx cancellation (the daemon-style
+	// shutdown path) and a wrapped error on permanent listener
+	// failure. Either way, ListenAndServe must close the listener; the
+	// test asserts the close count, not the error shape.
+	_ = exp.ListenAndServe(ctx, "127.0.0.1:0")
+
+	require.GreaterOrEqual(t, wrapped.closes, 1,
+		"ListenAndServe must close the listener on Serve return")
+}
