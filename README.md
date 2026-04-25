@@ -19,6 +19,48 @@ artefacts from a single code base:
 No cgo, no dependencies on `usbip-utils`. Upstream wire compatibility
 is pinned by conformance tests against real captures.
 
+## How this compares to upstream `usbip-utils`
+
+The upstream reference is the C client/daemon shipped under
+`linux/tools/usb/usbip` (built and packaged as `usbip` /
+`usbipd` / `libusbip`). usbip-go re-uses the same wire format and
+the same kernel sysfs interface, so it interoperates with upstream
+peers in either direction. What differs is the userspace surface
+around the protocol:
+
+| Capability                                           | upstream `usbip-utils`     | usbip-go                                          |
+| ---------------------------------------------------- | -------------------------- | ------------------------------------------------- |
+| Wire-compatible with `usbip-utils` peers             | :white_check_mark:         | :white_check_mark:                                |
+| Uses kernel `vhci_hcd` / `usbip_host` / `usbip_vudc` | :white_check_mark:         | :white_check_mark:                                |
+| Pure Go, no cgo                                      | :x:                        | :white_check_mark:                                |
+| Cross-compile to all Linux arches in one command     | :x:                        | :white_check_mark: (`GOOS`/`GOARCH`)              |
+| Embeddable as a library (`pkg/usbip`)                | :x:                        | :white_check_mark:                                |
+| Auto-reconnect on detach                             | :x:                        | :white_check_mark: (exponential backoff + jitter) |
+| Structured logging (`slog` JSON / text)              | :x:                        | :white_check_mark:                                |
+| Prometheus metrics on importer + exporter            | :x:                        | :white_check_mark:                                |
+| Event subscription API (port / session / reconnect)  | :x:                        | :white_check_mark:                                |
+| systemd socket activation                            | :x:                        | :white_check_mark: (`usbipd-go.socket`)           |
+| Status UDS for live introspection                    | :x:                        | :white_check_mark:                                |
+| JSON output mode with versioned schema               | :x:                        | :white_check_mark:                                |
+| Allow-list CIDR / rate-limit / session caps          | :x:                        | :white_check_mark:                                |
+| TCP_NODELAY on dialed connections                    | :white_check_mark:         | :white_check_mark:                                |
+| Tunable TCP keepalive / SO_SNDBUF / SO_RCVBUF        | :x:                        | :hourglass_flowing_sand: ([plan][1])              |
+| WAN / satellite reconnect presets                    | :x:                        | :hourglass_flowing_sand: ([plan][1])              |
+| Conformance tests against real wire captures         | :x:                        | :white_check_mark:                                |
+| Fuzz targets on the wire codec                       | :x:                        | :white_check_mark:                                |
+| Mutation testing on protocol-critical packages       | :x:                        | :white_check_mark:                                |
+| Coverage gate (90 %+ for pure-logic packages)        | :x:                        | :white_check_mark:                                |
+| SBOM + cosign keyless signed releases                | :x:                        | :white_check_mark:                                |
+| OpenSSF Scorecard / Best Practices                   | :x:                        | :white_check_mark:                                |
+| TLS or authentication on the wire                    | :x:                        | :x: (out of scope — tunnel via WG/SSH/Tailscale)  |
+
+[1]: ./docs/high-latency-plan.md
+
+`:hourglass_flowing_sand:` marks work scoped for v1.x and tracked in
+[`docs/high-latency-plan.md`](docs/high-latency-plan.md). The
+underlying invariant — wire-compatible with upstream — does not
+change.
+
 ## Security posture
 
 > **USB/IP is a plaintext, unauthenticated protocol.**
