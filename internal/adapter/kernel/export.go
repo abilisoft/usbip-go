@@ -53,4 +53,3 @@ func (a *ExporterAdapter) Disconnect(ctx context.Context, busID domain.BusID) er
 		UsbipSockfdDisconnect,
 	)
 }
-

@@ -70,10 +70,10 @@ func TestImporterAttachConcurrentSameEndpoint(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, imp.Close()) })
 
 	var (
-		wg         sync.WaitGroup
-		results    = make([]error, 2)
-		resultsMu  sync.Mutex
-		ports      [2]domain.Port
+		wg        sync.WaitGroup
+		results   = make([]error, 2)
+		resultsMu sync.Mutex
+		ports     [2]domain.Port
 	)
 
 	start := make(chan struct{})

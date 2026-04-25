@@ -728,4 +728,3 @@ func (e *Exporter) unregisterSession(id domain.SessionID) {
 	// path.
 	e.metrics.ExporterSessionsActive(n)
 }
-

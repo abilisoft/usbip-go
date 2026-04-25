@@ -90,8 +90,8 @@ func TestExporterBindUnbindForwards(t *testing.T) {
 	s := newInternalExporterForTest(t)
 
 	var (
-		boundBus    domain.BusID
-		unboundBus  domain.BusID
+		boundBus   domain.BusID
+		unboundBus domain.BusID
 	)
 
 	s.kernel.bindFn = func(_ context.Context, busID domain.BusID) error {

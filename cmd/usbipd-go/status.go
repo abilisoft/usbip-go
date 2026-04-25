@@ -55,15 +55,15 @@ type listeningState struct {
 // failed when bound_devices would otherwise be an empty slice (RANK
 // 12). The field is omitempty so the happy-path JSON stays unchanged.
 type statusResponse struct {
-	Schema             string                       `json:"schema"`
-	Version            string                       `json:"version"`
-	Commit             string                       `json:"commit"`
-	UptimeSec          int64                        `json:"uptime_sec"`
-	Listening          listeningState               `json:"listening"`
-	BoundDevices       []boundDeviceJSON            `json:"bound_devices"`
-	BoundDevicesError  string                       `json:"bound_devices_error,omitempty"`
-	Sessions           []sessionJSON                `json:"sessions"`
-	KernelModules      map[string]usbip.ModuleState `json:"kernel_modules"`
+	Schema            string                       `json:"schema"`
+	Version           string                       `json:"version"`
+	Commit            string                       `json:"commit"`
+	UptimeSec         int64                        `json:"uptime_sec"`
+	Listening         listeningState               `json:"listening"`
+	BoundDevices      []boundDeviceJSON            `json:"bound_devices"`
+	BoundDevicesError string                       `json:"bound_devices_error,omitempty"`
+	Sessions          []sessionJSON                `json:"sessions"`
+	KernelModules     map[string]usbip.ModuleState `json:"kernel_modules"`
 }
 
 // boundDeviceJSON is the schema-v1 shape for a bound device row.
