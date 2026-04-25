@@ -258,6 +258,25 @@ jobs:
         with:
           config: ./.testcoverage.yaml
           profile: ./build/coverage/coverage.out
+      - name: Upload coverage to Codecov
+        # Codecov ingests the Go coverage profile and renders the
+        # percentage on the README badge. Per-PR diff comments are
+        # NOT installed by this action alone; they require the
+        # Codecov GitHub App to be installed on the abilisoft org
+        # (one-time, https://github.com/apps/codecov). The badge
+        # works regardless.
+        #
+        # `use_oidc: true` opts into Codecov's GitHub-OIDC keyless
+        # path so no CODECOV_TOKEN secret is needed for public
+        # repos; the action exchanges the runner's id-token for a
+        # short-lived Codecov upload credential. Private-repo
+        # support would require setting CODECOV_TOKEN.
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
+        with:
+          files: ./build/coverage/coverage.out
+          use_oidc: true
+          fail_ci_if_error: false
+          verbose: false
 
   cross-compile:
     name: Cross-compile (Compliance Gate 12)
