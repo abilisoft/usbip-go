@@ -87,12 +87,16 @@ jobs:
       # contents:write so the generator can upload <artifact>.intoto.jsonl
       # back onto the GitHub Release that the goreleaser job created.
       contents: write
-    # Reusable-workflow pin per .github/dependabot.yml policy: SHA pin
-    # with version comment. Bumping the version is a single dependabot
-    # PR. The generic builder is the right entry point for goreleaser
-    # output (multi-artifact, base64 hash list); the go-specific
-    # builder would re-run the build itself and bypass goreleaser.
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.1.0
+    # The SLSA generic generator MUST be referenced by tag (not SHA):
+    # slsa-github-generator's SECURITY.md is explicit that slsa-verifier
+    # fails validation when the call site uses a commit SHA, because
+    # the trusted-builder identity baked into the provenance certificate
+    # is the tag-form ref. Dependabot still picks up version bumps via
+    # the github-actions ecosystem since the @<tag> shape is supported.
+    # Generic builder is the right entry point for goreleaser output
+    # (multi-artifact, base64 hash list); the go-specific builder would
+    # re-run the build itself and bypass goreleaser.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       base64-subjects: ${{ needs.release.outputs.hashes }}
       # upload-assets attaches the *.intoto.jsonl provenance bundle
