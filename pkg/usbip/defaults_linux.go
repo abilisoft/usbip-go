@@ -34,6 +34,15 @@ func newDefaultImporter(opts []ImporterOption) (*Importer, error) {
 		opt(&cfg)
 	}
 
+	// Validate transport options on the public side so a misconfigured
+	// caller surfaces ErrTransportOptionsInvalid as a returned error
+	// (NewImporter is fallible) instead of the internal panic the
+	// internalapp.NewImporter contract emits on the same input.
+	transportErr := internalapp.ValidateTransportOptions(cfg.transportOptions)
+	if transportErr != nil {
+		return nil, fmt.Errorf("usbip.NewImporter: %w", transportErr)
+	}
+
 	k, err := kernel.NewImporterAdapter()
 	if err != nil {
 		return nil, fmt.Errorf("build importer kernel adapter: %w", err)
@@ -80,6 +89,15 @@ func newDefaultExporter(opts []ExporterOption) (*Exporter, error) {
 		}
 
 		opt(&cfg)
+	}
+
+	// Validate transport options on the public side so a misconfigured
+	// caller sees ErrTransportOptionsInvalid as a returned error,
+	// alongside the existing ACL-validation path that
+	// NewExporterWithError already handles.
+	transportErr := internalapp.ValidateTransportOptions(cfg.transportOptions)
+	if transportErr != nil {
+		return nil, fmt.Errorf("usbip.NewExporter: %w", transportErr)
 	}
 
 	k, err := kernel.NewExporterAdapter()

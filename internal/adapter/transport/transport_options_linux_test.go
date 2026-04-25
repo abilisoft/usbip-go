@@ -67,6 +67,7 @@ func TestDialAppliesSocketBuffersLinux(t *testing.T) {
 	t.Parallel()
 
 	ln, ep := loopbackListener(t)
+
 	defer func() { _ = ln.Close() }()
 
 	accepted := acceptOnce(ln)
@@ -106,6 +107,7 @@ func TestDialAppliesKeepAliveConfigLinux(t *testing.T) {
 	t.Parallel()
 
 	ln, ep := loopbackListener(t)
+
 	defer func() { _ = ln.Close() }()
 
 	accepted := acceptOnce(ln)

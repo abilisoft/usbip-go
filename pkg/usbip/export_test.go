@@ -85,6 +85,13 @@ func (c ImporterConfigForTest) StatusPollIntervalForTest() time.Duration {
 	return c.inner.statusPollInterval
 }
 
+// TransportOptions returns the stored TransportOptions snapshot.
+// Tests use this to prove WithImporterTransportOptions stores its
+// argument verbatim onto the public config.
+func (c ImporterConfigForTest) TransportOptions() TransportOptions {
+	return c.inner.transportOptions
+}
+
 // ExporterConfigForTest is the test-only view of exporterConfig.
 type ExporterConfigForTest struct {
 	inner exporterConfig
@@ -154,4 +161,11 @@ func (c ExporterConfigForTest) BuildInfoForTest() ExporterBuildInfoForTest {
 		Commit:    c.inner.buildInfo.commit,
 		GoVersion: c.inner.buildInfo.goVersion,
 	}
+}
+
+// TransportOptions returns the stored TransportOptions snapshot.
+// Tests use this to prove WithExporterTransportOptions stores its
+// argument verbatim onto the public config.
+func (c ExporterConfigForTest) TransportOptions() TransportOptions {
+	return c.inner.transportOptions
 }

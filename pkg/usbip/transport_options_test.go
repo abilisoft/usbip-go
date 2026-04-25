@@ -4,7 +4,6 @@
 package usbip_test
 
 import (
-	"errors"
 	"testing"
 	"time"
 
@@ -23,17 +22,23 @@ import (
 func TestTransportOptionsTypeIsNetoptsAlias(t *testing.T) {
 	t.Parallel()
 
-	var pub usbip.TransportOptions
+	pub := usbip.TransportOptions{
+		DialConnectTimeout: 7 * time.Second,
+		TCPKeepAliveProbes: 6,
+	}
 
-	pub.DialConnectTimeout = 7 * time.Second
-	pub.TCPKeepAliveProbes = 6
+	// `take` accepts netopts.TransportOptions only. If pub were a
+	// defined-type clone of netopts.TransportOptions instead of a Go
+	// alias, this call would fail to compile. The compile-time check
+	// is the actual contract assertion; the equality assertions below
+	// confirm field-level integrity.
+	take := func(opts netopts.TransportOptions) (time.Duration, int) {
+		return opts.DialConnectTimeout, opts.TCPKeepAliveProbes
+	}
 
-	// If TransportOptions is a defined-type clone instead of an alias,
-	// this assignment fails to compile.
-	var asNetopts netopts.TransportOptions = pub
-
-	require.Equal(t, 7*time.Second, asNetopts.DialConnectTimeout)
-	require.Equal(t, 6, asNetopts.TCPKeepAliveProbes)
+	idle, probes := take(pub)
+	require.Equal(t, 7*time.Second, idle)
+	require.Equal(t, 6, probes)
 }
 
 // TestWithImporterTransportOptionsRoundTripsToInternal asserts the
@@ -86,9 +91,7 @@ func TestNewImporterRejectsNegativeTransportOptions(t *testing.T) {
 		TCPKeepAliveProbes: -1,
 	}))
 	require.Error(t, err)
-	require.True(t,
-		errors.Is(err, internalapp.ErrTransportOptionsInvalid),
-		"want errors.Is(%v, internalapp.ErrTransportOptionsInvalid)", err)
+	require.ErrorIs(t, err, internalapp.ErrTransportOptionsInvalid)
 }
 
 // TestNewExporterRejectsNegativeTransportOptions mirrors the importer
@@ -100,7 +103,5 @@ func TestNewExporterRejectsNegativeTransportOptions(t *testing.T) {
 		SendBufferBytes: -1,
 	}))
 	require.Error(t, err)
-	require.True(t,
-		errors.Is(err, internalapp.ErrTransportOptionsInvalid),
-		"want errors.Is(%v, internalapp.ErrTransportOptionsInvalid)", err)
+	require.ErrorIs(t, err, internalapp.ErrTransportOptionsInvalid)
 }
