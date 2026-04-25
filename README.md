@@ -104,6 +104,47 @@ GoReleaser archive names follow
 the architecture that matches your host (`amd64`, `arm64`, or
 `armv7`).
 
+### Verifying a release
+
+Every release ships a SLSA Build Provenance bundle
+(`multiple.intoto.jsonl`) and a cosign keyless signature on
+`checksums.txt`. Verify both before installing:
+
+```
+VERSION=1.0.0
+ARCHIVE=usbip-go_${VERSION}_linux_amd64.tar.gz
+BASE=https://github.com/abilisoft/usbip-go/releases/download/v${VERSION}
+
+curl -LO "${BASE}/${ARCHIVE}"
+curl -LO "${BASE}/checksums.txt"
+curl -LO "${BASE}/checksums.txt.sig"
+curl -LO "${BASE}/checksums.txt.pem"
+curl -LO "${BASE}/multiple.intoto.jsonl"
+
+# 1. Provenance: prove the artifact came out of the abilisoft/usbip-go
+#    GitHub Actions release workflow at the matching tag.
+slsa-verifier verify-artifact "${ARCHIVE}" \
+  --provenance-path multiple.intoto.jsonl \
+  --source-uri github.com/abilisoft/usbip-go \
+  --source-tag "v${VERSION}"
+
+# 2. Checksum signature: prove checksums.txt was signed by a Sigstore
+#    keyless cert that chains to the same workflow's OIDC identity.
+cosign verify-blob \
+  --certificate checksums.txt.pem \
+  --signature checksums.txt.sig \
+  --certificate-identity-regexp 'https://github\.com/abilisoft/usbip-go/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+
+# 3. Per-binary integrity: confirm the archive's sha256 is in checksums.txt.
+sha256sum -c --ignore-missing checksums.txt
+```
+
+Install [`slsa-verifier`](https://github.com/slsa-framework/slsa-verifier#installation)
+and [`cosign`](https://docs.sigstore.dev/cosign/system_config/installation/)
+once; both are statically linked single binaries.
+
 ### Systemd
 
 The release archive and packages both include systemd units. Drop
