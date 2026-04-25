@@ -47,12 +47,11 @@ around the protocol:
 | JSON output mode with versioned schema                         | :x:                    | :white_check_mark:                                |
 | Allow-list CIDR / rate-limit / session caps                    | :x:                    | :white_check_mark:                                |
 | TCP_NODELAY on dialed connections                              | :white_check_mark:     | :white_check_mark:                                |
-| Configurable connect timeout                                   | :x:                    | :hourglass_flowing_sand: ([plan][1])              |
-| Tunable TCP keepalive (idle / interval / probes)               | :x:                    | :hourglass_flowing_sand: ([plan][1])              |
-| Tunable `SO_SNDBUF` / `SO_RCVBUF` for WAN bandwidth-delay      | :x:                    | :hourglass_flowing_sand: ([plan][1])              |
-| Static read / write deadlines per Importer/Exporter            | :x:                    | :hourglass_flowing_sand: ([plan][1])              |
-| Tolerance for high-latency / lossy links (50–800 ms RTT)       | :x:                    | :hourglass_flowing_sand: ([plan][1])              |
-| WAN / satellite backoff constructors                           | :x:                    | :hourglass_flowing_sand: ([plan][1])              |
+| Configurable connect timeout                                   | :x:                    | :white_check_mark:                                |
+| Tunable TCP keepalive (idle / interval / probes)               | :x:                    | :white_check_mark:                                |
+| Tunable `SO_SNDBUF` / `SO_RCVBUF` for WAN bandwidth-delay      | :x:                    | :white_check_mark:                                |
+| Static read / write deadlines per Importer/Exporter            | :x:                    | :white_check_mark:                                |
+| Tolerance for high-latency / lossy links (50–800 ms RTT)       | :x:                    | :white_check_mark:                                |
 | Reproducible builds (`-trimpath`, no cgo)                      | :x:                    | :white_check_mark:                                |
 | Static analysis (CodeQL, `govulncheck`, `golangci-lint`)       | :x:                    | :white_check_mark:                                |
 | Conformance tests against real wire captures                   | :x:                    | :white_check_mark:                                |
@@ -60,15 +59,12 @@ around the protocol:
 | Mutation testing on protocol-critical packages                 | :x:                    | :white_check_mark:                                |
 | Coverage gate (90%+ for pure-logic packages)                   | :x:                    | :white_check_mark:                                |
 | SBOM + cosign keyless signed releases                          | :x:                    | :white_check_mark:                                |
+| SLSA Build Provenance on every release                         | :x:                    | :white_check_mark:                                |
 | OpenSSF Scorecard / Best Practices                             | :x:                    | :white_check_mark:                                |
 | TLS or authentication on the wire                              | :x:                    | :x: (out of scope — tunnel via WG/SSH/Tailscale)  |
 
-[1]: ./docs/high-latency-plan.md
-
-`:hourglass_flowing_sand:` marks work scoped for v1.x and tracked in
-[`docs/high-latency-plan.md`](docs/high-latency-plan.md). The
-underlying invariant — wire-compatible with upstream — does not
-change.
+The underlying invariant — wire-compatible with upstream — does not
+change as new features land.
 
 ## Security posture
 
