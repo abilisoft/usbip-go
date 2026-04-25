@@ -30,38 +30,38 @@ around the protocol:
 
 | Capability                                                     | upstream `usbip-utils` | usbip-go                                          |
 | -------------------------------------------------------------- | ---------------------- | ------------------------------------------------- |
-| Wire-compatible with `usbip-utils` peers                       | :white_check_mark:     | :white_check_mark:                                |
-| Uses kernel `vhci_hcd` / `usbip_host` / `usbip_vudc`           | :white_check_mark:     | :white_check_mark:                                |
-| Pure Go, no cgo                                                | :x:                    | :white_check_mark:                                |
-| Cross-compile to all Linux arches in one command               | :x:                    | :white_check_mark: (`GOOS`/`GOARCH`)              |
-| Embeddable as a library (`pkg/usbip`)                          | :x:                    | :white_check_mark:                                |
-| Auto-reconnect on detach                                       | :x:                    | :white_check_mark: (exponential backoff + jitter) |
-| Concurrent-Attach deduplication (per `(remote, busid)`)        | :x:                    | :white_check_mark:                                |
-| Per-attach `MaxAttempts` / `OnReconnect` callback              | :x:                    | :white_check_mark:                                |
-| Graceful drain + bounded `ShutdownTimeout`                     | :x:                    | :white_check_mark:                                |
-| Structured logging (`slog` JSON / text)                        | :x:                    | :white_check_mark:                                |
-| Prometheus metrics on importer + exporter                      | :x:                    | :white_check_mark:                                |
-| Event subscription API (port / session / reconnect)            | :x:                    | :white_check_mark:                                |
-| systemd socket activation                                      | :x:                    | :white_check_mark: (`usbipd-go.socket`)           |
-| Status UDS for live introspection                              | :x:                    | :white_check_mark:                                |
-| JSON output mode with versioned schema                         | :x:                    | :white_check_mark:                                |
-| Allow-list CIDR / rate-limit / session caps                    | :x:                    | :white_check_mark:                                |
-| TCP_NODELAY on dialed connections                              | :white_check_mark:     | :white_check_mark:                                |
-| Configurable connect timeout                                   | :x:                    | :white_check_mark:                                |
-| Tunable TCP keepalive (idle / interval / probes)               | :x:                    | :white_check_mark:                                |
-| Tunable `SO_SNDBUF` / `SO_RCVBUF` for WAN bandwidth-delay      | :x:                    | :white_check_mark:                                |
-| Static read / write deadlines per Importer/Exporter            | :x:                    | :white_check_mark:                                |
-| Tolerance for high-latency / lossy links (50–800 ms RTT)       | :x:                    | :white_check_mark:                                |
-| Reproducible builds (`-trimpath`, no cgo)                      | :x:                    | :white_check_mark:                                |
-| Static analysis (CodeQL, `govulncheck`, `golangci-lint`)       | :x:                    | :white_check_mark:                                |
-| Conformance tests against real wire captures                   | :x:                    | :white_check_mark:                                |
-| Fuzz targets on the wire codec                                 | :x:                    | :white_check_mark:                                |
-| Mutation testing on protocol-critical packages                 | :x:                    | :white_check_mark:                                |
-| Coverage gate (90%+ for pure-logic packages)                   | :x:                    | :white_check_mark:                                |
-| SBOM + cosign keyless signed releases                          | :x:                    | :white_check_mark:                                |
-| SLSA Build Provenance on every release                         | :x:                    | :white_check_mark:                                |
-| OpenSSF Scorecard / Best Practices                             | :x:                    | :white_check_mark:                                |
-| TLS or authentication on the wire                              | :x:                    | :x: (out of scope — tunnel via WG/SSH/Tailscale)  |
+| Wire-compatible with `usbip-utils` peers                       | ✅     | ✅                                |
+| Uses kernel `vhci_hcd` / `usbip_host` / `usbip_vudc`           | ✅     | ✅                                |
+| Pure Go, no cgo                                                | ❌                    | ✅                                |
+| Cross-compile to all Linux arches in one command               | ❌                    | ✅ (`GOOS`/`GOARCH`)              |
+| Embeddable as a library (`pkg/usbip`)                          | ❌                    | ✅                                |
+| Auto-reconnect on detach                                       | ❌                    | ✅ (exponential backoff + jitter) |
+| Concurrent-Attach deduplication (per `(remote, busid)`)        | ❌                    | ✅                                |
+| Per-attach `MaxAttempts` / `OnReconnect` callback              | ❌                    | ✅                                |
+| Graceful drain + bounded `ShutdownTimeout`                     | ❌                    | ✅                                |
+| Structured logging (`slog` JSON / text)                        | ❌                    | ✅                                |
+| Prometheus metrics on importer + exporter                      | ❌                    | ✅                                |
+| Event subscription API (port / session / reconnect)            | ❌                    | ✅                                |
+| systemd socket activation                                      | ❌                    | ✅ (`usbipd-go.socket`)           |
+| Status UDS for live introspection                              | ❌                    | ✅                                |
+| JSON output mode with versioned schema                         | ❌                    | ✅                                |
+| Allow-list CIDR / rate-limit / session caps                    | ❌                    | ✅                                |
+| TCP_NODELAY on dialed connections                              | ✅     | ✅                                |
+| Configurable connect timeout                                   | ❌                    | ✅                                |
+| Tunable TCP keepalive (idle / interval / probes)               | ❌                    | ✅                                |
+| Tunable `SO_SNDBUF` / `SO_RCVBUF` for WAN bandwidth-delay      | ❌                    | ✅                                |
+| Static read / write deadlines per Importer/Exporter            | ❌                    | ✅                                |
+| Tolerance for high-latency / lossy links (50–800 ms RTT)       | ❌                    | ✅                                |
+| Reproducible builds (`-trimpath`, no cgo)                      | ❌                    | ✅                                |
+| Static analysis (CodeQL, `govulncheck`, `golangci-lint`)       | ❌                    | ✅                                |
+| Conformance tests against real wire captures                   | ❌                    | ✅                                |
+| Fuzz targets on the wire codec                                 | ❌                    | ✅                                |
+| Mutation testing on protocol-critical packages                 | ❌                    | ✅                                |
+| Coverage gate (90%+ for pure-logic packages)                   | ❌                    | ✅                                |
+| SBOM + cosign keyless signed releases                          | ❌                    | ✅                                |
+| SLSA Build Provenance on every release                         | ❌                    | ✅                                |
+| OpenSSF Scorecard / Best Practices                             | ❌                    | ✅                                |
+| TLS or authentication on the wire                              | ❌                    | ❌ (out of scope — tunnel via WG/SSH/Tailscale)  |
 
 The underlying invariant — wire-compatible with upstream — does not
 change as new features land.
