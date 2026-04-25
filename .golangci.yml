@@ -108,6 +108,12 @@ linters:
         # error-wrapping already performed inside internal/app. The
         # errors.Is chain relies on identity; this file must NOT wrap.
         linters: [wrapcheck]
+      - path: internal/app/transport_options\.go
+        # ValidateTransportOptions is a 1:1 re-export of netopts.Validate.
+        # netopts.Validate already wraps ErrTransportOptionsInvalid; an
+        # additional fmt.Errorf here would obscure the offending field
+        # name without adding new context.
+        linters: [wrapcheck]
       - path: _test\.go
         # Test files are exempt from complexity and magic-number linters
         # because table-driven tests with 10+ cases hit gocyclo / mnd

@@ -6,6 +6,7 @@ package app
 import (
 	"errors"
 
+	"github.com/abilisoft/usbip-go/internal/netopts"
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
@@ -86,4 +87,12 @@ var (
 	// point rather than a misleading "giving up after max attempts"
 	// log later.
 	ErrAttachOptionsInvalid = errors.New("attach options invalid")
+
 )
+
+// ErrTransportOptionsInvalid is the sentinel for TransportOptions
+// validation failures. Re-exported from internal/netopts so callers
+// can match either app.ErrTransportOptionsInvalid (the surface they
+// reach via WithImporterTransportOptions) or netopts.ErrTransportOptionsInvalid
+// (the layer that owns the type) — errors.Is collapses them.
+var ErrTransportOptionsInvalid = netopts.ErrTransportOptionsInvalid

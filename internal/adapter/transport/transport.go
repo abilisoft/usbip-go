@@ -12,6 +12,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/abilisoft/usbip-go/internal/netopts"
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
@@ -69,7 +70,16 @@ func New(opts ...Option) *NetTransport {
 // would otherwise try to connect to port 0 which is a kernel-reserved
 // sentinel. TCP_NODELAY is set on the returned connection so the
 // USB/IP handshake's small frames are not Nagle-delayed.
-func (t *NetTransport) Dial(ctx context.Context, r domain.RemoteEndpoint) (net.Conn, error) {
+//
+// PR 1a: opts is accepted as part of the app.Transport contract but
+// ignored; existing TCP_NODELAY behavior is preserved bit-for-bit.
+// PR 1b will honor non-zero opts (DialConnectTimeout, keepalive,
+// SO_SNDBUF/SO_RCVBUF, deadlines) per docs/high-latency-plan.md.
+func (t *NetTransport) Dial(
+	ctx context.Context,
+	r domain.RemoteEndpoint,
+	_ netopts.TransportOptions,
+) (net.Conn, error) {
 	addr := r.NormalizePort().String()
 
 	conn, err := t.dialer.DialContext(ctx, "tcp", addr)
@@ -136,7 +146,15 @@ func isSockoptFatal(err error) bool {
 // context without having to track the listener separately. The
 // returned Listener's own Close is idempotent and waits for the
 // watcher goroutine to exit, so callers cannot leak it.
-func (t *NetTransport) Listen(ctx context.Context, addr string) (net.Listener, error) {
+//
+// PR 1a: opts is accepted as part of the app.Transport contract but
+// ignored. PR 1b will tune accepted connections (TCP_NODELAY,
+// keepalive, buffers) per opts.
+func (t *NetTransport) Listen(
+	ctx context.Context,
+	addr string,
+	_ netopts.TransportOptions,
+) (net.Listener, error) {
 	ctxErr := ctx.Err()
 	if ctxErr != nil {
 		return nil, fmt.Errorf("listen %s: context cancelled before bind: %w", addr, ctxErr)

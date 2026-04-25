@@ -103,6 +103,9 @@ func TestImporterAttachPassesImporterTransportOptions(t *testing.T) {
 		DialConnectTimeout: 3 * time.Second,
 		WriteDeadline:      4 * time.Second,
 	}
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+	}
 	transport := &TransportMock{
 		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
 			return nil, errStubDial
@@ -110,6 +113,7 @@ func TestImporterAttachPassesImporterTransportOptions(t *testing.T) {
 	}
 
 	imp := newImporterForTest(t,
+		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport),
 		app.WithImporterTransportOptions(want),
 	)
@@ -152,8 +156,10 @@ func TestImporterTransportOptionsZeroValuePreservesDialCall(t *testing.T) {
 func TestNewImporterPanicsOnInvalidTransportOptions(t *testing.T) {
 	t.Parallel()
 
-	require.PanicsWithError(t,
-		"app.NewImporter: TransportOptions invalid: app: TransportOptions invalid: TCPKeepAliveProbes must not be negative",
+	const wantPanic = "app.NewImporter: TransportOptions invalid: " +
+		"netopts: TransportOptions invalid: TCPKeepAliveProbes must not be negative"
+
+	require.PanicsWithError(t, wantPanic,
 		func() {
 			app.NewImporter(
 				app.WithImporterKernel(&ImporterKernelMock{}),
