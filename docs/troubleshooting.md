@@ -7,7 +7,7 @@ for anything the tree doesn't cover.
 ## Decision tree: "my device won't attach"
 
 ```
-START: usbip attach HOST BUSID fails.
+START: usbip-go attach HOST BUSID fails.
   |
   +-- Error text contains "kernel module missing"?
   |     |
@@ -35,16 +35,16 @@ START: usbip attach HOST BUSID fails.
   |     |
   |     +-- YES -> Is the device actually exported on the server?
   |     |          |
-  |     |          +-- On server: usbip list --local
-  |     |          +-- If listed but not bound: usbip bind BUSID
+  |     |          +-- On server: usbip-go list --local
+  |     |          +-- If listed but not bound: usbip-go bind BUSID
   |     |          +-- If not listed: device is not attached to the server host.
   |     |
   |     +-- NO  -> continue.
   |
   +-- Error text contains "no free port"?
   |     |
-  |     +-- YES -> usbip port  (check currently-attached ports)
-  |     |          Detach something: usbip detach <port_id>
+  |     +-- YES -> usbip-go port  (check currently-attached ports)
+  |     |          Detach something: usbip-go detach <port_id>
   |     |          Or boot with vhci-hcd num_ports=N for a larger table:
   |     |          echo 'options vhci-hcd num_ports=16' | sudo tee /etc/modprobe.d/vhci.conf
   |     |
@@ -71,7 +71,7 @@ START: usbip attach HOST BUSID fails.
   +-- Error text contains "already bound"?
   |     |
   |     +-- YES -> Server already exports the device to someone (possibly you, stale).
-  |     |          Server: usbip unbind BUSID; then retry attach.
+  |     |          Server: usbip-go unbind BUSID; then retry attach.
   |     |
   |     +-- NO  -> continue.
   |

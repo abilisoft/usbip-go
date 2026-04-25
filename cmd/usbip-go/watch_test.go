@@ -18,7 +18,7 @@ import (
 )
 
 // TestWatchEmitsJSONLines — the mocked Watch yields three events;
-// `usbip watch --output=json` emits three jsonlines each with
+// `usbip-go watch --output=json` emits three jsonlines each with
 // "schema":"v1" + "kind":"...".
 func TestWatchEmitsJSONLines(t *testing.T) {
 	t.Parallel()

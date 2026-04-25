@@ -256,7 +256,7 @@ func TestDrainSubcommandUDSDisappears(t *testing.T) {
 	})
 
 	// Close the server shortly after the first POST /drain so the
-	// polling client observes a dial failure → success per spec §7.7.
+	// polling client observes a dial failure → success per v1 contract §7.7.
 	go func() {
 		// Wait for at least one drain call.
 		for srv.drainCalls.Load() == 0 {

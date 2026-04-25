@@ -126,7 +126,7 @@ func defaultWriteFunc() WriteFunc {
 }
 
 // defaultNetlinkDialer is the production netlink-socket factory. The
-// real implementation lives in uevent.go (Task 4.10); the closure
+// real implementation lives in uevent.go; the closure
 // here adapts the concrete-typed openRealNetlinkSocket into the
 // interface-valued NetlinkDialer contract.
 func defaultNetlinkDialer() NetlinkDialer {

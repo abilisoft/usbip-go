@@ -6,7 +6,7 @@ protocol, and this library matches upstream `usbip-utils` behaviour.
 Nothing in this implementation makes the protocol safer than the
 network you run it on.
 
-The authoritative statements are in spec §11.5.1 and §11.5.2; this
+The authoritative statements are in v1 contract §11.5.1 and §11.5.2; this
 document is the consolidated operator reference.
 
 ## Threat model
@@ -34,7 +34,7 @@ The project does not wrap USB/IP in TLS. The upstream
 kernel/userspace ecosystem does not either; doing so unilaterally
 would break interop and create a false sense of security (the
 kernel-owned URB path after handoff would still be plaintext).
-See spec §2.2 — TLS is in the non-goal list.
+See v1 contract §2.2 — TLS is in the non-goal list.
 
 If you need confidentiality on the wire, tunnel the TCP connection
 itself: Wireguard, Tailscale, an SSH `-L` forward, or stunnel in
@@ -53,7 +53,7 @@ One or more entries switches the daemon into fail-closed ACL mode.
 Example:
 
 ```
-usbipd --allow-cidr 10.0.0.0/8 --allow-cidr 192.168.0.0/16
+usbipd-go --allow-cidr 10.0.0.0/8 --allow-cidr 192.168.0.0/16
 ```
 
 Rejected connections are counted on the

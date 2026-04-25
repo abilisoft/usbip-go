@@ -6,7 +6,7 @@
 // Package conformance hosts wire-level conformance tests for
 // usbip-go. Tests build with //go:build conformance_linux so they
 // compile on hosted CI without pulling in the integration suite's
-// kernel-module dependency. See spec §8.9 for the hosted-CI contract.
+// kernel-module dependency. See v1 contract §8.9 for the hosted-CI contract.
 package conformance
 
 import (

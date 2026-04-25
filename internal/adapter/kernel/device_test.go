@@ -131,7 +131,7 @@ func TestListLocalDevices_MultipleDevices(t *testing.T) {
 	require.True(t, busIDs["1-1.2"])
 }
 
-// TestListLocalDevices_ModuleMissingReturnsBoth asserts spec §3.4's
+// TestListLocalDevices_ModuleMissingReturnsBoth asserts v1 contract §3.4's
 // contract: when /sys/module/usbip_core is absent, both the nil slice
 // and ErrKernelModuleMissing are returned.
 func TestListLocalDevices_ModuleMissingReturnsBoth(t *testing.T) {

@@ -27,7 +27,7 @@ func DiscoverTopologyForTest(fsys fs.FS) (Topology, error) {
 // LoadTopologyForTest exposes the ImporterAdapter's loadTopology method
 // so an integration-shaped test can confirm a freshly-constructed
 // adapter surfaces the sysfs topology via its injected fs.FS without
-// any Task 2+ consumers wired yet.
+// any later attach-path consumers wired yet.
 func LoadTopologyForTest(a *ImporterAdapter) (Topology, error) {
 	return a.loadTopology()
 }
@@ -113,7 +113,7 @@ func FormatDetachPayloadForTest(portID domain.PortID) string {
 // AttachAtPortForTest exposes the unexported attachAtPort so tests
 // can drive the post-selection half of AttachRemote with an explicit
 // flat port — the synthetic "a bad port somehow reached attach"
-// scenario Task 4's bounds check guards against. Production
+// scenario the attach bounds check guards against. Production
 // AttachRemote always routes through findFreePort first; this helper
 // bypasses that step so the bounds-check contract can be pinned
 // without depending on findFreePort emitting an out-of-range value

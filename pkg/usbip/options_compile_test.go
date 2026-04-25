@@ -16,7 +16,7 @@ package usbip_test
 //
 // The identical behaviour holds for ExporterOption arguments passed to
 // NewImporter, and vice versa. The split Option types make role-mixing
-// a type error rather than a runtime failure (spec §5.7 rationale).
+// a type error rather than a runtime failure (v1 contract §5.7 rationale).
 //
 // func compileTimeRoleSafety() {
 // 	_, _ = usbip.NewImporter(usbip.WithExporterMaxSessions(1))

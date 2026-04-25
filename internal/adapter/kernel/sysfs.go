@@ -42,7 +42,7 @@ const (
 
 // writeSysfsFile opens path with O_WRONLY and writes data verbatim.
 // This is the production default injected as WriteFunc by
-// defaultWriteFunc(); Task 4.2's sysfs read primitives layer the errno
+// defaultWriteFunc(); the sysfs read primitives layer the errno
 // classification on top of this primitive for both read and write
 // paths.
 //

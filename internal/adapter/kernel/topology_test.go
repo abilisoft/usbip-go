@@ -473,7 +473,7 @@ func (c countingFS) Open(name string) (fs.File, error) {
 // calling loadTopology N times on the same adapter must read the
 // sysfs nports attribute once,
 // not N times. Re-reading on every call races a live kernel's topology
-// and, more importantly, makes Task 2+ consumers (attach/detach,
+// and, more importantly, makes + consumers (attach/detach,
 // status renumbering) pay a full sysfs walk for every port operation.
 func TestCommonAdapter_TopologyCached(t *testing.T) {
 	t.Parallel()
@@ -640,7 +640,7 @@ func TestCommonAdapter_TopologyRetriesAfterTransientFailure(t *testing.T) {
 }
 
 // TestImporterAdapter_LoadTopology confirms the importer adapter
-// exposes a cached topology post-construction. Task 2 and later consume
+// exposes a cached topology post-construction. and later consume
 // this cached value rather than re-reading sysfs on every call.
 func TestImporterAdapter_LoadTopology(t *testing.T) {
 	t.Parallel()

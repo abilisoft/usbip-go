@@ -40,7 +40,7 @@ func TestNewExporterDefaultsSucceeds(t *testing.T) {
 }
 
 // TestNewExporterAllowCIDRInvalidReturnsError proves bad CIDR strings
-// surface at construction time — not at Serve time, per spec §11.5.2.
+// surface at construction time — not at Serve time, per v1 contract §11.5.2.
 func TestNewExporterAllowCIDRInvalidReturnsError(t *testing.T) {
 	t.Parallel()
 

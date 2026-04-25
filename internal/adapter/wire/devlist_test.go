@@ -22,7 +22,7 @@ func TestEncodeOpReqDevlist(t *testing.T) {
 	require.Equal(t, want, got)
 }
 
-// TestDecodeOpRepDevlistZeroDevices is the spec §6.2 edge case:
+// TestDecodeOpRepDevlistZeroDevices is the v1 contract §6.2 edge case:
 // nDevices=0 is a valid response and returns (nil, false, nil).
 func TestDecodeOpRepDevlistZeroDevices(t *testing.T) {
 	t.Parallel()
@@ -113,7 +113,7 @@ func TestDecodeOpRepDevlistTwoDevicesWithInterfaces(t *testing.T) {
 	require.Equal(t, domain.USBProtocol(0x50), got[1].Interfaces[0].Protocol)
 }
 
-// TestDecodeOpRepDevlistTruncatedMidDevice: spec §6.2 — truncation
+// TestDecodeOpRepDevlistTruncatedMidDevice: v1 contract §6.2 — truncation
 // mid-device returns io.ErrUnexpectedEOF wrapped with
 // "truncated devlist at index N" where N is the successful-device count.
 func TestDecodeOpRepDevlistTruncatedMidDevice(t *testing.T) {

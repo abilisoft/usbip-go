@@ -30,8 +30,8 @@ const reconnectIntegrationDeadline = 15 * time.Second
 //     AutoReconnect=true.
 //  3. Force-close the Exporter; Serve exits.
 //  4. Start a REPLACEMENT Exporter on the same address.
-//  5. The watcher observes PortDetached via uevent (spec §5.5 item 1)
-//     OR ListPorts poll (spec §5.5 item 2), invokes Importer.Attach
+//  5. The watcher observes PortDetached via uevent (v1 contract §5.5 item 1)
+//     OR ListPorts poll (v1 contract §5.5 item 2), invokes Importer.Attach
 //     again, and returns a fresh port id.
 //  6. OnReconnect callback fires with the attempt number and prior
 //     error; the replacement port is asserted different from the

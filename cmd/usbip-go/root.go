@@ -31,7 +31,7 @@ const (
 	outputJSON  = "json"
 )
 
-// globalFlags bundles the shared top-level flags from spec §7.2. The
+// globalFlags bundles the shared top-level flags from v1 contract §7.2. The
 // struct is populated by cobra's flag bindings during ParseFlags; each
 // subcommand reads from the shared pointer stored on the root cobra
 // command via context.
@@ -51,7 +51,7 @@ type globalFlags struct {
 	// false (the default), second-arg completion for `usbip-go attach`
 	// returns an empty list to avoid silently dialing remotes during
 	// tab-completion. The USBIP_COMPLETE_NETWORK=1 env var is the
-	// equivalent opt-in (spec §7.6).
+	// equivalent opt-in (v1 contract §7.6).
 	CompleteNetwork bool
 }
 
@@ -75,7 +75,7 @@ func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "usbip-go",
 		Short: "USB/IP client",
-		Long: "usbip is the client for the USB/IP protocol: list, attach, " +
+		Long: "usbip-go is the client for the USB/IP protocol: list, attach, " +
 			"detach, bind, unbind, watch, and completion subcommands.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -112,7 +112,7 @@ func newRootCmd() *cobra.Command {
 	flags.BoolVar(&gf.CompleteNetwork, "complete-network", false,
 		"allow network-dialing shell completion (same as USBIP_COMPLETE_NETWORK=1)")
 
-	// Fixed-completion hints for enum flags (spec §7.6 static
+	// Fixed-completion hints for enum flags (v1 contract §7.6 static
 	// completion). These calls intentionally touch cobra's global
 	// flagCompletionFunctions map; because the production binary
 	// builds exactly one root command, the global state causes no

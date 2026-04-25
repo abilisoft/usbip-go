@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 AbiliSoft
 // SPDX-License-Identifier: Apache-2.0
 
-// Package main is the usbipd daemon entrypoint (spec §7.7).
+// Package main is the usbipd daemon entrypoint (v1 contract §7.7).
 package main
 
 import (
@@ -33,7 +33,7 @@ func mainBody() int {
 }
 
 // run is the testable entrypoint — no os.Exit, no signal wiring — used
-// by cmd/usbipd's unit tests. Production code goes through main which
+// by cmd/usbipd-go's unit tests. Production code goes through main which
 // wraps run with signal.NotifyContext + os.Exit.
 func run(args []string) (int, error) {
 	return runWithContext(context.Background(), args)

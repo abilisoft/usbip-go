@@ -49,7 +49,7 @@ type listeningState struct {
 
 // statusResponse is the typed JSON envelope served on GET /. Declared
 // as a concrete struct (not map[string]any) so the compiler guards the
-// schema-v1 contract against drift (spec §7.7).
+// schema-v1 contract against drift (v1 contract §7.7).
 //
 // BoundDevicesError carries the human-readable reason ListAvailable
 // failed when bound_devices would otherwise be an empty slice (RANK
@@ -100,7 +100,7 @@ const statusReadHeaderTimeout = 5 * time.Second
 
 // statusSocketMode is the permission mask applied to the UDS
 // immediately after net.Listen via os.Chmod while the sidecar flock is
-// still held. 0660 matches spec §7.7: the socket-group user can read
+// still held. 0660 matches v1 contract §7.7: the socket-group user can read
 // status without root. Written as a named constant so gosec G302's
 // "prefer 0600" default can be pointed at this declaration (intent is
 // explicit, not accidental).
@@ -317,7 +317,7 @@ func bindStatusSocket(ctx context.Context, path, group string) (net.Listener, er
 
 // applyStatusSocketACL chowns the UDS to the configured group.
 // Lookup / chown failures are logged via slog.Default but do NOT fail
-// startup (spec §7.7: chown is an ops-facing convenience, not a hard
+// startup (v1 contract §7.7: chown is an ops-facing convenience, not a hard
 // gate — a dev machine without a `usbip-go` group still boots). Mode is
 // set by bindStatusSocket's post-bind os.Chmod call, so this helper is
 // chown-only. Returns nothing: every failure path is best-effort.

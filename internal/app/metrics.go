@@ -10,7 +10,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Metric-label typed enums. The spec §11.5.5 catalog fixes the allowed
+// Metric-label typed enums. The v1 contract §11.5.5 catalog fixes the allowed
 // values for every label; call sites pass these constants so a typo
 // drops to a compile error instead of a silent unbounded-cardinality
 // label. The string-valued representation is intentional — prometheus
@@ -18,7 +18,7 @@ import (
 // allocation per metric call on the hot path.
 
 // SessionOutcome labels usbip_exporter_sessions_accepted_total. Closed
-// set per spec §11.5.5.
+// set per v1 contract §11.5.5.
 type SessionOutcome string
 
 // SessionOutcome values. Keeping the string constants grouped makes the
@@ -32,7 +32,7 @@ const (
 )
 
 // HandshakeOp labels usbip_exporter_handshake_duration_seconds. Closed
-// set per spec §11.5.5.
+// set per v1 contract §11.5.5.
 type HandshakeOp string
 
 // HandshakeOp values.
@@ -67,7 +67,7 @@ const (
 )
 
 // DisconnectReason labels usbip_exporter_disconnect_total. Closed set
-// per spec §11.5.5.
+// per v1 contract §11.5.5.
 type DisconnectReason string
 
 // DisconnectReason values.
@@ -79,7 +79,7 @@ const (
 )
 
 // AttachOutcome labels usbip_importer_attaches_total. Closed set per
-// spec §11.5.5.
+// v1 contract §11.5.5.
 type AttachOutcome string
 
 // AttachOutcome values.
@@ -93,7 +93,7 @@ const (
 )
 
 // DetachOutcome labels usbip_importer_detaches_total. Closed set per
-// spec §11.5.5.
+// v1 contract §11.5.5.
 type DetachOutcome string
 
 // DetachOutcome values.
@@ -104,7 +104,7 @@ const (
 )
 
 // ReconnectOutcome labels usbip_importer_reconnect_attempts_total.
-// Closed set per spec §11.5.5.
+// Closed set per v1 contract §11.5.5.
 type ReconnectOutcome string
 
 // ReconnectOutcome values.
@@ -117,7 +117,7 @@ const (
 
 // SysfsWritePath labels usbip_adapter_sysfs_write_failures_total{path}.
 // The value universe is the seven sysfs write targets the adapter
-// touches (spec §5.4) plus "other" for anything that doesn't match the
+// touches (v1 contract §5.4) plus "other" for anything that doesn't match the
 // whitelist. Clamping here keeps cardinality bounded regardless of
 // what raw path strings flow through the emission site.
 type SysfsWritePath string
@@ -137,7 +137,7 @@ const (
 // SysfsErrno labels usbip_adapter_sysfs_write_failures_total{errno}.
 // Values are the POSIX-named errnos the sysfs write path surfaces
 // (ENOENT / EACCES / EPERM / EBUSY / ENODEV / EIO) plus "other" for
-// anything else. Closed set per spec §11.5.5.
+// anything else. Closed set per v1 contract §11.5.5.
 type SysfsErrno string
 
 // SysfsErrno values.

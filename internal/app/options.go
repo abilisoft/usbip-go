@@ -71,13 +71,13 @@ func WithImporterMetrics(m *Metrics) ImporterOption {
 // options by passing them to NewExporter; options mutate an internal
 // config struct in declaration order so the last option wins for any
 // field. The split from ImporterOption (not a unified Option type) is
-// deliberate per spec §9.3: a unified type would let WithMaxSessions
+// deliberate per v1 contract §9.3: a unified type would let WithMaxSessions
 // compile against an Importer, which is a typed programming error.
 type ExporterOption func(*exporterConfig)
 
 // exporterConfig is the mutable bag of dependencies and limits that
 // option functions populate. Exposed to tests via option setters; never
-// returned from a public API. Resource-limit fields follow spec §11.5.3;
+// returned from a public API. Resource-limit fields follow v1 contract §11.5.3;
 // zero means "apply the documented default".
 type exporterConfig struct {
 	kernel    ExporterKernel
@@ -182,7 +182,7 @@ func WithExporterBuildInfo(version, commit, goVersion string) ExporterOption {
 }
 
 // WithExporterMaxSessions caps the total concurrent accepted sessions
-// (spec §11.5.3). Zero picks up the default; a negative value disables
+// (v1 contract §11.5.3). Zero picks up the default; a negative value disables
 // the cap entirely. Each accepted connection that would push the count
 // past the cap is closed by the handler before ExportOnConn runs, so
 // the kernel is never asked to attach past the cap.
@@ -191,14 +191,14 @@ func WithExporterMaxSessions(n int) ExporterOption {
 }
 
 // WithExporterMaxSessionsPerPeer caps the concurrent sessions per
-// source IP (spec §11.5.3). Zero picks up the default; a negative
+// source IP (v1 contract §11.5.3). Zero picks up the default; a negative
 // value disables the per-peer cap entirely.
 func WithExporterMaxSessionsPerPeer(n int) ExporterOption {
 	return func(c *exporterConfig) { c.maxSessionsPerPeer = n }
 }
 
 // WithExporterAcceptRateLimit caps new accepts at rps tokens per
-// second via a token bucket with the given burst size (spec §11.5.3).
+// second via a token bucket with the given burst size (v1 contract §11.5.3).
 // rps <= 0 disables rate limiting entirely; burst <= 0 picks up a
 // sane default.
 func WithExporterAcceptRateLimit(rps float64, burst int) ExporterOption {
@@ -209,13 +209,13 @@ func WithExporterAcceptRateLimit(rps float64, burst int) ExporterOption {
 }
 
 // WithExporterMaxHandshakeBytes caps bytes read during the handshake
-// phase (spec §11.5.3). Zero picks up the default.
+// phase (v1 contract §11.5.3). Zero picks up the default.
 func WithExporterMaxHandshakeBytes(n int) ExporterOption {
 	return func(c *exporterConfig) { c.maxHandshakeBytes = n }
 }
 
 // WithExporterHandshakeTimeout bounds how long the exporter will wait
-// for a client to complete its OP request (spec §11.5.3). Zero picks
+// for a client to complete its OP request (v1 contract §11.5.3). Zero picks
 // up the default; a negative value disables the timeout.
 func WithExporterHandshakeTimeout(d time.Duration) ExporterOption {
 	return func(c *exporterConfig) { c.handshakeTimeout = d }
@@ -231,7 +231,7 @@ func WithExporterShutdownTimeout(d time.Duration) ExporterOption {
 }
 
 // WithExporterACL appends CIDR strings to the accept-path allow-list
-// (spec §11.5.2). Multiple calls accumulate. An empty list means
+// (v1 contract §11.5.2). Multiple calls accumulate. An empty list means
 // "allow every peer" to match upstream usbip-utils behaviour; at
 // least one CIDR opts the exporter into fail-closed ACL enforcement.
 // Invalid CIDR strings surface as NewExporterWithError constructor

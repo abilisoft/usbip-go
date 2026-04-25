@@ -59,7 +59,7 @@ func TestTableRendererMatchesGolden(t *testing.T) {
 }
 
 // TestJSONRendererMatchesGolden — byte-exact golden-file comparison for
-// the JSON renderer. The byte-level assertion is load-bearing: spec §7.5
+// the JSON renderer. The byte-level assertion is load-bearing: v1 contract §7.5
 // requires "schema" to be the first field, and only byte-equal testing
 // catches regressions in Go json.Marshal's map-key sort order.
 func TestJSONRendererMatchesGolden(t *testing.T) {
@@ -74,7 +74,7 @@ func TestJSONRendererMatchesGolden(t *testing.T) {
 }
 
 // TestJSONRendererDevicesSchemaFirst — Devices emits a top-level record
-// that starts with `{"schema":` byte-for-byte (spec §7.5 stability rule).
+// that starts with `{"schema":` byte-for-byte (v1 contract §7.5 stability rule).
 func TestJSONRendererDevicesSchemaFirst(t *testing.T) {
 	t.Parallel()
 
