@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newWatchCmd constructs the `usbip watch` subcommand. Watch emits one
+// newWatchCmd constructs the `usbip-go watch` subcommand. Watch emits one
 // jsonlines record per event when --output=json; the table renderer
 // emits human-readable lines. SIGINT / SIGTERM cancel cleanly.
 func newWatchCmd() *cobra.Command {

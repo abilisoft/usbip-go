@@ -19,8 +19,8 @@
 .test-tmp-*/
 
 # `go build ./cmd/*` run without `-o` drops binaries at the repo root.
-/usbip
-/usbipd
+/usbip-go
+/usbipd-go
 
 # Go toolchain scratch files occasionally left behind by failing tests or
 # aborted builds.

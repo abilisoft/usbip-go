@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newBindCmd constructs the `usbip bind <busid>` subcommand.
+// newBindCmd constructs the `usbip-go bind <busid>` subcommand.
 func newBindCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "bind <busid>",
@@ -27,7 +27,7 @@ func newBindCmd() *cobra.Command {
 	return cmd
 }
 
-// newUnbindCmd constructs the `usbip unbind <busid>` subcommand.
+// newUnbindCmd constructs the `usbip-go unbind <busid>` subcommand.
 func newUnbindCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "unbind <busid>",

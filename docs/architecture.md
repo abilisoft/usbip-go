@@ -6,7 +6,7 @@ contributors.
 ## Layers
 
 ```
-+-------------------------+  cmd/usbip, cmd/usbipd, examples/*
++-------------------------+  cmd/usbip-go, cmd/usbipd-go, examples/*
 |   Command entrypoints   |
 +-----------+-------------+
             |
@@ -105,11 +105,11 @@ The seam exists so tests can inject a fake transport without going
 through the Linux kernel stack. `TCP_NODELAY` is enabled on every
 accepted connection to minimise handshake latency.
 
-### `cmd/usbip` and `cmd/usbipd`
+### `cmd/usbip-go` and `cmd/usbipd-go`
 
 Cobra-based CLI entrypoints. They consume `pkg/usbip` only; neither
-binary imports `internal/*` directly. `cmd/usbipd` is the production
-daemon; `cmd/usbip` is the client/operator CLI.
+binary imports `internal/*` directly. `cmd/usbipd-go` is the production
+daemon; `cmd/usbip-go` is the client/operator CLI.
 
 ### `examples/`
 

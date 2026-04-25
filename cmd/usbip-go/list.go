@@ -21,7 +21,7 @@ type listFlags struct {
 	Ports  bool
 }
 
-// newListCmd constructs the `usbip list` subcommand per spec §7.1.
+// newListCmd constructs the `usbip-go list` subcommand per spec §7.1.
 func newListCmd() *cobra.Command {
 	lf := &listFlags{}
 

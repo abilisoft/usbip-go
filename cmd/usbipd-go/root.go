@@ -13,14 +13,14 @@ import (
 
 // errAlreadyRunning signals that another usbipd instance owns the
 // --status-socket. Returned by serveStatus, mapped to exit code 3.
-var errAlreadyRunning = errors.New("usbipd: another instance is running")
+var errAlreadyRunning = errors.New("usbipd-go: another instance is running")
 
-// errDrainTimeout signals that `usbipd drain` exceeded --drain-timeout.
+// errDrainTimeout signals that `usbipd-go drain` exceeded --drain-timeout.
 // Mapped to exit code 9; the stderr message is emitted by the drain
 // subcommand itself.
 var errDrainTimeout = errors.New("drain timed out")
 
-// ctxKey is a private context key type; same rationale as cmd/usbip.
+// ctxKey is a private context key type; same rationale as cmd/usbip-go.
 type ctxKey struct{ name string }
 
 // loggerCtxKey stores the *slog.Logger built from the parsed flags.
@@ -29,12 +29,12 @@ var loggerCtxKey = ctxKey{name: "logger"}
 // configCtxKey stores the parsed *Config.
 var configCtxKey = ctxKey{name: "config"}
 
-// skipFlagCompletionRegistration matches cmd/usbip's test hook so
+// skipFlagCompletionRegistration matches cmd/usbip-go's test hook so
 // parallel root-construction tests don't race on cobra's global
 // flagCompletionFunctions map.
 var skipFlagCompletionRegistration = false
 
-// newRootCmd builds the top-level `usbipd` cobra command. The caller
+// newRootCmd builds the top-level `usbipd-go` cobra command. The caller
 // installs the runtime context via cmd.SetContext / ExecuteContext;
 // PersistentPreRunE reads cmd.Context() — cobra's standard seam —
 // rather than accepting ctx as a constructor argument. The default
@@ -43,7 +43,7 @@ func newRootCmd() *cobra.Command {
 	cfg := &Config{}
 
 	cmd := &cobra.Command{
-		Use:   "usbipd",
+		Use:   "usbipd-go",
 		Short: "USB/IP server daemon",
 		Long: "usbipd exports local USB devices over the USB/IP protocol. " +
 			"Runs in the foreground; systemd or an equivalent supervisor " +

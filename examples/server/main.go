@@ -15,7 +15,7 @@
 // /sys/bus/usb/drivers/usb and /sys/bus/usb/drivers/usbip-host — see
 // docs/security.md.
 //
-// This is the library-embed counterpart to cmd/usbipd, the production
+// This is the library-embed counterpart to cmd/usbipd-go, the production
 // daemon. For systemd socket-activation and resource caps, use the
 // daemon; for a one-shot or custom lifecycle process, start here.
 package main
