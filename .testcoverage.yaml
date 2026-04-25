@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 AbiliSoft
+# SPDX-License-Identifier: Apache-2.0
+#
 # Per-package coverage thresholds per spec §8.7.
 # Enforced by vladopajic/go-test-coverage@v2 in the CI "coverage" job.
 profile: build/coverage/coverage.out

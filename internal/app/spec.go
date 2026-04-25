@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 AbiliSoft
+// SPDX-License-Identifier: Apache-2.0
+
 package app
 
 import "github.com/abilisoft/usbip-go/pkg/domain"

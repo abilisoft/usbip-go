@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 AbiliSoft
+// SPDX-License-Identifier: Apache-2.0
+
 // Example client demonstrates attaching a remote USB/IP device via
 // pkg/usbip.Importer and detaching it cleanly after a brief hold.
 //

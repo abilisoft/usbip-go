@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 AbiliSoft
+# SPDX-License-Identifier: Apache-2.0
+#
 # capture-wire-fixtures.sh — capture real upstream USBIP wire frames for
 # the internal/adapter/wire fixture set. Replaces the hand-synthesised
 # fixtures from Phase 2 with ground-truth bytes emitted by upstream
