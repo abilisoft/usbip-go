@@ -241,8 +241,10 @@ tasks:
       # gremlins is not in nixpkgs; install on demand into GOBIN under
       # the hermetic cache tree. Pinning GOBIN here keeps direct CI
       # `task ci:*` invocation aligned with docker-compose local runs.
+      # Version pinned to match the go.mod direct dep so the install is
+      # reproducible (Scorecard Pinned-Dependencies).
       - mkdir -p "$GOBIN"
-      - go install -mod=mod github.com/go-gremlins/gremlins/cmd/gremlins
+      - go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
       - '"$GOBIN"/gremlins unleash ./pkg/domain/... ./internal/adapter/wire/...'
 
   ci:lint:
