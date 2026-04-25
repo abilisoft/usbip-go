@@ -263,7 +263,7 @@ func TestImporterListRemoteHappyPath(t *testing.T) {
 	conn := newFakeConn()
 
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
 			return conn, nil
 		},
 	}
@@ -314,7 +314,7 @@ func TestImporterListRemoteDialFailure(t *testing.T) {
 	t.Parallel()
 
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
 			return nil, errBoom
 		},
 	}
@@ -347,7 +347,7 @@ func TestImporterListRemoteDecodeFailure(t *testing.T) {
 	conn := newFakeConn()
 
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
 			return conn, nil
 		},
 	}
@@ -425,7 +425,7 @@ func TestImporterAttachHappyPath(t *testing.T) {
 	recordCall := func(name string) { call = append(call, name) }
 
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
 			recordCall("Dial")
 
 			return conn, nil
@@ -518,7 +518,7 @@ func TestImporterAttachDialFailure(t *testing.T) {
 		ModulesAvailableFunc: func(_ context.Context) error { return nil },
 	}
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
 			return nil, errBoom
 		},
 	}
@@ -545,7 +545,7 @@ func TestImporterAttachEncodeFailure(t *testing.T) {
 		ModulesAvailableFunc: func(_ context.Context) error { return nil },
 	}
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
 			return conn, nil
 		},
 	}
@@ -576,7 +576,7 @@ func TestImporterAttachDecodeFailure(t *testing.T) {
 		ModulesAvailableFunc: func(_ context.Context) error { return nil },
 	}
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
 			return conn, nil
 		},
 	}
@@ -614,7 +614,7 @@ func TestImporterAttachAttachRemoteFailure(t *testing.T) {
 		},
 	}
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
 			return conn, nil
 		},
 	}
@@ -666,7 +666,9 @@ func attachOnce(t *testing.T, kernel *ImporterKernelMock) (*app.Importer, domain
 	conn := newFakeConn()
 
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) { return conn, nil },
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
+			return conn, nil
+		},
 	}
 	codec := &ProtocolCodecMock{
 		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
@@ -881,7 +883,9 @@ func TestImporterCloseCancelsAllHandles(t *testing.T) {
 	// Second attach reuses the same Importer via a fresh fake conn.
 	conn := newFakeConn()
 	transport2 := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) { return conn, nil },
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
+			return conn, nil
+		},
 	}
 	codec2 := &ProtocolCodecMock{
 		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
@@ -1078,7 +1082,9 @@ func TestImporterAttachConcurrentWithCloseNoPanic(t *testing.T) {
 	}
 
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) { return newFakeConn(), nil },
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
+			return newFakeConn(), nil
+		},
 	}
 	codec := &ProtocolCodecMock{
 		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
@@ -1202,7 +1208,9 @@ func TestImporterAttachCloseRaceDetachFailureLogged(t *testing.T) {
 		DetachPortFunc: func(_ context.Context, _ domain.PortID) error { return errBoom },
 	}
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) { return newFakeConn(), nil },
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
+			return newFakeConn(), nil
+		},
 	}
 	codec := &ProtocolCodecMock{
 		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },

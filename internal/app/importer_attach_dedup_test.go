@@ -52,7 +52,7 @@ func TestImporterAttachConcurrentSameEndpoint(t *testing.T) {
 	}
 
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
 			return newFakeConn(), nil
 		},
 	}

@@ -71,7 +71,7 @@ func TestImporterAttachIncrementsAttachCounter(t *testing.T) {
 	conn := newFakeConn()
 
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
 			return conn, nil
 		},
 	}
@@ -117,7 +117,7 @@ func TestImporterAttachDialFailureIncrementsOutcomeDial(t *testing.T) {
 	metrics := app.MustNewMetrics(reg)
 
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
 			return nil, errBoom
 		},
 	}
@@ -151,7 +151,9 @@ func TestImporterAttachKernelErrorIncrementsKernelOutcome(t *testing.T) {
 	conn := newFakeConn()
 
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) { return conn, nil },
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
+			return conn, nil
+		},
 	}
 	codec := &ProtocolCodecMock{
 		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
@@ -192,7 +194,9 @@ func TestImporterDetachIncrementsDetachCounter(t *testing.T) {
 	conn := newFakeConn()
 
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) { return conn, nil },
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
+			return conn, nil
+		},
 	}
 	codec := &ProtocolCodecMock{
 		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },

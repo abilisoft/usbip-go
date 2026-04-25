@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/abilisoft/usbip-go/internal/adapter/transport"
+	"github.com/abilisoft/usbip-go/internal/netopts"
 )
 
 // TestListenCtxAlreadyCancelledDistinguishable pins the invariant
@@ -28,7 +29,7 @@ func TestListenCtxAlreadyCancelledDistinguishable(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := tr.Listen(ctx, "127.0.0.1:0")
+	_, err := tr.Listen(ctx, "127.0.0.1:0", netopts.TransportOptions{})
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.Canceled,
 		"pre-cancelled ctx must surface context.Canceled up the chain")
