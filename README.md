@@ -28,31 +28,40 @@ the same kernel sysfs interface, so it interoperates with upstream
 peers in either direction. What differs is the userspace surface
 around the protocol:
 
-| Capability                                           | upstream `usbip-utils`     | usbip-go                                          |
-| ---------------------------------------------------- | -------------------------- | ------------------------------------------------- |
-| Wire-compatible with `usbip-utils` peers             | :white_check_mark:         | :white_check_mark:                                |
-| Uses kernel `vhci_hcd` / `usbip_host` / `usbip_vudc` | :white_check_mark:         | :white_check_mark:                                |
-| Pure Go, no cgo                                      | :x:                        | :white_check_mark:                                |
-| Cross-compile to all Linux arches in one command     | :x:                        | :white_check_mark: (`GOOS`/`GOARCH`)              |
-| Embeddable as a library (`pkg/usbip`)                | :x:                        | :white_check_mark:                                |
-| Auto-reconnect on detach                             | :x:                        | :white_check_mark: (exponential backoff + jitter) |
-| Structured logging (`slog` JSON / text)              | :x:                        | :white_check_mark:                                |
-| Prometheus metrics on importer + exporter            | :x:                        | :white_check_mark:                                |
-| Event subscription API (port / session / reconnect)  | :x:                        | :white_check_mark:                                |
-| systemd socket activation                            | :x:                        | :white_check_mark: (`usbipd-go.socket`)           |
-| Status UDS for live introspection                    | :x:                        | :white_check_mark:                                |
-| JSON output mode with versioned schema               | :x:                        | :white_check_mark:                                |
-| Allow-list CIDR / rate-limit / session caps          | :x:                        | :white_check_mark:                                |
-| TCP_NODELAY on dialed connections                    | :white_check_mark:         | :white_check_mark:                                |
-| Tunable TCP keepalive / SO_SNDBUF / SO_RCVBUF        | :x:                        | :hourglass_flowing_sand: ([plan][1])              |
-| WAN / satellite reconnect presets                    | :x:                        | :hourglass_flowing_sand: ([plan][1])              |
-| Conformance tests against real wire captures         | :x:                        | :white_check_mark:                                |
-| Fuzz targets on the wire codec                       | :x:                        | :white_check_mark:                                |
-| Mutation testing on protocol-critical packages       | :x:                        | :white_check_mark:                                |
-| Coverage gate (90 %+ for pure-logic packages)        | :x:                        | :white_check_mark:                                |
-| SBOM + cosign keyless signed releases                | :x:                        | :white_check_mark:                                |
-| OpenSSF Scorecard / Best Practices                   | :x:                        | :white_check_mark:                                |
-| TLS or authentication on the wire                    | :x:                        | :x: (out of scope — tunnel via WG/SSH/Tailscale)  |
+| Capability                                                     | upstream `usbip-utils` | usbip-go                                          |
+| -------------------------------------------------------------- | ---------------------- | ------------------------------------------------- |
+| Wire-compatible with `usbip-utils` peers                       | :white_check_mark:     | :white_check_mark:                                |
+| Uses kernel `vhci_hcd` / `usbip_host` / `usbip_vudc`           | :white_check_mark:     | :white_check_mark:                                |
+| Pure Go, no cgo                                                | :x:                    | :white_check_mark:                                |
+| Cross-compile to all Linux arches in one command               | :x:                    | :white_check_mark: (`GOOS`/`GOARCH`)              |
+| Embeddable as a library (`pkg/usbip`)                          | :x:                    | :white_check_mark:                                |
+| Auto-reconnect on detach                                       | :x:                    | :white_check_mark: (exponential backoff + jitter) |
+| Concurrent-Attach deduplication (per `(remote, busid)`)        | :x:                    | :white_check_mark:                                |
+| Per-attach `MaxAttempts` / `OnReconnect` callback              | :x:                    | :white_check_mark:                                |
+| Graceful drain + bounded `ShutdownTimeout`                     | :x:                    | :white_check_mark:                                |
+| Structured logging (`slog` JSON / text)                        | :x:                    | :white_check_mark:                                |
+| Prometheus metrics on importer + exporter                      | :x:                    | :white_check_mark:                                |
+| Event subscription API (port / session / reconnect)            | :x:                    | :white_check_mark:                                |
+| systemd socket activation                                      | :x:                    | :white_check_mark: (`usbipd-go.socket`)           |
+| Status UDS for live introspection                              | :x:                    | :white_check_mark:                                |
+| JSON output mode with versioned schema                         | :x:                    | :white_check_mark:                                |
+| Allow-list CIDR / rate-limit / session caps                    | :x:                    | :white_check_mark:                                |
+| TCP_NODELAY on dialed connections                              | :white_check_mark:     | :white_check_mark:                                |
+| Configurable connect timeout                                   | :x:                    | :hourglass_flowing_sand: ([plan][1])              |
+| Tunable TCP keepalive (idle / interval / probes)               | :x:                    | :hourglass_flowing_sand: ([plan][1])              |
+| Tunable `SO_SNDBUF` / `SO_RCVBUF` for WAN bandwidth-delay      | :x:                    | :hourglass_flowing_sand: ([plan][1])              |
+| Static read / write deadlines per Importer/Exporter            | :x:                    | :hourglass_flowing_sand: ([plan][1])              |
+| Tolerance for high-latency / lossy links (50–800 ms RTT)       | :x:                    | :hourglass_flowing_sand: ([plan][1])              |
+| WAN / satellite backoff constructors                           | :x:                    | :hourglass_flowing_sand: ([plan][1])              |
+| Reproducible builds (`-trimpath`, no cgo)                      | :x:                    | :white_check_mark:                                |
+| Static analysis (CodeQL, `govulncheck`, `golangci-lint`)       | :x:                    | :white_check_mark:                                |
+| Conformance tests against real wire captures                   | :x:                    | :white_check_mark:                                |
+| Fuzz targets on the wire codec                                 | :x:                    | :white_check_mark:                                |
+| Mutation testing on protocol-critical packages                 | :x:                    | :white_check_mark:                                |
+| Coverage gate (90%+ for pure-logic packages)                   | :x:                    | :white_check_mark:                                |
+| SBOM + cosign keyless signed releases                          | :x:                    | :white_check_mark:                                |
+| OpenSSF Scorecard / Best Practices                             | :x:                    | :white_check_mark:                                |
+| TLS or authentication on the wire                              | :x:                    | :x: (out of scope — tunnel via WG/SSH/Tailscale)  |
 
 [1]: ./docs/high-latency-plan.md
 
