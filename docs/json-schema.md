@@ -6,6 +6,12 @@ v1 contract §7.5. It is one of the committed artefacts gated by the
 `changelog-check` release job — any change here requires a
 documented schema bump.
 
+The CLI's `--output=table` (default) human-readable format is NOT
+covered by this contract: borders, spacing, and column
+character-set may change between releases (e.g. ASCII vs Unicode
+box-drawing) without a major-version bump. Scripts and parsers
+MUST use `--output=json` against this schema instead.
+
 ## Stability rules
 
 - Every top-level JSON object has `"schema": "v1"` as its first
