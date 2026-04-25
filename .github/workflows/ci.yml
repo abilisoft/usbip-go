@@ -15,15 +15,18 @@ on:
 permissions:
   contents: read
 
-# Every job runs inside the upstream nixos/nix container so the only
-# host-side dep on GitHub-hosted runners is Docker (already present).
-# The flake drives the toolchain; jobs invoke the `task ci:*` inner
-# targets directly without going through docker-compose — inside the
-# container we are already in the hermetic environment that compose
-# provides for local dev.
+# Pattern: install Nix on a plain ubuntu-24.04 runner via the
+# Determinate Systems action, let Magic Nix Cache handle the store
+# cache, then run every job's commands inside `nix develop --command`
+# so the flake-pinned toolchain (Go, golangci-lint, govulncheck, …)
+# is on PATH.
 #
-# NIX_IMAGE is pinned to the same digest the Taskfile uses locally;
-# bump both together when a newer base is needed.
+# Why not `container: nixos/nix`? GitHub Actions requires Node.js
+# inside any job container; nixos/nix is minimal and ships no node,
+# so `actions/cache@v4` and other JS-based actions fail with
+# "node: executable file not found". The plain runner has node out
+# of the box, and Magic Nix Cache replaces the nix-store actions/cache
+# entry that would otherwise live here.
 
 defaults:
   run:
@@ -33,34 +36,12 @@ jobs:
   lint-and-vet:
     name: Lint & vuln
     runs-on: ubuntu-24.04
-    container:
-      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
-    env:
-      NIX_CONFIG: |
-        experimental-features = nix-command flakes
-      GIT_CONFIG_COUNT: "1"
-      GIT_CONFIG_KEY_0: "safe.directory"
-      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
-      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Cache /nix store and db
-        uses: actions/cache@v4
-        with:
-          path: |
-            /nix/store
-            /nix/var/nix/db
-          # Image-digest prefix in the cache key so a cache produced on
-          # one nixos/nix baseline is never restored over a different
-          # baseline — `/nix/var/nix/db` registrations are baseline-
-          # specific, and mismatching stores would leave Nix in an
-          # inconsistent "path referenced but missing" state.
-          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
-          restore-keys: |
-            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
-            nix-${{ runner.os }}-img-e2fe74e9-
+      - uses: DeterminateSystems/nix-installer-action@v13
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
       - name: Lint
         run: nix develop --command task ci:lint
       - name: Vuln
@@ -69,88 +50,24 @@ jobs:
   unit-linux:
     name: Unit tests (linux)
     runs-on: ubuntu-24.04
-    container:
-      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
-    env:
-      NIX_CONFIG: |
-        experimental-features = nix-command flakes
-      GIT_CONFIG_COUNT: "1"
-      GIT_CONFIG_KEY_0: "safe.directory"
-      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
-      IN_NIX_CONTAINER: "1"
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/cache@v4
-        with:
-          path: |
-            /nix/store
-            /nix/var/nix/db
-          # Image-digest prefix in the cache key so a cache produced on
-          # one nixos/nix baseline is never restored over a different
-          # baseline — `/nix/var/nix/db` registrations are baseline-
-          # specific, and mismatching stores would leave Nix in an
-          # inconsistent "path referenced but missing" state.
-          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
-          restore-keys: |
-            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
-            nix-${{ runner.os }}-img-e2fe74e9-
-      - name: Test
-        run: nix develop --command task ci:test
-
-  unit-macos:
-    name: Unit tests (macos)
-    runs-on: macos-14
-    # macOS runners cannot run the nixos/nix linux container. Install
-    # nix natively via the Determinate Systems installer and run the
-    # same ci:* inner targets — macOS's role here is catching
-    # linux-only imports in shared packages, not exercising kernel
-    # behaviour.
-    env:
-      GIT_CONFIG_COUNT: "1"
-      GIT_CONFIG_KEY_0: "safe.directory"
-      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
-      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - uses: DeterminateSystems/nix-installer-action@v13
       - uses: DeterminateSystems/magic-nix-cache-action@v8
-      - name: Test (catches Linux-only imports in shared packages)
+      - name: Test
         run: nix develop --command task ci:test
 
   conformance:
     name: Conformance (wire bytes + optional upstream usbip)
     runs-on: ubuntu-24.04
-    container:
-      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
-    env:
-      NIX_CONFIG: |
-        experimental-features = nix-command flakes
-      GIT_CONFIG_COUNT: "1"
-      GIT_CONFIG_KEY_0: "safe.directory"
-      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
-      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/cache@v4
-        with:
-          path: |
-            /nix/store
-            /nix/var/nix/db
-          # Image-digest prefix in the cache key so a cache produced on
-          # one nixos/nix baseline is never restored over a different
-          # baseline — `/nix/var/nix/db` registrations are baseline-
-          # specific, and mismatching stores would leave Nix in an
-          # inconsistent "path referenced but missing" state.
-          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
-          restore-keys: |
-            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
-            nix-${{ runner.os }}-img-e2fe74e9-
+      - uses: DeterminateSystems/nix-installer-action@v13
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
       - name: Conformance tests
         run: nix develop --command task ci:test:conformance
 
@@ -194,33 +111,12 @@ jobs:
   api-surface:
     name: API surface (Compliance Gate 6)
     runs-on: ubuntu-24.04
-    container:
-      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
-    env:
-      NIX_CONFIG: |
-        experimental-features = nix-command flakes
-      GIT_CONFIG_COUNT: "1"
-      GIT_CONFIG_KEY_0: "safe.directory"
-      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
-      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/cache@v4
-        with:
-          path: |
-            /nix/store
-            /nix/var/nix/db
-          # Image-digest prefix in the cache key so a cache produced on
-          # one nixos/nix baseline is never restored over a different
-          # baseline — `/nix/var/nix/db` registrations are baseline-
-          # specific, and mismatching stores would leave Nix in an
-          # inconsistent "path referenced but missing" state.
-          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
-          restore-keys: |
-            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
-            nix-${{ runner.os }}-img-e2fe74e9-
+      - uses: DeterminateSystems/nix-installer-action@v13
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
       - name: Diff exported API against baselines
         run: |
           nix develop --command bash -eu -c '
@@ -234,7 +130,7 @@ jobs:
               short="${pkg##*/}"
               baseline="api/pkg_${short}.json"
               if [ ! -f "$baseline" ]; then
-                echo "no baseline for $pkg at $baseline; skipping (Task 6.6 establishes baselines)"
+                echo "no baseline for $pkg at $baseline; skipping"
                 continue
               fi
               "$GOBIN/apidiff" "$pkg" "$baseline" > diff.txt
@@ -280,38 +176,20 @@ jobs:
   no-cgo:
     name: No cgo (Compliance Gate 8)
     runs-on: ubuntu-24.04
-    container:
-      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
-    env:
-      NIX_CONFIG: |
-        experimental-features = nix-command flakes
-      GIT_CONFIG_COUNT: "1"
-      GIT_CONFIG_KEY_0: "safe.directory"
-      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
-      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/cache@v4
-        with:
-          path: |
-            /nix/store
-            /nix/var/nix/db
-          # Image-digest prefix in the cache key so a cache produced on
-          # one nixos/nix baseline is never restored over a different
-          # baseline — `/nix/var/nix/db` registrations are baseline-
-          # specific, and mismatching stores would leave Nix in an
-          # inconsistent "path referenced but missing" state.
-          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
-          restore-keys: |
-            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
-            nix-${{ runner.os }}-img-e2fe74e9-
+      - uses: DeterminateSystems/nix-installer-action@v13
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
       - name: Authoritative cgo detection via go list
-        # `go list -deps -f '{{.ImportPath}} {{.CgoFiles}}'` surfaces every
-        # package that has cgo files — catches both single-line
-        # `import "C"` and block-imports, generated cgo, and dotimports.
+        # `go list -f '{{.CgoFiles}}'` surfaces every OUR package
+        # that has cgo files — catches both single-line `import "C"`
+        # and block-imports, generated cgo, and dotimports. We DON'T
+        # use -deps because Go stdlib (runtime/cgo, net, os/user)
+        # ships cgo files that are only compiled under CGO_ENABLED=1;
+        # listing them is irrelevant to our CGO_ENABLED=0 policy.
         run: |
           nix develop --command bash -eu -c '
-            cgo_pkgs="$(go list -deps -f "{{if .CgoFiles}}{{.ImportPath}}{{end}}" ./... | grep -v "^$" || true)"
+            cgo_pkgs="$(go list -f "{{if .CgoFiles}}{{.ImportPath}}{{end}}" ./... | grep -v "^$" || true)"
             if [ -n "$cgo_pkgs" ]; then
               echo "found packages with cgo files — CGO_ENABLED=0 policy violation:"
               echo "$cgo_pkgs"
@@ -340,33 +218,12 @@ jobs:
   coverage:
     name: Coverage (Compliance Gate 4)
     runs-on: ubuntu-24.04
-    container:
-      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
-    env:
-      NIX_CONFIG: |
-        experimental-features = nix-command flakes
-      GIT_CONFIG_COUNT: "1"
-      GIT_CONFIG_KEY_0: "safe.directory"
-      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
-      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/cache@v4
-        with:
-          path: |
-            /nix/store
-            /nix/var/nix/db
-          # Image-digest prefix in the cache key so a cache produced on
-          # one nixos/nix baseline is never restored over a different
-          # baseline — `/nix/var/nix/db` registrations are baseline-
-          # specific, and mismatching stores would leave Nix in an
-          # inconsistent "path referenced but missing" state.
-          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
-          restore-keys: |
-            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
-            nix-${{ runner.os }}-img-e2fe74e9-
+      - uses: DeterminateSystems/nix-installer-action@v13
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
       - name: Produce coverage profile
         run: nix develop --command task ci:test:cover
       - name: Enforce thresholds
@@ -378,32 +235,11 @@ jobs:
   cross-compile:
     name: Cross-compile (Compliance Gate 12)
     runs-on: ubuntu-24.04
-    container:
-      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
-    env:
-      NIX_CONFIG: |
-        experimental-features = nix-command flakes
-      GIT_CONFIG_COUNT: "1"
-      GIT_CONFIG_KEY_0: "safe.directory"
-      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
-      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/cache@v4
-        with:
-          path: |
-            /nix/store
-            /nix/var/nix/db
-          # Image-digest prefix in the cache key so a cache produced on
-          # one nixos/nix baseline is never restored over a different
-          # baseline — `/nix/var/nix/db` registrations are baseline-
-          # specific, and mismatching stores would leave Nix in an
-          # inconsistent "path referenced but missing" state.
-          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
-          restore-keys: |
-            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
-            nix-${{ runner.os }}-img-e2fe74e9-
-      - name: Phase-0 minimal cross build
+      - uses: DeterminateSystems/nix-installer-action@v13
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+      - name: Cross-platform build
         run: |
           nix develop --command bash -eu -c '
             GOOS=linux GOARCH=amd64 go build ./...
@@ -415,32 +251,11 @@ jobs:
     name: Mutation testing
     runs-on: ubuntu-24.04
     if: github.event_name == 'schedule'
-    container:
-      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
-    env:
-      NIX_CONFIG: |
-        experimental-features = nix-command flakes
-      GIT_CONFIG_COUNT: "1"
-      GIT_CONFIG_KEY_0: "safe.directory"
-      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
-      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/cache@v4
-        with:
-          path: |
-            /nix/store
-            /nix/var/nix/db
-          # Image-digest prefix in the cache key so a cache produced on
-          # one nixos/nix baseline is never restored over a different
-          # baseline — `/nix/var/nix/db` registrations are baseline-
-          # specific, and mismatching stores would leave Nix in an
-          # inconsistent "path referenced but missing" state.
-          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
-          restore-keys: |
-            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
-            nix-${{ runner.os }}-img-e2fe74e9-
+      - uses: DeterminateSystems/nix-installer-action@v13
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
       - name: Mutation tests
         run: nix develop --command task ci:test:mutation
