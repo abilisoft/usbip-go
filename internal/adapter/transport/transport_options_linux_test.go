@@ -8,6 +8,7 @@ package transport_test
 import (
 	"context"
 	"net"
+	"os"
 	"strconv"
 	"syscall"
 	"testing"
@@ -267,4 +268,163 @@ func acceptOnce(ln net.Listener) <-chan net.Conn {
 	}()
 
 	return out
+}
+
+// TestDialConnectTimeoutWiresDialerTimeoutLinux proves the adapter
+// copies opts.DialConnectTimeout into the per-call net.Dialer.Timeout
+// before issuing the connect syscall. Two cells:
+//
+//   - zero DialConnectTimeout dialing loopback succeeds (control:
+//     proves the listener and dial path are healthy under default
+//     options).
+//   - 1 ns DialConnectTimeout dialing the same loopback returns a
+//     timeout-class error before the connect can complete (proves
+//     the field reaches net.Dialer.Timeout, since stdlib lowers a
+//     non-zero Timeout into a context.DeadlineExceeded path that
+//     fires before dialSerial reaches the syscall).
+//
+// If our impl forgot to set dialer.Timeout, the 1 ns cell would
+// connect to loopback successfully and the assertion would fail.
+func TestDialConnectTimeoutWiresDialerTimeoutLinux(t *testing.T) {
+	t.Parallel()
+
+	// loopbackListener registers t.Cleanup to close the listener after
+	// every subtest completes. A naive defer here would race t.Parallel
+	// in the subtests: the outer test returns immediately, the deferred
+	// Close fires, and the parallel children dial a closed port.
+	_, ep := loopbackListener(t)
+
+	cases := []struct {
+		name        string
+		timeout     time.Duration
+		wantTimeout bool
+	}{
+		{"zero timeout connects normally", 0, false},
+		{"one nanosecond fires timeout pre-syscall", 1 * time.Nanosecond, true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tr := transport.New()
+
+			ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+			defer cancel()
+
+			opts := netopts.TransportOptions{DialConnectTimeout: tc.timeout}
+
+			conn, err := tr.Dial(ctx, ep, opts)
+
+			if !tc.wantTimeout {
+				require.NoError(t, err)
+				require.NotNil(t, conn)
+
+				_ = conn.Close()
+
+				return
+			}
+
+			require.Error(t, err)
+			require.Nil(t, conn)
+
+			var netErr net.Error
+
+			require.ErrorAs(t, err, &netErr,
+				"timeout-class error must satisfy net.Error")
+			require.True(t, netErr.Timeout(),
+				"net.Error.Timeout() must report true on dialer-timeout firing")
+			require.ErrorIs(t, err, context.DeadlineExceeded,
+				"net.Dialer lowers a non-zero Timeout into a context deadline")
+		})
+	}
+}
+
+// TestDialAppliesReadDeadlineLinux proves the adapter applies
+// opts.ReadDeadline so a Read against an idle peer returns
+// os.ErrDeadlineExceeded. The deadline (50 ms) is short enough to
+// fire well before the test guard (200 ms) but long enough not to
+// race goroutine startup. The peer is held open and silent so the
+// only path out of Read is the deadline.
+func TestDialAppliesReadDeadlineLinux(t *testing.T) {
+	t.Parallel()
+
+	ln, ep := loopbackListener(t)
+
+	defer func() { _ = ln.Close() }()
+
+	accepted := acceptOnce(ln)
+
+	tr := transport.New()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	opts := netopts.TransportOptions{ReadDeadline: 50 * time.Millisecond}
+
+	conn, err := tr.Dial(ctx, ep, opts)
+	require.NoError(t, err)
+
+	defer func() { _ = conn.Close() }()
+
+	srv := <-accepted
+	require.NotNil(t, srv)
+
+	defer func() { _ = srv.Close() }()
+
+	// Read budget: deadline fires at 50 ms, the guard reads at 200 ms.
+	// On a busy CI runner the 150 ms slack is comfortable; on a fast
+	// host the read returns within ~50 ms.
+	start := time.Now()
+	buf := make([]byte, 1)
+	n, err := conn.Read(buf)
+	elapsed := time.Since(start)
+
+	require.Zero(t, n)
+	require.ErrorIs(t, err, os.ErrDeadlineExceeded,
+		"Read must return an error wrapping os.ErrDeadlineExceeded; got %v", err)
+	require.Less(t, elapsed, 200*time.Millisecond,
+		"Read must return within the 200 ms guard; took %s", elapsed)
+}
+
+// TestDialAppliesWriteDeadlineLinux proves the adapter applies
+// opts.WriteDeadline. The adapter sets the deadline at dial time as
+// time.Now().Add(opts.WriteDeadline); a 10 ms WriteDeadline followed
+// by a 50 ms sleep makes the deadline already-expired before the
+// first Write, so the Write must fail with os.ErrDeadlineExceeded.
+// This avoids the brittle "fill the peer's recv buffer" pattern.
+func TestDialAppliesWriteDeadlineLinux(t *testing.T) {
+	t.Parallel()
+
+	ln, ep := loopbackListener(t)
+
+	defer func() { _ = ln.Close() }()
+
+	accepted := acceptOnce(ln)
+
+	tr := transport.New()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	opts := netopts.TransportOptions{WriteDeadline: 10 * time.Millisecond}
+
+	conn, err := tr.Dial(ctx, ep, opts)
+	require.NoError(t, err)
+
+	defer func() { _ = conn.Close() }()
+
+	srv := <-accepted
+	require.NotNil(t, srv)
+
+	defer func() { _ = srv.Close() }()
+
+	// Sleep past the absolute write deadline so the Write below is
+	// guaranteed to observe an already-expired deadline.
+	time.Sleep(50 * time.Millisecond)
+
+	n, err := conn.Write([]byte{0x01})
+	require.Zero(t, n)
+	require.ErrorIs(t, err, os.ErrDeadlineExceeded,
+		"Write must return an error wrapping os.ErrDeadlineExceeded; got %v", err)
 }
