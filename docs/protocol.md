@@ -1,8 +1,8 @@
 # USB/IP wire protocol reference
 
 Byte-level reference for the USB/IP handshake protocol as implemented
-by `internal/adapter/wire`. This document duplicates the layouts from
-[spec §6.2](superpowers/specs/2026-04-18-usbip-go-design.md) so
+by `internal/adapter/wire`. The layouts described here are the
+authoritative format the codec encodes and decodes against, so
 integrators can read the wire without cross-referencing Go source.
 
 The post-handshake URB traffic (`CMD_SUBMIT`, `RET_SUBMIT`, etc.) is

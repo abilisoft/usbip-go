@@ -1,11 +1,10 @@
 # Contributing to usbip-go
 
 Thanks for considering a contribution. This project follows a strict
-TDD + DDD workflow; read the authoritative design spec and
-implementation plan in
-[`docs/superpowers/specs/`](docs/superpowers/specs/) and
-[`docs/superpowers/plans/`](docs/superpowers/plans/) before opening a
-PR.
+TDD + DDD workflow. Read [`docs/architecture.md`](docs/architecture.md)
+and [`docs/protocol.md`](docs/protocol.md) for the layering and
+wire-format reference, then run the test suite locally (`task test`)
+before opening a PR.
 
 ## Prerequisites
 

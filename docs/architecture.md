@@ -1,9 +1,7 @@
 # Architecture
 
 This document summarises the usbip-go layering for operators and
-contributors. For the authoritative design, see
-[`docs/superpowers/specs/2026-04-18-usbip-go-design.md`](superpowers/specs/2026-04-18-usbip-go-design.md)
-sections 3-6.
+contributors.
 
 ## Layers
 
