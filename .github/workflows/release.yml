@@ -47,6 +47,37 @@ jobs:
       - name: Unit tests before release
         run: nix develop --command task ci:test
 
+      # Scorecard-detection step. OpenSSF Scorecard's Packaging
+      # check is static workflow-file analysis: for Go projects its
+      # matcher (ossf/scorecard
+      # checks/fileparser/github_workflow.go::IsPackagingWorkflow)
+      # ONLY pattern-matches a literal
+      # `uses: goreleaser/goreleaser-action` step. Shell-wrapped
+      # invocations like our canonical `nix develop --command task
+      # ci:release` are invisible to that matcher even though they
+      # execute the same goreleaser binary.
+      #
+      # install-only:true installs a goreleaser binary onto runner
+      # PATH; the next step's `nix develop` shadows that PATH so the
+      # release runs the flake-pinned binary, not this one. Two
+      # consequences:
+      #
+      #   1. The action-installed binary is never used at runtime;
+      #      its version does not need to track flake.nix.
+      #   2. The major-version constraint below (`~> 2`) is the
+      #      loosest pin that still rejects an accidental v3 jump,
+      #      keeping the artefact this step produces sane without
+      #      requiring lock-step bumps with `pkgs.goreleaser`.
+      #
+      # See docs/security-posture.md "Packaging detection" for the
+      # full rationale and the MED-finding history that drove this
+      # shape.
+      - name: Install goreleaser via action (Scorecard Packaging marker)
+        uses: goreleaser/goreleaser-action@e24998b8b67b290c2fa8b7c14fcfa7de2c5c9b8c # v7.1.0
+        with:
+          install-only: true
+          version: '~> 2'
+
       - name: GoReleaser (goreleaser, syft, cosign, nfpm all from the flake closure)
         run: nix develop --command task ci:release
         env:
