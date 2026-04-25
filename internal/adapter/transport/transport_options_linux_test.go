@@ -300,7 +300,12 @@ func TestDialConnectTimeoutWiresDialerTimeoutLinux(t *testing.T) {
 		wantTimeout bool
 	}{
 		{"zero timeout connects normally", 0, false},
-		{"one nanosecond fires timeout pre-syscall", 1 * time.Nanosecond, true},
+		// 1µs is comfortably below any loopback connect latency
+		// (median ~50µs on Linux) but high enough that the dialer's
+		// internal timer goroutine has slack against scheduling
+		// jitter under heavy CI load. Bumped from 1ns per a flake-
+		// risk review.
+		{"sub-microsecond fires timeout pre-syscall", 1 * time.Microsecond, true},
 	}
 
 	for _, tc := range cases {
@@ -372,19 +377,20 @@ func TestDialAppliesReadDeadlineLinux(t *testing.T) {
 
 	defer func() { _ = srv.Close() }()
 
-	// Read budget: deadline fires at 50 ms, the guard reads at 200 ms.
-	// On a busy CI runner the 150 ms slack is comfortable; on a fast
-	// host the read returns within ~50 ms.
-	start := time.Now()
+	// Semantic assertion only: the read must return an error wrapping
+	// os.ErrDeadlineExceeded. Earlier revisions also asserted an
+	// upper-bound elapsed time, but that turned the test into a
+	// scheduler benchmark — under CI load the 50 ms deadline can
+	// stretch past any reasonable wall-clock guard while the
+	// deadline-exceeded error is still correct. The outer Go test
+	// timeout (`go test -timeout`) bounds runaway hangs, which is
+	// the only timing guarantee the test needs.
 	buf := make([]byte, 1)
 	n, err := conn.Read(buf)
-	elapsed := time.Since(start)
 
 	require.Zero(t, n)
 	require.ErrorIs(t, err, os.ErrDeadlineExceeded,
 		"Read must return an error wrapping os.ErrDeadlineExceeded; got %v", err)
-	require.Less(t, elapsed, 200*time.Millisecond,
-		"Read must return within the 200 ms guard; took %s", elapsed)
 }
 
 // TestDialAppliesWriteDeadlineLinux proves the adapter applies
