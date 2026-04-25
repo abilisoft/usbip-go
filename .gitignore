@@ -60,8 +60,9 @@ Thumbs.db
 
 # ---------------------------------------------------------------------------
 # Sandbox $HOME dotfile shadows
-# Created by the Claude Code harness when sandboxing is enabled. These are
-# character-device bind mounts, never real project content.
+# Some sandboxed dev environments bind-mount empty character devices over
+# the developer's home dotfiles when the sandbox boots; these are never
+# real project content and must not be tracked.
 # ---------------------------------------------------------------------------
 /.bash_profile
 /.bashrc
