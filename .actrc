@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 AbiliSoft
+# SPDX-License-Identifier: Apache-2.0
+#
+# `act` configuration for running this repo's GitHub Actions locally.
+# Used via `task act:push` / `task act:job JOB=<name>` to avoid burning
+# CI minutes on iteration.
+#
+# Reuses the medium catthehacker image which has docker-in-docker, nix,
+# and the standard runner tooling baked in — close enough to GHA's
+# ubuntu-24.04 for our jobs that already run inside their own
+# nixos/nix container.
+
+# Workflows pin ubuntu-24.04 explicitly; macos-14 (ci.yml unit-macos)
+# and the self-hosted kvm runner (integration.yml) cannot run under
+# act and are skipped at runtime.
+-P ubuntu-24.04=catthehacker/ubuntu:act-latest
+--container-architecture linux/amd64
