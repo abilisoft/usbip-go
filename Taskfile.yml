@@ -114,7 +114,7 @@ tasks:
     cmds:
       - act -l push
   act:push:
-    desc: 'Run Linux-only push-event jobs locally (macos-14 + self-hosted KVM jobs skip)'
+    desc: 'Run push-event jobs locally (self-hosted KVM job skips)'
     cmds:
       - act push
   act:job:

@@ -192,7 +192,7 @@ items per the progressive-enforcement policy:
 | Gate | What | Enforcement |
 |---|---|---|
 | 1 | `task lint` clean (gofumpt, wsl_v5, mnd, goconst, nolintlint, complexity ≤ 10, etc.) | CI: `lint-and-vet` job runs `task lint`. |
-| 2 | `task test` clean with `-race` on linux + macos | CI: `unit-linux` + `unit-macos` jobs run `task ci:test`. A dedicated `conformance` job runs `task ci:test:conformance`; upstream-binary cross-checks inside it skip when `usbip` is not on PATH (the flake closure does not pin usbip-utils). |
+| 2 | `task test` clean with `-race` on linux | CI: `unit-linux` job runs `task ci:test`. A dedicated `conformance` job runs `task ci:test:conformance`; upstream-binary cross-checks inside it skip when `usbip` is not on PATH (the flake closure does not pin usbip-utils). |
 | 3 | RED→GREEN commit chain (every `*_test.go`-adding commit is followed by implementation or a `refactor:` commit) | CI: `test-tdd-discipline` job on pull requests. |
 | 4 | Coverage thresholds per §8.7 (domain 95, app 90, wire 95, kernel 70, transport 80, cmd 60) | CI: `coverage` job runs `task test:cover` + `vladopajic/go-test-coverage` against `.testcoverage.yaml`. |
 | 5 | DDD layering: `pkg/domain` ↛ `internal/`; `internal/app` ↛ `internal/adapter/{kernel,transport}` (wire is allowed because codec value types appear on app interface signatures). `pkg/usbip` is the public facade and intentionally imports `internal/*` to compose defaults. | CI: `ddd-boundary` job greps both directions. |
@@ -261,8 +261,6 @@ The repo-level `.actrc` pins the runner image to
 
 What does NOT replay locally:
 
-- `unit-macos` (ci.yml) — needs the `macos-14` runner image, which
-  has no act mapping. Use a real macOS host or wait for CI.
 - `integration` (integration.yml) — runs on the self-hosted
   `kvm`-labelled runner; act cannot match the label.
 - `release` (release.yml) — tag-triggered, requires GitHub OIDC for
