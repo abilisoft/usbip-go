@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newDetachCmd constructs the `usbip detach <port>` subcommand.
+// newDetachCmd constructs the `usbip-go detach <port>` subcommand.
 func newDetachCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "detach <port>",

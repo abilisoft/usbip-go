@@ -27,7 +27,7 @@ func main() {
 
 // renderMainError writes the operator-facing stderr line for err. The
 // spec §7.4 template is produced via FormatError so callers grepping
-// on the canonical wording ("usbip: device not found", etc.) see it
+// on the canonical wording ("usbip-go: device not found", etc.) see it
 // regardless of how deeply err was wrapped along its call path. nil
 // errors produce no output.
 func renderMainError(w io.Writer, err error) {

@@ -45,7 +45,7 @@ and daemon see a plain TCP connection.
 
 ### CIDR allow-list
 
-`usbipd --allow-cidr` (repeatable) short-circuits any accepted
+`usbipd-go --allow-cidr` (repeatable) short-circuits any accepted
 connection whose remote address is not inside at least one listed
 CIDR. Default: empty list, permit all — matching upstream behaviour.
 One or more entries switches the daemon into fail-closed ACL mode.
@@ -86,7 +86,7 @@ operators can track ambient abuse without packet captures.
 ### Systemd hardening
 
 The project-supplied unit at
-[`contrib/systemd/usbipd.service`](../contrib/systemd/usbipd.service)
+[`contrib/systemd/usbipd-go.service`](../contrib/systemd/usbipd-go.service)
 pins:
 
 ```ini
@@ -110,18 +110,18 @@ required in practice.
 Four deployment patterns, in order of decreasing privilege:
 
 1. **Run as root.** Simplest; the default systemd unit does this.
-2. **Run under a dedicated `usbip` user with `setcap`.** Grant only
+2. **Run under a dedicated `usbip-go` user with `setcap`.** Grant only
    what the binary needs:
 
    ```
-   sudo setcap 'cap_sys_admin,cap_dac_override=+ep' /usr/bin/usbipd
+   sudo setcap 'cap_sys_admin,cap_dac_override=+ep' /usr/bin/usbipd-go
    ```
 
-   Then the daemon starts as the `usbip` system user, not root.
-3. **Create a `usbip` Unix group and expose the status UDS to
-   members only.** The daemon's `--status-socket-group usbip` flag
+   Then the daemon starts as the `usbip-go` system user, not root.
+3. **Create a `usbip-go` Unix group and expose the status UDS to
+   members only.** The daemon's `--status-socket-group usbip-go` flag
    `chgrp`s the UDS to that group at bind time, with mode `0660`.
-   Operators who need to call `usbipd drain` join `usbip`; regular
+   Operators who need to call `usbipd-go drain` join `usbip-go`; regular
    users do not.
 4. **No setcap, drop privileges** — not supported today. The daemon
    does not drop capabilities after setup in v1 because every
