@@ -54,6 +54,24 @@ func NewExporterFromInternalForTest(inner *internalapp.Exporter) *Exporter {
 	return &Exporter{inner: inner}
 }
 
+// NewExporterFromInternalForTestWithTransportOptions wraps an already-
+// constructed internal Exporter in a public *Exporter and seeds the
+// public wrapper's transportOptions snapshot plus a transport stub.
+// ListenAndServe tests use this seam to inject the same stub transport
+// the inner Exporter was built with so a single Listen call can be
+// observed end-to-end.
+func NewExporterFromInternalForTestWithTransportOptions(
+	inner *internalapp.Exporter,
+	tr internalapp.Transport,
+	opts TransportOptions,
+) *Exporter {
+	return &Exporter{
+		inner:     inner,
+		cfg:       exporterConfig{transportOptions: opts},
+		transport: tr,
+	}
+}
+
 // ImporterConfigForTest is the test-only view of importerConfig. It
 // exposes each tunable via a getter so options_test.go can assert
 // storage without the test suite reaching for unexported fields.
@@ -83,6 +101,13 @@ func (c ImporterConfigForTest) BackoffForTest() BackoffStrategy { return c.inner
 // StatusPollIntervalForTest returns the stored poll interval.
 func (c ImporterConfigForTest) StatusPollIntervalForTest() time.Duration {
 	return c.inner.statusPollInterval
+}
+
+// TransportOptions returns the stored TransportOptions snapshot.
+// Tests use this to prove WithImporterTransportOptions stores its
+// argument verbatim onto the public config.
+func (c ImporterConfigForTest) TransportOptions() TransportOptions {
+	return c.inner.transportOptions
 }
 
 // ExporterConfigForTest is the test-only view of exporterConfig.
@@ -154,4 +179,11 @@ func (c ExporterConfigForTest) BuildInfoForTest() ExporterBuildInfoForTest {
 		Commit:    c.inner.buildInfo.commit,
 		GoVersion: c.inner.buildInfo.goVersion,
 	}
+}
+
+// TransportOptions returns the stored TransportOptions snapshot.
+// Tests use this to prove WithExporterTransportOptions stores its
+// argument verbatim onto the public config.
+func (c ExporterConfigForTest) TransportOptions() TransportOptions {
+	return c.inner.transportOptions
 }
