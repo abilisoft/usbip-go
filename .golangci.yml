@@ -87,6 +87,13 @@ linters:
     rules:
       - path: cmd/.+/.+\.go
         linters: [gochecknoglobals]  # cobra cmd vars are unavoidable; scoped here only
+      - path: test/integration/killable/.+\.go
+        # The killable subprocess is a hand-rolled main package whose
+        # checkpoint writer must be reachable from package-level
+        # init/run helpers; replicating cmd-style globals scoping
+        # keeps the test-only binary out of the gochecknoglobals
+        # surface.
+        linters: [gochecknoglobals]
       - path: pkg/usbip/modules_linux\.go
         # probeStatFn is a test-injection seam for EACCES / EIO
         # simulation without chmod (which gosec G302 false-flags on

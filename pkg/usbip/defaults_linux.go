@@ -114,10 +114,18 @@ func newDefaultExporter(opts []ExporterOption) (*Exporter, error) {
 
 	baseOpts := make([]internalapp.ExporterOption, 0, exporterBaseOptCount+len(extra))
 
+	// One transport instance is shared between the internal Exporter
+	// (for any future internal Listen call) and the public wrapper's
+	// ListenAndServe path. Storing it on the wrapper avoids
+	// constructing a second NetTransport just to honor the public
+	// option, and keeps a single source of truth for transport
+	// configuration.
+	tr := transport.New()
+
 	baseOpts = append(baseOpts,
 		internalapp.WithExporterKernel(k),
 		internalapp.WithExporterEvents(e),
-		internalapp.WithExporterTransport(transport.New()),
+		internalapp.WithExporterTransport(tr),
 		internalapp.WithExporterCodec(&wire.Codec{}),
 	)
 	baseOpts = append(baseOpts, extra...)
@@ -127,7 +135,7 @@ func newDefaultExporter(opts []ExporterOption) (*Exporter, error) {
 		return nil, fmt.Errorf("construct exporter: %w", err)
 	}
 
-	return &Exporter{inner: inner, cfg: cfg}, nil
+	return &Exporter{inner: inner, cfg: cfg, transport: tr}, nil
 }
 
 // exporterBaseOptCount mirrors importerBaseOptCount for the exporter.

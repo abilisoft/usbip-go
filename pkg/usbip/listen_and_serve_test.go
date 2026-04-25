@@ -38,31 +38,31 @@ func TestExporterListenAndServeUsesTransport(t *testing.T) {
 	}
 
 	var (
-		gotAddr string
-		gotOpts netopts.TransportOptions
-		gotCtx  context.Context //nolint:containedctx // assertion-only
+		gotAddr   string
+		gotOpts   netopts.TransportOptions
+		gotCalled bool
 	)
 
 	s.trans.listenFn = func(
-		ctx context.Context,
+		_ context.Context,
 		addr string,
 		opts internalapp.TransportOptions,
 	) (net.Listener, error) {
-		gotCtx = ctx
 		gotAddr = addr
 		gotOpts = opts
+		gotCalled = true
 
 		return nil, errStubListenSentinel
 	}
 
-	exp := usbip.NewExporterFromInternalForTestWithTransportOptions(s.inner, wantOpts)
+	exp := usbip.NewExporterFromInternalForTestWithTransportOptions(s.inner, s.trans, wantOpts)
 
 	err := exp.ListenAndServe(t.Context(), "127.0.0.1:0")
 	require.Error(t, err)
 	require.ErrorIs(t, err, errStubListenSentinel,
 		"ListenAndServe must surface the Listen error verbatim")
 
-	require.NotNil(t, gotCtx)
+	require.True(t, gotCalled, "Transport.Listen must be invoked")
 	require.Equal(t, "127.0.0.1:0", gotAddr)
 	require.Equal(t, wantOpts, gotOpts,
 		"Transport.Listen must receive the importer-config TransportOptions snapshot")
@@ -86,7 +86,7 @@ func TestExporterListenAndServeReturnsListenErrorVerbatim(t *testing.T) {
 	}
 
 	exp := usbip.NewExporterFromInternalForTestWithTransportOptions(
-		s.inner,
+		s.inner, s.trans,
 		netopts.TransportOptions{},
 	)
 

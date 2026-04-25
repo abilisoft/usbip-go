@@ -54,6 +54,24 @@ func NewExporterFromInternalForTest(inner *internalapp.Exporter) *Exporter {
 	return &Exporter{inner: inner}
 }
 
+// NewExporterFromInternalForTestWithTransportOptions wraps an already-
+// constructed internal Exporter in a public *Exporter and seeds the
+// public wrapper's transportOptions snapshot plus a transport stub.
+// ListenAndServe tests use this seam to inject the same stub transport
+// the inner Exporter was built with so a single Listen call can be
+// observed end-to-end.
+func NewExporterFromInternalForTestWithTransportOptions(
+	inner *internalapp.Exporter,
+	tr internalapp.Transport,
+	opts TransportOptions,
+) *Exporter {
+	return &Exporter{
+		inner:     inner,
+		cfg:       exporterConfig{transportOptions: opts},
+		transport: tr,
+	}
+}
+
 // ImporterConfigForTest is the test-only view of importerConfig. It
 // exposes each tunable via a getter so options_test.go can assert
 // storage without the test suite reaching for unexported fields.
