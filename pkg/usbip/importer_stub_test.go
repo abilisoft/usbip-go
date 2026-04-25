@@ -13,11 +13,28 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
+// dialFn matches the stubTransport.dialFn signature; declared as a
+// named type so pipeDialer's return signature stays within the
+// 120-char line limit.
+type dialFn = func(
+	ctx context.Context,
+	endpoint domain.RemoteEndpoint,
+	opts internalapp.TransportOptions,
+) (net.Conn, error)
+
+// listenFn matches the stubTransport.listenFn signature; named so
+// stubTransport's struct fields fit within the 120-char limit.
+type listenFn = func(
+	ctx context.Context,
+	addr string,
+	opts internalapp.TransportOptions,
+) (net.Listener, error)
+
 // pipeDialer returns a stubTransport.dialFn that produces a connected
 // net.Pipe pair. A drain goroutine reads from the remote side so the
 // importer's codec writes never park.
-func pipeDialer() func(ctx context.Context, endpoint domain.RemoteEndpoint) (net.Conn, error) {
-	return func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+func pipeDialer() dialFn {
+	return func(_ context.Context, _ domain.RemoteEndpoint, _ internalapp.TransportOptions) (net.Conn, error) {
 		local, remote := net.Pipe()
 
 		go func() {
@@ -119,24 +136,32 @@ func (s *stubKernelEvents) Subscribe(ctx context.Context) (<-chan domain.Event, 
 // returns a pair of net.Pipe conns so the codec has something to
 // write to / read from without opening a real socket.
 type stubTransport struct {
-	dialFn   func(ctx context.Context, endpoint domain.RemoteEndpoint) (net.Conn, error)
-	listenFn func(ctx context.Context, addr string) (net.Listener, error)
+	dialFn   dialFn
+	listenFn listenFn
 }
 
 // Dial dispatches to the caller-supplied hook or returns a piped conn.
-func (s *stubTransport) Dial(ctx context.Context, endpoint domain.RemoteEndpoint) (net.Conn, error) {
+func (s *stubTransport) Dial(
+	ctx context.Context,
+	endpoint domain.RemoteEndpoint,
+	opts internalapp.TransportOptions,
+) (net.Conn, error) {
 	if s.dialFn != nil {
-		return s.dialFn(ctx, endpoint)
+		return s.dialFn(ctx, endpoint, opts)
 	}
 
-	return pipeDialer()(ctx, endpoint)
+	return pipeDialer()(ctx, endpoint, opts)
 }
 
 // Listen dispatches to the caller-supplied hook or returns
 // errNotImplemented so a misconfigured test surfaces loudly.
-func (s *stubTransport) Listen(ctx context.Context, addr string) (net.Listener, error) {
+func (s *stubTransport) Listen(
+	ctx context.Context,
+	addr string,
+	opts internalapp.TransportOptions,
+) (net.Listener, error) {
 	if s.listenFn != nil {
-		return s.listenFn(ctx, addr)
+		return s.listenFn(ctx, addr, opts)
 	}
 
 	return nil, errNotImplemented

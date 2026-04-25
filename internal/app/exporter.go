@@ -31,6 +31,13 @@ type Exporter struct {
 	clock     Clock
 	logger    *slog.Logger
 	metrics   *Metrics
+	// transportOptions is the snapshot taken at NewExporter time.
+	// PR 1a stores and validates the value; PR 1b adds an Exporter-
+	// owned listener path that honors it on accepted connections. In
+	// the meantime callers using Serve(ctx, listener) with their own
+	// listener must tune that listener themselves — the field is
+	// deliberately inert at runtime in PR 1a.
+	transportOptions TransportOptions
 
 	cfg             exporterLimits
 	acceptLim       acceptLimiter
@@ -121,6 +128,11 @@ func NewExporterWithError(opts ...ExporterOption) (*Exporter, error) {
 		return nil, err
 	}
 
+	transportErr := ValidateTransportOptions(cfg.transportOptions)
+	if transportErr != nil {
+		return nil, transportErr
+	}
+
 	if cfg.metrics == nil {
 		cfg.metrics = MustNewMetrics(nil)
 	}
@@ -131,20 +143,21 @@ func NewExporterWithError(opts ...ExporterOption) (*Exporter, error) {
 	}
 
 	return &Exporter{
-		kernel:          cfg.kernel,
-		events:          cfg.events,
-		transport:       cfg.transport,
-		codec:           cfg.codec,
-		clock:           cfg.clock,
-		logger:          cfg.logger,
-		metrics:         cfg.metrics,
-		cfg:             resolveExporterLimits(&cfg),
-		acceptLim:       newAcceptLimiter(resolveAcceptRate(&cfg), resolveAcceptBurst(&cfg)),
-		acl:             acl,
-		shutdownTimeout: cfg.shutdownTimeout,
-		sessions:        make(map[domain.SessionID]*sessionHandle),
-		perPeer:         make(map[string]int),
-		sessionsDrained: make(chan struct{}),
+		kernel:           cfg.kernel,
+		events:           cfg.events,
+		transport:        cfg.transport,
+		codec:            cfg.codec,
+		clock:            cfg.clock,
+		logger:           cfg.logger,
+		metrics:          cfg.metrics,
+		transportOptions: cfg.transportOptions,
+		cfg:              resolveExporterLimits(&cfg),
+		acceptLim:        newAcceptLimiter(resolveAcceptRate(&cfg), resolveAcceptBurst(&cfg)),
+		acl:              acl,
+		shutdownTimeout:  cfg.shutdownTimeout,
+		sessions:         make(map[domain.SessionID]*sessionHandle),
+		perPeer:          make(map[string]int),
+		sessionsDrained:  make(chan struct{}),
 	}, nil
 }
 

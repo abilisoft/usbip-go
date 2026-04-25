@@ -25,6 +25,10 @@ type importerConfig struct {
 	clock     Clock
 	logger    *slog.Logger
 	metrics   *Metrics
+	// transportOptions is the per-Importer TCP-level tuning bag. The
+	// zero value preserves v1.0.0 behavior; PR 1b wires non-zero
+	// fields through the adapter.
+	transportOptions TransportOptions
 }
 
 // WithImporterKernel injects the kernel-side adapter (vhci_hcd
@@ -67,6 +71,17 @@ func WithImporterMetrics(m *Metrics) ImporterOption {
 	return func(c *importerConfig) { c.metrics = m }
 }
 
+// WithImporterTransportOptions stores TCP-level tuning that the
+// Importer's Dial calls hand to the Transport adapter. Zero-valued
+// fields preserve v1.0.0 behavior; non-zero fields take effect once
+// PR 1b lands the adapter side. NewImporter validates the struct and
+// panics on negative values so a misconfigured caller surfaces the
+// error at construction time rather than as a confusing socket error
+// later.
+func WithImporterTransportOptions(opts TransportOptions) ImporterOption {
+	return func(c *importerConfig) { c.transportOptions = opts }
+}
+
 // ExporterOption configures an Exporter at construction time. Apply
 // options by passing them to NewExporter; options mutate an internal
 // config struct in declaration order so the last option wins for any
@@ -87,6 +102,10 @@ type exporterConfig struct {
 	clock     Clock
 	logger    *slog.Logger
 	metrics   *Metrics
+	// transportOptions is the per-Exporter TCP-level tuning bag. The
+	// zero value preserves v1.0.0 behavior; PR 1b wires non-zero
+	// fields through the listener-accept path.
+	transportOptions TransportOptions
 
 	maxSessions        int
 	maxSessionsPerPeer int
@@ -158,6 +177,25 @@ func WithExporterLogger(l *slog.Logger) ExporterOption {
 // MustNewMetrics — call sites don't need a pre-call nil guard.
 func WithExporterMetrics(m *Metrics) ExporterOption {
 	return func(c *exporterConfig) { c.metrics = m }
+}
+
+// WithExporterTransportOptions stores TCP-level tuning that the
+// Exporter would hand to the Transport adapter on accepted
+// connections. Zero-valued fields preserve v1.0.0 behavior.
+// NewExporterWithError validates the struct and returns
+// ErrTransportOptionsInvalid on negative values (matching the
+// ACL-validation precedent); NewExporter panics with the same error.
+//
+// IMPORTANT (PR 1a scope): the option is stored but currently inert
+// at runtime. Exporter.Serve consumes a caller-supplied net.Listener
+// (the daemon path in cmd/usbipd-go builds its own listener via
+// systemd activation or net.ListenConfig and hands it in directly),
+// so options set via this function do not reach accepted connections
+// today. PR 1b adds an Exporter-owned listener path that honors these
+// options. Callers wiring a caller-owned listener must apply socket
+// tuning to their own listener until then.
+func WithExporterTransportOptions(opts TransportOptions) ExporterOption {
+	return func(c *exporterConfig) { c.transportOptions = opts }
 }
 
 // WithExporterBuildInfo stamps the usbip_build_info gauge (§11.5.5)
