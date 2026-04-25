@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: 2026 AbiliSoft
+# SPDX-License-Identifier: Apache-2.0
+#
+# OpenSSF Scorecard: continuously audits supply-chain security
+# posture and publishes a SARIF report to GitHub's security tab
+# plus a public score on https://scorecard.dev. The badge in
+# README.md links to that score.
+#
+# https://github.com/ossf/scorecard-action
+name: OpenSSF Scorecard
+
+on:
+  branch_protection_rule:
+  schedule:
+    # Weekly Tuesday 06:00 UTC — non-overlapping with the rest of CI.
+    - cron: '0 6 * * 2'
+  push:
+    branches: [main]
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-24.04
+    permissions:
+      # `security-events: write` lets the action upload SARIF results.
+      security-events: write
+      # `id-token: write` is required for publishing to the public
+      # scorecard.dev result store via OIDC.
+      id-token: write
+      contents: read
+      # `actions: read` lets Scorecard inspect workflow files.
+      actions: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@62b2cac7ed8198b15735ed49ab1e5cf35480ba46 # v2.4.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: scorecard-results
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload to code-scanning
+        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a # v3
+        with:
+          sarif_file: results.sarif
