@@ -68,26 +68,31 @@ commit_preprocessors = [
 # Map Conventional Commit types into human-friendly section headings.
 # Ordering here determines section order in the output.
 commit_parsers = [
-    { message = "^feat",     group = "Features" },
-    { message = "^fix",      group = "Bug Fixes" },
-    { message = "^perf",     group = "Performance" },
-    { message = "^refactor", group = "Refactoring" },
-    { message = "^docs",     group = "Documentation" },
-    { message = "^test",     group = "Tests" },
-    { message = "^ci",       group = "CI & Build" },
-    { message = "^build",    group = "CI & Build" },
-    { message = "^deps",     group = "Dependencies" },
+    # Breaking changes win over type — match BEFORE the type-grouping
+    # parsers so a `feat(scope)!:` or any commit body with
+    # `BREAKING CHANGE:` lands in its own section instead of being
+    # silently absorbed into Features / Fixes / etc. The bare
+    # `^[a-z]+!` regex would miss scoped breaking commits, so include
+    # the optional parenthesised scope.
+    { body = ".*BREAKING CHANGE.*",      group = "Breaking Changes" },
+    { message = "^[a-z]+(\\(.+\\))?!",   group = "Breaking Changes" },
     # Drop the release commit itself — the chore(release): vX.Y.Z
     # commit is the one that ships the regenerated CHANGELOG, and
     # listing it inside the very section it created creates an
     # un-amendable circular dependency (every regen would change
     # its own short-SHA entry, never converging).
-    { message = "^chore\\(release\\)", skip = true },
-    { message = "^chore",    group = "Chores" },
-    { message = "^style",    group = "Style" },
-    # Anything with BREAKING CHANGE or ! after type — surfaced first.
-    { body = ".*BREAKING CHANGE.*", group = "⚠️ Breaking Changes" },
-    { message = "^[a-z]+!",         group = "⚠️ Breaking Changes" },
+    { message = "^chore\\(release\\)",   skip = true },
+    { message = "^feat",                 group = "Features" },
+    { message = "^fix",                  group = "Bug Fixes" },
+    { message = "^perf",                 group = "Performance" },
+    { message = "^refactor",             group = "Refactoring" },
+    { message = "^docs",                 group = "Documentation" },
+    { message = "^test",                 group = "Tests" },
+    { message = "^ci",                   group = "CI & Build" },
+    { message = "^build",                group = "CI & Build" },
+    { message = "^deps",                 group = "Dependencies" },
+    { message = "^chore",                group = "Chores" },
+    { message = "^style",                group = "Style" },
     # Everything else is skipped.
     { message = ".*", skip = true },
 ]
