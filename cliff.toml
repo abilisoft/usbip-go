@@ -59,9 +59,10 @@ commit_preprocessors = [
     # describe what changed in the project, not what reviewer found
     # the bug or which directory hosts editor state.
     { pattern = '\bcodex\b', replace = "review" },
-    { pattern = '\bClaude Code\b', replace = "AI assistant" },
+    { pattern = '\bClaude Code\b', replace = "developer tooling" },
     { pattern = '\.claude\b', replace = ".editor-tooling" },
     { pattern = '\bAI assistant state\b', replace = "editor tooling state" },
+    { pattern = '\bAI assistant\b', replace = "developer tooling" },
 ]
 
 # Map Conventional Commit types into human-friendly section headings.
