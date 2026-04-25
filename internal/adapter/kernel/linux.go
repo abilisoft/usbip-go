@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 AbiliSoft
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build linux
 
 // Package kernel implements the Linux kernel adapter: sysfs reads/writes,

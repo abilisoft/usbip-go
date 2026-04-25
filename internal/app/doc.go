@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 AbiliSoft
+// SPDX-License-Identifier: Apache-2.0
+
 // Package app holds the USB/IP use-case services (importer, exporter, session
 // lifecycle, reconnect loop) and the adapter interfaces they depend on. It is
 // transport-free and kernel-free: concrete infrastructure lives in

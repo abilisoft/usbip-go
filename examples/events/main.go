@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 AbiliSoft
+// SPDX-License-Identifier: Apache-2.0
+
 // Example events demonstrates iterating over Importer.Watch and
 // Exporter.WatchSessions. Both return iter.Seq[Event], Go 1.23+'s
 // range-over-function shape, so consumers can drive them with a

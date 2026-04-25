@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 AbiliSoft
+// SPDX-License-Identifier: Apache-2.0
+
 package wire
 
 // OpCode is a USBIP handshake opcode as transmitted in the 8-byte

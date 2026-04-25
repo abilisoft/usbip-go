@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 AbiliSoft
+// SPDX-License-Identifier: Apache-2.0
+
 // Package wire implements the USB/IP OP-level protocol codec: opcodes,
 // header layout, device descriptor (312 bytes), OP_REQ_DEVLIST /
 // OP_REP_DEVLIST, and OP_REQ_IMPORT / OP_REP_IMPORT. Encoding is
