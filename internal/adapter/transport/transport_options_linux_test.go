@@ -277,13 +277,13 @@ func acceptOnce(ln net.Listener) <-chan net.Conn {
 //   - zero DialConnectTimeout dialing loopback succeeds (control:
 //     proves the listener and dial path are healthy under default
 //     options).
-//   - 1 ns DialConnectTimeout dialing the same loopback returns a
-//     timeout-class error before the connect can complete (proves
-//     the field reaches net.Dialer.Timeout, since stdlib lowers a
-//     non-zero Timeout into a context.DeadlineExceeded path that
-//     fires before dialSerial reaches the syscall).
+//   - sub-microsecond DialConnectTimeout dialing the same loopback
+//     returns a timeout-class error before the connect can complete
+//     (proves the field reaches net.Dialer.Timeout, since stdlib
+//     lowers a non-zero Timeout into a context.DeadlineExceeded path
+//     that fires before dialSerial reaches the syscall).
 //
-// If our impl forgot to set dialer.Timeout, the 1 ns cell would
+// If our impl forgot to set dialer.Timeout, the sub-microsecond cell would
 // connect to loopback successfully and the assertion would fail.
 func TestDialConnectTimeoutWiresDialerTimeoutLinux(t *testing.T) {
 	t.Parallel()
