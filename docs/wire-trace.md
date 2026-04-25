@@ -104,7 +104,7 @@ regeneration where the payload is outside its documented range:
 | Frame | Expected size |
 |---|---|
 | `OP_REQ_DEVLIST` | exactly 8 bytes |
-| `OP_REP_DEVLIST` | >= 324 bytes (8 header + 8 body header + 312 × nDevices + 4 × sum(bNumInterfaces)) |
+| `OP_REP_DEVLIST` | 12 bytes when `nDevices = 0`, otherwise 12 + 312 × nDevices + 4 × sum(bNumInterfaces) bytes (8 header + 4 device-count + per-device payload) |
 | `OP_REQ_IMPORT` | exactly 40 bytes (8 header + 32 busid) |
 | `OP_REP_IMPORT` | 8 bytes on error (header-only, non-zero `status`) or 320 bytes on success |
 

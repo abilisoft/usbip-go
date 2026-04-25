@@ -127,8 +127,10 @@ is covered by the `cross-compile` CI job.
   buffered channels; cancelling context closes the sequence.
 - Background watcher goroutines are owned by their service and
   terminate on `Close()` / `Shutdown()`.
-- `goleak.VerifyTestMain` in every test package guards against
-  goroutine leaks.
+- Goroutine-owning test packages (`internal/app`,
+  `internal/adapter/kernel`, `test/integration`,
+  `test/conformance`) install `goleak.VerifyTestMain` to catch
+  goroutine leaks at the package boundary.
 
 See v1 contract §3.4 for the authoritative lifecycle-semantics list
 (double-detach idempotency, Shutdown drain semantics, runtime module
