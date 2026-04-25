@@ -114,7 +114,7 @@ tasks:
     cmds:
       - act -l push
   act:push:
-    desc: 'Run push-event jobs locally (self-hosted KVM job skips)'
+    desc: 'Run push-event jobs locally via act'
     cmds:
       - act push
   act:job:
@@ -255,9 +255,14 @@ tasks:
       # gofmt -s simplifies redundant constructs (composite-literal
       # type elision, unnecessary type info). Run BEFORE gofumpt so
       # gofumpt's stricter rules see the simplified tree.
-      - gofmt -s -w .
-      - gofumpt -w .
-      - goimports -w .
+      #
+      # `.` would recurse into build/cache/go-mod (the hermetic Go
+      # module cache) where module source files are stored read-only;
+      # gofmt -w would fail with "permission denied". Limit to our
+      # own Go package roots.
+      - gofmt -s -w cmd examples internal pkg test
+      - gofumpt -w cmd examples internal pkg test
+      - goimports -w cmd examples internal pkg test
 
   ci:tidy:
     deps: [_check:tooling]
