@@ -97,7 +97,7 @@ func (a *ImporterAdapter) AttachRemote(
 //
 // The bounds check consumes only NControllers + VHCIPorts, so it
 // routes through loadStatusTopology — the BusMap-free projection
-// that survives live-host mid-probe races (matches the live-host mid-probe race precedent).
+// that survives live-host mid-probe races.
 // Wiring attach to the full loadTopology tied every attach to
 // BusMap completeness, producing spurious errTopologyIncomplete
 // failures on a transient shortfall that is irrelevant to the
@@ -236,7 +236,7 @@ func formatAttachPayload(portID domain.PortID, fd uintptr, devID domain.DeviceID
 //
 // The bounds check consumes only NControllers + VHCIPorts, so it
 // routes through loadStatusTopology — the BusMap-free projection
-// that survives live-host mid-probe races (matches the live-host mid-probe race precedent,
+// that survives live-host mid-probe races (carrying the precedent forward,
 // mirrored by attachAtPort). Using loadTopology would tie every
 // detach to BusMap completeness and spuriously fail on transient
 // shortfalls irrelevant to the bounds arithmetic.
