@@ -81,7 +81,7 @@ func TestAttachFailurePathCarriesSpecRequiredAttrs(t *testing.T) {
 
 // TestAttachKernelErrorRecordCarriesBusIDAndRemote asserts the
 // importer's Warn log on AttachRemote failure includes busid AND the
-// remote endpoint. The v1 contract §11.5.5 contract lists both as required
+// remote endpoint. v1 contract §11.5.5 lists both as required
 // attrs on attach-path records.
 func TestAttachKernelErrorRecordCarriesBusIDAndRemote(t *testing.T) {
 	t.Parallel()

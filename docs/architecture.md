@@ -40,7 +40,7 @@ The only package external consumers import. It declares `Importer`,
 public backoff strategies, and the sentinel errors. All method bodies
 are 1:1 forwards to `internal/app` after trivial argument translation.
 The facade exists so the internal layer can evolve without breaking
-the public API — see v1 contract §5.7 for the contract.
+the public API; v1 contract §5.7 documents this surface.
 
 ### `pkg/domain`
 
