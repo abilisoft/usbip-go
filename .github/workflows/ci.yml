@@ -14,6 +14,12 @@ on:
 
 permissions:
   contents: read
+  # id-token: write is required by DeterminateSystems/flakehub-cache-action
+  # so it can mint a workflow-scoped OIDC token to authenticate against
+  # FlakeHub Cache. The token never leaves the runner; it is exchanged
+  # for a short-lived cache-service credential. Granted at workflow scope
+  # so every job that runs the cache action inherits it.
+  id-token: write
 
 # Pattern: install Nix on a plain ubuntu-24.04 runner via the
 # Determinate Systems action, let Magic Nix Cache handle the store
@@ -42,7 +48,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+      - uses: DeterminateSystems/flakehub-cache-action@e134de896b2302c1584a7b54ff35432708607d44 # v3.18.1
       - name: Lint
         run: nix develop --command task ci:lint
       - name: Vuln
@@ -56,7 +62,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+      - uses: DeterminateSystems/flakehub-cache-action@e134de896b2302c1584a7b54ff35432708607d44 # v3.18.1
       - name: Test
         run: nix develop --command task ci:test
 
@@ -68,7 +74,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+      - uses: DeterminateSystems/flakehub-cache-action@e134de896b2302c1584a7b54ff35432708607d44 # v3.18.1
       - name: Conformance tests
         run: nix develop --command task ci:test:conformance
 
@@ -117,7 +123,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+      - uses: DeterminateSystems/flakehub-cache-action@e134de896b2302c1584a7b54ff35432708607d44 # v3.18.1
       - name: Diff exported API against baselines
         run: |
           nix develop --command bash -eu -c '
@@ -180,7 +186,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+      - uses: DeterminateSystems/flakehub-cache-action@e134de896b2302c1584a7b54ff35432708607d44 # v3.18.1
       - name: Authoritative cgo detection via go list
         # `go list -f '{{.CgoFiles}}'` surfaces every OUR package
         # that has cgo files — catches both single-line `import "C"`
@@ -224,7 +230,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+      - uses: DeterminateSystems/flakehub-cache-action@e134de896b2302c1584a7b54ff35432708607d44 # v3.18.1
       - name: Produce coverage profile
         run: nix develop --command task ci:test:cover
       - name: Enforce thresholds
@@ -239,7 +245,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+      - uses: DeterminateSystems/flakehub-cache-action@e134de896b2302c1584a7b54ff35432708607d44 # v3.18.1
       - name: Cross-platform build
         # CGO_ENABLED=0 for cross-builds: matches the no-cgo policy
         # gate plus avoids the host-toolchain cgo trap (cross-arch
@@ -262,6 +268,6 @@ jobs:
         with:
           fetch-depth: 0
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+      - uses: DeterminateSystems/flakehub-cache-action@e134de896b2302c1584a7b54ff35432708607d44 # v3.18.1
       - name: Mutation tests
         run: nix develop --command task ci:test:mutation
