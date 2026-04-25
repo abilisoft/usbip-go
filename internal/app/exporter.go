@@ -31,9 +31,12 @@ type Exporter struct {
 	clock     Clock
 	logger    *slog.Logger
 	metrics   *Metrics
-	// transportOptions is the snapshot taken at NewExporter time. PR
-	// 1b will pass it to Transport.Listen so accepted connections
-	// inherit the configured tuning.
+	// transportOptions is the snapshot taken at NewExporter time.
+	// PR 1a stores and validates the value; PR 1b adds an Exporter-
+	// owned listener path that honors it on accepted connections. In
+	// the meantime callers using Serve(ctx, listener) with their own
+	// listener must tune that listener themselves — the field is
+	// deliberately inert at runtime in PR 1a.
 	transportOptions TransportOptions
 
 	cfg             exporterLimits

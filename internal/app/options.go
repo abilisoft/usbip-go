@@ -180,11 +180,20 @@ func WithExporterMetrics(m *Metrics) ExporterOption {
 }
 
 // WithExporterTransportOptions stores TCP-level tuning that the
-// Exporter's Listen calls hand to the Transport adapter. Zero-valued
-// fields preserve v1.0.0 behavior. NewExporterWithError validates the
-// struct and returns ErrTransportOptionsInvalid on negative values
-// (matching the ACL-validation precedent); NewExporter panics with
-// the same error.
+// Exporter would hand to the Transport adapter on accepted
+// connections. Zero-valued fields preserve v1.0.0 behavior.
+// NewExporterWithError validates the struct and returns
+// ErrTransportOptionsInvalid on negative values (matching the
+// ACL-validation precedent); NewExporter panics with the same error.
+//
+// IMPORTANT (PR 1a scope): the option is stored but currently inert
+// at runtime. Exporter.Serve consumes a caller-supplied net.Listener
+// (the daemon path in cmd/usbipd-go builds its own listener via
+// systemd activation or net.ListenConfig and hands it in directly),
+// so options set via this function do not reach accepted connections
+// today. PR 1b adds an Exporter-owned listener path that honors these
+// options. Callers wiring a caller-owned listener must apply socket
+// tuning to their own listener until then.
 func WithExporterTransportOptions(opts TransportOptions) ExporterOption {
 	return func(c *exporterConfig) { c.transportOptions = opts }
 }
