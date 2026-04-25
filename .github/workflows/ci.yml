@@ -21,12 +21,13 @@ permissions:
 # so the flake-pinned toolchain (Go, golangci-lint, govulncheck, …)
 # is on PATH.
 #
-# Why not `container: nixos/nix`? GitHub Actions requires Node.js
-# inside any job container; nixos/nix is minimal and ships no node,
-# so `actions/cache@v4` and other JS-based actions fail with
-# "node: executable file not found". The plain runner has node out
-# of the box, and Magic Nix Cache replaces the nix-store actions/cache
-# entry that would otherwise live here.
+# We deliberately do NOT run jobs inside a minimal nix-only container
+# image: GitHub Actions requires Node.js inside any job container so
+# action-shipped JS code (notably actions/cache save/restore) can run.
+# A node-less Nix base image fails every JS action with "node:
+# executable file not found". The plain runner has node out of the
+# box, and Magic Nix Cache replaces the nix-store actions/cache entry
+# that would otherwise live here.
 
 defaults:
   run:
