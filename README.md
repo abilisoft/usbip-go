@@ -129,11 +129,13 @@ slsa-verifier verify-artifact "${ARCHIVE}" \
   --source-tag "v${VERSION}"
 
 # 2. Checksum signature: prove checksums.txt was signed by a Sigstore
-#    keyless cert that chains to the same workflow's OIDC identity.
+#    keyless cert whose OIDC subject is the .github/workflows/release.yml
+#    workflow at the same v*.*.* tag — matches the exact workflow path
+#    so a different workflow in this repo cannot satisfy the check.
 cosign verify-blob \
   --certificate checksums.txt.pem \
   --signature checksums.txt.sig \
-  --certificate-identity-regexp 'https://github\.com/abilisoft/usbip-go/' \
+  --certificate-identity-regexp '^https://github\.com/abilisoft/usbip-go/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   checksums.txt
 
