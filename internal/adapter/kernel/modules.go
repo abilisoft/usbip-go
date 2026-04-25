@@ -40,7 +40,7 @@ func checkModules(fsys fs.FS, names ...string) error {
 
 // ModulesAvailable probes usbip_core + vhci_hcd — the importer-side
 // module set. Runs at startup and before each importer operation so
-// runtime module disappearance (spec §11.5.4) is surfaced with a
+// runtime module disappearance (v1 contract §11.5.4) is surfaced with a
 // clear error.
 func (a *ImporterAdapter) ModulesAvailable(_ context.Context) error {
 	return checkModules(a.fs, ModuleUsbipCore, ModuleVHCIHCD)

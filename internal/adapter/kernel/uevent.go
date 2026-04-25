@@ -148,7 +148,7 @@ type slogRef = struct {
 // netlink listener. The first Subscribe opens the socket and starts
 // the dispatcher run-loop; subsequent Subscribes join the existing
 // fan-out. Each caller receives its own cancel func; the dispatcher
-// lives until the LAST subscriber unsubscribes (spec §5.1), not the
+// lives until the LAST subscriber unsubscribes (v1 contract §5.1), not the
 // first — the dispatcher carries its own context independent of any
 // subscriber's.
 //

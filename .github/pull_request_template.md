@@ -19,10 +19,10 @@ The CI `test-tdd-discipline` job enforces the chain; mismatch fails
 the build.
 -->
 
-## Spec trace
+## Contract trace
 
-- Spec section(s): <!-- e.g. §5.5 auto-reconnect, §11.5.5 metrics -->
-- Plan task: <!-- e.g. Task 9.3 — Prometheus metrics catalogue -->
+- Contract section(s): <!-- e.g. §5.5 auto-reconnect, §11.5.5 metrics -->
+- Related work item: <!-- e.g. Prometheus metrics catalogue -->
 
 ## Gates passed
 

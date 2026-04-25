@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestJSONEventForwardCompatTolerant asserts the spec §7.5 v1 stability
+// TestJSONEventForwardCompatTolerant asserts the v1 contract §7.5 v1 stability
 // rule: a downstream consumer decoding a CLI jsonlines record with an
 // unknown field MUST NOT fail. stdlib json.Unmarshal is the reference
 // consumer implementation — DisallowUnknownFields would violate the
@@ -35,7 +35,7 @@ func TestJSONEventForwardCompatTolerant(t *testing.T) {
 	var rec map[string]any
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
 
-	// Spec §7.5 guarantees schema + kind discriminator + payload fields.
+	// v1 contract §7.5 guarantees schema + kind discriminator + payload fields.
 	require.Equal(t, "v1", rec["schema"])
 	require.Equal(t, "port_attached", rec["kind"])
 	require.Contains(t, rec, "port")

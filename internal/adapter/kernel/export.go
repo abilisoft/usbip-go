@@ -19,7 +19,7 @@ import (
 // ImporterAdapter.AttachRemote: after the kernel-side sockfd_lookup
 // succeeds the kernel owns a ref on the socket; callers still own
 // their own fd and MUST close it themselves when the session ends —
-// this adapter never closes the caller's conn (spec §5.4 item 4).
+// this adapter never closes the caller's conn (v1 contract §5.4 item 4).
 func (a *ExporterAdapter) ExportOnConn(ctx context.Context, conn net.Conn, busID domain.BusID) error {
 	err := a.ModulesAvailable(ctx)
 	if err != nil {

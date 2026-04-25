@@ -80,7 +80,7 @@ func TestExporterModulesAvailable_MissingHost(t *testing.T) {
 }
 
 // TestEventsAdapter_NoModulesAvailableMethod confirms the EventsAdapter
-// does NOT expose ModulesAvailable per spec §5.1.
+// does NOT expose ModulesAvailable per v1 contract §5.1.
 func TestEventsAdapter_NoModulesAvailableMethod(t *testing.T) {
 	t.Parallel()
 
@@ -93,7 +93,7 @@ func TestEventsAdapter_NoModulesAvailableMethod(t *testing.T) {
 	// adds a ModulesAvailable method to EventsAdapter in the future
 	// the cast succeeds and this test fails loudly.
 	_, hasMethod := any(a).(modulesAvailabler)
-	require.False(t, hasMethod, "EventsAdapter must NOT expose ModulesAvailable per spec §5.1")
+	require.False(t, hasMethod, "EventsAdapter must NOT expose ModulesAvailable per v1 contract §5.1")
 }
 
 // modulesAvailabler is the method-set we assert EventsAdapter does not

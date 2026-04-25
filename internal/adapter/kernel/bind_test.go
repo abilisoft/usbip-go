@@ -145,7 +145,7 @@ func TestUnbind_WritesReverseSequence(t *testing.T) {
 	}, rec.calls[2])
 }
 
-// TestBind_EBUSYMapsToAlreadyBound confirms spec §6.4 mapping for the
+// TestBind_EBUSYMapsToAlreadyBound confirms v1 contract §6.4 mapping for the
 // bind write.
 func TestBind_EBUSYMapsToAlreadyBound(t *testing.T) {
 	t.Parallel()

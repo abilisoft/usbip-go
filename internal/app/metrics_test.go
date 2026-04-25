@@ -181,7 +181,7 @@ func TestMustNewMetricsAcceptsNilRegisterer(t *testing.T) {
 	m.SetBuildInfo("v", "c", "g")
 }
 
-// expectedMetricNames returns the full v1 catalog per spec §11.5.5. The
+// expectedMetricNames returns the full v1 catalog per v1 contract §11.5.5. The
 // order matches the spec table so a drift between the two is obvious
 // during review.
 func expectedMetricNames() []string {

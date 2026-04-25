@@ -48,7 +48,7 @@ const killHelperEnvBusID = "USBIP_TEST_BUSID"
 // budgets would hide a real hang.
 const killWaitDeadline = 3 * time.Second
 
-// TestProcessDeathBeforeDial covers spec §5.4 item 5a's before-dial
+// TestProcessDeathBeforeDial covers v1 contract §5.4 item 5a's before-dial
 // branch: the child dies BEFORE the Importer ever opens a TCP
 // connection to the server, so the kernel neither hands out a vhci
 // port nor opens a stub socket. Assertion is negative — no port
@@ -118,7 +118,7 @@ func TestProcessDeathAfterDial(t *testing.T) {
 // without ever writing AT=after_sysfs, which hangs the parent on its
 // stderr read. Asserting the parent observes the AT line within a tight
 // 1-second budget guards the announce-before-op ordering required by
-// spec §5.4 item 5a / item 7 telemetry.
+// v1 contract §5.4 item 5a / item 7 telemetry.
 func TestProcessDeathCheckpointAnnouncedBeforeFailingOp(t *testing.T) {
 	// No SetupVUDC / kernel module preflight: this test asserts on the
 	// helper's stderr ordering only, and Attach aborts at dial (before

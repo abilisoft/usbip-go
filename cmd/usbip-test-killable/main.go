@@ -14,10 +14,10 @@
 //	              to prove no vhci port is even attempted.
 //	after_dial  — pause AFTER Dial but BEFORE AttachRemote, to cover
 //	              the "kernel closes TCP socket on process death
-//	              before sysfs handoff" branch (spec §5.4 item 5a).
+//	              before sysfs handoff" branch (v1 contract §5.4 item 5a).
 //	after_sysfs — pause AFTER a successful AttachRemote, to cover the
 //	              "kernel holds its own ref, parent cleans up via
-//	              Detach" branch (spec §5.4 item 7).
+//	              Detach" branch (v1 contract §5.4 item 7).
 //
 // The parent reads "AT=<point>\n" from stderr to know the child is
 // parked at the checkpoint; it then SIGKILLs and proceeds to assert
@@ -96,7 +96,7 @@ func main() {
 // run is the testable entrypoint. Separated from main so the helper
 // can be unit-tested if ever needed (currently it is proven only by
 // the integration parent); keeping main as a thin wrapper matches the
-// pattern used across cmd/usbipd and cmd/usbip.
+// pattern used across cmd/usbipd-go and cmd/usbip-go.
 func run() int {
 	target := checkpoint(os.Getenv(killEnv))
 	if target == "" {

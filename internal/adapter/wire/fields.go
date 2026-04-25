@@ -13,7 +13,7 @@ import (
 )
 
 // DecodeFlags carries advisory signals produced by a decode call that
-// the spec §6.2 permissive-read rule keeps out of the error channel.
+// the v1 contract §6.2 permissive-read rule keeps out of the error channel.
 // Codec methods consume the flags and emit slog.Warn records; direct
 // callers of the package-level decoders can inspect the struct or
 // ignore it. An empty DecodeFlags represents a clean decode.
@@ -104,7 +104,7 @@ func ReadPaddedString(r io.Reader, size int) (string, bool, error) {
 // minPrintableASCII and maxPrintableASCII bound the printable subset
 // of ASCII (0x20 space through 0x7E tilde). Bytes outside this range —
 // NUL, control characters, DEL, and any high-bit byte — are not valid
-// in USBIP padded-string fields per spec §6.2.
+// in USBIP padded-string fields per v1 contract §6.2.
 const (
 	minPrintableASCII = 0x20
 	maxPrintableASCII = 0x7E
@@ -112,7 +112,7 @@ const (
 
 // paddedStringFromBytes interprets buf as a NUL-padded fixed-width
 // string. Returns the decoded string and a truncated flag, matching
-// spec §6.2 semantics:
+// v1 contract §6.2 semantics:
 //
 //   - First byte is NUL-or-non-printable at offset i > 0: return
 //     buf[:i] and truncated == false (the well-formed case: NUL

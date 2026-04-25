@@ -26,7 +26,7 @@ import (
 
 // ImporterKernel wraps the vhci_hcd module (importer-side kernel
 // surface). A process that only imports does NOT need usbip_host
-// loaded. See spec §5.1.
+// loaded. See v1 contract §5.1.
 type ImporterKernel interface {
 	AttachRemote(ctx context.Context, conn net.Conn, spec RemoteDeviceSpec) (domain.PortID, error)
 	DetachPort(ctx context.Context, id domain.PortID) error
@@ -37,7 +37,7 @@ type ImporterKernel interface {
 
 // ExporterKernel wraps the usbip_host module (exporter-side kernel
 // surface). A process that only exports does NOT need vhci_hcd
-// loaded. See spec §5.1.
+// loaded. See v1 contract §5.1.
 type ExporterKernel interface {
 	ListLocalDevices(ctx context.Context) ([]domain.Device, error)
 	Bind(ctx context.Context, busID domain.BusID) error
@@ -53,7 +53,7 @@ type ExporterKernel interface {
 // reconnect watcher, the public Watch/WatchSessions streams, and
 // tests. One netlink socket, many consumers via an internal fan-out.
 //
-// Subscribe semantics (spec §5.1):
+// Subscribe semantics (v1 contract §5.1):
 //   - each call returns a fresh buffered channel
 //   - slow subscribers drop events (logged) rather than back-pressuring fan-out
 //   - the returned cancel func unsubscribes and closes the channel
@@ -64,7 +64,7 @@ type KernelEvents interface {
 
 // ProtocolCodec is the wire-level USBIP codec surface the app layer
 // depends on. It mirrors the method set on internal/adapter/wire.Codec.
-// Spec §5.1 declares the interface; the wire package's Codec struct
+// v1 contract §5.1 declares the interface; the wire package's Codec struct
 // provides the implementation.
 type ProtocolCodec interface {
 	EncodeOpReqDevlist() []byte

@@ -157,7 +157,7 @@ func attachFS() fstest.MapFS {
 }
 
 // TestAttachRemote_PortOutOfRangeSentinelIsAdapterLocal pins the
-// Task 4.1 layering invariant: the out-of-range sentinel lives in
+// layering invariant: the out-of-range sentinel lives in
 // the kernel adapter package, not on pkg/domain or pkg/usbip. The
 // sentinel is VHCI-specific — no other kernel HCD surfaces it —
 // so exposing it on the domain or public facade would enlarge the
@@ -200,7 +200,7 @@ func TestAttachRemote_PortOutOfRangeSentinelIsAdapterLocal(t *testing.T) {
 		"adapter-local sentinel must be reachable through the white-box shim")
 }
 
-// TestAttachRemote_RejectsOutOfRangePort pins Task 4's defence-in-
+// TestAttachRemote_RejectsOutOfRangePort pins the defence-in-
 // depth bounds check: a flat port identifier outside the kernel's
 // port space must be refused by the adapter before any sysfs write.
 // vhci_sysfs.c::attach_store returns -EINVAL when `port >= nports`,
@@ -220,7 +220,7 @@ func TestAttachRemote_PortOutOfRangeSentinelIsAdapterLocal(t *testing.T) {
 // cannot emit such a value (parseStatusFile already rejects rows
 // outside the controller window), but the bounds check hardens the
 // path against stale caches or future bypass callers — the exact
-// hole Task 4 closes.
+// hole closes.
 func TestAttachRemote_RejectsOutOfRangePort(t *testing.T) {
 	t.Parallel()
 
@@ -271,7 +271,7 @@ func TestAttachRemote_RejectsOutOfRangePort(t *testing.T) {
 // spuriously failed on a transient BusMap shortfall.
 //
 // attachAtPort validates via loadStatusTopology (mirrors
-// readStatusRows's Task 2.1 split). A fixture with nports=8 and no
+// readStatusRows's split). A fixture with nports=8 and no
 // usb* children still exposes enough topology for the bounds check;
 // port 0 (in range under [0, 8)) must attach successfully.
 //
@@ -481,7 +481,7 @@ func TestFormatDetachPayload_MatchesKernelContract(t *testing.T) {
 			"vhci_sysfs.c::detach_store")
 }
 
-// TestDetachPort_RejectsOutOfRangePort pins symmetry with Task 4's
+// TestDetachPort_RejectsOutOfRangePort pins symmetry with 's
 // attach bounds check: a detach request targeting a flat port outside
 // the kernel's port space must be refused by the adapter before any
 // sysfs write. vhci_sysfs.c::detach_store runs kstrtoint + valid_port
@@ -489,7 +489,7 @@ func TestFormatDetachPayload_MatchesKernelContract(t *testing.T) {
 // surfacing that bare errno gives operators no context. The adapter
 // therefore validates proactively and wraps the adapter-local
 // errPortOutOfRange sentinel with port + nports context, matching the
-// Task 4 attach flow byte for byte.
+// attach flow byte for byte.
 //
 // Without the check a stale portID (cached by the importer across a
 // vhci_hcd module reload) would silently fall through to writeClassified
@@ -560,7 +560,7 @@ func TestDetachPort_AcceptsInRangePort(t *testing.T) {
 		"detach payload must be the bare decimal of the flat port id")
 }
 
-// TestDetachPort_SucceedsDespiteIncompleteBusMap pins the Task 4.1
+// TestDetachPort_SucceedsDespiteIncompleteBusMap pins the 
 // layering invariant on the detach side: bounds validation must
 // consume only StatusTopology (NControllers + VHCIPorts), never the
 // BusMap. A controller mid-probe whose usb* children are not yet
@@ -923,7 +923,7 @@ func TestFindFreePort_SSMatchesFlatBoundary(t *testing.T) {
 		"the only free SS slot is at flat %d", freeSSFlatPort)
 }
 
-// TestAttachRemote_SerializedUnderContention exercises spec §3.4:
+// TestAttachRemote_SerializedUnderContention exercises v1 contract §3.4:
 // concurrent AttachRemote callers contending for a single free port
 // must produce exactly one success and one ErrNoFreePort.
 func TestAttachRemote_SerializedUnderContention(t *testing.T) {

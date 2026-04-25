@@ -18,7 +18,7 @@ import (
 )
 
 // defaultShutdownTimeout bounds Detach and Close's wait on the reconnect
-// watcher per spec §5.5 when AttachOptions.ShutdownTimeout is zero. A
+// watcher per v1 contract §5.5 when AttachOptions.ShutdownTimeout is zero. A
 // negative ShutdownTimeout disables the bound (wait indefinitely).
 const defaultShutdownTimeout = 5 * time.Second
 
@@ -29,7 +29,7 @@ const defaultShutdownTimeout = 5 * time.Second
 //
 // The handle map tracks every successfully-attached port along with a
 // per-handle cancel signal and a monotonically increasing generation.
-// The reconnect watcher (spec §5.5) reads the generation to filter
+// The reconnect watcher (v1 contract §5.5) reads the generation to filter
 // stale kernel events whose port id was replaced by a successful
 // reattach.
 type Importer struct {
@@ -76,7 +76,7 @@ type attachKey struct {
 // generation is assigned at registerHandle time from Importer.nextGen
 // and stays constant for the lifetime of the handle; it lets the
 // reconnect watcher reject stale uevents whose port id was already
-// replaced by a successful reattach (spec §5.5).
+// replaced by a successful reattach (v1 contract §5.5).
 //
 // watcherDone is closed by the reconnect watcher goroutine when it
 // exits. Non-AutoReconnect handles leave it nil; Detach and Close read
@@ -221,7 +221,7 @@ func (i *Importer) Close() error {
 // OP_REQ_DEVLIST, and returns the decoded []domain.Device. The TCP
 // connection is owned for the entire call: it is always closed before
 // ListRemote returns (success or failure). OP_REP_DEVLIST does not
-// involve fd-passing, so the spec §5.4 handoff contract does not apply
+// involve fd-passing, so the v1 contract §5.4 handoff contract does not apply
 // here — the connection is a short-lived query channel.
 //
 // Returned errors are wrapped with the peer endpoint so callers can
@@ -283,7 +283,7 @@ func closeConnLogging(conn net.Conn, logger *slog.Logger) {
 // that the domain package does not provide.
 const deviceIDBusShift = 16
 
-// Attach runs the full USB/IP import sequence per spec §5.2:
+// Attach runs the full USB/IP import sequence per v1 contract §5.2:
 //
 //  1. kernel.ModulesAvailable probes vhci_hcd + usbip_core.
 //  2. transport.Dial establishes the TCP connection to endpoint.
@@ -291,7 +291,7 @@ const deviceIDBusShift = 16
 //  4. codec.DecodeOpRepImport(conn) reads back the device body.
 //  5. kernel.AttachRemote(ctx, conn, spec) hands the fd to the kernel.
 //
-// Step 5 is the fd-passing handoff defined in spec §5.4 item 4. Until
+// Step 5 is the fd-passing handoff defined in v1 contract §5.4 item 4. Until
 // AttachRemote returns success, Attach owns the conn and MUST close it
 // on any error path. After success, the kernel owns the fd and Attach
 // MUST NOT touch it — closing it there would tear down the just-opened
@@ -300,7 +300,7 @@ const deviceIDBusShift = 16
 //
 // When AttachOptions.AutoReconnect is set, the successful-return path
 // also spawns a reconnect watcher goroutine bound to the fresh handle
-// (spec §5.5). The watcher is enrolled in i.wg so Close drains it.
+// (v1 contract §5.5). The watcher is enrolled in i.wg so Close drains it.
 func (i *Importer) Attach(
 	ctx context.Context,
 	endpoint domain.RemoteEndpoint,
@@ -343,7 +343,7 @@ func (i *Importer) Attach(
 }
 
 // Detach tears down a previously-imported port by id. It cancels the
-// handle's context BEFORE issuing the sysfs-backed detach per spec §5.5
+// handle's context BEFORE issuing the sysfs-backed detach per v1 contract §5.5
 // so any auto-reconnect watcher sees cancel ahead of the status
 // transition and does not race a reattempt, and blocks on the watcher
 // goroutine's done channel before touching the kernel so an in-flight
@@ -391,7 +391,7 @@ func (i *Importer) Detach(ctx context.Context, id domain.PortID) error {
 
 	i.mu.Unlock()
 
-	// Cancel first (spec §5.5) so any reconnect watcher observes
+	// Cancel first (v1 contract §5.5) so any reconnect watcher observes
 	// termination and exits. Waiting on watcherDone guarantees the
 	// watcher has drained before DetachPort runs; a nil watcherDone
 	// means this handle was attached with AutoReconnect=false. The
@@ -595,7 +595,7 @@ func (i *Importer) acquireAttachSlot(
 // surfaces as domain.ErrDeviceNotFound — a domain-level rejection,
 // not a wire framing fault; any other decode error is a
 // genuine protocol mismatch. The closed-set outcome label for "peer
-// rejected the import" stays kernel_error because the spec §11.5.5
+// rejected the import" stays kernel_error because the v1 contract §11.5.5
 // outcome enum does not yet split "rejected" from "kernel_error"; the
 // important fix is that errors.Is(err, domain.ErrDeviceNotFound) is
 // true on the returned Attach error so callers can distinguish.
@@ -609,7 +609,7 @@ func classifyDecodeImportErr(err error) AttachOutcome {
 
 // attachOverDialed factors out the dial-through-handoff portion of
 // Attach. Splitting it keeps Attach under the project's cyclomatic cap
-// and isolates the fd-passing deferred cleanup per spec §5.4. opts is
+// and isolates the fd-passing deferred cleanup per v1 contract §5.4. opts is
 // forwarded unchanged so registerHandle can hand the resulting handle
 // to a reconnect watcher when AutoReconnect is enabled.
 func (i *Importer) attachOverDialed(
@@ -625,7 +625,7 @@ func (i *Importer) attachOverDialed(
 		return domain.Port{}, fmt.Errorf("dial %s: %w", endpoint.String(), err)
 	}
 
-	// Per spec §5.4 item 4: Attach owns the fd until AttachRemote
+	// Per v1 contract §5.4 item 4: Attach owns the fd until AttachRemote
 	// succeeds. The deferred close below runs on every return; the
 	// handedOff flag suppresses it exactly once, right after the
 	// kernel takes ownership.

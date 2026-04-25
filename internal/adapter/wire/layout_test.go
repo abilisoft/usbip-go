@@ -19,7 +19,7 @@ import (
 //go:embed testdata/*.json
 var deviceFixtureFS embed.FS
 
-// Synthetic device-descriptor fixtures (spec §6.2 byte layout). Inlined
+// Synthetic device-descriptor fixtures (v1 contract §6.2 byte layout). Inlined
 // as hex so the repo never carries binary blobs; mustDecodeHex strips
 // whitespace so the strings can be reformatted freely.
 const (

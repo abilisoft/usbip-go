@@ -12,7 +12,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// Default resource limits per spec §11.5.3. Zero-valued option fields
+// Default resource limits per v1 contract §11.5.3. Zero-valued option fields
 // resolve to these values at NewExporter time so every Exporter has a
 // predictable baseline policy even without explicit caps.
 const (

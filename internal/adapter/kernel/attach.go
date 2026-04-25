@@ -18,11 +18,11 @@ import (
 )
 
 // AttachRemote performs the fd-passing dance required to hand a live
-// TCP socket to vhci_hcd. Spec §5.4 pins the ordering contract; this
+// TCP socket to vhci_hcd. v1 contract §5.4 pins the ordering contract; this
 // method is the single source of truth for that ordering and any
 // modification must re-verify the guarantees below.
 //
-// NOTE — fd lifecycle (spec §5.4):
+// NOTE — fd lifecycle (v1 contract §5.4):
 //
 //  1. Write first, close second. We write the sysfs `attach` file,
 //     which triggers sockfd_lookup(fd) kernel-side. The kernel fgets
@@ -45,7 +45,7 @@ import (
 //     performs its own close.
 //
 // Violating this ordering is the most common source of regressions;
-// maintainers editing this function must re-read spec §5.4 in full.
+// maintainers editing this function must re-read v1 contract §5.4 in full.
 func (a *ImporterAdapter) AttachRemote(
 	ctx context.Context,
 	conn net.Conn,
@@ -56,7 +56,7 @@ func (a *ImporterAdapter) AttachRemote(
 		return 0, err
 	}
 
-	// Spec §3.4 serialization: findFreePort reads the status file and
+	// v1 contract §3.4 serialization: findFreePort reads the status file and
 	// the sysfs attach write advances it. Without this lock two
 	// concurrent callers would both see the same free port and race
 	// on the write. Under the lock the loser's findFreePort observes
@@ -81,7 +81,7 @@ func (a *ImporterAdapter) AttachRemote(
 // always reaches this helper via AttachRemote, which picks the port
 // upstream.
 //
-// The fd-lifecycle invariants documented on AttachRemote (spec §5.4
+// The fd-lifecycle invariants documented on AttachRemote (v1 contract §5.4
 // write-first-close-second, caller owns conn on error) apply here
 // verbatim because this helper owns the sysfs write.
 //
@@ -97,7 +97,7 @@ func (a *ImporterAdapter) AttachRemote(
 //
 // The bounds check consumes only NControllers + VHCIPorts, so it
 // routes through loadStatusTopology — the BusMap-free projection
-// that survives live-host mid-probe races (Task 2.1 precedent).
+// that survives live-host mid-probe races (matches the live-host mid-probe race precedent).
 // Wiring attach to the full loadTopology tied every attach to
 // BusMap completeness, producing spurious errTopologyIncomplete
 // failures on a transient shortfall that is irrelevant to the
@@ -157,8 +157,8 @@ func (a *ImporterAdapter) attachAtPort(
 //
 // The signature is StatusTopology, not Topology: this validator
 // consumes only the flat port arithmetic (NControllers + VHCIPorts)
-// and must survive a BusMap-incomplete snapshot (mirror of the
-// Task 2.1 split that moved status parsing off the full Topology).
+// and must survive a BusMap-incomplete snapshot (mirroring the
+// split that moved status parsing off the full Topology).
 //
 // The decomposition guard is folded into the single range check:
 // port < NControllers*VHCIPorts is equivalent to (controllerIdx =
@@ -213,13 +213,13 @@ func extractFD(conn net.Conn) (uintptr, error) {
 
 // formatAttachPayload renders "%u %d %u %u" = (port, sockfd, devid,
 // speed). Matches upstream libsrc/vhci_driver.c for byte-for-byte
-// interop. Verbatim from spec §6.1.
+// interop. Verbatim from v1 contract §6.1.
 func formatAttachPayload(portID domain.PortID, fd uintptr, devID domain.DeviceID, speed domain.Speed) string {
 	return fmt.Sprintf("%d %d %d %d", uint32(portID), fd, uint32(devID), uint32(speed))
 }
 
 // DetachPort writes the decimal port ID to vhci_hcd.0/detach. Format
-// per spec §6.1: kstrtoint, single decimal integer, no trailing
+// per v1 contract §6.1: kstrtoint, single decimal integer, no trailing
 // newline.
 //
 // Defence-in-depth: the flat port is validated against the cached
@@ -236,7 +236,7 @@ func formatAttachPayload(portID domain.PortID, fd uintptr, devID domain.DeviceID
 //
 // The bounds check consumes only NControllers + VHCIPorts, so it
 // routes through loadStatusTopology — the BusMap-free projection
-// that survives live-host mid-probe races (Task 2.1 precedent,
+// that survives live-host mid-probe races (matches the live-host mid-probe race precedent,
 // mirrored by attachAtPort). Using loadTopology would tie every
 // detach to BusMap completeness and spuriously fail on transient
 // shortfalls irrelevant to the bounds arithmetic.

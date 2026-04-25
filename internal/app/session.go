@@ -39,9 +39,9 @@ func (c *connCloser) close() error {
 }
 
 // handleConn is the per-connection entry point spawned by the accept
-// loop. The handshake flow per spec §5.3:
+// loop. The handshake flow per v1 contract §5.3:
 //
-//  1. Wrap the conn reader in a handshake-bytes cap (spec §11.5.3).
+//  1. Wrap the conn reader in a handshake-bytes cap (v1 contract §11.5.3).
 //  2. Arm a handshake timeout that closes the conn if no progress is
 //     made in time.
 //  3. Decode the OP header via the codec.
@@ -53,7 +53,7 @@ func (c *connCloser) close() error {
 //     kernel via ExportOnConn, block until waitForSessionEnd observes
 //     kernel-side session end.
 //
-// fd-passing contract (spec §5.4 item 4): the kernel dups the accepted
+// fd-passing contract (v1 contract §5.4 item 4): the kernel dups the accepted
 // fd on ExportOnConn success and holds its own ref; the app's original
 // ref is released here exactly once via connCloser (sync.Once). The
 // deferred close fires on every handler exit regardless of outcome so
@@ -218,7 +218,7 @@ func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn)
 // fires on every return path; sync.Once guards against double-close
 // (handshake-timeout watcher, failure-path adapter self-close). The
 // accepted fd is released after ExportOnConn returns regardless of
-// outcome — per spec §5.4 the kernel holds its own dup on success and
+// outcome — per v1 contract §5.4 the kernel holds its own dup on success and
 // the app's remaining ref must be released so only the kernel's ref
 // keeps the socket alive.
 //
@@ -441,7 +441,7 @@ func (e *Exporter) waitForSessionEnd(
 }
 
 // eventEndsSessionForBusID returns true iff ev is a kernel-side signal
-// that the exporter session for busID has ended. The spec §5.4 contract
+// that the exporter session for busID has ended. The v1 contract §5.4 contract
 // says the kernel emits a `remove` uevent on the exported device's
 // DEVPATH when the session tears down; the EventsAdapter's dispatcher
 // turns that into a PortDetachedEvent or DeviceUnboundEvent depending
@@ -503,7 +503,7 @@ func (e *Exporter) endSession(h *sessionHandle, reason string) {
 
 // buildSession assembles the domain.Session recorded for the accepted
 // connection. The session id is UUIDv7 (chronologically sortable) per
-// spec §11.5.5. A failure to generate the id is a process-level
+// v1 contract §11.5.5. A failure to generate the id is a process-level
 // problem (rand source exhausted); surfaced to the caller.
 func (e *Exporter) buildSession(conn net.Conn, busID domain.BusID) (domain.Session, error) {
 	id, err := domain.NewSessionID()

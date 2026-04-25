@@ -150,7 +150,7 @@ func completeBindableBusIDs(
 // completeBoundBusIDs lists devices currently bound to usbip-host. The
 // current public facade does not yet distinguish bound vs available, so
 // we reuse ListAvailable as the closest approximation; this preserves
-// spec §7.6 behaviour once the facade grows a dedicated method.
+// v1 contract §7.6 behaviour once the facade grows a dedicated method.
 func completeBoundBusIDs(
 	cmd *cobra.Command,
 	_ []string,

@@ -8,7 +8,7 @@
 // vhci_hcd, usbip_host, and usbip_vudc modules loaded. Build tag
 // integration_linux gates compilation; the tests skip cleanly via
 // harness preflight when the required modules are missing at runtime.
-// See spec §8.4 for the self-hosted CI contract that drives this tag.
+// See v1 contract §8.4 for the self-hosted CI contract that drives this tag.
 package integration
 
 import (
@@ -31,7 +31,7 @@ import (
 
 // harnessModuleNames enumerates the kernel modules the integration
 // suite requires before any test can safely touch configfs or bind a
-// vudc gadget. Any missing entry triggers t.Skip per the spec §8.4
+// vudc gadget. Any missing entry triggers t.Skip per the v1 contract §8.4
 // "skip-when-env-lacks-dep" exception, not the no-shortcuts rule.
 func harnessModuleNames() []string {
 	return []string{"usbip_core", "vhci_hcd", "usbip_host", "usbip_vudc"}
@@ -141,7 +141,7 @@ func setupVUDCWithBacking(t *testing.T, backing []byte) *VUDCDevice {
 // USB bus id (e.g. "1-1.2") bindable via usbip-host. Tests that need
 // real-device semantics read it via RequireRealBusID; vudc devices do
 // not traverse the usbip-host bind path and so are not sufficient for
-// these scenarios per spec §8.4.
+// these scenarios per v1 contract §8.4.
 const RealBusIDEnv = "USBIPGO_INTEGRATION_BUSID"
 
 // RequireRealBusID returns the BusID named by RealBusIDEnv or t.Skips
@@ -153,7 +153,7 @@ func RequireRealBusID(t *testing.T) domain.BusID {
 
 	raw := os.Getenv(RealBusIDEnv)
 	if raw == "" {
-		t.Skipf("integration harness: %s unset; scenario requires a real usbip-host bindable busid (spec §8.4 env-gated)",
+		t.Skipf("integration harness: %s unset; scenario requires a real usbip-host bindable busid (v1 contract §8.4 env-gated)",
 			RealBusIDEnv)
 	}
 
@@ -194,7 +194,7 @@ func RequireBindable(t *testing.T, ctx context.Context, exp *usbip.Exporter, bus
 const unbindCleanupTimeout = 2 * time.Second
 
 // requireModulesLoaded scans /sys/module for each harnessModuleNames
-// entry and t.Skips when any is missing. Spec §8.4 documents t.Skip as
+// entry and t.Skips when any is missing. v1 contract §8.4 documents t.Skip as
 // the sanctioned integration exception for missing kernel modules; no
 // other t.Skip path is acceptable per the no-shortcuts discipline.
 func requireModulesLoaded(t *testing.T) {
@@ -210,7 +210,7 @@ func requireModulesLoaded(t *testing.T) {
 	}
 
 	if len(missing) > 0 {
-		t.Skipf("integration harness: required kernel modules not loaded: %s (spec §8.4 self-hosted-only test)",
+		t.Skipf("integration harness: required kernel modules not loaded: %s (v1 contract §8.4 self-hosted-only test)",
 			strings.Join(missing, ", "))
 	}
 }

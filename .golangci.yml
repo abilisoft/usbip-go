@@ -97,7 +97,7 @@ linters:
         # cmd.Execute; contextcheck insists ctx flow through newRootCmd
         # as a parameter but cobra's PersistentPreRunE / RunE signatures
         # are fixed. cmd/usbip-go works around this by not having a ctx
-        # parameter in run(); usbipd needs one because signal.NotifyContext
+        # parameter in run(); usbipd-go needs one because signal.NotifyContext
         # wraps the parent in main. The exclusion is scoped to this one
         # file so no other context-propagation smells escape review.
         linters: [contextcheck]

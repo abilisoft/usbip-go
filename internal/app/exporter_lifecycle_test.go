@@ -93,7 +93,7 @@ func startExporterImportSession(
 }
 
 // TestExporterSessions_ReflectsCurrent asserts Sessions() returns the
-// set of accepted sessions. Mirrors spec §5.3's `Sessions(ctx)` contract.
+// set of accepted sessions. Mirrors v1 contract §5.3's `Sessions(ctx)` contract.
 func TestExporterSessions_ReflectsCurrent(t *testing.T) {
 	t.Parallel()
 
@@ -129,7 +129,7 @@ func TestExporterWatchSessions_StartEnd(t *testing.T) {
 	// Subscribe BEFORE releasing export so we see SessionStartedEvent,
 	// but AFTER the session is accepted so the Started event path has
 	// already published to the internal queue — consumers see future
-	// deltas per spec §3.4.
+	// deltas per v1 contract §3.4.
 	watchCtx, watchCancel := context.WithCancel(context.Background())
 	t.Cleanup(watchCancel)
 
@@ -430,7 +430,7 @@ func TestExporterShutdown_ReturnsEvenWhenHandlerIgnoresClose(t *testing.T) {
 
 // TestExporterWatchSessions_AfterShutdown asserts WatchSessions after
 // Shutdown returns an empty iter that terminates immediately. Matches
-// the Importer.Watch post-Close contract per spec §3.4.
+// the Importer.Watch post-Close contract per v1 contract §3.4.
 func TestExporterWatchSessions_AfterShutdown(t *testing.T) {
 	t.Parallel()
 

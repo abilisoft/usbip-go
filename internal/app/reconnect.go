@@ -19,14 +19,14 @@ import (
 const defaultStatusPollInterval = 5 * time.Second
 
 // defaultReconnectBackoffFloor is the first-attempt delay for the
-// default exponential backoff per spec §5.5.
+// default exponential backoff per v1 contract §5.5.
 const defaultReconnectBackoffFloor = 1 * time.Second
 
 // defaultReconnectBackoffCeiling is the delay ceiling for the default
-// exponential backoff per spec §5.5.
+// exponential backoff per v1 contract §5.5.
 const defaultReconnectBackoffCeiling = 60 * time.Second
 
-// defaultReconnectBackoffJitter matches the spec §5.5 default
+// defaultReconnectBackoffJitter matches the v1 contract §5.5 default
 // multiplicative jitter fraction.
 const defaultReconnectBackoffJitter = 0.2
 
@@ -59,7 +59,7 @@ type reconnectParams struct {
 // observe the channel to synchronise with the watcher's exit.
 //
 // The Attach caller's ctx is detached via context.WithoutCancel: the
-// watcher must outlive the Attach call (spec §5.5) and its only
+// watcher must outlive the Attach call (v1 contract §5.5) and its only
 // termination signals are handle.done (cancelled by Detach/Close) and
 // the events-source channel closing. Passing the caller ctx in and
 // detaching here keeps the call graph honest for contextcheck while
@@ -110,7 +110,7 @@ func resolveReconnectOptions(opts AttachOptions) AttachOptions {
 }
 
 // runReconnectWatcher is the watcher goroutine body. It runs in two
-// phases per spec §5.5: (1) wait for a detach signal from either the
+// phases per v1 contract §5.5: (1) wait for a detach signal from either the
 // uevent subscription or the ListPorts backstop, (2) loop reconnect
 // attempts gated by the configured backoff until success, MaxAttempts
 // exhaustion, or cancellation. The watcher exits by closing
@@ -229,7 +229,7 @@ func (i *Importer) waitForDetachTick(
 // isDetachSignal returns true iff ev is a legitimate detach signal for
 // the watcher's port: a PortDetachedEvent whose id matches p.portID,
 // whose handle slot still belongs to p.handle (generation check per
-// spec §5.5), AND whose detached status is confirmed by the kernel
+// v1 contract §5.5), AND whose detached status is confirmed by the kernel
 // (defence against stale uevents that arrive after a same-slot reuse).
 // The kernel confirmation step re-runs ListPorts because uevents can
 // be reordered or duplicated relative to the actual sysfs state; if the
@@ -326,7 +326,7 @@ func (i *Importer) isCurrentHandle(id domain.PortID, h *portHandle) bool {
 
 // portIsDetached returns true when ListPorts cannot find our port id
 // OR finds it in StatusNull — either outcome is the backstop signal for
-// a detach per spec §5.5 item 2. ListPorts errors are swallowed at
+// a detach per v1 contract §5.5 item 2. ListPorts errors are swallowed at
 // debug-level: the uevent path still covers the common case and a
 // noisy failing sysfs probe would drown out legitimate signal.
 func (i *Importer) portIsDetached(ctx context.Context, id domain.PortID) bool {
@@ -351,7 +351,7 @@ func (i *Importer) portIsDetached(ctx context.Context, id domain.PortID) bool {
 
 // runReconnectLoop runs attempts 1..MaxAttempts (0 = infinite) gated by
 // the Backoff. Each iteration sleeps, then re-attaches via the public
-// Attach path so the whole dial-handshake-handoff sequence (spec §5.2)
+// Attach path so the whole dial-handshake-handoff sequence (v1 contract §5.2)
 // is exercised. On success, the old handle is removed and the loop
 // exits; the replacement watcher is already running inside the
 // successful Attach return.
@@ -468,7 +468,7 @@ func (i *Importer) finishReconnectSuccess(
 	// success path needs the symmetric refresh too.
 	i.updateImporterPortsGauge()
 
-	// Per spec §5.5 / BackoffStrategy contract (internal/app/backoff.go:20
+	// Per v1 contract §5.5 / BackoffStrategy contract (internal/app/backoff.go:20
 	// and pkg/usbip/backoff.go:19): "Reset is called after a successful
 	// reconnect so the next failure starts from the smallest delay
 	// again." Without this call a stateful backoff stays escalated

@@ -2,7 +2,7 @@
 
 Stable contract for every JSON object emitted by usbip-go. This
 document fixes field names, types, and semantics at schema v1 per
-spec §7.5. It is one of the committed artefacts gated by the
+v1 contract §7.5. It is one of the committed artefacts gated by the
 `changelog-check` release job — any change here requires a
 documented schema bump.
 
@@ -289,7 +289,7 @@ Prometheus gauge.
 
 `sessions` entries use the same `sessionView` shape as the CLI
 list surfaces, with two JSON field name differences that are
-pinned by spec §7.7:
+pinned by v1 contract §7.7:
 
 - Status socket `sessionJSON.id` is the canonical UUIDv7 form.
 - `started_at` is RFC 3339 nano UTC.
@@ -298,7 +298,7 @@ pinned by spec §7.7:
 
 The Prometheus `/metrics` endpoint is NOT JSON — it emits the
 Prometheus text exposition format. The metric catalogue below lists
-every stable v1 metric and matches spec §11.5.5 verbatim.
+every stable v1 metric and matches v1 contract §11.5.5 verbatim.
 
 | Name | Type | Unit | Labels | Description |
 |---|---|---|---|---|

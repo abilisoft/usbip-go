@@ -20,7 +20,7 @@ import (
 // dup3FdOnto performs the syscall.Dup3(srcFd, target, 0) with the
 // uintptr→int narrowing guarded inline so gosec G115's flow analysis
 // sees a direct overflow comparison (same pattern as
-// cmd/usbip.isStderrTTY's os.Stderr.Fd() guard). External syscall
+// cmd/usbip-go.isStderrTTY's os.Stderr.Fd() guard). External syscall
 // errors are wrapped with fmt.Errorf to satisfy wrapcheck.
 func dup3FdOnto(t *testing.T, srcFd uintptr, target int) error {
 	t.Helper()

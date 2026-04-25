@@ -2,7 +2,7 @@
 
 This document covers installation, systemd integration, the status
 UDS, metrics scraping, and health/readiness endpoints for
-production deployments of `usbipd`.
+production deployments of `usbipd-go`.
 
 ## Installation
 
@@ -97,7 +97,7 @@ Copy, then customise:
   your network (see [`security.md`](security.md)).
 - Add `--metrics-addr=127.0.0.1:9240` to expose Prometheus
   scraping on localhost.
-- Add `--status-socket-group=usbip` and create the `usbip-go` group
+- Add `--status-socket-group=usbip-go` and create the `usbip-go` group
   for the operators who need `usbipd-go drain`.
 - Pin additional hardening directives:
   `NoNewPrivileges=yes`, `ProtectSystem=strict`,
@@ -118,7 +118,7 @@ listener.
 
 ## Daemon flags
 
-Authoritative list in spec §7.7. Most operators only touch:
+Authoritative list in v1 contract §7.7. Most operators only touch:
 
 | Flag | Default | When to change |
 |---|---|---|
@@ -133,7 +133,7 @@ Authoritative list in spec §7.7. Most operators only touch:
 | `--log-level` | `info` | `debug` or `trace` during incident response. |
 | `--log-format` | `auto` | `json` for log-aggregation pipelines. |
 
-Run `usbipd --help` for the full list.
+Run `usbipd-go --help` for the full list.
 
 ## Status UDS
 
@@ -171,12 +171,12 @@ same socket-activated listener without a connect-refused window.
 Enable with `--metrics-addr`:
 
 ```
-usbipd --metrics-addr 127.0.0.1:9240
+usbipd-go --metrics-addr 127.0.0.1:9240
 ```
 
 The endpoint exposes three paths:
 
-- `GET /metrics` — Prometheus text format, with the spec §11.5.5
+- `GET /metrics` — Prometheus text format, with the v1 contract §11.5.5
   metric catalog.
 - `GET /healthz` — 200 while the process is up and the accept loop
   is running. Liveness only.
@@ -204,7 +204,7 @@ Recommended alerting signals:
   approaching the session cap.
 
 Every metric in the catalog is defined in
-[`json-schema.md`](json-schema.md#metrics) and spec §11.5.5. Labels
+[`json-schema.md`](json-schema.md#metrics) and v1 contract §11.5.5. Labels
 are drawn from closed small sets; no unbounded cardinality.
 
 ## Drain-and-upgrade
@@ -218,7 +218,7 @@ sudo systemctl start usbipd-go
 ```
 
 Kernel-owned sessions survive the daemon restart because the kernel
-holds the socket refs (spec §5.4 item 7). Socket activation keeps
+holds the socket refs (v1 contract §5.4 item 7). Socket activation keeps
 port 3240 bound across the restart so new clients do not see
 connect-refused.
 
@@ -237,8 +237,8 @@ need accounting continuity should drain before upgrading.
 - **Something else** — include the output of:
 
   ```
-  usbipd version
-  sudo usbipd --log-level=trace --status-socket=/run/usbip-go/status.sock
+  usbipd-go version
+  sudo usbipd-go --log-level=trace --status-socket=/run/usbip-go/status.sock
   sudo curl --unix-socket /run/usbip-go/status.sock http://unused/ | jq .
   curl -s http://127.0.0.1:9240/metrics | grep usbip_
   ```

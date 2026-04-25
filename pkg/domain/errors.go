@@ -47,7 +47,7 @@ var (
 	// ErrAttachInProgress indicates Attach is already running for the
 	// same (remote, busid) pair. Concurrent Attach calls race the
 	// fd-passing handoff and the handle-map insert, so the deduper
-	// rejects the second caller with this sentinel (spec §5.5).
+	// rejects the second caller with this sentinel (v1 contract §5.5).
 	// Hosted on pkg/domain so the public facade can re-export it
 	// alongside the other spec-listed sentinels.
 	ErrAttachInProgress = errors.New("attach already in progress for this endpoint")

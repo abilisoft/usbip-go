@@ -17,7 +17,7 @@ import (
 // that a Listen call against a pre-cancelled ctx surfaces a
 // distinguishable error prefix vs. a Listen failure mid-bind. Both
 // paths currently wrap the same "listen <addr>: %w" template, so an
-// operator grepping `journalctl -u usbipd` cannot tell whether the
+// operator grepping `journalctl -u usbipd-go` cannot tell whether the
 // socket was even attempted. The contract here does NOT constrain
 // the exact wording beyond "the two paths must not be identical".
 func TestListenCtxAlreadyCancelledDistinguishable(t *testing.T) {

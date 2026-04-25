@@ -11,7 +11,7 @@ import (
 )
 
 // EncodeOpReqImport writes an OP_REQ_IMPORT request for the supplied
-// busid: 8-byte header + 32-byte NUL-padded busid (spec §6.2).
+// busid: 8-byte header + 32-byte NUL-padded busid (v1 contract §6.2).
 func EncodeOpReqImport(w io.Writer, busID domain.BusID) error {
 	header := EncodeHeader(OpReqImport, 0)
 
@@ -73,7 +73,7 @@ func DecodeOpReqImport(r io.Reader) (domain.BusID, error) {
 }
 
 // EncodeOpRepImport writes a success OP_REP_IMPORT reply (status=0)
-// with the device body (spec §6.2).
+// with the device body (v1 contract §6.2).
 func EncodeOpRepImport(w io.Writer, dev domain.Device) error {
 	header := EncodeHeader(OpRepImport, 0)
 
@@ -90,7 +90,7 @@ func EncodeOpRepImport(w io.Writer, dev domain.Device) error {
 	return nil
 }
 
-// DecodeOpRepImport reads an OP_REP_IMPORT reply. Per spec §6.2 the
+// DecodeOpRepImport reads an OP_REP_IMPORT reply. Per v1 contract §6.2 the
 // header's status field means "device unavailable / busy / not found"
 // on this opcode — a domain-level rejection, not a wire framing fault.
 // A non-zero status surfaces as domain.ErrDeviceNotFound so the
