@@ -8,12 +8,13 @@ on:
     tags:
       - 'v*.*.*'
 
-# id-token: write is required for cosign keyless signing via GitHub
-# OIDC. contents: write lets goreleaser create the GitHub Release and
-# upload assets.
+# Workflow-root permissions are clamped to read-only; the writes
+# this workflow needs (contents:write for goreleaser to publish a
+# GitHub Release, id-token:write for cosign keyless signing via
+# GitHub OIDC) are granted at job scope only. OpenSSF Scorecard's
+# Token-Permissions check flags any write granted at workflow root.
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 env:
   COSIGN_EXPERIMENTAL: '1'
@@ -22,6 +23,14 @@ jobs:
   release:
     name: GoReleaser
     runs-on: ubuntu-24.04
+    permissions:
+      # contents:write — goreleaser creates the GitHub Release and
+      # uploads assets via the GitHub API.
+      contents: write
+      # id-token:write — cosign keyless signing exchanges this OIDC
+      # token for a Sigstore Fulcio certificate; flakehub-cache uses
+      # the same scope to authenticate to FlakeHub Cache.
+      id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
