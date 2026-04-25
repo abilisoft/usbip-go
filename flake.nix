@@ -9,7 +9,7 @@
     # `nix flake update` is always a deliberate act. Only bump this when
     # `go_1_26` on the target revision matches (or exceeds) the patch level
     # declared in go.mod. Revisit once nixos-unstable ships >= go 1.26.2.
-    nixpkgs.url = "github:NixOS/nixpkgs/54807374c670e3e468f97f4f621951ebb83d1673";
+    nixpkgs.url = "github:NixOS/nixpkgs/0726a0ecb6d4e08f6adced58726b95db924cef57";
   };
 
   outputs = { self, nixpkgs, ... }:

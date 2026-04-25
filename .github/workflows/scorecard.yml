@@ -6,6 +6,15 @@
 # plus a public score on https://scorecard.dev. The badge in
 # README.md links to that score.
 #
+# Scorecard publishes to scorecard.dev only for PUBLIC repositories
+# — the public result store rejects writes from private repos and
+# the default GITHUB_TOKEN lacks the GraphQL read scopes scorecard
+# needs against private metadata ("Resource not accessible by
+# integration"). The `if:` guard on the job below skips the run
+# until the repository is flipped public. To run scorecard against
+# a private repo, set a PAT with `repo` + `read:org` scopes as the
+# `SCORECARD_TOKEN` secret and uncomment the `repo_token:` line.
+#
 # https://github.com/ossf/scorecard-action
 name: OpenSSF Scorecard
 
@@ -23,6 +32,11 @@ jobs:
   analysis:
     name: Scorecard analysis
     runs-on: ubuntu-24.04
+    # Skip on private repos — scorecard.dev publishing requires
+    # public visibility, and the default GITHUB_TOKEN cannot read
+    # private GraphQL metadata. Flips on automatically when the
+    # repo's visibility is changed to public.
+    if: github.event.repository.private == false
     permissions:
       # `security-events: write` lets the action upload SARIF results.
       security-events: write
@@ -35,25 +49,29 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
       - name: Run analysis
-        uses: ossf/scorecard-action@62b2cac7ed8198b15735ed49ab1e5cf35480ba46 # v2.4.0
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
         with:
           results_file: results.sarif
           results_format: sarif
           publish_results: true
+          # Uncomment + provide a PAT in SCORECARD_TOKEN to run
+          # against a private repo. Default GITHUB_TOKEN suffices
+          # for public.
+          # repo_token: ${{ secrets.SCORECARD_TOKEN }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: scorecard-results
           path: results.sarif
           retention-days: 5
 
       - name: Upload to code-scanning
-        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a # v3
+        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
         with:
           sarif_file: results.sarif
