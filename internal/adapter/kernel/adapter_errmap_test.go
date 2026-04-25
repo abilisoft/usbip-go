@@ -23,24 +23,24 @@ func TestErrMapMatrix(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name   string
-		path   string
-		errno  unix.Errno
-		want   error
+		name           string
+		path           string
+		errno          unix.Errno
+		want           error
 		rejectedDomain []error // sentinels that MUST NOT appear in the chain
 	}{
 		{
-			name:  "ENOENT on sysfs device path → ErrDeviceNotFound",
-			path:  "/sys/bus/usb/devices/1-1.2/idVendor",
-			errno: unix.ENOENT,
-			want:  domain.ErrDeviceNotFound,
+			name:           "ENOENT on sysfs device path → ErrDeviceNotFound",
+			path:           "/sys/bus/usb/devices/1-1.2/idVendor",
+			errno:          unix.ENOENT,
+			want:           domain.ErrDeviceNotFound,
 			rejectedDomain: []error{domain.ErrKernelModuleMissing},
 		},
 		{
-			name:  "ENOENT on driver path → ErrKernelModuleMissing",
-			path:  "/sys/bus/usb/drivers/usbip-host/bind",
-			errno: unix.ENOENT,
-			want:  domain.ErrKernelModuleMissing,
+			name:           "ENOENT on driver path → ErrKernelModuleMissing",
+			path:           "/sys/bus/usb/drivers/usbip-host/bind",
+			errno:          unix.ENOENT,
+			want:           domain.ErrKernelModuleMissing,
 			rejectedDomain: []error{domain.ErrDeviceNotFound},
 		},
 		{

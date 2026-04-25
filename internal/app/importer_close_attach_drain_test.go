@@ -94,4 +94,3 @@ func TestImporterCloseWaitsForInFlightAttach(t *testing.T) {
 		t.Fatal("Close did not return after Attach drained")
 	}
 }
-

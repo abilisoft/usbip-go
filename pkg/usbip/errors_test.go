@@ -20,9 +20,9 @@ func TestSentinelsReExportedFromDomain(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name  string
-		u     error
-		orig  error
+		name string
+		u    error
+		orig error
 	}{
 		{"ErrDeviceNotFound", usbip.ErrDeviceNotFound, domain.ErrDeviceNotFound},
 		{"ErrDeviceAlreadyBound", usbip.ErrDeviceAlreadyBound, domain.ErrDeviceAlreadyBound},

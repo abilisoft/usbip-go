@@ -226,6 +226,10 @@ tasks:
   ci:fmt:
     deps: [_check:tooling]
     cmds:
+      # gofmt -s simplifies redundant constructs (composite-literal
+      # type elision, unnecessary type info). Run BEFORE gofumpt so
+      # gofumpt's stricter rules see the simplified tree.
+      - gofmt -s -w .
       - gofumpt -w .
       - goimports -w .
 

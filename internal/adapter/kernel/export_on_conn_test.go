@@ -80,10 +80,10 @@ func fdOfConn(t *testing.T, conn net.Conn) uintptr {
 // writable usbip_sockfd attribute.
 func exportFS(busID string) fstest.MapFS {
 	return fstest.MapFS{
-		"sys/module/usbip_core":                                     &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host":                                     &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/devices/" + busID:                              &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/devices/" + busID + "/usbip_sockfd":            &fstest.MapFile{Data: []byte("")},
+		"sys/module/usbip_core":                          &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/usbip_host":                          &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/bus/usb/devices/" + busID:                   &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/bus/usb/devices/" + busID + "/usbip_sockfd": &fstest.MapFile{Data: []byte("")},
 	}
 }
 
