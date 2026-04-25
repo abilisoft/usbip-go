@@ -11,6 +11,7 @@ import (
 	"net"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/abilisoft/usbip-go/internal/netopts"
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -71,18 +72,38 @@ func New(opts ...Option) *NetTransport {
 // sentinel. TCP_NODELAY is set on the returned connection so the
 // USB/IP handshake's small frames are not Nagle-delayed.
 //
-// PR 1a: opts is accepted as part of the app.Transport contract but
-// ignored; existing TCP_NODELAY behavior is preserved bit-for-bit.
-// PR 1b will honor non-zero opts (DialConnectTimeout, keepalive,
-// SO_SNDBUF/SO_RCVBUF, deadlines) per docs/high-latency-plan.md.
+// Non-zero opts fields are honored on the dialed conn:
+//
+//   - DialConnectTimeout caps the connect phase via a per-call
+//     net.Dialer copy (the embedded dialer is left untouched so
+//     concurrent Dials do not race on the timeout field).
+//   - SendBufferBytes / ReceiveBufferBytes call SetWriteBuffer /
+//     SetReadBuffer; Linux doubles the requested value internally.
+//   - TCPKeepAlive{Idle,Interval,Probes} call SetKeepAliveConfig
+//     (Go ≥ 1.23) and enable SO_KEEPALIVE.
+//   - ReadDeadline / WriteDeadline call SetReadDeadline /
+//     SetWriteDeadline; the deadlines are absolute timestamps measured
+//     from the moment of the Dial call.
+//
+// Buffer / keepalive / deadline failures are logged at warn unless the
+// conn is already dead (see isSockoptFatal); a perf knob falling over
+// must not turn a usable conn into an availability outage.
 func (t *NetTransport) Dial(
 	ctx context.Context,
 	r domain.RemoteEndpoint,
-	_ netopts.TransportOptions,
+	opts netopts.TransportOptions,
 ) (net.Conn, error) {
 	addr := r.NormalizePort().String()
 
-	conn, err := t.dialer.DialContext(ctx, "tcp", addr)
+	// A per-call dialer copy keeps DialConnectTimeout (when set) from
+	// mutating the shared embedded dialer; concurrent Dials must not
+	// race on the Timeout field.
+	dialer := *t.dialer
+	if opts.DialConnectTimeout > 0 {
+		dialer.Timeout = opts.DialConnectTimeout
+	}
+
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", addr, err)
 	}
@@ -98,19 +119,6 @@ func (t *NetTransport) Dial(
 		return conn, nil
 	}
 
-	// TCP_NODELAY is a performance knob (§6.3) — turning off Nagle so
-	// the short USB/IP handshake frames ship immediately. If the kernel
-	// rejects the sockopt (exotic stacks, LD_PRELOAD wrappers) the TCP
-	// handshake itself still succeeded and the connection is usable,
-	// just with Nagle's coalescing. Dropping a valid conn on a perf
-	// knob failure would convert a recoverable warning into an
-	// availability outage; log at warn instead and keep the conn.
-	//
-	// Dead-conn classes (net.ErrClosed, ENOTCONN, EBADF) are the
-	// exception: the sockopt only fails with those when the conn is
-	// already broken, so returning it to the caller postpones the
-	// failure to the next Write with a wrapping that obscures the
-	// true cause. Surface the errno and close the conn.
 	nerr := tcpConn.SetNoDelay(true)
 	if nerr != nil {
 		if isSockoptFatal(nerr) {
@@ -121,6 +129,13 @@ func (t *NetTransport) Dial(
 
 		t.logger.LogAttrs(ctx, slog.LevelWarn, "transport.Dial TCP_NODELAY rejected",
 			slog.String("remote", addr), slog.Any("err", nerr))
+	}
+
+	tuneErr := tuneTCPConn(ctx, tcpConn, opts, "dial", t.logger)
+	if tuneErr != nil {
+		_ = conn.Close()
+
+		return nil, fmt.Errorf("dial %s: %w", addr, tuneErr)
 	}
 
 	t.logger.LogAttrs(ctx, slog.LevelDebug, "transport.Dial established",
@@ -140,6 +155,127 @@ func isSockoptFatal(err error) bool {
 		errors.Is(err, syscall.EBADF)
 }
 
+// tuneTCPConn applies the non-zero fields on opts to conn. role is
+// "dial" or "accept" and surfaces in log attributes so an operator
+// reading journalctl can tell which side of a session failed a
+// sockopt. Fatal errnos (conn already dead) bubble up so the caller
+// can close + return; non-fatal failures are logged at warn so the
+// session continues with whatever subset of tuning succeeded.
+func tuneTCPConn(
+	ctx context.Context,
+	conn *net.TCPConn,
+	opts netopts.TransportOptions,
+	role string,
+	logger *slog.Logger,
+) error {
+	if opts.SendBufferBytes > 0 {
+		applyErr := applySockopt(ctx, role, "SO_SNDBUF", logger,
+			func() error { return conn.SetWriteBuffer(opts.SendBufferBytes) })
+		if applyErr != nil {
+			return applyErr
+		}
+	}
+
+	if opts.ReceiveBufferBytes > 0 {
+		applyErr := applySockopt(ctx, role, "SO_RCVBUF", logger,
+			func() error { return conn.SetReadBuffer(opts.ReceiveBufferBytes) })
+		if applyErr != nil {
+			return applyErr
+		}
+	}
+
+	keepAliveErr := tuneKeepAlive(ctx, conn, opts, role, logger)
+	if keepAliveErr != nil {
+		return keepAliveErr
+	}
+
+	return tuneDeadlines(ctx, conn, opts, role, logger)
+}
+
+// applySockopt invokes fn (a single sockopt setter) and classifies
+// any returned error: fatal errnos surface as a wrapped error the
+// caller propagates, non-fatal failures are logged at warn and
+// swallowed so the session continues with whatever tuning landed.
+// Centralising the policy keeps tuneTCPConn under the project
+// cognitive-complexity cap.
+func applySockopt(
+	ctx context.Context,
+	role, name string,
+	logger *slog.Logger,
+	fn func() error,
+) error {
+	err := fn()
+	if err == nil {
+		return nil
+	}
+
+	if isSockoptFatal(err) {
+		return fmt.Errorf("%s: %s: %w", role, name, err)
+	}
+
+	logger.LogAttrs(ctx, slog.LevelWarn, "transport tuneTCPConn rejected",
+		slog.String("role", role), slog.String("opt", name), slog.Any("err", err))
+
+	return nil
+}
+
+// tuneKeepAlive configures SO_KEEPALIVE + TCP_KEEPIDLE/INTVL/CNT via
+// SetKeepAliveConfig (Go ≥ 1.23). Each non-zero field is forwarded;
+// zero fields leave the OS default in place. Split from tuneTCPConn
+// so the parent stays under the project cyclomatic-complexity cap.
+func tuneKeepAlive(
+	ctx context.Context,
+	conn *net.TCPConn,
+	opts netopts.TransportOptions,
+	role string,
+	logger *slog.Logger,
+) error {
+	if opts.TCPKeepAliveIdle == 0 &&
+		opts.TCPKeepAliveInterval == 0 &&
+		opts.TCPKeepAliveProbes == 0 {
+		return nil
+	}
+
+	cfg := net.KeepAliveConfig{
+		Enable:   true,
+		Idle:     opts.TCPKeepAliveIdle,
+		Interval: opts.TCPKeepAliveInterval,
+		Count:    opts.TCPKeepAliveProbes,
+	}
+
+	return applySockopt(ctx, role, "SetKeepAliveConfig", logger,
+		func() error { return conn.SetKeepAliveConfig(cfg) })
+}
+
+// tuneDeadlines applies the static read/write deadlines (when set) to
+// the conn. Deadlines are absolute timestamps; a future
+// SetReadDeadline / SetWriteDeadline by the caller can clear them
+// (zero time) once the userspace handshake completes.
+func tuneDeadlines(
+	ctx context.Context,
+	conn *net.TCPConn,
+	opts netopts.TransportOptions,
+	role string,
+	logger *slog.Logger,
+) error {
+	now := time.Now()
+
+	if opts.ReadDeadline > 0 {
+		applyErr := applySockopt(ctx, role, "SetReadDeadline", logger,
+			func() error { return conn.SetReadDeadline(now.Add(opts.ReadDeadline)) })
+		if applyErr != nil {
+			return applyErr
+		}
+	}
+
+	if opts.WriteDeadline > 0 {
+		return applySockopt(ctx, role, "SetWriteDeadline", logger,
+			func() error { return conn.SetWriteDeadline(now.Add(opts.WriteDeadline)) })
+	}
+
+	return nil
+}
+
 // Listen binds addr and returns a ctx-bound net.Listener. The listener
 // is closed automatically when ctx is cancelled, so graceful-shutdown
 // call sites in §7 can drive a daemon teardown by cancelling one root
@@ -147,13 +283,17 @@ func isSockoptFatal(err error) bool {
 // returned Listener's own Close is idempotent and waits for the
 // watcher goroutine to exit, so callers cannot leak it.
 //
-// PR 1a: opts is accepted as part of the app.Transport contract but
-// ignored. PR 1b will tune accepted connections (TCP_NODELAY,
-// keepalive, buffers) per opts.
+// When opts carries non-zero tuning fields, accepted server-side
+// connections are tuned by tuneTCPConn before they are returned from
+// Accept. A failure to apply a tuning knob does NOT propagate as an
+// Accept error: the conn is returned to the caller with a logged
+// warning, mirroring Dial's "perf knob failure must not become an
+// availability outage" policy. Fatal errnos (conn already dead) close
+// the conn and surface as Accept errors.
 func (t *NetTransport) Listen(
 	ctx context.Context,
 	addr string,
-	_ netopts.TransportOptions,
+	opts netopts.TransportOptions,
 ) (net.Listener, error) {
 	ctxErr := ctx.Err()
 	if ctxErr != nil {
@@ -170,7 +310,51 @@ func (t *NetTransport) Listen(
 	t.logger.LogAttrs(ctx, slog.LevelDebug, "transport.Listen bound",
 		slog.String("addr", ln.Addr().String()))
 
-	return newCtxListener(ctx, ln), nil
+	wrapped := newCtxListener(ctx, ln)
+	if opts == (netopts.TransportOptions{}) {
+		return wrapped, nil
+	}
+
+	return &tuningListener{Listener: wrapped, opts: opts, logger: t.logger}, nil
+}
+
+// tuningListener wraps a ctxListener so every accepted conn is tuned
+// per opts before it is returned to the caller. Accept-time tuning is
+// the only place we can reach the server-side TCPConn; a daemon path
+// that consumes accepted conns directly (without Listen owning the
+// accept) must apply tuning itself.
+type tuningListener struct {
+	net.Listener
+
+	opts   netopts.TransportOptions
+	logger *slog.Logger
+}
+
+// Accept blocks on the underlying Listener and tunes each returned
+// TCP conn before handing it to the caller. Non-TCP conns (test
+// fakes) bypass the tuning path. A fatal sockopt error closes the
+// conn and surfaces as an Accept error so the caller cannot use a
+// half-broken connection; non-fatal failures are logged and the conn
+// is returned with whatever subset of tuning succeeded.
+func (l *tuningListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, fmt.Errorf("accept: %w", err)
+	}
+
+	tcpConn, ok := conn.(*net.TCPConn)
+	if !ok {
+		return conn, nil
+	}
+
+	tuneErr := tuneTCPConn(context.Background(), tcpConn, l.opts, "accept", l.logger)
+	if tuneErr != nil {
+		_ = conn.Close()
+
+		return nil, fmt.Errorf("accept: %w", tuneErr)
+	}
+
+	return conn, nil
 }
 
 // ctxListener wraps a net.Listener so that its lifetime is bound to a
