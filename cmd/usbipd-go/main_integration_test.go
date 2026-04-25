@@ -244,7 +244,8 @@ func TestRunDaemonUnlinksStatusSocketOnForcedShutdown(t *testing.T) {
 func swapServeStatusFn(fn func(
 	ctx context.Context, path, group string,
 	src statusSource, started chan<- struct{},
-) error) func(ctx context.Context, path, group string, src statusSource, started chan<- struct{}) error {
+) error,
+) func(ctx context.Context, path, group string, src statusSource, started chan<- struct{}) error {
 	serveStatusFnMu.Lock()
 	defer serveStatusFnMu.Unlock()
 

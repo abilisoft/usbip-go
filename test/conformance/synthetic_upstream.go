@@ -270,5 +270,7 @@ func (s *SyntheticUpstream) Addr() net.Addr {
 // checkContextCompile is an unused placeholder that keeps the
 // context import from being unused; some future checkpoint-driven
 // branches may wire ctx into the handler directly.
-var _ = context.Background
-var _ = io.Copy
+var (
+	_ = context.Background
+	_ = io.Copy
+)
