@@ -252,18 +252,28 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: pkg/ must not import internal/
+      - name: pkg/domain must not import internal/
+        # pkg/domain is the pure-stdlib value-object surface; it must
+        # never reach into internal/. pkg/usbip is the public facade
+        # and is allowed to import internal/* by design (see
+        # docs/architecture.md "Layering rules").
         run: |
           set -euo pipefail
-          if [ -d pkg ] && grep -rEn 'github\.com/abilisoft/usbip-go/internal/' pkg/; then
-            echo "pkg/ imports internal/ — boundary violation"
+          if [ -d pkg/domain ] && grep -rEn 'github\.com/abilisoft/usbip-go/internal/' pkg/domain/; then
+            echo "pkg/domain imports internal/ — boundary violation"
             exit 1
           fi
-      - name: internal/app must not import internal/adapter/
+      - name: internal/app must not import internal/adapter/{kernel,transport}
+        # internal/app declares adapter interfaces and consumes them
+        # via dependency injection. It legitimately imports
+        # internal/adapter/wire because codec value types appear on
+        # those interface signatures, but it must not import the
+        # kernel or transport adapter packages — those are reached
+        # only through the declared interfaces.
         run: |
           set -euo pipefail
-          if [ -d internal/app ] && grep -rEn 'github\.com/abilisoft/usbip-go/internal/adapter/' internal/app/; then
-            echo "internal/app imports internal/adapter/ — boundary violation"
+          if [ -d internal/app ] && grep -rEn 'github\.com/abilisoft/usbip-go/internal/adapter/(kernel|transport)' internal/app/; then
+            echo "internal/app imports internal/adapter/{kernel,transport} — boundary violation"
             exit 1
           fi
 
