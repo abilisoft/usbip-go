@@ -18,7 +18,7 @@ const (
 	SpeedHigh      Speed = 3 // 480 Mbit/s
 	SpeedWireless  Speed = 4
 	SpeedSuper     Speed = 5 // 5 Gbit/s
-	SpeedSuperPlus Speed = 6 // 10 Gbit/s
+	SpeedSuperPlus Speed = 6 // 10 or 20 Gbit/s (USB 3.1 Gen 2, USB 3.2 Gen 2x2)
 )
 
 // IsKnown reports whether s falls inside the finite enum declared

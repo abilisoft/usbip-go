@@ -52,13 +52,18 @@ const byteMax = 0xFF
 const u16Max = 0xFFFF
 
 // ifaceSuffixFmt is the format of a USB interface sysfs entry. The
-// exporter reads interface attributes from "<busid>:<config>.<alt>".
-// Upstream usbip client only reads config 1, alt 0; we match.
+// exporter reads interface attributes from "<busid>:<config>.<alt>"
+// where <config> is the device's currently-active
+// bConfigurationValue (read at runtime by readDevice and threaded
+// into readInterfaces); only the alternate-setting axis is fixed at
+// 0 because alt 0 is the always-present default.
 const ifaceSuffixFmt = "%s:%d.%d"
 
-// defaultConfigIndex identifies the "primary" configuration for
-// bind/list purposes (sysfs names interfaces as "<busid>:<config>.<intf>").
-// Matches upstream libsrc, which only reads configuration 1.
+// defaultConfigIndex is the fallback configuration index used only
+// when sysfs reports bConfigurationValue=0 (an unconfigured device).
+// readInterfaces uses the device's actual bConfigurationValue
+// otherwise; the bind path uses ifaceSuffix which reads
+// bConfigurationValue dynamically too.
 const defaultConfigIndex = 1
 
 // isBusIDLike reports whether name looks like a USB bus-device topology
