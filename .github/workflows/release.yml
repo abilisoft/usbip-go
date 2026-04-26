@@ -48,23 +48,22 @@ jobs:
         run: nix develop --command task ci:test
 
       - name: Generate release notes for ${{ github.ref_name }}
-        # git-cliff scans commits since the previous tag and renders
-        # the section for THIS tag with the project's cliff.toml
-        # template. --strip header drops the "# Changelog" prefix so
-        # what lands in the release body is just bullet groups (Bug
-        # Fixes, Features, ...). The output file is consumed by
-        # goreleaser's --release-notes flag in the next step. TAG is
-        # piped through env: rather than direct ${{ }} interpolation
-        # to keep the run script free of script-injection surface
-        # (per the project's actions-security policy).
-        env:
-          TAG: ${{ github.ref_name }}
+        # git-cliff renders the section for the most-recent matching
+        # tag (--latest). actions/checkout has the tag already
+        # checked out at HEAD, so cliff sees v*.*.* as the latest tag
+        # and emits the per-tag bullet groups for it. --unreleased
+        # would have emitted an EMPTY body in this scenario because
+        # the tag IS at HEAD — there are no commits "after" it to
+        # count as unreleased. --strip header drops the "# Changelog"
+        # preamble so what lands in the release body is just the
+        # version heading + bullet groups (Bug Fixes, Features, ...).
+        # The output file is consumed by goreleaser's --release-notes
+        # flag in the next step.
         run: |
           set -euo pipefail
           mkdir -p build
           nix develop --command git-cliff \
-            --unreleased \
-            --tag "$TAG" \
+            --latest \
             --strip header \
             --output build/release-notes.md
           echo "--- generated release notes ---"
