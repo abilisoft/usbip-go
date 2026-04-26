@@ -7,9 +7,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/charmbracelet/fang"
 )
 
 func main() {
@@ -43,12 +46,23 @@ func run(args []string) (int, error) {
 // context. Extracting the context seam lets main install signal
 // cancellation while tests pass context.Background for deterministic
 // behaviour.
+//
+// fang.Execute wraps cobra's executor to render styled help / version /
+// completions. Manpages and built-in version are disabled because we
+// ship our own version subcommand (with stamped build metadata) and
+// keep the daemon surface minimal. The custom error handler is a
+// no-op because mainBody renders the error itself; fang's stylised
+// error rendering would otherwise emit a duplicate line.
 func runWithContext(ctx context.Context, args []string) (int, error) {
 	cmd := newRootCmd()
 	cmd.SetArgs(args)
 	cmd.SetContext(ctx)
 
-	err := cmd.Execute()
+	err := fang.Execute(ctx, cmd,
+		fang.WithoutManpage(),
+		fang.WithoutVersion(),
+		fang.WithErrorHandler(func(io.Writer, fang.Styles, error) {}),
+	)
 	if err != nil {
 		return mapError(err), err
 	}

@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/charmbracelet/fang"
 )
 
 func main() {
@@ -49,11 +51,24 @@ var rootCmdFactory = newRootCmd
 // observe shutdown via cmd.Context, which matters for long-running
 // calls (attach --auto-reconnect, list -r, bind) that would
 // otherwise block in a kernel or network call past Ctrl-C.
+//
+// fang.Execute styles the help/error output via lipgloss while
+// preserving cobra's exit semantics. We disable fang's built-in
+// completion + version because we ship our own (with stamped
+// metadata + per-shell installer); manpages are likewise skipped
+// to keep the surface minimal. The custom error handler is a no-op
+// because we render errors ourselves in main() via FormatError —
+// fang's stylised error rendering would emit a duplicate line.
 func runCtx(ctx context.Context, args []string) (int, error) {
 	cmd := rootCmdFactory()
 	cmd.SetArgs(args)
 
-	err := cmd.ExecuteContext(ctx)
+	err := fang.Execute(ctx, cmd,
+		fang.WithoutCompletions(),
+		fang.WithoutVersion(),
+		fang.WithoutManpage(),
+		fang.WithErrorHandler(func(io.Writer, fang.Styles, error) {}),
+	)
 	if err != nil {
 		return MapError(err), err
 	}

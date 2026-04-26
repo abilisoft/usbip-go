@@ -33,16 +33,15 @@ func TestUSBIPGoBinary_HelpListsAllSubcommands(t *testing.T) {
 	out, err := exec.CommandContext(ctx, bin, "--help").CombinedOutput()
 	require.NoError(t, err, "--help must exit 0; got: %s", out)
 
-	// Cobra renders subcommands with a fixed two-space indent at the
-	// start of each "Available Commands:" line. A bare substring match
-	// would let "bind" pass on the strength of "unbind"; the
-	// indent-anchored regex pins the actual subcommand name.
+	// fang renders subcommands under a "COMMANDS" section, each on its
+	// own indented line. Anchor the regex on at-least-two-spaces +
+	// command + word-boundary so "bind" cannot pass via "unbind".
 	help := string(out)
 	for _, cmd := range []string{
 		"attach", "detach", "bind", "unbind", "list", "port",
 		"watch", "completion", "version",
 	} {
-		re := regexp.MustCompile(`(?m)^  ` + regexp.QuoteMeta(cmd) + `\s`)
+		re := regexp.MustCompile(`(?m)^\s{2,}` + regexp.QuoteMeta(cmd) + `\b`)
 		require.Regexp(t, re, help,
 			"--help must list subcommand %q on its own line so operators can discover it", cmd)
 	}
