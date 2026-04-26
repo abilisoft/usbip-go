@@ -71,6 +71,7 @@ func bindFS(busID string) fstest.MapFS {
 		"sys/bus/usb/drivers/usbip-host/unbind":                &fstest.MapFile{Data: []byte("")},
 		"sys/bus/usb/drivers/usbip-host/rebind":                &fstest.MapFile{Data: []byte("")},
 		"sys/bus/usb/devices/" + busID:                         &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/bus/usb/devices/" + busID + "/bConfigurationValue": &fstest.MapFile{Data: []byte("1\n")},
 		"sys/bus/usb/devices/" + iface:                         &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + iface + "/driver/driver_name": &fstest.MapFile{Data: []byte("usbhid\n")},
 		"sys/bus/usb/devices/" + iface + "/driver":             &fstest.MapFile{Data: []byte("usbhid\n")},
@@ -107,7 +108,7 @@ func TestBind_WritesExactSequence(t *testing.T) {
 
 	require.Equal(t, writeCall{
 		Path: "/sys/bus/usb/drivers/usbip-host/bind",
-		Data: iface,
+		Data: string(busID),
 	}, rec.calls[2])
 }
 
@@ -115,7 +116,6 @@ func TestUnbind_WritesReverseSequence(t *testing.T) {
 	t.Parallel()
 
 	busID := domain.BusID("1-1.2")
-	iface := string(busID) + ":1.0"
 	rec := &writeRecord{}
 
 	a, err := kernel.NewExporterAdapter(
@@ -131,7 +131,7 @@ func TestUnbind_WritesReverseSequence(t *testing.T) {
 
 	require.Equal(t, writeCall{
 		Path: "/sys/bus/usb/drivers/usbip-host/unbind",
-		Data: iface,
+		Data: string(busID),
 	}, rec.calls[0])
 
 	require.Equal(t, writeCall{

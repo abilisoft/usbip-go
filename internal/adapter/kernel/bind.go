@@ -43,13 +43,20 @@ func (a *ExporterAdapter) Bind(ctx context.Context, busID domain.BusID) error {
 		return err
 	}
 
-	iface := ifaceSuffix(busID)
+	iface, err := a.ifaceSuffix(busID)
+	if err != nil {
+		return err
+	}
 
 	driver, err := a.currentDriver(iface)
 	if err != nil {
 		return err
 	}
 
+	// Old driver is typically an interface-level usb_driver (cdc_ether,
+	// usbhid, etc.) — kernel sysfs unbind_store looks the device up by
+	// name on the bus, so it must match the bound device's name. For
+	// interface drivers that means iface ("1-1:2.0").
 	err = a.writeClassified(driverPath(driver, SysfsDriverUnbind), iface)
 	if err != nil {
 		return err
@@ -63,7 +70,14 @@ func (a *ExporterAdapter) Bind(ctx context.Context, busID domain.BusID) error {
 		return err
 	}
 
-	err = a.writeClassified(path.Join(SysfsUSBIPHostDriver, SysfsDriverBind), iface)
+	// usbip-host is a usb_device_driver (drivers/usb/usbip/stub_dev.c
+	// declares `struct usb_device_driver stub_driver`). The kernel's
+	// driver bind/unbind sysfs handler looks up the target by name on
+	// the bus and only proceeds when dev->driver matches. For a
+	// device-level driver that means the BARE busid ("1-1"), not the
+	// iface — passing iface here would find the usb_interface, fail
+	// the dev->driver match, and surface ENODEV.
+	err = a.writeClassified(path.Join(SysfsUSBIPHostDriver, SysfsDriverBind), string(busID))
 	if err != nil {
 		return err
 	}
@@ -79,9 +93,9 @@ func (a *ExporterAdapter) Unbind(ctx context.Context, busID domain.BusID) error 
 		return err
 	}
 
-	iface := ifaceSuffix(busID)
-
-	err = a.writeClassified(path.Join(SysfsUSBIPHostDriver, SysfsDriverUnbind), iface)
+	// usbip-host operates at usb_device level, so unbind takes BARE
+	// busid ("1-1"), not iface. See the matching comment in Bind.
+	err = a.writeClassified(path.Join(SysfsUSBIPHostDriver, SysfsDriverUnbind), string(busID))
 	if err != nil {
 		return err
 	}
@@ -116,11 +130,30 @@ func (a *commonAdapter) writeClassified(target, data string) error {
 	return nil
 }
 
-// ifaceSuffix returns "<busID>:1.0", the primary interface sysfs
-// suffix used by every bind/unbind operation. Matches upstream
-// libsrc/usbip_host_driver.c.
-func ifaceSuffix(busID domain.BusID) string {
-	return string(busID) + VHCIIfaceSuffix
+// ifaceSuffix returns "<busID>:<bConfigurationValue>.0", the primary
+// interface sysfs suffix for the device's currently-active
+// configuration. Matches upstream libsrc/usbip_host_driver.c which
+// formats the iface as "%s:%d.0" with the device's
+// bConfigurationValue. Hardcoding ":1.0" breaks for any device whose
+// active configuration is not 1 (e.g. many USB-to-Ethernet adapters
+// default to config 2).
+func (a *commonAdapter) ifaceSuffix(busID domain.BusID) (string, error) {
+	configValue, err := readU16Attr(a.fs, path.Join(SysfsUSBDevices, string(busID), devAttrConfigValue))
+	if err != nil {
+		return "", err
+	}
+
+	if configValue == 0 {
+		return "", fmt.Errorf("%w: device %s reports bConfigurationValue=0 (no active configuration)",
+			domain.ErrDeviceNotBound, busID)
+	}
+
+	if configValue > byteMax {
+		return "", fmt.Errorf("%w: %s/bConfigurationValue=%d (exceeds u8)",
+			errSysfsValueOutOfRange, busID, configValue)
+	}
+
+	return fmt.Sprintf("%s:%d.0", busID, configValue), nil
 }
 
 // driverPath returns "/sys/bus/usb/drivers/<driver>/<attr>".
