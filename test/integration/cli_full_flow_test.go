@@ -148,15 +148,29 @@ func TestCLIFullFlow_DummyHCD(t *testing.T) {
 	// Step 5: attach the device.
 	mustRunOK(t, ctx, usbipBin, "attach", listenAddr, busID)
 
+	// Register a busid-based detach cleanup IMMEDIATELY after the
+	// successful attach. A fatal in the upcoming list-ports step
+	// (findPortIDByBusID) would otherwise leak the vhci port until
+	// the next reboot. The cleanup re-resolves the port id by busid
+	// at run time so a list-ports failure during the test body does
+	// not break the cleanup path.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		id, err := lookupPortIDByBusIDForCleanup(cleanupCtx, usbipBin, busID)
+		if err != nil || id == "" {
+			return
+		}
+
+		_ = exec.Command(usbipBin, "detach", id).Run()
+	})
+
 	// Step 6: list ports — find OUR port by matching the local busid.
 	// A naked ports[0] lookup would happily match a port from a
 	// concurrent attach (parallel tests) or a leftover from a prior
 	// run, then detach the wrong port and leave ours behind.
 	portID := findPortIDByBusID(t, ctx, usbipBin, busID)
-
-	t.Cleanup(func() {
-		_ = exec.Command(usbipBin, "detach", portID).Run()
-	})
 
 	// Step 7: detach by port id.
 	mustRunOK(t, ctx, usbipBin, "detach", portID)
@@ -340,6 +354,55 @@ func parsePortsEnvelope(t *testing.T, raw []byte) []map[string]any {
 		"envelope.schema must be the v1 stable identifier; got: %s", raw)
 
 	return env.Ports
+}
+
+// lookupPortIDByBusIDForCleanup mirrors findPortIDByBusID but is
+// fatal-free so it can run from a t.Cleanup. Returns ("", error)
+// when the port is not found or list --ports fails — the caller
+// treats that as "nothing to detach" and returns silently.
+func lookupPortIDByBusIDForCleanup(ctx context.Context, usbipBin, busID string) (string, error) {
+	cmd := exec.CommandContext(ctx, usbipBin, "list", "--ports", "--output=json")
+
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	var env struct {
+		Ports []map[string]any `json:"ports"`
+	}
+
+	if err := json.Unmarshal(out, &env); err != nil {
+		return "", err
+	}
+
+	for _, p := range env.Ports {
+		for _, key := range []string{"local_busid", "localBusID", "busid"} {
+			v, ok := p[key]
+			if !ok {
+				continue
+			}
+
+			s, ok := v.(string)
+			if !ok || strings.TrimSpace(s) != busID {
+				continue
+			}
+
+			idVal, ok := p["id"]
+			if !ok {
+				continue
+			}
+
+			switch n := idVal.(type) {
+			case string:
+				return n, nil
+			case float64:
+				return tcpPortString(int(n)), nil
+			}
+		}
+	}
+
+	return "", nil
 }
 
 // findPortIDByBusID lists vhci ports via the CLI and returns the id of
