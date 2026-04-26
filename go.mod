@@ -3,8 +3,10 @@ module github.com/abilisoft/usbip-go
 go 1.26.2
 
 retract (
-	v1.0.0 // Published accidentally; v0.2.x is the correct release line
-	v0.1.0 // Published accidentally; v0.2.x is the correct release line
+	v1.0.0 // Published accidentally
+	v0.2.1 // License defect; superseded by v1.1.0
+	v0.2.0 // License defect; superseded by v1.1.0
+	v0.1.0 // Published accidentally
 )
 
 require (
