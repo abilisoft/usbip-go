@@ -114,9 +114,10 @@ jobs:
       - name: Hash release artifacts for SLSA provenance
         id: hash-artifacts
         # Provenance the user-downloadable binary archives and OS
-        # packages only; checksums.txt and per-archive SBOM/.sig/.pem
-        # are derivative artefacts whose integrity is already covered
-        # by the cosign keyless signature on checksums.txt itself.
+        # packages only; checksums.txt and per-archive SBOM
+        # documents are derivative artefacts whose integrity is
+        # already covered by the cosign keyless Sigstore bundle on
+        # checksums.txt itself (checksums.txt.sigstore.json).
         # Listing every per-arch archive plus the deb/rpm packages
         # gives slsa-verifier a single intoto.jsonl that covers every
         # binary a consumer can download.
