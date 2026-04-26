@@ -393,18 +393,15 @@ func snapshotDummyBusIDs() map[string]struct{} {
 	return out
 }
 
-// AbsCmdPath returns the absolute path to a binary, building it from
-// ./cmd/<name>/ into a temp dir if not on PATH. The integration tests
-// exec real binaries, so they need a guaranteed path; production
-// installs land in /usr/local/bin or ~/go/bin which the runner may
-// not have on its PATH for `go test`.
+// AbsCmdPath builds ./cmd/<name>/ from the current source tree into
+// a temp dir and returns its absolute path. We deliberately do NOT
+// fall back to exec.LookPath because the integration suite must
+// exercise the binary built from THIS branch, not whatever stale
+// version happens to live in /usr/local/bin or ~/go/bin from a
+// prior `go install`. A passing integration run that silently
+// exercised an old binary would defeat the entire regression net.
 func AbsCmdPath(t *testing.T, name string) string {
 	t.Helper()
-
-	out, err := exec.LookPath(name)
-	if err == nil {
-		return out
-	}
 
 	tmp, err := filepath.Abs(t.TempDir())
 	if err != nil {

@@ -213,7 +213,7 @@ func (tableRenderer) Event(w io.Writer, ev usbip.Event) error {
 		return nil
 	}
 
-	_, err := fmt.Fprintf(out, "%s %s\n", dimStyle.Render(at), emphasizeStyle.Render(kind))
+	_, err := fmt.Fprintf(out, "%s %s\n", emphasizeStyle.Render(kind), dimStyle.Render(at))
 	if err != nil {
 		return fmt.Errorf("render event: %w", err)
 	}

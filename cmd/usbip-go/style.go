@@ -13,14 +13,16 @@ import (
 )
 
 // Style palette. Color profile detection happens at the writer
-// boundary (lipgloss honors NO_COLOR and TTY auto-detection); the
-// `--no-color` flag forces plain output by replacing the renderer
-// with a degraded profile in pickRenderer.
+// boundary (colorprofile honors NO_COLOR and TTY auto-detection);
+// the `--no-color` flag sets NO_COLOR=1 early so colorprofile
+// degrades to plain output through the same path.
 //
-// Codepoints stay ASCII so terminals without unicode font fallback
-// still render badges; styles only add color/bold, never replace
-// content with glyphs the operator might not have in their
-// font.
+// Cell content stays ASCII so terminals without a unicode font
+// fallback still render values verbatim. Border glyphs are
+// lipgloss.RoundedBorder()'s box-drawing characters (U+256D etc.),
+// emitted only by the chrome — not by any cell. Plain-ASCII
+// terminals fall back via colorprofile's degrader to the
+// `+`/`-`/`|` family.
 
 // styledHeader bolds the column header label and tints it cyan so
 // the eye lands on the row separator without having to follow indent.
