@@ -6,14 +6,20 @@ name: Release
 on:
   push:
     tags:
-      # Stable releases only. The negative pattern excludes any tag
-      # whose patch segment carries a SemVer pre-release suffix
-      # (e.g. v1.0.1-rc1, v2.0.0-beta.3) so the release pipeline only
-      # fires on production-grade tags. cliff.toml's tag_pattern is
-      # anchored to the same shape, keeping the workflow trigger and
-      # the changelog generator's notion of "release tag" identical.
+      # Stable releases only. The two negative patterns exclude any
+      # tag carrying a SemVer pre-release suffix (e.g. v1.0.1-rc1,
+      # v2.0.0-beta.3) or build-metadata suffix (e.g. v1.0.0+build.7),
+      # so the release pipeline only fires on production-grade tags.
+      # The job-level guard step below re-validates ref_name against
+      # the canonical anchor as defence-in-depth — alphanumeric
+      # oddities (e.g. v1.0.0foo) that slip through GHA's coarse glob
+      # are rejected before any artefact is built. cliff.toml's
+      # tag_pattern is anchored to the same shape, keeping the
+      # workflow trigger and the changelog generator's notion of
+      # "release tag" identical.
       - 'v*.*.*'
       - '!v*.*.*-*'
+      - '!v*.*.*+*'
 
 # Workflow-root permissions are clamped to read-only; the writes
 # this workflow needs (contents:write for goreleaser to publish a
@@ -45,6 +51,23 @@ jobs:
       # the slsa-github-generator generic builder consumes.
       hashes: ${{ steps.hash-artifacts.outputs.hashes }}
     steps:
+      - name: Reject non-canonical release tag
+        # GHA's tag glob excludes the common dash/plus shapes but
+        # cannot reject every alphanumeric oddity (e.g. v1.0.0foo,
+        # v1.0.0_hotfix). This guard re-validates the ref name
+        # against the anchored stable-SemVer regex used in cliff.toml
+        # so the pipeline aborts BEFORE any artefact is built or any
+        # Release object is created. TAG is piped through env: rather
+        # than direct ${{ }} interpolation per the project's
+        # actions-security policy.
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::tag '$TAG' is not a canonical stable release (vMAJOR.MINOR.PATCH); refusing to release"
+            exit 1
+          fi
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
