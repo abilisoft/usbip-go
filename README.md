@@ -105,7 +105,7 @@ the architecture that matches your host (`amd64`, `arm64`, or
 
 Every release ships a SLSA Build Provenance bundle
 (`multiple.intoto.jsonl`) and a cosign keyless signature on
-`checksums.txt`. Verify both before installing:
+`checksums.txt` (Sigstore bundle format). Verify both before installing:
 
 ```
 VERSION=1.0.0
@@ -114,8 +114,7 @@ BASE=https://github.com/abilisoft/usbip-go/releases/download/v${VERSION}
 
 curl -LO "${BASE}/${ARCHIVE}"
 curl -LO "${BASE}/checksums.txt"
-curl -LO "${BASE}/checksums.txt.sig"
-curl -LO "${BASE}/checksums.txt.pem"
+curl -LO "${BASE}/checksums.txt.sigstore.json"
 curl -LO "${BASE}/multiple.intoto.jsonl"
 
 # 1. Provenance: prove the artifact came out of the abilisoft/usbip-go
@@ -129,9 +128,10 @@ slsa-verifier verify-artifact "${ARCHIVE}" \
 #    keyless cert whose OIDC subject is the .github/workflows/release.yml
 #    workflow at the same v*.*.* tag — matches the exact workflow path
 #    so a different workflow in this repo cannot satisfy the check.
+#    The Sigstore bundle (--bundle) carries the leaf certificate, the
+#    signature, and the rekor inclusion proof in a single file.
 cosign verify-blob \
-  --certificate checksums.txt.pem \
-  --signature checksums.txt.sig \
+  --bundle checksums.txt.sigstore.json \
   --certificate-identity-regexp '^https://github\.com/abilisoft/usbip-go/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   checksums.txt

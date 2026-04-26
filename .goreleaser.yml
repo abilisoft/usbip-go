@@ -139,13 +139,20 @@ sboms:
 signs:
   - id: cosign-keyless
     cmd: cosign
-    signature: "${artifact}.sig"
-    certificate: "${artifact}.pem"
+    # Bundle format (cosign v3 default): one Sigstore JSON file per
+    # signed artefact carrying the signature, leaf certificate, and
+    # rekor inclusion proof. The legacy two-file (--output-signature
+    # + --output-certificate) layout was removed in cosign v3.x — the
+    # flags now emit a deprecation warning and cosign refuses to
+    # write anything unless --bundle (or --new-bundle-format=false +
+    # --use-signing-config=false) is supplied. Migrating to --bundle
+    # is the forward-compatible option and avoids stacking deprecated
+    # knobs that may be removed in v4.
+    signature: "${artifact}.sigstore.json"
     args:
       - sign-blob
       - "--yes"
-      - "--output-signature=${signature}"
-      - "--output-certificate=${certificate}"
+      - "--bundle=${signature}"
       - "${artifact}"
     artifacts: checksum
     output: true
