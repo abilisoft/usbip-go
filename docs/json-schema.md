@@ -45,7 +45,7 @@ referenced by every envelope below.
 | `busid` | string | `domain.BusID` | Linux USB topology identifier, e.g. `"1-1.2"`. |
 | `busnum` | integer (u16) | `domain.Device.BusNum` | |
 | `devnum` | integer (u16) | `domain.Device.DevNum` | |
-| `speed` | string | `domain.Speed.String()` | Long-form: `unknown`, `Low-Speed (1.5Mbps)`, `Full-Speed (12Mbps)`, `High-Speed (480Mbps)`, `Wireless`, `SuperSpeed (5Gbps)`, `SuperSpeed+ (10Gbps)`, or `speed(N)` for unknown wire values. |
+| `speed` | string | `domain.Speed.String()` | Long-form: `unknown`, `Low-Speed (1.5Mbps)`, `Full-Speed (12Mbps)`, `High-Speed (480Mbps)`, `Wireless`, `SuperSpeed (5Gbps)`, `SuperSpeed+ (10/20Gbps)`, or `speed(N)` for unknown wire values. |
 | `vendor_id` | string | `domain.Device.VendorID` | Lowercase 4-digit hex, e.g. `"0951"` — matches `lsusb` convention. |
 | `product_id` | string | `domain.Device.ProductID` | Same format as `vendor_id`. |
 
