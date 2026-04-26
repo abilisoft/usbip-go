@@ -59,9 +59,7 @@ func TestCLIFullFlow_DummyHCD(t *testing.T) {
 	{
 		out := mustRunOK(t, ctx, usbipBin, "list", "--local", "--output=json")
 
-		var devices []map[string]any
-		require.NoError(t, json.Unmarshal(out, &devices),
-			"list --local --output=json must emit valid JSON; got: %s", out)
+		devices := parseDevicesEnvelope(t, out)
 
 		require.True(t, jsonContainsBusID(devices, busID),
 			"list --local must enumerate the dummy_hcd-backed gadget %q; got: %s", busID, out)
@@ -75,17 +73,19 @@ func TestCLIFullFlow_DummyHCD(t *testing.T) {
 		_ = exec.Command(usbipBin, "unbind", busID).Run()
 	})
 
-	// Step 3: launch usbipd-go on a free port.
-	port := freeTCPPort(t)
-	listenAddr := "127.0.0.1:" + port
-
+	// Step 3: launch usbipd-go on a kernel-picked port. --listen :0
+	// hands kernel selection to the daemon so there is no TOCTOU
+	// window between us closing a probe listener and the daemon
+	// binding it. The daemon emits the bound address via slog at
+	// info level; we read it from stderr.
 	daemonCtx, daemonCancel := context.WithCancel(ctx)
 	defer daemonCancel()
 
 	daemonCmd := exec.CommandContext(daemonCtx, usbipdBin,
-		"--listen", listenAddr,
+		"--listen", "127.0.0.1:0",
 		"--status-socket", "",
-		"--log-level", "warn",
+		"--log-level", "info",
+		"--log-format", "json",
 	)
 
 	var daemonOut bytes.Buffer
@@ -100,6 +100,7 @@ func TestCLIFullFlow_DummyHCD(t *testing.T) {
 		_ = daemonCmd.Wait()
 	})
 
+	listenAddr := waitForDaemonListenAddr(t, &daemonOut, 5*time.Second)
 	require.NoError(t, waitForListener(listenAddr, 5*time.Second),
 		"usbipd-go must accept on %s within 5s; daemon output: %s", listenAddr, daemonOut.String())
 
@@ -107,9 +108,7 @@ func TestCLIFullFlow_DummyHCD(t *testing.T) {
 	{
 		out := mustRunOK(t, ctx, usbipBin, "list", "--remote", listenAddr, "--output=json")
 
-		var devices []map[string]any
-		require.NoError(t, json.Unmarshal(out, &devices),
-			"list --remote --output=json must emit valid JSON; got: %s", out)
+		devices := parseDevicesEnvelope(t, out)
 
 		require.True(t, jsonContainsBusID(devices, busID),
 			"list --remote must return the bound busid %q; got: %s", busID, out)
@@ -156,25 +155,58 @@ func mustRunOK(t *testing.T, ctx context.Context, bin string, args ...string) []
 	return stdout.Bytes()
 }
 
-// freeTCPPort returns a TCP port that was open at the moment of the
-// call. The kernel may reassign the port to another process before
-// the daemon actually binds, so the daemon must be tolerant of TIME_WAIT
-// races. With --listen :<port> usbipd-go retries on EADDRINUSE for a
-// few hundred ms before giving up, which covers this window.
-func freeTCPPort(t *testing.T) string {
+// waitForDaemonListenAddr polls the daemon's combined stdout/stderr
+// buffer for the listener-bound log line and extracts the bound
+// addr. usbipd-go logs an info record like
+// `{"level":"INFO","msg":"listener bound","addr":"127.0.0.1:38291"}`
+// once net.Listen returns; we look for the addr field. Race-free
+// alternative to the previous freeTCPPort/probe-listener pattern,
+// which closed a probe listener BEFORE the daemon bound — opening
+// a TOCTOU window where another process could steal the port.
+func waitForDaemonListenAddr(t *testing.T, buf *bytes.Buffer, deadline time.Duration) string {
 	t.Helper()
 
-	var lc net.ListenConfig
+	end := time.Now().Add(deadline)
 
-	lis, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
+	for time.Now().Before(end) {
+		addr, ok := extractAddrFromJSONLog(buf.String())
+		if ok {
+			return addr
+		}
 
-	port := lis.Addr().(*net.TCPAddr).Port
+		time.Sleep(50 * time.Millisecond)
+	}
 
-	require.NoError(t, lis.Close())
+	t.Fatalf("daemon did not log a bound listener address within %s; output: %s", deadline, buf.String())
 
-	// strconv-free formatting: TCP port is always 1-65535, no padding.
-	return tcpPortString(port)
+	return ""
+}
+
+// extractAddrFromJSONLog finds the `"addr":"<host:port>"` field from
+// any JSON-formatted log line in s. Returns the first match; the
+// daemon logs the listener addr at startup before anything else
+// touches "addr".
+func extractAddrFromJSONLog(s string) (string, bool) {
+	for _, line := range strings.Split(s, "\n") {
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			continue
+		}
+
+		v, ok := rec["addr"]
+		if !ok {
+			continue
+		}
+
+		addr, ok := v.(string)
+		if !ok || addr == "" {
+			continue
+		}
+
+		return addr, true
+	}
+
+	return "", false
 }
 
 // tcpPortString stringifies a TCP port without importing strconv.
@@ -241,6 +273,44 @@ func jsonContainsBusID(devices []map[string]any, want string) bool {
 	return false
 }
 
+// parseDevicesEnvelope parses the {schema, devices} envelope the
+// jsonRenderer emits and returns the inner devices slice. Centralised
+// because the envelope is the v1 stable contract every list-flavour
+// JSON output ships under (cmd/usbip-go/output.go: devicesEnvelope).
+func parseDevicesEnvelope(t *testing.T, raw []byte) []map[string]any {
+	t.Helper()
+
+	var env struct {
+		Schema  string           `json:"schema"`
+		Devices []map[string]any `json:"devices"`
+	}
+
+	require.NoError(t, json.Unmarshal(raw, &env),
+		"list --output=json must emit a valid envelope; got: %s", raw)
+	require.Equal(t, "v1", env.Schema,
+		"envelope.schema must be the v1 stable identifier; got: %s", raw)
+
+	return env.Devices
+}
+
+// parsePortsEnvelope parses the {schema, ports} envelope from
+// `usbip-go list --ports --output=json`.
+func parsePortsEnvelope(t *testing.T, raw []byte) []map[string]any {
+	t.Helper()
+
+	var env struct {
+		Schema string           `json:"schema"`
+		Ports  []map[string]any `json:"ports"`
+	}
+
+	require.NoError(t, json.Unmarshal(raw, &env),
+		"list --ports --output=json must emit a valid envelope; got: %s", raw)
+	require.Equal(t, "v1", env.Schema,
+		"envelope.schema must be the v1 stable identifier; got: %s", raw)
+
+	return env.Ports
+}
+
 // findPortIDByBusID lists vhci ports via the CLI and returns the id of
 // the row whose local-busid matches busID. Fatal-fails the test if
 // no such row exists. Filtering by busid (rather than ports[0])
@@ -250,9 +320,7 @@ func findPortIDByBusID(t *testing.T, ctx context.Context, usbipBin, busID string
 
 	out := mustRunOK(t, ctx, usbipBin, "list", "--ports", "--output=json")
 
-	var ports []map[string]any
-	require.NoError(t, json.Unmarshal(out, &ports),
-		"list --ports --output=json must emit valid JSON; got: %s", out)
+	ports := parsePortsEnvelope(t, out)
 	require.NotEmpty(t, ports,
 		"after attach, list --ports must report the new port; got: %s", out)
 

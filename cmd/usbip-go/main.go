@@ -10,23 +10,41 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"slices"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/charmbracelet/fang"
 )
 
-// applyNoColorEarly sets NO_COLOR=1 when argv contains --no-color.
-// fang's help renderer reads the environment before cobra's
-// PersistentPreRunE fires, so the env mutation MUST happen prior to
-// fang.Execute or `usbip-go --no-color --help` comes back colored
-// despite the flag — the regression a CI log or legacy ssh terminal
-// would catch first. Idempotent and side-effect-only.
+// applyNoColorEarly sets NO_COLOR=1 when argv contains --no-color in
+// any form cobra accepts: bare `--no-color`, the explicit
+// `--no-color=true`, or `--no-color=1`. fang's help renderer reads
+// the environment before cobra's PersistentPreRunE fires, so the env
+// mutation MUST happen prior to fang.Execute or
+// `usbip-go --no-color --help` comes back colored despite the flag.
+// Idempotent and side-effect-only.
 func applyNoColorEarly(args []string) {
-	if slices.Contains(args, "--no-color") {
-		_ = os.Setenv("NO_COLOR", "1")
+	for _, a := range args {
+		if a == "--no-color" {
+			_ = os.Setenv("NO_COLOR", "1")
+			return
+		}
+
+		if !strings.HasPrefix(a, "--no-color=") {
+			continue
+		}
+
+		v := strings.TrimPrefix(a, "--no-color=")
+		// Cobra parses bool flag values via strconv.ParseBool; mirror
+		// that here so `--no-color=false` does NOT enable the env.
+		if b, err := strconv.ParseBool(v); err == nil && b {
+			_ = os.Setenv("NO_COLOR", "1")
+			return
+		}
 	}
 }
+
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(),

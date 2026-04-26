@@ -34,3 +34,21 @@ func TestRunCtx_NoColorAppliedBeforeHelp(t *testing.T) {
 	require.Equal(t, "1", os.Getenv("NO_COLOR"),
 		"--no-color must propagate to the environment before fang renders help, not after PersistentPreRunE")
 }
+
+// TestRunCtx_NoColorEqualsFormAlsoApplied pins that cobra's
+// --no-color=true (the bool-with-explicit-value form) is treated
+// the same as --no-color. argv-scanning that only matches the
+// bare token would let `--no-color=true --help` come back colored.
+func TestRunCtx_NoColorEqualsFormAlsoApplied(t *testing.T) {
+	require.NoError(t, os.Unsetenv("NO_COLOR"))
+
+	t.Cleanup(func() {
+		_ = os.Unsetenv("NO_COLOR")
+	})
+
+	code, _ := runCtx(context.Background(), []string{"--no-color=true", "--help"})
+	require.Zero(t, code, "--help must exit cleanly")
+
+	require.Equal(t, "1", os.Getenv("NO_COLOR"),
+		"--no-color=true must propagate to NO_COLOR the same way --no-color does")
+}

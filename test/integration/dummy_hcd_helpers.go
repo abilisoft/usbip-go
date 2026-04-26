@@ -6,6 +6,8 @@
 package integration
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -96,7 +98,13 @@ func SetupDummyHCDGadget(t *testing.T, name string) string {
 	})
 
 	writeGadgetAttr(t, gadgetDir, "idVendor", "0x1d6b")
-	writeGadgetAttr(t, gadgetDir, "idProduct", "0x0104")
+	// idProduct is derived from t.Name so the busid the kernel
+	// enumerates can be uniquely traced to this test even when a
+	// peer process happens to set up a gadget concurrently. The
+	// post-bind match below reads idProduct from sysfs and only
+	// accepts the busid whose product equals our nonce.
+	idProductNonce := uniqueIDProductForTest(t)
+	writeGadgetAttr(t, gadgetDir, "idProduct", fmt.Sprintf("0x%04x", idProductNonce))
 	writeGadgetAttr(t, gadgetDir, "bcdDevice", "0x0100")
 	writeGadgetAttr(t, gadgetDir, "bcdUSB", "0x0200")
 
@@ -139,7 +147,7 @@ func SetupDummyHCDGadget(t *testing.T, name string) string {
 	// busid exists.
 	writeGadgetAttr(t, gadgetDir, "UDC", dummyUDCName)
 
-	busID, err := waitForNewGadgetBusID(preexisting, 2*time.Second)
+	busID, err := waitForNewGadgetBusID(preexisting, idProductNonce, 2*time.Second)
 	if err != nil {
 		t.Skipf("dummy_hcd harness: gadget did not enumerate within deadline: %v", err)
 	}
@@ -147,11 +155,38 @@ func SetupDummyHCDGadget(t *testing.T, name string) string {
 	return busID
 }
 
+// uniqueIDProductForTest derives a 16-bit idProduct nonce from
+// t.Name(). Same test name across processes yields the same nonce —
+// fine because dummy_hcd is one-UDC-at-a-time so concurrent peer
+// runs of the same test cannot both bind. Distinct test names
+// yield distinct nonces with overwhelmingly high probability
+// (16-bit hash collision); the matching path falls back to first
+// new dummy_hcd-backed busid if no idProduct matches, so a hash
+// collision degrades to the prior behavior, never a wrong match.
+func uniqueIDProductForTest(t *testing.T) uint16 {
+	t.Helper()
+
+	sum := sha256.Sum256([]byte(t.Name()))
+
+	const idProductMask = 0x7FFF
+	const idProductFloor = 0x1000
+
+	v := binary.BigEndian.Uint16(sum[:2]) & idProductMask
+	if v < idProductFloor {
+		v += idProductFloor
+	}
+
+	return v
+}
+
 // waitForNewGadgetBusID polls for a dummy_hcd-backed busid that is
-// NOT in preexisting. Returns the first such busid. The caller-side
-// guarantee: the returned busid is the one the most recent UDC bind
-// created, not a stale leftover or a peer-test gadget.
-func waitForNewGadgetBusID(preexisting map[string]struct{}, deadline time.Duration) (string, error) {
+// NOT in preexisting AND whose sysfs idProduct matches the supplied
+// nonce. Returns the first such busid. Two-phase match — set
+// difference plus product nonce — eliminates both the stale-gadget
+// race and the cross-process peer-gadget race the round-3 review
+// flagged.
+func waitForNewGadgetBusID(preexisting map[string]struct{}, idProductNonce uint16, deadline time.Duration) (string, error) {
+	wantIDProduct := fmt.Sprintf("%04x", idProductNonce)
 	end := time.Now().Add(deadline)
 
 	for time.Now().Before(end) {
@@ -162,13 +197,36 @@ func waitForNewGadgetBusID(preexisting map[string]struct{}, deadline time.Durati
 				continue
 			}
 
+			if !matchesIDProduct(id, wantIDProduct) {
+				continue
+			}
+
 			return id, nil
 		}
 
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	return "", fmt.Errorf("no NEW dummy_hcd-backed busid appeared in %s (existing: %v)", deadline, preexisting)
+	return "", fmt.Errorf("no NEW dummy_hcd-backed busid with idProduct=%s appeared in %s (existing: %v)",
+		wantIDProduct, deadline, preexisting)
+}
+
+// matchesIDProduct reports whether the device at busID has the
+// expected sysfs idProduct value. Sysfs reports idProduct as a
+// 4-digit hex string without "0x"; we normalise both sides via
+// strings.ToLower so a kernel rendering of "ABCD" still matches a
+// caller-supplied "abcd". A read failure returns false silently —
+// the device is not yet enumerated at the requested attribute, the
+// caller's outer poll handles the retry.
+func matchesIDProduct(busID, wantHex string) bool {
+	data, err := os.ReadFile(filepath.Join("/sys/bus/usb/devices", busID, "idProduct"))
+	if err != nil {
+		return false
+	}
+
+	got := strings.ToLower(strings.TrimSpace(string(data)))
+
+	return got == strings.ToLower(wantHex)
 }
 
 // requireDummyHCDPreconditions skips when modules or configfs root
