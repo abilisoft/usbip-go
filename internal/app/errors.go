@@ -87,7 +87,6 @@ var (
 	// point rather than a misleading "giving up after max attempts"
 	// log later.
 	ErrAttachOptionsInvalid = errors.New("attach options invalid")
-
 )
 
 // ErrTransportOptionsInvalid is the sentinel for TransportOptions

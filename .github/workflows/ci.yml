@@ -56,6 +56,12 @@ jobs:
           fetch-depth: 0
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - uses: DeterminateSystems/flakehub-cache-action@e134de896b2302c1584a7b54ff35432708607d44 # v3.18.1
+      - name: Format check (gofmt -s)
+        # Fails fast if any file under cmd/examples/internal/pkg/test
+        # would change under `gofmt -s`. Catches drift that local
+        # `task fmt` would auto-fix; Go Report Card's gofmt check
+        # otherwise surfaces it weeks later as a graded penalty.
+        run: nix develop --command task ci:fmt:check
       - name: Lint
         run: nix develop --command task ci:lint
       - name: Vuln (SARIF)
