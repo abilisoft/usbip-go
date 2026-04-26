@@ -189,7 +189,7 @@ func (a *ExporterAdapter) readDeviceNumbers(base string) (deviceNumbers, error) 
 		return deviceNumbers{}, err
 	}
 
-	speed, err := ReadUint(a.fs, path.Join(base, devAttrSpeed))
+	speed, err := ReadSpeedAttr(a.fs, path.Join(base, devAttrSpeed))
 	if err != nil {
 		return deviceNumbers{}, err
 	}
@@ -197,7 +197,7 @@ func (a *ExporterAdapter) readDeviceNumbers(base string) (deviceNumbers, error) 
 	return deviceNumbers{
 		bus:   busnum,
 		dev:   devnum,
-		speed: domain.Speed(speed),
+		speed: speed,
 	}, nil
 }
 

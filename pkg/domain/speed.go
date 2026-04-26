@@ -6,7 +6,8 @@ package domain
 import "strconv"
 
 // Speed is a USB speed enum matching kernel enum usb_device_speed values.
-// Numeric values are the kernel values; no translation occurs on sysfs reads.
+// Sysfs reports Mbps strings ("5000"), not these integers; the kernel
+// adapter translates via ReadSpeedAttr before populating this field.
 type Speed uint32
 
 // USB device speeds, numeric values match the kernel's usb_device_speed.
