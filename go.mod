@@ -2,6 +2,11 @@ module github.com/abilisoft/usbip-go
 
 go 1.26.2
 
+retract (
+	v1.0.0 // Published accidentally; v0.2.x is the correct release line
+	v0.1.0 // Published accidentally; v0.2.x is the correct release line
+)
+
 require (
 	github.com/coreos/go-systemd/v22 v22.7.0
 	github.com/go-gremlins/gremlins v0.6.0
