@@ -9,7 +9,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -194,13 +193,17 @@ func TestRunUninstallSurfacesWriterError(t *testing.T) {
 
 // TestCompletePortIDsListsKnownPorts covers the success path of
 // completePortIDs: ListPorts returns a non-empty slice and the
-// completion list mirrors the port IDs.
+// completion list mirrors the port IDs. Uses three- and four-digit
+// IDs that cannot be confused with substring matches across each
+// other (a regression that returned [10, 15, 51] would still satisfy
+// `Contains "1"` + `Contains "5"`; using IDs whose decimal forms
+// share no substring eliminates that false-positive class).
 func TestCompletePortIDsListsKnownPorts(t *testing.T) {
 	imp := &mockImporter{
 		listPortsFn: func(_ context.Context) ([]usbip.Port, error) {
 			return []usbip.Port{
-				{ID: 1, BusID: "1-1.2"},
-				{ID: 5, BusID: "2-1"},
+				{ID: 100, BusID: "1-1.2"},
+				{ID: 256, BusID: "2-1"},
 			}, nil
 		},
 	}
@@ -210,9 +213,10 @@ func TestCompletePortIDsListsKnownPorts(t *testing.T) {
 	cmd.SetContext(context.Background())
 
 	got, _ := completePortIDs(cmd, nil, "")
-	joined := strings.Join(got, ",")
-	require.Contains(t, joined, "1")
-	require.Contains(t, joined, "5")
+	require.Len(t, got, 2,
+		"completePortIDs must return one entry per kernel port")
+	require.Contains(t, got[0], "100")
+	require.Contains(t, got[1], "256")
 }
 
 // TestCompletePortIDsErrorReturnsDirective covers the error path:

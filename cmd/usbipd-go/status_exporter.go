@@ -29,7 +29,6 @@ const kernelModuleProbeTTL = 5 * time.Second
 // TTL deterministically without touching /sys.
 type kernelModuleProbeFunc func(context.Context) (map[string]usbip.ModuleState, error)
 
-
 // statusExporter adapts *usbip.Exporter to the statusSource interface
 // consumed by serveStatus. It owns the listeningState bookkeeping so
 // the status handler can report accepting=true from the moment Serve
@@ -177,7 +176,6 @@ func copyKernelModuleMap(src map[string]usbip.ModuleState) map[string]usbip.Modu
 
 	return out
 }
-
 
 // markAccepting atomically flips the accepting flag rendered under
 // listening.accepting. Exposed on *statusExporter (not the interface)

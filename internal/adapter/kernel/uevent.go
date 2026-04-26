@@ -35,7 +35,6 @@ const netlinkUdevGroup = 1
 // consumers that fill this buffer drop subsequent events (logged).
 const subscriberChanBuffer = 32
 
-
 // eventDispatcher owns the single netlink socket and the fan-out list
 // of subscriber channels. EventsAdapter lazily constructs one on the
 // first Subscribe call and tears it down on the last Unsubscribe.

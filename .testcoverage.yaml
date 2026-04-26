@@ -88,3 +88,10 @@ exclude:
     # exercise. See refactor commit isolating these to a dedicated
     # file.
     - ^cmd/usbipd-go/status_exporter_concrete\.go$
+    # Whole integration test tree only compiles under
+    # `integration_linux` build tag; default `go test ./...` skips it
+    # so it always reports 0% via the unit-test gate.
+    - ^test/integration/
+    # moq-generated mock files exist solely as test fakes; defensive
+    # exclusion in case future moq output lands on a non-test file.
+    - _mock_test\.go$
