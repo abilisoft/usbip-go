@@ -5,7 +5,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"net"
 	"sync"
@@ -29,20 +28,6 @@ const kernelModuleProbeTTL = 5 * time.Second
 // via setKernelModuleProbe to assert call counts and drive the cache
 // TTL deterministically without touching /sys.
 type kernelModuleProbeFunc func(context.Context) (map[string]usbip.ModuleState, error)
-
-// defaultKernelModuleProbe wraps usbip.ProbeKernelModules. Used as the
-// production default for statusExporter.kernelModuleProbe; extracted so
-// the method value is stable (rather than a fresh closure per instance)
-// and so the wrap adds an error prefix that tests do not have to
-// reproduce.
-func defaultKernelModuleProbe(ctx context.Context) (map[string]usbip.ModuleState, error) {
-	mods, err := usbip.ProbeKernelModules(ctx)
-	if err != nil {
-		return mods, fmt.Errorf("probe kernel modules: %w", err)
-	}
-
-	return mods, nil
-}
 
 // statusExporter adapts *usbip.Exporter to the statusSource interface
 // consumed by serveStatus. It owns the listeningState bookkeeping so
@@ -143,20 +128,6 @@ func listenerAddr(lis net.Listener) string {
 // changes is a future addition. A ListAvailable failure propagates to
 // the handler so GET / can render a bound_devices_error field rather
 // than masquerading the failure as an empty bound_devices array.
-func (s *statusExporter) BoundDevices(ctx context.Context) ([]usbip.Device, error) {
-	devs, err := s.exp.ListAvailable(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list bound devices: %w", err)
-	}
-
-	return devs, nil
-}
-
-// Sessions mirrors Exporter.Sessions; the caller owns the returned
-// slice per the pkg/usbip contract.
-func (s *statusExporter) Sessions(ctx context.Context) []usbip.Session {
-	return s.exp.Sessions(ctx)
-}
 
 // Listening exposes the current accept-path state.
 func (s *statusExporter) Listening() listeningState {
@@ -204,26 +175,6 @@ func copyKernelModuleMap(src map[string]usbip.ModuleState) map[string]usbip.Modu
 	maps.Copy(out, src)
 
 	return out
-}
-
-// Drain flips accepting=false, asks the Exporter to shut down, and
-// fires the run-side cancellation (if installed) so Serve returns.
-// handleStatusDrain already answered 200 by the time this runs —
-// errors here are observability signals only.
-func (s *statusExporter) Drain(ctx context.Context) error {
-	s.markAccepting(false)
-
-	cancel := s.drain.Load()
-	if cancel != nil {
-		(*cancel)()
-	}
-
-	err := s.exp.Shutdown(ctx)
-	if err != nil {
-		return fmt.Errorf("exporter shutdown: %w", err)
-	}
-
-	return nil
 }
 
 // markAccepting atomically flips the accepting flag rendered under

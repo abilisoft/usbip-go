@@ -11,7 +11,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,41 +38,6 @@ const (
 	dec10Bits = 32
 	dec10     = 10
 )
-
-// writeSysfsFile opens path with O_WRONLY and writes data verbatim.
-// This is the production default injected as WriteFunc by
-// defaultWriteFunc(); the sysfs read primitives layer the errno
-// classification on top of this primitive for both read and write
-// paths.
-//
-// Rejects any path not rooted at /sys/ and any path containing ".."
-// segments so gosec G304's concern (variable path into os.OpenFile)
-// is addressed by construction rather than suppression.
-func writeSysfsFile(path, data string) error {
-	cleaned := filepath.Clean(path)
-
-	if !strings.HasPrefix(cleaned, sysfsRoot) {
-		return fmt.Errorf("write sysfs %q: %w", path, errNonSysfsPath)
-	}
-
-	f, err := os.OpenFile(cleaned, os.O_WRONLY, sysfsFileMode)
-	if err != nil {
-		return classifySyscallErr("open sysfs", path, err)
-	}
-
-	_, werr := f.WriteString(data)
-	cerr := f.Close()
-
-	if werr != nil {
-		return classifySyscallErr("write sysfs", path, werr)
-	}
-
-	if cerr != nil {
-		return classifySyscallErr("close sysfs", path, cerr)
-	}
-
-	return nil
-}
 
 // fsPathFromAbs converts an absolute path (e.g. "/sys/bus/usb/devices")
 // into an fs.FS-relative path. The fs.FS contract is rooted so the
