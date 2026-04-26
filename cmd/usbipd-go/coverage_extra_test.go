@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -221,4 +222,67 @@ func TestSetDrainAndDrainCallback(t *testing.T) {
 
 	(*cancel)()
 	require.True(t, called.Load())
+}
+
+// TestVersionCmdRendersStampedLabels exercises the version subcommand:
+// it must write a non-empty line containing the binary name. Default
+// stamps are "dev"/"none"/"unknown"; we only assert structure.
+func TestVersionCmdRendersStampedLabels(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+
+	cmd := newVersionCmd()
+	cmd.SetOut(&buf)
+
+	require.NoError(t, cmd.RunE(cmd, nil))
+	require.Contains(t, buf.String(), "usbipd-go version")
+}
+
+// TestBuildLoggerEachFormat covers buildLogger's switch arms: auto,
+// pretty, json, and the default (errInvalidLogFormat). The auto
+// branch's TTY/no-color heuristic depends on stderr; we don't
+// assert which sub-handler it picks, only that no error fires.
+func TestBuildLoggerEachFormat(t *testing.T) {
+	t.Parallel()
+
+	for _, fmtName := range []string{"auto", "pretty", "json"} {
+		t.Run(fmtName, func(t *testing.T) {
+			t.Parallel()
+
+			lg, err := buildLogger(Config{LogFormat: fmtName, LogLevel: "info"})
+			require.NoError(t, err)
+			require.NotNil(t, lg)
+		})
+	}
+
+	t.Run("invalid format rejected", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := buildLogger(Config{LogFormat: "weird", LogLevel: "info"})
+		require.Error(t, err)
+	})
+
+	t.Run("invalid level rejected", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := buildLogger(Config{LogFormat: "json", LogLevel: "noisy"})
+		require.Error(t, err)
+	})
+}
+
+// TestNewJSONLoggerSmoke covers newJSONLogger's construction.
+func TestNewJSONLoggerSmoke(t *testing.T) {
+	t.Parallel()
+
+	require.NotNil(t, newJSONLogger(slog.LevelInfo))
+}
+
+// TestIsStderrTTYReturnsBool covers isStderrTTY's basic shape.
+// The actual answer depends on stderr; test only asserts the call
+// completes without panic.
+func TestIsStderrTTYReturnsBool(t *testing.T) {
+	t.Parallel()
+
+	_ = isStderrTTY()
 }

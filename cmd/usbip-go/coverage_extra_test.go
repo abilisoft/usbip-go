@@ -386,3 +386,19 @@ func TestRunListLocalRendersAvailable(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, buf.String(), "1-1.2")
 }
+
+// TestVersionCmdRendersStampedLabels exercises the version subcommand:
+// it must write a non-empty line containing the runtime Go version.
+// The actual version/commit/buildDate values are -ldflags stamps with
+// "dev"/"none"/"unknown" defaults; we only assert structure.
+func TestVersionCmdRendersStampedLabels(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+
+	cmd := newVersionCmd()
+	cmd.SetOut(&buf)
+
+	require.NoError(t, cmd.RunE(cmd, nil))
+	require.Contains(t, buf.String(), "usbip-go version")
+}
