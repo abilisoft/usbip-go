@@ -82,7 +82,7 @@ func SetupDummyHCDGadget(t *testing.T, name string) string {
 	// harness into returning a busid the test never created.
 	preexisting := snapshotDummyBusIDs()
 
-	gadgetDir := filepath.Join(gadgetConfigfsRoot, name)
+	gadgetDir := GadgetConfigfsPathFor(t, name)
 
 	err := os.MkdirAll(gadgetDir, 0o755)
 	if err != nil {
@@ -280,6 +280,26 @@ func teardownDummyHCDGadget(t *testing.T, gadgetDir string) {
 		t.Errorf("dummy_hcd teardown: gadget root %s did not unlink cleanly: %v — manual cleanup required before next run",
 			gadgetDir, err)
 	}
+}
+
+// GadgetConfigfsPathFor returns the configfs directory the harness
+// will create for (t, name). The path encodes t.Name() so that
+// concurrent test runs with the same caller-supplied logical name
+// land in different configfs entries — without this, parallel
+// integration runs race on the same /sys/kernel/config/usb_gadget/<name>
+// directory and waitForNewGadgetBusID can claim the wrong busid.
+//
+// Only the configfs subdirectory name is sanitised; the logical name
+// is preserved as a suffix so a failure in the configfs tree
+// (`ls /sys/kernel/config/usb_gadget`) names the test that owned it.
+// configfs accepts any non-empty filename without slashes; we
+// substitute `/` with `_` so subtest names (`Parent/Sub`) survive.
+func GadgetConfigfsPathFor(t *testing.T, name string) string {
+	t.Helper()
+
+	suffix := strings.ReplaceAll(t.Name(), "/", "_")
+
+	return filepath.Join(gadgetConfigfsRoot, name+"_"+suffix)
 }
 
 // snapshotDummyBusIDs returns the set of dummy_hcd-backed busids
