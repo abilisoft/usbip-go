@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +22,33 @@ import (
 
 	"github.com/abilisoft/usbip-go/test/integration"
 )
+
+// syncBuffer is a mutex-protected bytes.Buffer. The daemon
+// subprocess writes to its stdout/stderr concurrently with the test
+// goroutine reading the buffer to extract the bound listener address.
+// A bare bytes.Buffer is not safe under concurrent Write+String;
+// `go test -race` flags the unsynchronized access.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+// Write appends p; safe to call from the daemon writer goroutine.
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.buf.Write(p)
+}
+
+// String returns a snapshot of the buffered output; safe to call
+// from the polling goroutine.
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.buf.String()
+}
 
 // TestCLIFullFlow_DummyHCD exercises every CLI subcommand against a
 // real dummy_hcd-backed USB device. This is the regression net the
@@ -88,7 +116,10 @@ func TestCLIFullFlow_DummyHCD(t *testing.T) {
 		"--log-format", "json",
 	)
 
-	var daemonOut bytes.Buffer
+	// Mutex-protected buffer because the daemon subprocess writes
+	// concurrently with the polling goroutine that scans for the
+	// bound-listener log line.
+	var daemonOut syncBuffer
 
 	daemonCmd.Stdout = &daemonOut
 	daemonCmd.Stderr = &daemonOut
@@ -163,7 +194,7 @@ func mustRunOK(t *testing.T, ctx context.Context, bin string, args ...string) []
 // alternative to the previous freeTCPPort/probe-listener pattern,
 // which closed a probe listener BEFORE the daemon bound — opening
 // a TOCTOU window where another process could steal the port.
-func waitForDaemonListenAddr(t *testing.T, buf *bytes.Buffer, deadline time.Duration) string {
+func waitForDaemonListenAddr(t *testing.T, buf *syncBuffer, deadline time.Duration) string {
 	t.Helper()
 
 	end := time.Now().Add(deadline)
