@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"strings"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
@@ -39,6 +40,11 @@ const ifaceDriverNameFile = "driver_name"
 // write.
 func (a *ExporterAdapter) Bind(ctx context.Context, busID domain.BusID) error {
 	err := a.ModulesAvailable(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = a.refuseVHCIBindLoop(busID)
 	if err != nil {
 		return err
 	}
@@ -125,6 +131,38 @@ func (a *commonAdapter) writeClassified(target, data string) error {
 	err := a.write(target, data)
 	if err != nil {
 		return classifyFSErr("write", target, err)
+	}
+
+	return nil
+}
+
+// vhciDevPathMarker is the substring upstream's bind_device looks
+// for in the device's sysfs devpath to detect that a busid is itself
+// the importer-side stub of an already-attached remote device.
+// Mirrors USBIP_VHCI_DRV_NAME in tools/usb/usbip/src/usbip_common.h.
+const vhciDevPathMarker = "vhci_hcd"
+
+// refuseVHCIBindLoop rejects busID when its sysfs devpath traces
+// through vhci_hcd. Without this guard, Bind on an importer-side
+// stub of an already-attached remote unbinds the user's existing
+// vhci-driven attachment in step 1 (driver unbind), then fails in
+// step 3 because usbip-host cannot bind a device sitting under
+// vhci_hcd. The user is left with neither device.
+//
+// MapFS-backed unit tests do not implement fs.ReadLinkFS, so
+// readLink returns fs.ErrNotExist there. Treat that as "guard
+// inapplicable" rather than a hard error so existing fixture-based
+// bind tests retain their semantics; the real adapter resolves the
+// symlink via os.DirFS which DOES implement ReadLinkFS.
+func (a *ExporterAdapter) refuseVHCIBindLoop(busID domain.BusID) error {
+	link, err := readLink(a.fs, path.Join(SysfsUSBDevices, string(busID)))
+	if err != nil {
+		return nil
+	}
+
+	if strings.Contains(link, vhciDevPathMarker) {
+		return fmt.Errorf("%w: %s is itself attached via vhci_hcd; refusing bind to avoid loop",
+			domain.ErrDeviceAlreadyBound, busID)
 	}
 
 	return nil

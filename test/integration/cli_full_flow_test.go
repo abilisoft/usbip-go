@@ -118,26 +118,15 @@ func TestCLIFullFlow_DummyHCD(t *testing.T) {
 	// Step 5: attach the device.
 	mustRunOK(t, ctx, usbipBin, "attach", listenAddr, busID)
 
+	// Step 6: list ports — find OUR port by matching the local busid.
+	// A naked ports[0] lookup would happily match a port from a
+	// concurrent attach (parallel tests) or a leftover from a prior
+	// run, then detach the wrong port and leave ours behind.
+	portID := findPortIDByBusID(t, ctx, usbipBin, busID)
+
 	t.Cleanup(func() {
-		_ = exec.Command(usbipBin, "detach", "0").Run()
+		_ = exec.Command(usbipBin, "detach", portID).Run()
 	})
-
-	// Step 6: list ports — expect at least one.
-	var portID string
-	{
-		out := mustRunOK(t, ctx, usbipBin, "list", "--ports", "--output=json")
-
-		var ports []map[string]any
-		require.NoError(t, json.Unmarshal(out, &ports),
-			"list --ports --output=json must emit valid JSON; got: %s", out)
-		require.NotEmpty(t, ports,
-			"after attach, list --ports must report the new port; got: %s", out)
-
-		idVal, ok := ports[0]["id"]
-		require.True(t, ok, "port row must carry an id field; got: %s", out)
-
-		portID = jsonNumber(t, idVal)
-	}
 
 	// Step 7: detach by port id.
 	mustRunOK(t, ctx, usbipBin, "detach", portID)
@@ -250,6 +239,50 @@ func jsonContainsBusID(devices []map[string]any, want string) bool {
 	}
 
 	return false
+}
+
+// findPortIDByBusID lists vhci ports via the CLI and returns the id of
+// the row whose local-busid matches busID. Fatal-fails the test if
+// no such row exists. Filtering by busid (rather than ports[0])
+// makes the test resilient to peer attaches and stale leftovers.
+func findPortIDByBusID(t *testing.T, ctx context.Context, usbipBin, busID string) string {
+	t.Helper()
+
+	out := mustRunOK(t, ctx, usbipBin, "list", "--ports", "--output=json")
+
+	var ports []map[string]any
+	require.NoError(t, json.Unmarshal(out, &ports),
+		"list --ports --output=json must emit valid JSON; got: %s", out)
+	require.NotEmpty(t, ports,
+		"after attach, list --ports must report the new port; got: %s", out)
+
+	for _, p := range ports {
+		// Schema names the local busid as "local_busid" (under
+		// docs/json-schema.md §ports). Fall back to "busid" since
+		// historical fixtures used that key.
+		for _, key := range []string{"local_busid", "localBusID", "busid"} {
+			v, ok := p[key]
+			if !ok {
+				continue
+			}
+
+			s, ok := v.(string)
+			if !ok {
+				continue
+			}
+
+			if strings.TrimSpace(s) == busID {
+				idVal, ok := p["id"]
+				require.True(t, ok, "port row must carry an id field; got: %s", out)
+
+				return jsonNumber(t, idVal)
+			}
+		}
+	}
+
+	t.Fatalf("no vhci port row matched busid %q in list --ports output: %s", busID, out)
+
+	return ""
 }
 
 // jsonNumber stringifies a JSON value that can come back as float64

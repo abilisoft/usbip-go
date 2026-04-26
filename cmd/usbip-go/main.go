@@ -10,10 +10,23 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 
 	"github.com/charmbracelet/fang"
 )
+
+// applyNoColorEarly sets NO_COLOR=1 when argv contains --no-color.
+// fang's help renderer reads the environment before cobra's
+// PersistentPreRunE fires, so the env mutation MUST happen prior to
+// fang.Execute or `usbip-go --no-color --help` comes back colored
+// despite the flag — the regression a CI log or legacy ssh terminal
+// would catch first. Idempotent and side-effect-only.
+func applyNoColorEarly(args []string) {
+	if slices.Contains(args, "--no-color") {
+		_ = os.Setenv("NO_COLOR", "1")
+	}
+}
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(),
@@ -60,6 +73,8 @@ var rootCmdFactory = newRootCmd
 // because we render errors ourselves in main() via FormatError —
 // fang's stylised error rendering would emit a duplicate line.
 func runCtx(ctx context.Context, args []string) (int, error) {
+	applyNoColorEarly(args)
+
 	cmd := rootCmdFactory()
 	cmd.SetArgs(args)
 

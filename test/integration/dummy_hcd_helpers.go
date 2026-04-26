@@ -75,6 +75,13 @@ func SetupDummyHCDGadget(t *testing.T, name string) string {
 
 	requireDummyHCDPreconditions(t)
 
+	// Snapshot existing dummy_hcd-backed busids BEFORE creating our
+	// gadget so the post-bind diff yields exactly the busid the
+	// kernel assigned to us. Concurrent integration runs or a stale
+	// gadget left over from a previous run no longer tempt the
+	// harness into returning a busid the test never created.
+	preexisting := snapshotDummyBusIDs()
+
 	gadgetDir := filepath.Join(gadgetConfigfsRoot, name)
 
 	err := os.MkdirAll(gadgetDir, 0o755)
@@ -132,12 +139,36 @@ func SetupDummyHCDGadget(t *testing.T, name string) string {
 	// busid exists.
 	writeGadgetAttr(t, gadgetDir, "UDC", dummyUDCName)
 
-	busID, err := waitForGadgetBusID(2 * time.Second)
+	busID, err := waitForNewGadgetBusID(preexisting, 2*time.Second)
 	if err != nil {
 		t.Skipf("dummy_hcd harness: gadget did not enumerate within deadline: %v", err)
 	}
 
 	return busID
+}
+
+// waitForNewGadgetBusID polls for a dummy_hcd-backed busid that is
+// NOT in preexisting. Returns the first such busid. The caller-side
+// guarantee: the returned busid is the one the most recent UDC bind
+// created, not a stale leftover or a peer-test gadget.
+func waitForNewGadgetBusID(preexisting map[string]struct{}, deadline time.Duration) (string, error) {
+	end := time.Now().Add(deadline)
+
+	for time.Now().Before(end) {
+		current := snapshotDummyBusIDs()
+
+		for id := range current {
+			if _, ok := preexisting[id]; ok {
+				continue
+			}
+
+			return id, nil
+		}
+
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	return "", fmt.Errorf("no NEW dummy_hcd-backed busid appeared in %s (existing: %v)", deadline, preexisting)
 }
 
 // requireDummyHCDPreconditions skips when modules or configfs root
@@ -180,100 +211,108 @@ func writeGadgetAttr(t *testing.T, base, attr, data string) {
 	}
 }
 
-// waitForGadgetBusID polls /sys/bus/usb/devices/ for a busid backed
-// by dummy_hcd. Returns the first match. The kernel enumerates the
-// gadget within milliseconds of the UDC bind write but we allow a
-// generous timeout for slow VM runners.
-func waitForGadgetBusID(deadline time.Duration) (string, error) {
-	end := time.Now().Add(deadline)
-
-	for time.Now().Before(end) {
-		busID, ok := scanForDummyBusID()
-		if ok {
-			return busID, nil
-		}
-
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	return "", fmt.Errorf("no dummy_hcd-backed busid appeared in %s", deadline)
-}
-
-// scanForDummyBusID inspects /sys/bus/usb/devices for entries whose
-// devpath traces back to dummy_hcd. Returns the busid (e.g. "1-1")
-// of the first match.
-func scanForDummyBusID() (string, bool) {
-	entries, err := os.ReadDir("/sys/bus/usb/devices")
-	if err != nil {
-		return "", false
-	}
-
-	for _, e := range entries {
-		name := e.Name()
-		// Bus-id-like entries (no colon) only; skip interface stubs.
-		if strings.Contains(name, ":") || strings.HasPrefix(name, "usb") {
-			continue
-		}
-
-		// The dummy_hcd device's parent path includes "dummy_hcd".
-		link, err := os.Readlink(filepath.Join("/sys/bus/usb/devices", name))
-		if err != nil {
-			continue
-		}
-
-		if strings.Contains(link, "dummy_hcd") {
-			return name, true
-		}
-	}
-
-	return "", false
-}
-
-// teardownDummyHCDGadget reverses the setup writes, in the order
-// configfs requires (unbind UDC, remove function symlinks, rmdir
-// configs and functions, finally rmdir the gadget root).
+// teardownDummyHCDGadget reverses the setup writes in the order
+// configfs requires:
+//
+//  1. Unbind UDC (configfs refuses structural mutation while UDC held)
+//  2. Remove every function->config symlink
+//  3. Remove configs/<c>/strings/<locale> then configs/<c>
+//  4. Remove functions/<fn>
+//  5. Remove top-level strings/<locale>
+//  6. Remove the gadget root
+//
+// The final rmdir is checked: if it fails the configfs subtree is
+// left poisoned and the next test run with the same gadget name will
+// EEXIST. Surface that with t.Errorf so a stale gadget never silently
+// pollutes future runs. Earlier-step errors are still ignored — they
+// cascade into the final rmdir failure if material.
 func teardownDummyHCDGadget(t *testing.T, gadgetDir string) {
 	t.Helper()
 
-	// Unbind UDC first — the kernel refuses any structural mutation
-	// while a UDC is held.
-	_ = os.WriteFile(filepath.Join(gadgetDir, "UDC"), []byte(""), 0o644)
+	// Step 1: release UDC.
+	_ = os.WriteFile(filepath.Join(gadgetDir, "UDC"), []byte("\n"), 0o644)
 
-	// Remove function->config symlinks before rmdir'ing the configs.
+	// Step 2 + 3: unwire each config and rmdir the locale subdir
+	// underneath before rmdir'ing the config itself.
 	configsDir := filepath.Join(gadgetDir, "configs")
 
 	configEntries, err := os.ReadDir(configsDir)
 	if err == nil {
 		for _, c := range configEntries {
 			cdir := filepath.Join(configsDir, c.Name())
+
 			cEntries, _ := os.ReadDir(cdir)
-
 			for _, fnLink := range cEntries {
-				if fnLink.Type()&fs.ModeSymlink == 0 {
-					continue
+				if fnLink.Type()&fs.ModeSymlink != 0 {
+					_ = os.Remove(filepath.Join(cdir, fnLink.Name()))
 				}
-
-				_ = os.Remove(filepath.Join(cdir, fnLink.Name()))
 			}
 
-			_ = os.Remove(filepath.Join(cdir, "strings", "0x409"))
+			localeDir := filepath.Join(cdir, "strings")
+			if locales, err := os.ReadDir(localeDir); err == nil {
+				for _, l := range locales {
+					_ = os.Remove(filepath.Join(localeDir, l.Name()))
+				}
+			}
+
 			_ = os.Remove(cdir)
 		}
 	}
 
-	// Remove function dirs.
+	// Step 4: remove function dirs.
 	fnDir := filepath.Join(gadgetDir, "functions")
-
-	fnEntries, err := os.ReadDir(fnDir)
-	if err == nil {
-		for _, f := range fnEntries {
+	if entries, err := os.ReadDir(fnDir); err == nil {
+		for _, f := range entries {
 			_ = os.Remove(filepath.Join(fnDir, f.Name()))
 		}
 	}
 
-	// Remove strings then the gadget root.
-	_ = os.Remove(filepath.Join(gadgetDir, "strings", "0x409"))
-	_ = os.Remove(gadgetDir)
+	// Step 5: remove top-level strings locales.
+	topStrings := filepath.Join(gadgetDir, "strings")
+	if locales, err := os.ReadDir(topStrings); err == nil {
+		for _, l := range locales {
+			_ = os.Remove(filepath.Join(topStrings, l.Name()))
+		}
+	}
+
+	// Step 6: remove gadget root and surface failure.
+	if err := os.Remove(gadgetDir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("dummy_hcd teardown: gadget root %s did not unlink cleanly: %v — manual cleanup required before next run",
+			gadgetDir, err)
+	}
+}
+
+// snapshotDummyBusIDs returns the set of dummy_hcd-backed busids
+// currently present in /sys/bus/usb/devices. SetupDummyHCDGadget
+// captures this set before its UDC bind so the post-bind diff is a
+// single-element set containing only the gadget the call created —
+// concurrent runs and stale gadgets can no longer cause the harness
+// to hand the test the wrong busid.
+func snapshotDummyBusIDs() map[string]struct{} {
+	out := make(map[string]struct{})
+
+	entries, err := os.ReadDir("/sys/bus/usb/devices")
+	if err != nil {
+		return out
+	}
+
+	for _, e := range entries {
+		name := e.Name()
+		if strings.Contains(name, ":") || strings.HasPrefix(name, "usb") {
+			continue
+		}
+
+		link, err := os.Readlink(filepath.Join("/sys/bus/usb/devices", name))
+		if err != nil {
+			continue
+		}
+
+		if strings.Contains(link, "dummy_hcd") {
+			out[name] = struct{}{}
+		}
+	}
+
+	return out
 }
 
 // AbsCmdPath returns the absolute path to a binary, building it from

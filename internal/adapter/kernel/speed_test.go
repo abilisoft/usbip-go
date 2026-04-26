@@ -33,6 +33,7 @@ func TestReadSpeedAttr(t *testing.T) {
 		{"super_speed_5000_mbps", "5000\n", domain.SpeedSuper},
 		{"super_speed_plus_10000_mbps", "10000\n", domain.SpeedSuperPlus},
 		{"super_speed_plus_20000_mbps_usb32_gen2x2", "20000\n", domain.SpeedSuperPlus},
+		{"unknown_pre_enumeration", "unknown\n", domain.SpeedUnknown},
 	}
 
 	for _, tc := range cases {

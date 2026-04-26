@@ -18,12 +18,13 @@ import (
 // the usb_device_speed enum integer, so a raw uint cast produces the
 // wrong value for every speed above Full (e.g. sysfs "5000" ≠ enum 5).
 var sysfsMbpsToSpeed = map[string]domain.Speed{
-	"1.5":   domain.SpeedLow,
-	"12":    domain.SpeedFull,
-	"480":   domain.SpeedHigh,
-	"5000":  domain.SpeedSuper,
-	"10000": domain.SpeedSuperPlus,
-	"20000": domain.SpeedSuperPlus, // USB 3.2 Gen 2x2 (USB_SPEED_SUPER_PLUS, ssp_rate=GEN_2x2)
+	"unknown": domain.SpeedUnknown, // speed_show()'s default branch: device pre-enumeration / USB_SPEED_UNKNOWN
+	"1.5":     domain.SpeedLow,
+	"12":      domain.SpeedFull,
+	"480":     domain.SpeedHigh,
+	"5000":    domain.SpeedSuper,
+	"10000":   domain.SpeedSuperPlus,
+	"20000":   domain.SpeedSuperPlus, // USB 3.2 Gen 2x2 (USB_SPEED_SUPER_PLUS, ssp_rate=GEN_2x2)
 }
 
 // ReadSpeedAttr reads the sysfs "speed" attribute at path and converts

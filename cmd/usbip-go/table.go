@@ -196,12 +196,16 @@ func (tableRenderer) Sessions(w io.Writer, sessions []usbip.Session) error {
 // Event writes a one-line textual representation of ev to w. The
 // table renderer format is intentionally compact and NOT
 // machine-readable; --output=json is the stable watch stream.
+//
+// Style output goes through styleWriter so --no-color, NO_COLOR, and
+// non-TTY destinations strip ANSI uniformly with the table renderers.
 func (tableRenderer) Event(w io.Writer, ev usbip.Event) error {
+	out := styleWriter(w)
 	rec := classifyEvent(ev)
 	kind, at, ok := eventHeader(rec)
 
 	if !ok {
-		_, err := fmt.Fprintf(w, "%T %v\n", ev, ev)
+		_, err := fmt.Fprintf(out, "%T %v\n", ev, ev)
 		if err != nil {
 			return fmt.Errorf("render event: %w", err)
 		}
@@ -209,7 +213,7 @@ func (tableRenderer) Event(w io.Writer, ev usbip.Event) error {
 		return nil
 	}
 
-	_, err := fmt.Fprintf(w, "%s %s\n", dimStyle.Render(at), emphasizeStyle.Render(kind))
+	_, err := fmt.Fprintf(out, "%s %s\n", dimStyle.Render(at), emphasizeStyle.Render(kind))
 	if err != nil {
 		return fmt.Errorf("render event: %w", err)
 	}
