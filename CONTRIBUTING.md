@@ -264,9 +264,12 @@ What does NOT replay locally:
   `flake.nix`. There is no GitHub Actions workflow for it because
   GitHub-hosted runners do not expose `/dev/kvm` and TCG fallback
   is too slow for CI; run it locally with `task vm:test:integration`.
-- `release` (release.yml) — tag-triggered, requires GitHub OIDC for
-  cosign keyless signing and an authenticated `GITHUB_TOKEN`.
-  GoReleaser will fail under act because the secrets do not exist.
+- `release` (release.yml) — fires only on a stable SemVer-triple tag
+  push (`vMAJOR.MINOR.PATCH`, no pre-release suffix and no build
+  metadata; see the workflow's `on:tags` filter and `cliff.toml`'s
+  matching anchor). Requires GitHub OIDC for cosign keyless signing
+  and an authenticated `GITHUB_TOKEN`. GoReleaser will fail under
+  act because the secrets do not exist.
 
 There is no GitHub Actions step that invokes `act` — these targets
 exist purely to short-circuit CI iteration.

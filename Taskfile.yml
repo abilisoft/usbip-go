@@ -264,6 +264,23 @@ tasks:
       - gofumpt -w cmd examples internal pkg test
       - goimports -w cmd examples internal pkg test
 
+  ci:fmt:check:
+    # CI-only companion to ci:fmt. Lists files that would change
+    # under gofmt -s and fails the build if any exist. Without this
+    # gate, ci:fmt only auto-fixes locally — Go Report Card's
+    # gofmt check (which runs `gofmt -l` on every .go file) catches
+    # drift weeks later. Returns non-zero exit when output is
+    # non-empty so CI flips red on the first dirty file.
+    deps: [_check:tooling]
+    cmds:
+      - |
+        set -eu
+        out=$(gofmt -s -l cmd examples internal pkg test)
+        if [ -n "$out" ]; then
+          printf 'gofmt -s -l reports drift; run task fmt:\n%s\n' "$out" >&2
+          exit 1
+        fi
+
   ci:tidy:
     deps: [_check:tooling]
     cmds: [go mod tidy]
