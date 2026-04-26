@@ -20,9 +20,12 @@ import (
 // Cell content stays ASCII so terminals without a unicode font
 // fallback still render values verbatim. Border glyphs are
 // lipgloss.RoundedBorder()'s box-drawing characters (U+256D etc.),
-// emitted only by the chrome — not by any cell. Plain-ASCII
-// terminals fall back via colorprofile's degrader to the
-// `+`/`-`/`|` family.
+// emitted only by the chrome — not by any cell. colorprofile
+// strips ANSI escapes for non-TTY destinations but does NOT
+// transliterate unicode glyphs; a terminal lacking those code
+// points renders the chrome as missing-glyph squares. Operators
+// who need ASCII-only borders should pipe through `--output=json`
+// (the stable scriptable contract) instead.
 
 // styledHeader bolds the column header label and tints it cyan so
 // the eye lands on the row separator without having to follow indent.

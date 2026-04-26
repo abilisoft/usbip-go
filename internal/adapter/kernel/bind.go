@@ -7,6 +7,7 @@ package kernel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path"
@@ -149,15 +150,36 @@ const vhciDevPathMarker = "vhci_hcd"
 // step 3 because usbip-host cannot bind a device sitting under
 // vhci_hcd. The user is left with neither device.
 //
-// MapFS-backed unit tests do not implement fs.ReadLinkFS, so
-// readLink returns fs.ErrNotExist there. Treat that as "guard
-// inapplicable" rather than a hard error so existing fixture-based
-// bind tests retain their semantics; the real adapter resolves the
-// symlink via os.DirFS which DOES implement ReadLinkFS.
+// Failure modes:
+//
+//   - fs.ErrNotExist or "not a symlink" / EINVAL: guard
+//     inapplicable. Either there is no entry at the busid path, or
+//     the FS does not store this entry as a symlink (MapFS in unit
+//     tests, or a non-sysfs fakeroot). Production sysfs always
+//     provides the symlink, so these branches only fire in tests.
+//   - fs.ErrPermission and any other unexpected error: FAIL
+//     CLOSED. We cannot prove the device is NOT under vhci_hcd,
+//     so the only safe action is to surface the underlying error
+//     and refuse to begin the destructive bind sequence. A
+//     permissive bypass here would let an ACL fault on an
+//     importer-side device silently corrupt the user's existing
+//     attachment.
 func (a *ExporterAdapter) refuseVHCIBindLoop(busID domain.BusID) error {
 	link, err := readLink(a.fs, path.Join(SysfsUSBDevices, string(busID)))
 	if err != nil {
-		return nil
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+
+		// "Invalid argument" means the entry exists but is not a
+		// symlink — readLink on a regular dir / file. Sysfs in
+		// production always uses symlinks here so this is a
+		// test-fixture shape, not a runtime concern.
+		if errors.Is(err, fs.ErrInvalid) || strings.Contains(err.Error(), "invalid argument") {
+			return nil
+		}
+
+		return fmt.Errorf("vhci-loop guard: readlink %s: %w", busID, err)
 	}
 
 	if strings.Contains(link, vhciDevPathMarker) {

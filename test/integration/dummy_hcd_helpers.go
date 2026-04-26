@@ -316,6 +316,11 @@ func teardownDummyHCDGadget(t *testing.T, gadgetDir string) {
 				}
 			}
 
+			// Remove the per-config strings parent BEFORE the
+			// config dir; configfs default-group rmdir refuses
+			// when the parent still has children, which would
+			// cascade-fail the config and gadget root rmdirs.
+			_ = os.Remove(localeDir)
 			_ = os.Remove(cdir)
 		}
 	}
