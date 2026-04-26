@@ -39,8 +39,8 @@ func TestBind_VHCIGuard_FailsClosedOnRealReadlinkError(t *testing.T) {
 	// Module skeleton so the preflight passes; bind would otherwise
 	// fail before the guard runs.
 	mfs := fstest.MapFS{
-		"sys/module/usbip_core":         &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host":         &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/usbip_core":                &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/usbip_host":                &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + string(busID): &fstest.MapFile{Mode: fs.ModeDir},
 	}
 

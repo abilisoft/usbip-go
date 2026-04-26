@@ -27,18 +27,18 @@ func bindFSWithConfig(busID string, configValue int) fstest.MapFS {
 	iface := fmtIface(busID, configValue, 0)
 
 	return fstest.MapFS{
-		"sys/module/usbip_core":                                &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host":                                &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host":                       &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host/match_busid":           &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/bind":                  &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/unbind":                &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/rebind":                &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/devices/" + busID:                         &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/usbip_core":                                 &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/usbip_host":                                 &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/bus/usb/drivers/usbip-host":                        &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/bus/usb/drivers/usbip-host/match_busid":            &fstest.MapFile{Data: []byte("")},
+		"sys/bus/usb/drivers/usbip-host/bind":                   &fstest.MapFile{Data: []byte("")},
+		"sys/bus/usb/drivers/usbip-host/unbind":                 &fstest.MapFile{Data: []byte("")},
+		"sys/bus/usb/drivers/usbip-host/rebind":                 &fstest.MapFile{Data: []byte("")},
+		"sys/bus/usb/devices/" + busID:                          &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + busID + "/bConfigurationValue": &fstest.MapFile{Data: []byte(fmtInt(configValue) + "\n")},
-		"sys/bus/usb/devices/" + iface:                         &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/devices/" + iface + "/driver/driver_name": &fstest.MapFile{Data: []byte("cdc_ether\n")},
-		"sys/bus/usb/devices/" + iface + "/driver":             &fstest.MapFile{Data: []byte("cdc_ether\n")},
+		"sys/bus/usb/devices/" + iface:                          &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/bus/usb/devices/" + iface + "/driver/driver_name":  &fstest.MapFile{Data: []byte("cdc_ether\n")},
+		"sys/bus/usb/devices/" + iface + "/driver":              &fstest.MapFile{Data: []byte("cdc_ether\n")},
 	}
 }
 
@@ -73,7 +73,8 @@ func fmtInt(n int) string {
 // bindable on its actual interface.
 //
 // Reference: upstream libsrc/usbip_host_driver.c uses
-//   sprintf(busid, "%s:%d.0", dev->busid, dev->bConfigurationValue);
+//
+//	sprintf(busid, "%s:%d.0", dev->busid, dev->bConfigurationValue);
 func TestBind_RespectsBConfigurationValue(t *testing.T) {
 	t.Parallel()
 
