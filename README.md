@@ -104,17 +104,22 @@ the architecture that matches your host (`amd64`, `arm64`, or
 ### Verifying a release
 
 Every release ships a SLSA Build Provenance bundle
-(`multiple.intoto.jsonl`) and a cosign keyless signature on
-`checksums.txt` (Sigstore bundle format). Verify both before installing:
+(`multiple.intoto.jsonl`) and a cosign keyless signature on the
+checksums file (Sigstore bundle format). Verify both before
+installing — `name_template` in `.goreleaser.yml` produces the
+checksum filename as `usbip-go_<version>_checksums.txt`, so the
+matching cosign bundle is `usbip-go_<version>_checksums.txt.sigstore.json`:
 
 ```
 VERSION=1.0.0
 ARCHIVE=usbip-go_${VERSION}_linux_amd64.tar.gz
+CHECKSUMS=usbip-go_${VERSION}_checksums.txt
+BUNDLE=${CHECKSUMS}.sigstore.json
 BASE=https://github.com/abilisoft/usbip-go/releases/download/v${VERSION}
 
 curl -LO "${BASE}/${ARCHIVE}"
-curl -LO "${BASE}/checksums.txt"
-curl -LO "${BASE}/checksums.txt.sigstore.json"
+curl -LO "${BASE}/${CHECKSUMS}"
+curl -LO "${BASE}/${BUNDLE}"
 curl -LO "${BASE}/multiple.intoto.jsonl"
 
 # 1. Provenance: prove the artifact came out of the abilisoft/usbip-go
@@ -124,20 +129,22 @@ slsa-verifier verify-artifact "${ARCHIVE}" \
   --source-uri github.com/abilisoft/usbip-go \
   --source-tag "v${VERSION}"
 
-# 2. Checksum signature: prove checksums.txt was signed by a Sigstore
-#    keyless cert whose OIDC subject is the .github/workflows/release.yml
-#    workflow at the same v*.*.* tag — matches the exact workflow path
-#    so a different workflow in this repo cannot satisfy the check.
-#    The Sigstore bundle (--bundle) carries the leaf certificate, the
-#    signature, and the rekor inclusion proof in a single file.
+# 2. Checksum signature: prove the checksums file was signed by a
+#    Sigstore keyless cert whose OIDC subject is the
+#    .github/workflows/release.yml workflow at the same v*.*.* tag —
+#    matches the exact workflow path so a different workflow in this
+#    repo cannot satisfy the check. The Sigstore bundle (--bundle)
+#    carries the leaf certificate, the signature, and the rekor
+#    inclusion proof in a single file.
 cosign verify-blob \
-  --bundle checksums.txt.sigstore.json \
+  --bundle "${BUNDLE}" \
   --certificate-identity-regexp '^https://github\.com/abilisoft/usbip-go/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  checksums.txt
+  "${CHECKSUMS}"
 
-# 3. Per-binary integrity: confirm the archive's sha256 is in checksums.txt.
-sha256sum -c --ignore-missing checksums.txt
+# 3. Per-binary integrity: confirm the archive's sha256 is in the
+#    checksums file.
+sha256sum -c --ignore-missing "${CHECKSUMS}"
 ```
 
 Install [`slsa-verifier`](https://github.com/slsa-framework/slsa-verifier#installation)
