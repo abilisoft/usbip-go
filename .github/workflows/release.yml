@@ -47,6 +47,29 @@ jobs:
       - name: Unit tests before release
         run: nix develop --command task ci:test
 
+      - name: Generate release notes for ${{ github.ref_name }}
+        # git-cliff scans commits since the previous tag and renders
+        # the section for THIS tag with the project's cliff.toml
+        # template. --strip header drops the "# Changelog" prefix so
+        # what lands in the release body is just bullet groups (Bug
+        # Fixes, Features, ...). The output file is consumed by
+        # goreleaser's --release-notes flag in the next step. TAG is
+        # piped through env: rather than direct ${{ }} interpolation
+        # to keep the run script free of script-injection surface
+        # (per the project's actions-security policy).
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          nix develop --command git-cliff \
+            --unreleased \
+            --tag "$TAG" \
+            --strip header \
+            --output build/release-notes.md
+          echo "--- generated release notes ---"
+          cat build/release-notes.md
+
       # Scorecard-detection step. OpenSSF Scorecard's Packaging
       # check is static workflow-file analysis: for Go projects its
       # matcher (ossf/scorecard
@@ -83,6 +106,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COSIGN_EXPERIMENTAL: '1'
+          # RELEASE_NOTES feeds the git-cliff output from the previous
+          # step into goreleaser via --release-notes, so the GitHub
+          # Release body matches the rendered changelog section.
+          RELEASE_NOTES: build/release-notes.md
 
       - name: Hash release artifacts for SLSA provenance
         id: hash-artifacts
