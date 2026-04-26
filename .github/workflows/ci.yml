@@ -45,6 +45,11 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      # security-events:write required by github/codeql-action/upload-sarif
+      # so govulncheck findings render on Security -> Code scanning.
+      # Granted at job scope; Scorecard Token-Permissions flags any
+      # non-read at workflow root.
+      security-events: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -53,8 +58,28 @@ jobs:
       - uses: DeterminateSystems/flakehub-cache-action@e134de896b2302c1584a7b54ff35432708607d44 # v3.18.1
       - name: Lint
         run: nix develop --command task ci:lint
-      - name: Vuln
-        run: nix develop --command task ci:vuln
+      - name: Vuln (SARIF)
+        # govulncheck -format=sarif writes the full SARIF payload to
+        # stdout before the nonzero-on-findings exit, so the redirect
+        # captures a complete file even when the step fails. Upload
+        # below runs with `if: always()` to guarantee delivery.
+        run: nix develop --command task ci:vuln:sarif
+      - name: Upload govulncheck SARIF
+        # Skip the upload on fork-originated PRs: GitHub clamps the
+        # GITHUB_TOKEN on those runs to read-only regardless of the
+        # job-scope `security-events: write` grant, so upload-sarif
+        # would fail the job. Push and same-repo PRs run normally.
+        if: >-
+          always() &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
+        with:
+          sarif_file: build/govulncheck.sarif
+          # category disambiguates this scan from CodeQL, Scorecard,
+          # Trivy uploads so each renders as its own column on the
+          # code-scanning UI rather than overwriting prior runs.
+          category: govulncheck
 
   unit-linux:
     name: Unit tests (linux)

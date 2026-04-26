@@ -90,8 +90,6 @@ tasks:
   tidy:             { desc: 'go mod tidy',            cmds: [{ task: _run, vars: { INNER: 'ci:tidy' } }] }
   vuln:             { desc: 'govulncheck',            cmds: [{ task: _run, vars: { INNER: 'ci:vuln' } }] }
   check:            { desc: 'Pre-commit gauntlet',    cmds: [{ task: _run, vars: { INNER: 'ci:check' } }] }
-  changelog:        { desc: 'Regenerate CHANGELOG',   cmds: [{ task: _run, vars: { INNER: 'ci:changelog' } }] }
-  changelog:check:  { desc: 'Verify CHANGELOG',       cmds: [{ task: _run, vars: { INNER: 'ci:changelog:check' } }] }
   release:snapshot: { desc: 'GoReleaser snapshot',    cmds: [{ task: _run, vars: { INNER: 'ci:release:snapshot' } }] }
   release:          { desc: 'GoReleaser release',     cmds: [{ task: _run, vars: { INNER: 'ci:release' } }] }
 
@@ -274,6 +272,19 @@ tasks:
     deps: [_check:tooling]
     cmds: [govulncheck ./...]
 
+  ci:vuln:sarif:
+    # CI-only companion to ci:vuln. Emits a SARIF report so the CI
+    # workflow can upload findings to GitHub's code-scanning surface
+    # via github/codeql-action/upload-sarif. govulncheck writes the
+    # full SARIF payload to stdout BEFORE the exit-code check, so a
+    # nonzero exit (findings present) still leaves a complete file
+    # on disk; the upload step runs with `if: always()` to guarantee
+    # the SARIF lands on GitHub even when this task fails the build.
+    deps: [_check:tooling]
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - govulncheck -format=sarif ./... > {{.BUILD_DIR}}/govulncheck.sarif
+
   ci:check:
     deps: [_check:tooling]
     cmds:
@@ -282,23 +293,28 @@ tasks:
       - task: ci:vuln
       - task: ci:test
 
-  ci:changelog:
-    deps: [_check:tooling]
-    cmds: [git-cliff --config cliff.toml --output CHANGELOG.md]
-
-  ci:changelog:check:
-    deps: [_check:tooling]
-    cmds:
-      - git-cliff --config cliff.toml > {{.BUILD_DIR}}/cliff-expected.md
-      - diff -u CHANGELOG.md {{.BUILD_DIR}}/cliff-expected.md
-
   ci:release:snapshot:
     deps: [_check:tooling]
     cmds: [goreleaser release --snapshot --clean --skip=sign,sbom,publish]
 
   ci:release:
     deps: [_check:tooling]
-    cmds: [goreleaser release --clean]
+    # RELEASE_NOTES, when set, points at a markdown file fed to
+    # goreleaser via --release-notes; the file's contents become the
+    # GitHub Release body verbatim. The release workflow generates
+    # the file via git-cliff at tag time. Local invocation leaves
+    # RELEASE_NOTES unset and lets goreleaser fall back to its own
+    # generator (which is `disable: true` in .goreleaser.yml, so the
+    # body would be empty — local task release runs are intended for
+    # snapshot builds anyway).
+    cmds:
+      - |
+        set -eu
+        args=(release --clean)
+        if [ -n "${RELEASE_NOTES:-}" ]; then
+          args+=(--release-notes="$RELEASE_NOTES")
+        fi
+        goreleaser "${args[@]}"
 
   # ----------------------------------------------------------------------------
   # microVM — hermetic integration-test rig. flake.nix exposes

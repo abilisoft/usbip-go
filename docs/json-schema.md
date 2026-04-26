@@ -2,9 +2,9 @@
 
 Stable contract for every JSON object emitted by usbip-go. This
 document fixes field names, types, and semantics at schema v1 per
-v1 contract §7.5. It is one of the committed artefacts gated by the
-`changelog-check` release job — any change here requires a
-documented schema bump.
+v1 contract §7.5. Any change here requires a documented schema
+bump and is called out in the GitHub Release notes generated at
+tag time.
 
 The CLI's `--output=table` (default) human-readable format is NOT
 covered by this contract: borders, spacing, and column
