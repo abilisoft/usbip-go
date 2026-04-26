@@ -6,7 +6,14 @@ name: Release
 on:
   push:
     tags:
+      # Stable releases only. The negative pattern excludes any tag
+      # whose patch segment carries a SemVer pre-release suffix
+      # (e.g. v1.0.1-rc1, v2.0.0-beta.3) so the release pipeline only
+      # fires on production-grade tags. cliff.toml's tag_pattern is
+      # anchored to the same shape, keeping the workflow trigger and
+      # the changelog generator's notion of "release tag" identical.
       - 'v*.*.*'
+      - '!v*.*.*-*'
 
 # Workflow-root permissions are clamped to read-only; the writes
 # this workflow needs (contents:write for goreleaser to publish a

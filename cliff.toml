@@ -107,8 +107,14 @@ commit_parsers = [
 
 # Protect against merge/revert noise.
 filter_commits = true
-# Tag pattern to recognize as a release.
-tag_pattern = "v[0-9]*"
+# Tag pattern to recognize as a release. Anchored regex that ONLY
+# matches a full SemVer triple (vMAJOR.MINOR.PATCH) — no pre-release
+# suffix, no build metadata. Cliff therefore ignores tags such as
+# v1.0.1-rc1 entirely, so `--latest` always resolves to the most
+# recent STABLE release. Without this anchor, `tag_pattern = "v[0-9]*"`
+# would also match v1.0.1-rc1 (which sorts as the most recent tag if
+# pushed before v1.0.1) and `--latest` would render the wrong section.
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
 # Skip tags (none for now).
 skip_tags = ""
 # Sort commits inside each group newest-first.
