@@ -64,14 +64,15 @@ func dummyHCDRequiredModules() []string {
 // Layout the gadget exposes:
 //
 //	idVendor=0x1d6b (Linux Foundation)
-//	idProduct=0x0104 (Multifunction Composite Gadget)
-//	bConfigurationValue=1 (default config; matches the speed
-//	  bug fixture so users can also exercise the bConfigurationValue=2
-//	  branch by mutating the gadget after bind — see
-//	  SetupDummyHCDGadgetAtConfig for the variant entry point)
+//	idProduct=<sha256(t.Name)[:16]&0x7FFF | 0x1000>
+//	  Per-test idProduct nonce so the post-bind busid match can
+//	  uniquely identify the gadget THIS test created even when a
+//	  peer process has gadgets enumerated under the same dummy_hcd
+//	  pool. See uniqueIDProductForTest.
+//	bConfigurationValue=1
 //
-// Returns the absolute busid sysfs name (e.g. "1-1") that the bind
-// CLI consumes verbatim.
+// Returns the busid sysfs name (e.g. "1-1") the kernel assigned to
+// this gadget — that the bind CLI consumes verbatim.
 func SetupDummyHCDGadget(t *testing.T, name string) string {
 	t.Helper()
 
@@ -157,12 +158,14 @@ func SetupDummyHCDGadget(t *testing.T, name string) string {
 
 // uniqueIDProductForTest derives a 16-bit idProduct nonce from
 // t.Name(). Same test name across processes yields the same nonce —
-// fine because dummy_hcd is one-UDC-at-a-time so concurrent peer
-// runs of the same test cannot both bind. Distinct test names
-// yield distinct nonces with overwhelmingly high probability
-// (16-bit hash collision); the matching path falls back to first
-// new dummy_hcd-backed busid if no idProduct matches, so a hash
-// collision degrades to the prior behavior, never a wrong match.
+// fine because dummy_hcd is one-UDC-at-a-time, so two concurrent
+// runs of the same test cannot both bind regardless. Distinct test
+// names yield distinct nonces with overwhelmingly high probability
+// (16-bit truncation; collisions are rare but possible). On a hash
+// collision, waitForNewGadgetBusID still requires the busid to be
+// NEW (not in preexisting), so a peer's older gadget cannot win
+// the match — at worst the call times out and the test t.Skips,
+// never a silent wrong-match.
 func uniqueIDProductForTest(t *testing.T) uint16 {
 	t.Helper()
 
@@ -333,7 +336,17 @@ func teardownDummyHCDGadget(t *testing.T, gadgetDir string) {
 		}
 	}
 
-	// Step 6: remove gadget root and surface failure.
+	// Step 6: configfs auto-creates `configs`, `functions`, and
+	// `strings` subdirectories when a gadget is created and DOES
+	// permit explicit rmdir of each once empty. Some kernels keep
+	// them as default-groups that are removed implicitly by the
+	// gadget rmdir; others require explicit removal first. Try
+	// both and let either succeed.
+	for _, sub := range []string{"configs", "functions", "strings"} {
+		_ = os.Remove(filepath.Join(gadgetDir, sub))
+	}
+
+	// Step 7: remove gadget root and surface failure.
 	if err := os.Remove(gadgetDir); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("dummy_hcd teardown: gadget root %s did not unlink cleanly: %v — manual cleanup required before next run",
 			gadgetDir, err)
@@ -341,23 +354,23 @@ func teardownDummyHCDGadget(t *testing.T, gadgetDir string) {
 }
 
 // GadgetConfigfsPathFor returns the configfs directory the harness
-// will create for (t, name). The path encodes t.Name() so that
-// concurrent test runs with the same caller-supplied logical name
-// land in different configfs entries — without this, parallel
-// integration runs race on the same /sys/kernel/config/usb_gadget/<name>
-// directory and waitForNewGadgetBusID can claim the wrong busid.
+// will create for (t, name). The path encodes BOTH t.Name() and the
+// running PID so that:
 //
-// Only the configfs subdirectory name is sanitised; the logical name
-// is preserved as a suffix so a failure in the configfs tree
-// (`ls /sys/kernel/config/usb_gadget`) names the test that owned it.
-// configfs accepts any non-empty filename without slashes; we
-// substitute `/` with `_` so subtest names (`Parent/Sub`) survive.
+//   - Sibling tests within the same process land in different
+//     configfs entries (round-3 race fix).
+//   - Concurrent `go test` invocations on the same machine — sharing
+//     /sys/kernel/config/usb_gadget — land in different entries even
+//     when running the same test name (round-8 race fix).
+//
+// configfs accepts any non-empty filename without slashes; subtest
+// separators (`/`) are substituted with `_`.
 func GadgetConfigfsPathFor(t *testing.T, name string) string {
 	t.Helper()
 
 	suffix := strings.ReplaceAll(t.Name(), "/", "_")
 
-	return filepath.Join(gadgetConfigfsRoot, name+"_"+suffix)
+	return filepath.Join(gadgetConfigfsRoot, fmt.Sprintf("%s_%s_p%d", name, suffix, os.Getpid()))
 }
 
 // snapshotDummyBusIDs returns the set of dummy_hcd-backed busids

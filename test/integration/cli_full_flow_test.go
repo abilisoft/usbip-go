@@ -357,9 +357,13 @@ func parsePortsEnvelope(t *testing.T, raw []byte) []map[string]any {
 }
 
 // lookupPortIDByBusIDForCleanup mirrors findPortIDByBusID but is
-// fatal-free so it can run from a t.Cleanup. Returns ("", error)
-// when the port is not found or list --ports fails — the caller
-// treats that as "nothing to detach" and returns silently.
+// fatal-free so it can run from a t.Cleanup. Returns:
+//
+//	("<id>", nil) when a port row matches busID
+//	("",     nil) when the envelope parses but no row matches —
+//	              the caller treats this as "nothing to detach"
+//	("",   error) when the binary cannot exec or the output is not
+//	              valid JSON — the caller logs and skips
 func lookupPortIDByBusIDForCleanup(ctx context.Context, usbipBin, busID string) (string, error) {
 	cmd := exec.CommandContext(ctx, usbipBin, "list", "--ports", "--output=json")
 

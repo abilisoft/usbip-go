@@ -38,9 +38,10 @@ func styleWriter(w io.Writer) io.Writer {
 // degrades to plain text. The --no-color flag wires through pickRenderer.
 type tableRenderer struct{}
 
-// borderStyle defines the table chrome: rounded ASCII corners with
-// dim foreground so the eye lands on the row contents, not the
-// frame.
+// borderStyle defines the table chrome: rounded box-drawing corners
+// (lipgloss.RoundedBorder, U+256D and friends) with dim foreground
+// so the eye lands on the row contents, not the frame. Plain
+// terminals are handled by colorprofile downstream.
 var borderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#5f5f5f"))
 
 // newStyledTable constructs a lipgloss table preconfigured with
