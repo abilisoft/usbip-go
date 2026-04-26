@@ -2,10 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # git-cliff configuration — generates GitHub Release notes at tag time
-# (.github/workflows/release.yml runs `git-cliff --unreleased --tag $TAG
-# --strip header --output build/release-notes.md`; goreleaser then
-# publishes that file as the Release body via `--release-notes`).
-# There is no checked-in CHANGELOG.md to regenerate.
+# (.github/workflows/release.yml runs `git-cliff --latest --strip header
+# --output build/release-notes.md`; goreleaser then publishes that file
+# as the Release body via `--release-notes`). --latest renders the
+# section for the most-recent matching tag and works in both first-tag
+# and Nth-tag scenarios; an earlier shape using `--unreleased --tag $TAG`
+# emitted an empty body because actions/checkout puts the pushed tag at
+# HEAD, so cliff saw "zero commits not yet in $TAG" and returned only a
+# version heading. There is no checked-in CHANGELOG.md to regenerate.
 # Docs: https://git-cliff.org/docs/configuration
 
 [changelog]
