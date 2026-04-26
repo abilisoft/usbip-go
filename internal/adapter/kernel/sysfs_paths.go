@@ -89,9 +89,11 @@ const (
 	UsbipSockfdDisconnect = "-1"
 )
 
-// VHCIIfaceSuffix is the historical config-1, alt-0 interface
-// suffix kept as a legacy constant. The bind/unbind sequence no
-// longer uses it; ExporterAdapter.ifaceSuffix reads
+// VHCIIfaceSuffix is the historical config-1, interface-0 suffix
+// kept as a legacy constant. (Sysfs encodes USB interface paths as
+// "<busid>:<config>.<interface>"; the trailing 0 here is the
+// interface index, not an alternate setting.) The bind/unbind
+// sequence no longer uses it; ExporterAdapter.ifaceSuffix reads
 // bConfigurationValue from sysfs and constructs the iface
 // dynamically (e.g. "1-1.2:2.0" for a config-2 device). Retained
 // only for callers that match upstream's old `:1.0` literal in
