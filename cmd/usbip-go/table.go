@@ -21,12 +21,27 @@ import (
 //
 //   - TTY with truecolor support → keep ANSI verbatim
 //   - dumb / piped to file or buffer → strip ANSI entirely
-//   - NO_COLOR=1 set in the environment → strip ANSI entirely
+//   - NO_COLOR=<any non-empty value> → strip ANSI entirely
+//     (no-color.org spec: any non-empty value disables color)
 //
 // Centralised so every render method emits through one degradation
 // boundary instead of each writer guessing at the profile.
+//
+// Implementation note: colorprofile.NewWriter consults
+// strconv.ParseBool on NO_COLOR, which only honors boolean-like
+// values ("1", "true", "yes" returns false from ParseBool, etc.).
+// That contradicts the no-color.org spec the operator-facing
+// documentation promises. We pre-normalize: if NO_COLOR is set to
+// any non-empty value, force the env handed to colorprofile to
+// "NO_COLOR=1" so its ParseBool path enables the no-color branch
+// regardless of the original value.
 func styleWriter(w io.Writer) io.Writer {
-	return colorprofile.NewWriter(w, os.Environ())
+	env := os.Environ()
+	if os.Getenv("NO_COLOR") != "" {
+		env = append(env, "NO_COLOR=1")
+	}
+
+	return colorprofile.NewWriter(w, env)
 }
 
 // tableRenderer implements Renderer over a styled human-readable

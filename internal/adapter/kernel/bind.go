@@ -32,9 +32,16 @@ const usbDriversSubdir = "drivers"
 const ifaceDriverNameFile = "driver_name"
 
 // Bind performs the three-write sequence required by usbip-host:
-//  1. unbind current driver from the primary interface
-//  2. add the busID to match_busid
-//  3. bind usbip-host to the primary interface
+//  1. unbind current driver from the primary interface (iface
+//     "<busid>:<bConfigurationValue>.0")
+//  2. add the busID to usbip-host/match_busid
+//  3. bind usbip-host to the device (BARE busid; usbip-host is a
+//     usb_device_driver and matches at usb_device level)
+//
+// Step 3 failure rolls back step 2 (match_busid del) so the busid
+// table is not poisoned. Step 2 failure is left as-is — the unbind
+// in step 1 is preserved so the operator can rebind manually,
+// matching upstream usbip_bind.c semantics.
 //
 // Module preflight runs first so runtime module loss surfaces as
 // ErrKernelModuleMissing rather than ErrDeviceNotFound on the first
@@ -86,6 +93,20 @@ func (a *ExporterAdapter) Bind(ctx context.Context, busID domain.BusID) error {
 	// the dev->driver match, and surface ENODEV.
 	err = a.writeClassified(path.Join(SysfsUSBIPHostDriver, SysfsDriverBind), string(busID))
 	if err != nil {
+		// Roll back the match_busid add so the busid table is not
+		// poisoned with an entry that has no driver attached.
+		// Mirrors upstream usbip_bind.c bind_device error path.
+		// Rollback failure is logged but does not mask the original
+		// error; the caller wants to see WHY bind failed first.
+		rbErr := a.writeClassified(
+			path.Join(SysfsUSBIPHostDriver, SysfsMatchBusID),
+			MatchBusIDDelPrefix+string(busID),
+		)
+		if rbErr != nil {
+			a.logger.Warn("bind rollback (match_busid del) failed",
+				"busid", busID, "rollback_err", rbErr, "primary_err", err)
+		}
+
 		return err
 	}
 
@@ -102,22 +123,43 @@ func (a *ExporterAdapter) Unbind(ctx context.Context, busID domain.BusID) error 
 
 	// usbip-host operates at usb_device level, so unbind takes BARE
 	// busid ("1-1"), not iface. See the matching comment in Bind.
-	err = a.writeClassified(path.Join(SysfsUSBIPHostDriver, SysfsDriverUnbind), string(busID))
-	if err != nil {
-		return err
-	}
+	unbindErr := a.writeClassified(path.Join(SysfsUSBIPHostDriver, SysfsDriverUnbind), string(busID))
 
-	err = a.writeClassified(
+	// match_busid del and the rebind trigger run regardless of the
+	// unbind result so the device table is not stuck with a stale
+	// entry and the original kernel driver gets a chance to take the
+	// device back. The unbind error (if any) wins as the primary
+	// return so the operator sees the root cause; secondary errors
+	// are logged.
+	matchErr := a.writeClassified(
 		path.Join(SysfsUSBIPHostDriver, SysfsMatchBusID),
 		MatchBusIDDelPrefix+string(busID),
 	)
-	if err != nil {
-		return err
-	}
 
-	err = a.writeClassified(path.Join(SysfsUSBIPHostDriver, SysfsRebind), string(busID))
-	if err != nil {
-		return err
+	rebindErr := a.writeClassified(path.Join(SysfsUSBIPHostDriver, SysfsRebind), string(busID))
+
+	switch {
+	case unbindErr != nil:
+		if matchErr != nil {
+			a.logger.Warn("unbind: match_busid del failed after primary unbind error",
+				"busid", busID, "match_err", matchErr, "primary_err", unbindErr)
+		}
+
+		if rebindErr != nil {
+			a.logger.Warn("unbind: rebind trigger failed after primary unbind error",
+				"busid", busID, "rebind_err", rebindErr, "primary_err", unbindErr)
+		}
+
+		return unbindErr
+	case matchErr != nil:
+		if rebindErr != nil {
+			a.logger.Warn("unbind: rebind trigger failed after match_busid del error",
+				"busid", busID, "rebind_err", rebindErr, "primary_err", matchErr)
+		}
+
+		return matchErr
+	case rebindErr != nil:
+		return rebindErr
 	}
 
 	return nil

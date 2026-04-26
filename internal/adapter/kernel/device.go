@@ -114,7 +114,7 @@ func (a *ExporterAdapter) readDevice(busID domain.BusID) (domain.Device, error) 
 		return domain.Device{}, err
 	}
 
-	ifaces, err := a.readInterfaces(busID, core.NumInterfaces)
+	ifaces, err := a.readInterfaces(busID, core.ConfigValue, core.NumInterfaces)
 	if err != nil {
 		return domain.Device{}, err
 	}
@@ -327,11 +327,19 @@ func (a *ExporterAdapter) readByteAttr(base, attr string) (uint8, error) {
 // read. Surfacing a device with a silently-truncated Interfaces slice
 // when sysfs reports malformed byte-width fields would hide data
 // corruption from downstream consumers.
-func (a *ExporterAdapter) readInterfaces(busID domain.BusID, count uint8) ([]domain.Interface, error) {
+func (a *ExporterAdapter) readInterfaces(busID domain.BusID, configValue, count uint8) ([]domain.Interface, error) {
 	ifaces := make([]domain.Interface, 0, count)
 
+	// Default to config 1 if the device reports 0 (unconfigured); the
+	// interface enumeration would otherwise look for "<busid>:0.<n>"
+	// which sysfs does not populate for unconfigured devices anyway.
+	cfg := int(configValue)
+	if cfg == 0 {
+		cfg = defaultConfigIndex
+	}
+
 	for i := range int(count) {
-		suffix := fmt.Sprintf(ifaceSuffixFmt, string(busID), defaultConfigIndex, i)
+		suffix := fmt.Sprintf(ifaceSuffixFmt, string(busID), cfg, i)
 		base := path.Join(SysfsUSBDevices, suffix)
 
 		iface, err := a.readInterface(base)
@@ -341,7 +349,7 @@ func (a *ExporterAdapter) readInterfaces(busID domain.BusID, count uint8) ([]dom
 			}
 
 			return nil, fmt.Errorf("read interface %s:%d.%d: %w",
-				busID, defaultConfigIndex, i, err)
+				busID, cfg, i, err)
 		}
 
 		ifaces = append(ifaces, iface)
