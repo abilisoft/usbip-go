@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
 #
-# git-cliff configuration — CHANGELOG.md generator
-# Regenerate: `task changelog`
+# git-cliff configuration — generates GitHub Release notes at tag time
+# (.github/workflows/release.yml runs `git-cliff --unreleased --tag $TAG
+# --strip header --output build/release-notes.md`; goreleaser then
+# publishes that file as the Release body via `--release-notes`).
+# There is no checked-in CHANGELOG.md to regenerate.
 # Docs: https://git-cliff.org/docs/configuration
 
 [changelog]
-# Header inserted once at the top of the CHANGELOG.
+# Header is `--strip header`-stripped at release time, but kept here
+# so `git-cliff` invoked without `--strip` (e.g. ad-hoc local preview)
+# still produces a sensible top-of-file banner.
 header = """
 # Changelog
 
@@ -55,7 +60,7 @@ commit_preprocessors = [
     # Strip noise that a hook or tool might prepend.
     { pattern = '\s+$', replace = "" },
     # Scrub references to the development tooling used during the
-    # initial implementation push; the public CHANGELOG should
+    # initial implementation push; the rendered release notes should
     # describe what changed in the project, not what reviewer found
     # the bug or which directory hosts editor state.
     { pattern = '\bcodex\b', replace = "review" },
@@ -76,11 +81,10 @@ commit_parsers = [
     # the optional parenthesised scope.
     { body = ".*BREAKING CHANGE.*",      group = "Breaking Changes" },
     { message = "^[a-z]+(\\(.+\\))?!",   group = "Breaking Changes" },
-    # Drop the release commit itself — the chore(release): vX.Y.Z
-    # commit is the one that ships the regenerated CHANGELOG, and
-    # listing it inside the very section it created creates an
-    # un-amendable circular dependency (every regen would change
-    # its own short-SHA entry, never converging).
+    # Drop the release commit itself — a chore(release): vX.Y.Z
+    # commit is meta-noise in user-facing release notes; readers
+    # learn the version from the GitHub Release title, not a bullet
+    # in the body.
     { message = "^chore\\(release\\)",   skip = true },
     { message = "^feat",                 group = "Features" },
     { message = "^fix",                  group = "Bug Fixes" },

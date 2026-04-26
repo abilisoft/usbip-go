@@ -16,7 +16,7 @@ import (
 // wantImporterWatchSig pins the documented Importer.Watch shape so a
 // drift in pkg/usbip surfaces as a regular test failure, not as a
 // release-time cross-compile error. Updating this value is a
-// deliberate API change and must be paired with a CHANGELOG entry.
+// deliberate API change and must be paired with a release notes entry.
 const wantImporterWatchSig = "func(*usbip.Importer, context.Context) " +
 	"iter.Seq[github.com/abilisoft/usbip-go/pkg/domain.Event]"
 
@@ -41,10 +41,10 @@ func TestWatchAPIShapeUnchanged(t *testing.T) {
 
 	require.Equal(t, wantImporterWatchSig,
 		reflect.TypeOf(importerWatch).String(),
-		"Importer.Watch signature drift; review pkg/usbip and update CHANGELOG")
+		"Importer.Watch signature drift; review pkg/usbip and update release notes")
 	require.Equal(t, wantExporterWatchSessionsSig,
 		reflect.TypeOf(exporterWatch).String(),
-		"Exporter.WatchSessions signature drift; review pkg/usbip and update CHANGELOG")
+		"Exporter.WatchSessions signature drift; review pkg/usbip and update release notes")
 
 	// Reference each iterator returned by an unused signature check —
 	// keeps the iter and context imports load-bearing without invoking
