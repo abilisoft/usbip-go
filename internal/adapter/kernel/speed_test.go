@@ -74,6 +74,8 @@ func TestReadSpeedAttrRejectsUnrecognized(t *testing.T) {
 
 			_, err := kernel.ReadSpeedAttr(fsys, "sys/bus/usb/devices/1-1/speed")
 			require.Error(t, err, "must reject unrecognized sysfs speed %q", tc.content)
+			require.Contains(t, err.Error(), "unrecognized sysfs speed",
+				"error must identify the speed-table miss, not a different read failure")
 		})
 	}
 }
