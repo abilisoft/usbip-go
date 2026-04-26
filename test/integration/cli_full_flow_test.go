@@ -203,11 +203,14 @@ func mustRunOK(t *testing.T, ctx context.Context, bin string, args ...string) []
 // waitForDaemonListenAddr polls the daemon's combined stdout/stderr
 // buffer for the listener-bound log line and extracts the bound
 // addr. usbipd-go logs an info record like
-// `{"level":"INFO","msg":"listener bound","addr":"127.0.0.1:38291"}`
-// once net.Listen returns; we look for the addr field. Race-free
-// alternative to the previous freeTCPPort/probe-listener pattern,
-// which closed a probe listener BEFORE the daemon bound — opening
-// a TOCTOU window where another process could steal the port.
+// `{"level":"INFO","msg":"usbipd-go accepting connections","addr":"127.0.0.1:38291"}`
+// once net.Listen returns and the accept loop starts; we extract
+// the addr field via extractAddrFromJSONLog without depending on
+// the msg text (which has changed across daemon revisions).
+// Race-free alternative to the previous freeTCPPort/probe-listener
+// pattern, which closed a probe listener BEFORE the daemon bound —
+// opening a TOCTOU window where another process could steal the
+// port.
 func waitForDaemonListenAddr(t *testing.T, buf *syncBuffer, deadline time.Duration) string {
 	t.Helper()
 

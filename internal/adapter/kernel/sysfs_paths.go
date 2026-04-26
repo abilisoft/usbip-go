@@ -89,14 +89,14 @@ const (
 	UsbipSockfdDisconnect = "-1"
 )
 
-// VHCI interface descriptor used in per-device sysfs paths and in the
-// bind/unbind sequence. Upstream libsrc hardcodes config 1, alt 0 on
-// the interface suffix.
-const (
-	// VHCIIfaceSuffix is the interface suffix appended to a busid when
-	// writing to drivers' {bind,unbind}. Example: "1-1.2:1.0".
-	VHCIIfaceSuffix = ":1.0"
-)
+// VHCIIfaceSuffix is the historical config-1, alt-0 interface
+// suffix kept as a legacy constant. The bind/unbind sequence no
+// longer uses it; ExporterAdapter.ifaceSuffix reads
+// bConfigurationValue from sysfs and constructs the iface
+// dynamically (e.g. "1-1.2:2.0" for a config-2 device). Retained
+// only for callers that match upstream's old `:1.0` literal in
+// historical paths.
+const VHCIIfaceSuffix = ":1.0"
 
 // VHCIAttachFmt is the printf format used by vhci_sysfs::attach_store.
 // Kernel source uses sscanf("%u %u %u %u") but upstream client writes

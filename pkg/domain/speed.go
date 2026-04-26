@@ -53,7 +53,11 @@ func (s Speed) String() string {
 	case SpeedSuper:
 		return "SuperSpeed (5Gbps)"
 	case SpeedSuperPlus:
-		return "SuperSpeed+ (10Gbps)"
+		// USB_SPEED_SUPER_PLUS covers both Gen 2 (10Gbps) and Gen 2x2
+		// (20Gbps); the kernel encodes the actual rate in udev->ssp_rate
+		// which the wire protocol does not transmit. The label spans
+		// both rates rather than misrepresenting one.
+		return "SuperSpeed+ (10/20Gbps)"
 	default:
 		return "speed(" + strconv.FormatUint(uint64(s), 10) + ")"
 	}

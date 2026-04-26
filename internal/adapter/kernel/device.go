@@ -320,12 +320,15 @@ func (a *ExporterAdapter) readByteAttr(base, attr string) (uint8, error) {
 }
 
 // readInterfaces reads each interface descriptor under the device's
-// primary config (config 1). Missing interfaces (ENOENT on optional
-// sysfs attrs) are tolerated — some USB peripherals expose only a
-// subset of their configured interfaces under sysfs — but overflow
-// errors (errSysfsValueOutOfRange) are fatal for the whole device
-// read. Surfacing a device with a silently-truncated Interfaces slice
-// when sysfs reports malformed byte-width fields would hide data
+// CURRENTLY-ACTIVE configuration (the bConfigurationValue passed in
+// by readDevice). For an unconfigured device that reports
+// configValue=0, falls back to defaultConfigIndex. Missing
+// interfaces (ENOENT on optional sysfs attrs) are tolerated — some
+// USB peripherals expose only a subset of their configured
+// interfaces under sysfs — but overflow errors
+// (errSysfsValueOutOfRange) are fatal for the whole device read.
+// Surfacing a device with a silently-truncated Interfaces slice when
+// sysfs reports malformed byte-width fields would hide data
 // corruption from downstream consumers.
 func (a *ExporterAdapter) readInterfaces(busID domain.BusID, configValue, count uint8) ([]domain.Interface, error) {
 	ifaces := make([]domain.Interface, 0, count)
