@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 
 	"github.com/coreos/go-systemd/v22/activation"
@@ -37,7 +38,16 @@ var errAmbiguousSocketNames = errors.New(
 //   - Otherwise, plain net.ListenConfig on cfg.Listen.
 func listenOrActivation(ctx context.Context, cfg *Config) (net.Listener, error) {
 	named, err := activation.ListenersWithNames()
-	if err == nil && len(named) > 0 {
+	if err != nil {
+		// ListenersWithNames returns a non-nil error when the
+		// process was not started via systemd socket activation
+		// (LISTEN_FDS / LISTEN_PID unset). That is the normal
+		// hand-run case; falling back to plain Listen is correct.
+		// Surface the reason at debug so an operator who DID expect
+		// activation can spot the misconfiguration in the log.
+		slog.Default().Debug("systemd socket activation unavailable; falling back to --listen",
+			"err", err)
+	} else if len(named) > 0 {
 		lis, activated, perr := pickNamedListener(named)
 		if perr != nil {
 			return nil, perr
