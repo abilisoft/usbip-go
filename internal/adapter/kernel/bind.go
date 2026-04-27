@@ -113,12 +113,37 @@ func (a *ExporterAdapter) Bind(ctx context.Context, busID domain.BusID) error {
 	return nil
 }
 
-// Unbind reverses Bind: writes to usbip-host/unbind, removes the busID
-// from match_busid, then triggers a default-driver rebind.
+// Unbind reverses Bind: gracefully disconnects any active importer
+// session, writes to usbip-host/unbind, removes the busID from
+// match_busid, then triggers a default-driver rebind.
+//
+// The pre-disconnect step is crucial: writing -1 to the per-device
+// usbip_sockfd attribute triggers SDEV_EVENT_DOWN in the kernel and
+// drops any in-flight URBs cleanly. Without it, the subsequent
+// usbip-host/unbind write blocks indefinitely while the kernel
+// waits for the importer socket to drain — operators saw
+// `usbip-go unbind` hang.
+//
+// The pre-disconnect failure is non-fatal because a freshly-bound
+// device with no active session has no sockfd attribute (or the
+// attribute returns ENODEV); the unbind sequence continues either
+// way.
 func (a *ExporterAdapter) Unbind(ctx context.Context, busID domain.BusID) error {
 	err := a.ModulesAvailable(ctx)
 	if err != nil {
 		return err
+	}
+
+	// Best-effort sockfd disconnect to unblock any pending URB drain
+	// before the driver unbind. Errors here are logged, not returned —
+	// see godoc above for why.
+	preErr := a.write(
+		path.Join(SysfsUSBDevices, string(busID), SysfsUsbipSockfd),
+		UsbipSockfdDisconnect,
+	)
+	if preErr != nil {
+		a.logger.Debug("unbind pre-disconnect write returned error (typically benign — no active session)",
+			"busid", busID, "err", preErr)
 	}
 
 	// usbip-host operates at usb_device level, so unbind takes BARE

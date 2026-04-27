@@ -37,7 +37,11 @@ func TestUnbind_AttemptsRebindEvenAfterEarlierFailure(t *testing.T) {
 
 	a, err := kernel.NewExporterAdapter(
 		kernel.WithFS(bindFS(string(busID))),
-		kernel.WithWriteFunc(rec.errAt(0, unix.EBUSY)),
+		// errAt(1, EBUSY): write index 1 is the usbip-host/unbind
+		// (index 0 is the pre-disconnect sockfd write whose error
+		// is intentionally swallowed). Mock the FIRST classified
+		// failure on the actual unbind path.
+		kernel.WithWriteFunc(rec.errAt(1, unix.EBUSY)),
 	)
 	require.NoError(t, err)
 
@@ -45,10 +49,10 @@ func TestUnbind_AttemptsRebindEvenAfterEarlierFailure(t *testing.T) {
 	require.ErrorIs(t, err, domain.ErrDeviceAlreadyBound,
 		"the FIRST error (usbip-host unbind EBUSY) must be surfaced as the primary return")
 
-	require.Len(t, rec.calls, 3,
-		"all three sysfs writes must be attempted even after the first fails — best-effort cleanup")
+	require.Len(t, rec.calls, 4,
+		"all four sysfs writes must be attempted even after the unbind fails — best-effort cleanup")
 
-	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/unbind", rec.calls[0].Path)
-	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/match_busid", rec.calls[1].Path)
-	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/rebind", rec.calls[2].Path)
+	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/unbind", rec.calls[1].Path)
+	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/match_busid", rec.calls[2].Path)
+	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/rebind", rec.calls[3].Path)
 }

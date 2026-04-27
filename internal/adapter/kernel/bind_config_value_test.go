@@ -129,10 +129,11 @@ func TestUnbind_UsesBareBusidNotIface(t *testing.T) {
 	err = a.Unbind(context.Background(), busID)
 	require.NoError(t, err)
 
-	require.Len(t, rec.calls, 3,
-		"Unbind sequence is unbind → match_busid del → rebind, three writes total")
+	require.Len(t, rec.calls, 4,
+		"Unbind sequence is sockfd disconnect → unbind → match_busid del → rebind, four writes total")
 
-	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/unbind", rec.calls[0].Path)
-	require.Equal(t, string(busID), rec.calls[0].Data,
+	// rec.calls[0]: sockfd pre-disconnect (verified separately).
+	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/unbind", rec.calls[1].Path)
+	require.Equal(t, string(busID), rec.calls[1].Data,
 		"usbip-host unbind takes BARE busid; iface would mismatch dev->driver in unbind_store and surface ENODEV")
 }

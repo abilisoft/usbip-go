@@ -127,22 +127,25 @@ func TestUnbind_WritesReverseSequence(t *testing.T) {
 	err = a.Unbind(context.Background(), busID)
 	require.NoError(t, err)
 
-	require.Len(t, rec.calls, 3)
+	require.Len(t, rec.calls, 4)
+
+	// rec.calls[0]: pre-disconnect sockfd write (covered by
+	// TestUnbind_DisconnectsSockfdBeforeUnbindWrite)
 
 	require.Equal(t, writeCall{
 		Path: "/sys/bus/usb/drivers/usbip-host/unbind",
 		Data: string(busID),
-	}, rec.calls[0])
+	}, rec.calls[1])
 
 	require.Equal(t, writeCall{
 		Path: "/sys/bus/usb/drivers/usbip-host/match_busid",
 		Data: "del " + string(busID),
-	}, rec.calls[1])
+	}, rec.calls[2])
 
 	require.Equal(t, writeCall{
 		Path: "/sys/bus/usb/drivers/usbip-host/rebind",
 		Data: string(busID),
-	}, rec.calls[2])
+	}, rec.calls[3])
 }
 
 // TestBind_EBUSYMapsToAlreadyBound confirms v1 contract §6.4 mapping for the
