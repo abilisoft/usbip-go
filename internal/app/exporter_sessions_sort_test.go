@@ -71,7 +71,7 @@ func TestExporterSessions_SortStableOnEqualStartedAt(t *testing.T) {
 
 	codec := &ProtocolCodecMock{
 		DecodeHeaderFunc: wire.NewCodec().DecodeHeader,
-		DecodeOpReqImportFunc: func(_ io.Reader) (domain.BusID, error) {
+		DecodeOpReqImportBodyFunc: func(_ io.Reader) (domain.BusID, error) {
 			n := callN.Add(1)
 
 			if n == 1 {

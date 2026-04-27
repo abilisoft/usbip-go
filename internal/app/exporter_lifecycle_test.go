@@ -24,7 +24,7 @@ import (
 func newSessionImportCodec(busID domain.BusID) *ProtocolCodecMock {
 	return &ProtocolCodecMock{
 		DecodeHeaderFunc: wire.NewCodec().DecodeHeader,
-		DecodeOpReqImportFunc: func(_ io.Reader) (domain.BusID, error) {
+		DecodeOpReqImportBodyFunc: func(_ io.Reader) (domain.BusID, error) {
 			return busID, nil
 		},
 	}

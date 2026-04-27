@@ -213,7 +213,7 @@ func TestExporterServe_ImportHappyPath(t *testing.T) {
 
 	codec := &ProtocolCodecMock{
 		DecodeHeaderFunc: wire.NewCodec().DecodeHeader,
-		DecodeOpReqImportFunc: func(_ io.Reader) (domain.BusID, error) {
+		DecodeOpReqImportBodyFunc: func(_ io.Reader) (domain.BusID, error) {
 			return importedBusID, nil
 		},
 	}
