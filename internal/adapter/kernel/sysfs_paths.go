@@ -89,7 +89,6 @@ const (
 	UsbipSockfdDisconnect = "-1"
 )
 
-
 // VHCIAttachFmt is the printf format used by vhci_sysfs::attach_store.
 // Kernel source uses sscanf("%u %u %u %u") but upstream client writes
 // a signed fd ("%u %d %u %u") for byte-for-byte interop.

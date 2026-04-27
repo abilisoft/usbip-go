@@ -51,11 +51,11 @@ func TestListLocalDevices_EnumeratesInterfacesAtActiveConfig(t *testing.T) {
 		"sys/bus/usb/devices/" + busID + "/bNumInterfaces":      &fstest.MapFile{Data: []byte("1\n")},
 		// Interface lives at <busid>:2.0, not :1.0 — exercise that
 		// readInterfaces uses configValue=2.
-		"sys/bus/usb/devices/" + ifaceName:                                       &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/devices/" + ifaceName + "/bInterfaceClass":                  &fstest.MapFile{Data: []byte("ff\n")},
-		"sys/bus/usb/devices/" + ifaceName + "/bInterfaceSubClass":               &fstest.MapFile{Data: []byte("aa\n")},
-		"sys/bus/usb/devices/" + ifaceName + "/bInterfaceProtocol":               &fstest.MapFile{Data: []byte("01\n")},
-		"sys/bus/usb/devices/" + ifaceName + "/bAlternateSetting":                &fstest.MapFile{Data: []byte("0\n")},
+		"sys/bus/usb/devices/" + ifaceName:                         &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/bus/usb/devices/" + ifaceName + "/bInterfaceClass":    &fstest.MapFile{Data: []byte("ff\n")},
+		"sys/bus/usb/devices/" + ifaceName + "/bInterfaceSubClass": &fstest.MapFile{Data: []byte("aa\n")},
+		"sys/bus/usb/devices/" + ifaceName + "/bInterfaceProtocol": &fstest.MapFile{Data: []byte("01\n")},
+		"sys/bus/usb/devices/" + ifaceName + "/bAlternateSetting":  &fstest.MapFile{Data: []byte("0\n")},
 	}
 
 	a, err := kernel.NewExporterAdapter(kernel.WithFS(mfs))
