@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -248,8 +249,11 @@ func (a *commonAdapter) writeClassified(target, data string) error {
 // its release. Surfacing EBUSY without retry forces operators into
 // manual rebind dances that the daemon can perform itself.
 //
-// Retries respect ctx cancellation; a Ctrl-C during the backoff sleep
-// returns ctx.Err() instead of the EBUSY chain.
+// On retry, deactivateNetdevs runs again so a NetworkManager-style
+// helper that re-set IFF_UP between attempts cannot indefinitely
+// prevent the bind. Retries respect ctx cancellation; a Ctrl-C
+// during the backoff sleep returns ctx.Err() instead of the EBUSY
+// chain.
 func (a *ExporterAdapter) bindUSBIPHostWithRetry(ctx context.Context, busID domain.BusID) error {
 	target := path.Join(SysfsUSBIPHostDriver, SysfsDriverBind)
 
@@ -265,6 +269,13 @@ func (a *ExporterAdapter) bindUSBIPHostWithRetry(ctx context.Context, busID doma
 
 			a.logger.Debug("bind: retrying usbip-host bind after EBUSY",
 				"busid", busID, "attempt", attempt+1, "backoff_ms", backoff)
+
+			// Re-clear IFF_UP in case a network manager bounced the
+			// netdev back up between attempts. Cheap (sysfs walk +
+			// at most a few writes) and robust against the
+			// "operator's wifi keeps re-enabling itself" class of
+			// failure.
+			a.deactivateNetdevs(busID)
 		}
 
 		err := a.writeClassified(target, string(busID))
@@ -316,7 +327,9 @@ func (a *ExporterAdapter) deactivateNetdevs(busID domain.BusID) {
 	for _, name := range names {
 		flagsPath := path.Join("/sys/class/net", name, "flags")
 
-		current, rerr := ReadUint(a.fs, flagsPath)
+		// /sys/class/net/<name>/flags is a hex string ("0x1003"), so
+		// ReadUint's base-10 parser fails. Hand-roll the parse.
+		current, rerr := readNetdevFlagsHex(a.fs, flagsPath)
 		if rerr != nil {
 			a.logger.Debug("bind preflight: read netdev flags failed",
 				"netdev", name, "err", rerr)
@@ -341,6 +354,25 @@ func (a *ExporterAdapter) deactivateNetdevs(busID domain.BusID) {
 		a.logger.Debug("bind preflight: deactivated netdev to free device for usbip-host",
 			"busid", busID, "netdev", name)
 	}
+}
+
+// readNetdevFlagsHex reads /sys/class/net/<name>/flags as a hex
+// string. The kernel emits values like "0x1003\n"; ReadUint's
+// base-10 parser rejects them.
+func readNetdevFlagsHex(fsys fs.FS, p string) (uint32, error) {
+	line, err := ReadLine(fsys, p)
+	if err != nil {
+		return 0, err
+	}
+
+	stripped := strings.TrimPrefix(strings.TrimPrefix(line, "0x"), "0X")
+
+	v, perr := strconv.ParseUint(stripped, hexRadix, dec10Bits)
+	if perr != nil {
+		return 0, fmt.Errorf("parse netdev flags %q: %w", p, perr)
+	}
+
+	return uint32(v), nil
 }
 
 // vhciDevPathMarker is the substring upstream's bind_device looks
