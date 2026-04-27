@@ -36,12 +36,24 @@ func TestBind_RollsBackMatchBusidOnBindFailure(t *testing.T) {
 	busID := domain.BusID("1-1")
 	rec := &writeRecord{}
 
+	// Persistently fail every usbip-host/bind write so the retry
+	// budget is exhausted and the rollback runs. Other writes
+	// (driver unbind, match_busid add, match_busid del) succeed.
+	persistentEBUSYOnBind := func(p, data string) error {
+		rec.mu.Lock()
+		rec.calls = append(rec.calls, writeCall{Path: p, Data: data})
+		rec.mu.Unlock()
+
+		if p == "/sys/bus/usb/drivers/usbip-host/bind" {
+			return unix.EBUSY
+		}
+
+		return nil
+	}
+
 	a, err := kernel.NewExporterAdapter(
 		kernel.WithFS(bindFS(string(busID))),
-		// errAt(2, EBUSY): the third write (usbip-host bind) fails.
-		// Rollback (match_busid del) is the fourth write — see
-		// assertion below.
-		kernel.WithWriteFunc(rec.errAt(2, unix.EBUSY)),
+		kernel.WithWriteFunc(persistentEBUSYOnBind),
 	)
 	require.NoError(t, err)
 
@@ -49,12 +61,10 @@ func TestBind_RollsBackMatchBusidOnBindFailure(t *testing.T) {
 	require.ErrorIs(t, err, domain.ErrDeviceAlreadyBound,
 		"primary error (EBUSY → ErrDeviceAlreadyBound) must surface; rollback failure does not mask it")
 
-	require.Len(t, rec.calls, 4,
-		"expected calls: unbind, match_busid add, bind (failed), match_busid del rollback")
-
-	// Rollback write at index 3.
-	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/match_busid", rec.calls[3].Path,
-		"rollback must target match_busid")
-	require.Equal(t, "del "+string(busID), rec.calls[3].Data,
+	// Last recorded write must be the match_busid del rollback.
+	last := rec.calls[len(rec.calls)-1]
+	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/match_busid", last.Path,
+		"rollback must target match_busid (last recorded write)")
+	require.Equal(t, "del "+string(busID), last.Data,
 		"rollback must DELETE the busid entry that the failed bind left orphaned")
 }

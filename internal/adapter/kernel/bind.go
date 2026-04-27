@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
@@ -30,6 +31,22 @@ const usbDriversSubdir = "drivers"
 // symlink is unavailable (tests, fstest.MapFS) — names the current
 // interface driver. Production resolves the symlink at the same path.
 const ifaceDriverNameFile = "driver_name"
+
+// usbipHostBindRetryAttempts caps how many times Bind will retry the
+// usbip-host bind sysfs write on EBUSY. EBUSY at this step is almost
+// always transient — the kernel needs a moment to release the device's
+// refcount after the previous interface driver is unbound (network
+// stack draining queued packets, audio buffers flushing, etc.). Five
+// total attempts at the backoff schedule below cover the typical
+// 200-400ms drain window on Linux 6.x.
+const usbipHostBindRetryAttempts = 5
+
+// usbipHostBindRetryBackoffMs is the doubling schedule between retries
+// in milliseconds. Worst case (5 retries) sleeps ~3.1s before
+// surfacing EBUSY — long enough for any reasonable kernel-side drain,
+// short enough for an operator running `usbip-go bind` interactively
+// to perceive as "took a beat" rather than "hung".
+var usbipHostBindRetryBackoffMs = []int{0, 100, 200, 400, 800}
 
 // Bind performs the three-write sequence required by usbip-host:
 //  1. unbind current driver from the primary interface (iface
@@ -62,18 +79,39 @@ func (a *ExporterAdapter) Bind(ctx context.Context, busID domain.BusID) error {
 		return err
 	}
 
-	driver, err := a.currentDriver(iface)
-	if err != nil {
-		return err
-	}
+	// USB-to-Ethernet / cellular dongles register one or more netdevs
+	// (cdc_ether, r8152, ...). Those netdevs hold a usb_device
+	// refcount as long as IFF_UP is set, so the subsequent
+	// usbip-host bind step returns EBUSY. Walk the per-device
+	// /sys/bus/usb/devices/<busid>/net/<name> directories and clear
+	// IFF_UP on each before unbinding the driver, so the operator
+	// no longer has to chase `ip link set <enxXX> down` manually.
+	a.deactivateNetdevs(busID)
 
-	// Old driver is typically an interface-level usb_driver (cdc_ether,
-	// usbhid, etc.) — kernel sysfs unbind_store looks the device up by
-	// name on the bus, so it must match the bound device's name. For
-	// interface drivers that means iface ("1-1:2.0").
-	err = a.writeClassified(driverPath(driver, SysfsDriverUnbind), iface)
-	if err != nil {
+	// currentDriver returns ErrDeviceNotBound when the interface has
+	// no driver attached — common right after a previous half-failed
+	// bind (driver unbound, usbip-host did not claim) or after a
+	// fresh hot-plug where the kernel has not yet probed. In that
+	// case skip the unbind step (nothing to unbind) and proceed
+	// straight to match_busid + usbip-host bind. Other errors
+	// (ErrDeviceNotFound, permission, I/O) still surface.
+	driver, err := a.currentDriver(iface)
+	switch {
+	case errors.Is(err, domain.ErrDeviceNotBound):
+		a.logger.Debug("bind: interface has no driver attached; skipping unbind step",
+			"busid", busID, "iface", iface)
+	case err != nil:
 		return err
+	default:
+		// Old driver is typically an interface-level usb_driver
+		// (cdc_ether, usbhid, etc.) — kernel sysfs unbind_store
+		// looks the device up by name on the bus, so it must match
+		// the bound device's name. For interface drivers that means
+		// iface ("1-1:2.0").
+		err = a.writeClassified(driverPath(driver, SysfsDriverUnbind), iface)
+		if err != nil {
+			return err
+		}
 	}
 
 	err = a.writeClassified(
@@ -91,7 +129,7 @@ func (a *ExporterAdapter) Bind(ctx context.Context, busID domain.BusID) error {
 	// device-level driver that means the BARE busid ("1-1"), not the
 	// iface — passing iface here would find the usb_interface, fail
 	// the dev->driver match, and surface ENODEV.
-	err = a.writeClassified(path.Join(SysfsUSBIPHostDriver, SysfsDriverBind), string(busID))
+	err = a.bindUSBIPHostWithRetry(ctx, busID)
 	if err != nil {
 		// Roll back the match_busid add so the busid table is not
 		// poisoned with an entry that has no driver attached.
@@ -202,6 +240,107 @@ func (a *commonAdapter) writeClassified(target, data string) error {
 	}
 
 	return nil
+}
+
+// bindUSBIPHostWithRetry writes the busid to usbip-host/bind, retrying
+// on EBUSY (ErrDeviceAlreadyBound). EBUSY at this step is almost
+// always a transient refcount drain — the previous driver finishing
+// its release. Surfacing EBUSY without retry forces operators into
+// manual rebind dances that the daemon can perform itself.
+//
+// Retries respect ctx cancellation; a Ctrl-C during the backoff sleep
+// returns ctx.Err() instead of the EBUSY chain.
+func (a *ExporterAdapter) bindUSBIPHostWithRetry(ctx context.Context, busID domain.BusID) error {
+	target := path.Join(SysfsUSBIPHostDriver, SysfsDriverBind)
+
+	var lastErr error
+
+	for attempt := range usbipHostBindRetryAttempts {
+		if backoff := usbipHostBindRetryBackoffMs[attempt]; backoff > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-a.clock.After(time.Duration(backoff) * time.Millisecond):
+			}
+
+			a.logger.Debug("bind: retrying usbip-host bind after EBUSY",
+				"busid", busID, "attempt", attempt+1, "backoff_ms", backoff)
+		}
+
+		err := a.writeClassified(target, string(busID))
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+
+		// Only EBUSY (mapped to ErrDeviceAlreadyBound by the errno
+		// classifier) is transient. ENODEV, EPERM, etc. surface
+		// immediately so operators see the real cause.
+		if !errors.Is(err, domain.ErrDeviceAlreadyBound) {
+			return err
+		}
+	}
+
+	return lastErr
+}
+
+// iffUp is the IFF_UP bit in /sys/class/net/<name>/flags. Mirrors
+// include/uapi/linux/if.h. We toggle this bit only — every other
+// flag (IFF_BROADCAST, IFF_MULTICAST, …) is preserved so the netdev
+// can be brought back UP later without losing its prior config.
+const iffUp = 0x1
+
+// deactivateNetdevs walks the per-device netdev sysfs subtree and
+// clears IFF_UP on each interface. Best-effort: read failures and
+// write failures are logged at debug, never returned. Devices
+// without a netdev (storage, HID, audio, …) have no /net/
+// subdirectory and the walker is a no-op for them.
+//
+// Required because USB-to-network drivers (cdc_ether, r8152,
+// ax88179_178a) keep a usb_device refcount while IFF_UP is set,
+// which cascades into EBUSY at the usbip-host bind step. Operators
+// previously had to run `ip link set <enxXX> down` manually before
+// every bind; this routine performs the same operation by writing
+// a flags value with the IFF_UP bit cleared to /sys/class/net/<name>/flags.
+func (a *ExporterAdapter) deactivateNetdevs(busID domain.BusID) {
+	netRoot := path.Join(SysfsUSBDevices, string(busID), "net")
+
+	names, err := ListDirEntries(a.fs, netRoot)
+	if err != nil {
+		// No /net subdir is the common case — most USB devices are
+		// not network adapters. Nothing to do.
+		return
+	}
+
+	for _, name := range names {
+		flagsPath := path.Join("/sys/class/net", name, "flags")
+
+		current, rerr := ReadUint(a.fs, flagsPath)
+		if rerr != nil {
+			a.logger.Debug("bind preflight: read netdev flags failed",
+				"netdev", name, "err", rerr)
+
+			continue
+		}
+
+		if current&iffUp == 0 {
+			continue
+		}
+
+		cleared := current &^ iffUp
+
+		werr := a.write(flagsPath, fmt.Sprintf("0x%x", cleared))
+		if werr != nil {
+			a.logger.Debug("bind preflight: clear netdev IFF_UP failed (continuing — bind may EBUSY)",
+				"netdev", name, "err", werr)
+
+			continue
+		}
+
+		a.logger.Debug("bind preflight: deactivated netdev to free device for usbip-host",
+			"busid", busID, "netdev", name)
+	}
 }
 
 // vhciDevPathMarker is the substring upstream's bind_device looks
