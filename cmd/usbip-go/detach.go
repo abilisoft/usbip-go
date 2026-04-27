@@ -61,7 +61,7 @@ func runDetach(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	_, err = fmt.Fprintf(out, "detached port %d\n", pidU)
+	_, err = fmt.Fprintln(styleWriter(out), formatAck("detached port", strconv.FormatUint(pidU, 10)))
 	if err != nil {
 		return fmt.Errorf("write output: %w", err)
 	}

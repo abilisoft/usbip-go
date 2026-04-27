@@ -93,3 +93,35 @@ var dimStyle = styledCell.Foreground(lipgloss.Color("#878787"))
 // emphasizeStyle is for primary identifiers (busid, port id) that
 // the operator scans for.
 var emphasizeStyle = styledCell.Bold(true)
+
+// successMarkStyle renders the "✓" prefix used by bind/unbind/attach/
+// detach acks. Bright green so the eye lands on the success token
+// without parsing the action verb. Padding 0 because the ack
+// composes "<mark> <verb> <subject>" inline.
+var successMarkStyle = lipgloss.NewStyle().
+	Bold(true).
+	Foreground(lipgloss.Color("#5fff87"))
+
+// actionStyle bolds the verb in an ack ("bound", "attached", etc.)
+// without coloring it; the color comes from successMarkStyle so the
+// verb itself stays readable on every theme.
+var actionStyle = lipgloss.NewStyle().Bold(true)
+
+// subjectStyle highlights the busid/port-id the ack ran against.
+// Same cyan as styledHeader so the operator's eye recognizes the
+// "this is the identifier" intent across help, tables, and acks.
+var subjectStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd7ff"))
+
+// formatAck composes "✓ <action> <subject>" with the palette above.
+// The mark glyph is non-ASCII; styleWriter strips ANSI for plain
+// terminals via colorprofile but does not transliterate the glyph
+// (operators on plain terminals see "?"). Acceptable trade-off
+// versus the historical plain-text ack for the value the green
+// mark adds in the common interactive case.
+func formatAck(action, subject string) string {
+	const successMark = "✓"
+
+	return successMarkStyle.Render(successMark) + " " +
+		actionStyle.Render(action) + " " +
+		subjectStyle.Render(subject)
+}
