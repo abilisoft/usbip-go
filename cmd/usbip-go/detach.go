@@ -50,10 +50,15 @@ func runDetach(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("detach: %w", err)
 	}
 
-	out := cmd.OutOrStdout()
+	return renderDetachResult(cmd.OutOrStdout(), outputFromCtx(ctx), usbip.PortID(pidU))
+}
 
-	if outputFromCtx(ctx) == outputJSON {
-		err = (jsonRenderer{}).DetachAck(out, usbip.PortID(pidU))
+// renderDetachResult writes the detach acknowledgement using the
+// renderer selected by --output. Extracted from runDetach so the
+// human-table path is unit-testable without a live importer.
+func renderDetachResult(out ioWriter, format string, pid usbip.PortID) error {
+	if format == outputJSON {
+		err := (jsonRenderer{}).DetachAck(out, pid)
 		if err != nil {
 			return fmt.Errorf("render ack: %w", err)
 		}
@@ -61,7 +66,7 @@ func runDetach(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	_, err = fmt.Fprintln(styleWriter(out), formatAck("detached port", strconv.FormatUint(pidU, 10)))
+	_, err := fmt.Fprintln(styleWriter(out), formatAck("detached port", strconv.FormatUint(uint64(pid), 10)))
 	if err != nil {
 		return fmt.Errorf("write output: %w", err)
 	}
