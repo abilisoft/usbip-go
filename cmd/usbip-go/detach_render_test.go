@@ -35,7 +35,7 @@ func TestRenderDetachResult_Table(t *testing.T) {
 }
 
 // TestRenderDetachResult_JSON pins the schema-stable JSON path:
-// {"schema":"v1","op":"detach","ok":true,"port":<id>}.
+// {"schema":"v1","op":"detach","ok":true,"port_id":<id>}.
 // The JSON contract is the subprocess-facing surface; the styled
 // table is operator-only.
 func TestRenderDetachResult_JSON(t *testing.T) {
