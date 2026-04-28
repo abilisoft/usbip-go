@@ -101,11 +101,7 @@ func (tableRenderer) Devices(w io.Writer, devs []usbip.Device) error {
 		case colBusID:
 			return emphasizeStyle
 		case colSpeed:
-			if row >= 0 && row < len(speeds) {
-				return speedStyle(speeds[row])
-			}
-
-			return styledCell
+			return speedStyle(speeds[row])
 		default:
 			return styledCell
 		}
@@ -149,10 +145,6 @@ func (tableRenderer) Ports(w io.Writer, ports []usbip.Port) error {
 	)
 
 	t := newStyledTable(func(row, col int, _ string) lipgloss.Style {
-		if row < 0 || row >= len(speeds) {
-			return styledCell
-		}
-
 		switch col {
 		case colPort:
 			return emphasizeStyle
