@@ -21,12 +21,12 @@ import (
 // the usbip-host driver dir so the preflight passes before ifaceSuffix runs.
 func moduleAndDriverFS(busID string) fstest.MapFS {
 	return fstest.MapFS{
-		"sys/module/usbip_core":                              &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host":                             &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host":                    &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host/match_busid":        &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/bind":               &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/devices/" + busID:                      &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/usbip_core":                      &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/usbip_host":                      &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/bus/usb/drivers/usbip-host":             &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/bus/usb/drivers/usbip-host/match_busid": &fstest.MapFile{Data: []byte("")},
+		"sys/bus/usb/drivers/usbip-host/bind":        &fstest.MapFile{Data: []byte("")},
+		"sys/bus/usb/devices/" + busID:               &fstest.MapFile{Mode: fs.ModeDir},
 	}
 }
 
@@ -41,6 +41,7 @@ func TestBind_ifaceSuffix_ZeroConfigValue(t *testing.T) {
 	const busID = "2-1"
 
 	mfs := moduleAndDriverFS(busID)
+
 	mfs["sys/bus/usb/devices/"+busID+"/bConfigurationValue"] = &fstest.MapFile{Data: []byte("0\n")}
 
 	a, err := kernel.NewExporterAdapter(kernel.WithFS(mfs))
@@ -62,6 +63,7 @@ func TestBind_ifaceSuffix_ConfigValueExceedsByte(t *testing.T) {
 	const busID = "2-2"
 
 	mfs := moduleAndDriverFS(busID)
+
 	// 256 is > byteMax (0xFF); the kernel never emits this, but
 	// out-of-range sysfs reads must be rejected rather than truncated.
 	mfs["sys/bus/usb/devices/"+busID+"/bConfigurationValue"] = &fstest.MapFile{Data: []byte("256\n")}

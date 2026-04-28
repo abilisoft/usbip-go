@@ -7,7 +7,6 @@ package kernel_test
 
 import (
 	"context"
-	"errors"
 	"io/fs"
 	"testing"
 	"testing/fstest"
@@ -101,8 +100,8 @@ func TestBind_VHCIGuard_ErrInvalidMeansNotASymlink(t *testing.T) {
 	// Bind fails later (no bConfigurationValue), NOT with ErrPermission.
 	require.Error(t, err,
 		"Bind must fail (no device setup), but not at the vhci guard stage")
-	require.False(t, errors.Is(err, fs.ErrPermission),
+	require.NotErrorIs(t, err, fs.ErrPermission,
 		"ErrInvalid must not be treated as a fail-closed permission fault")
-	require.False(t, errors.Is(err, domain.ErrDeviceAlreadyBound),
+	require.NotErrorIs(t, err, domain.ErrDeviceAlreadyBound,
 		"ErrInvalid must not trigger the vhci-loop refusal")
 }
