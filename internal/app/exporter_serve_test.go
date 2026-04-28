@@ -223,7 +223,7 @@ func TestExporterServe_ImportHappyPath(t *testing.T) {
 
 			_, rerr := io.ReadFull(r, body)
 			if rerr != nil {
-				return "", rerr
+				return "", fmt.Errorf("decode op_req_import body: %w", rerr)
 			}
 
 			return importedBusID, nil
@@ -255,6 +255,7 @@ func TestExporterServe_ImportHappyPath(t *testing.T) {
 
 	body := make([]byte, domain.BusIDSize)
 	copy(body, importedBusID)
+
 	_, err = client.Write(body)
 	require.NoError(t, err)
 

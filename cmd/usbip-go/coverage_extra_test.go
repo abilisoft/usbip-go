@@ -402,3 +402,136 @@ func TestVersionCmdRendersStampedLabels(t *testing.T) {
 	require.NoError(t, cmd.RunE(cmd, nil))
 	require.Contains(t, buf.String(), "usbip-go version")
 }
+
+// TestGenerateScriptErrorOnFailingWriter pins the error-return paths in
+// generateScript: cobra's generator functions write to the supplied
+// io.Writer; a failing writer must cause the shell-specific error return
+// to fire for each shell variant.
+func TestGenerateScriptErrorOnFailingWriter(t *testing.T) {
+	t.Parallel()
+
+	for _, shell := range []string{shellBash, shellZsh, shellFish, shellPwsh} {
+		t.Run(shell, func(t *testing.T) {
+			t.Parallel()
+
+			err := generateScript(newRootCmd(), shell, failingWriter{})
+			require.Error(t, err)
+		})
+	}
+}
+
+// TestWriteCompletionScript_StatusLineError pins the final Fprintln error
+// path in writeCompletionScript: the script is generated and written to
+// disk, but if the output writer fails on the status-line write the error
+// must propagate.
+func TestWriteCompletionScript_StatusLineError(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "bash-completion", "completions", "usbip-go")
+
+	err := writeCompletionScript(failingWriter{}, newRootCmd(), shellBash, target)
+	require.Error(t, err)
+}
+
+// TestResolveShell_FromSHELLEnv pins the "SHELL env set to a valid shell"
+// branch of resolveShell: when --shell is not given but $SHELL names a
+// supported shell the function must return its basename.
+func TestResolveShell_FromSHELLEnv(t *testing.T) {
+	t.Setenv("SHELL", "/bin/bash")
+
+	got, err := resolveShell("")
+	require.NoError(t, err)
+	require.Equal(t, shellBash, got)
+}
+
+// TestRunCompletionInstall_UninstallBranch pins the Uninstall switch case
+// in runCompletionInstall: --uninstall must call runUninstall rather than
+// writeCompletionScript.
+func TestRunCompletionInstall_UninstallBranch(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+
+	target, err := completionPath(shellBash)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o750))
+	require.NoError(t, os.WriteFile(target, []byte("# stub"), 0o600))
+
+	cmd := newRootCmd()
+
+	var buf bytes.Buffer
+
+	cmd.SetOut(&buf)
+
+	cf := &completionInstallFlags{Shell: shellBash, Uninstall: true}
+
+	err = runCompletionInstall(cmd, newRootCmd(), cf)
+	require.NoError(t, err)
+	require.Contains(t, buf.String(), "removed")
+}
+
+// TestOutputFromCtx_MissingFlagsFallsBackToTable pins the default branch
+// of outputFromCtx: a context without the flagsCtxKey stashed by
+// PersistentPreRunE must return "table".
+func TestOutputFromCtx_MissingFlagsFallsBackToTable(t *testing.T) {
+	t.Parallel()
+
+	got := outputFromCtx(context.Background())
+	require.Equal(t, "table", got)
+}
+
+// TestAdaptPortAttached_RejectsWrongType pins the !ok branch of
+// adaptPortAttached: passing an event whose concrete type is not
+// domain.PortAttachedEvent must return nil without panicking.
+func TestAdaptPortAttached_RejectsWrongType(t *testing.T) {
+	t.Parallel()
+
+	wrong := domain.PortDetachedEvent{}
+	require.Nil(t, adaptPortAttached(wrong),
+		"adaptPortAttached must return nil for a non-PortAttachedEvent")
+}
+
+// TestTableRenderer_Event_UnknownType pins the !ok branch of
+// tableRenderer.Event: when eventHeader does not recognise the event
+// record the fallback fmt.Fprintf branch must render %T/%v without
+// error.
+func TestTableRenderer_Event_UnknownType(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+
+	err := (tableRenderer{}).Event(&buf, unknownEventImpl{})
+	require.NoError(t, err)
+	require.NotEmpty(t, buf.String())
+}
+
+// unknownEventImpl satisfies usbip.Event (= domain.Event) but is not
+// recognised by classifyEvent, triggering the !ok branch in
+// tableRenderer.Event.
+type unknownEventImpl struct{}
+
+func (unknownEventImpl) EventKind() domain.EventKind { return domain.EventKind(255) }
+
+// TestCompleteAttachArgs_DefaultBranch pins the default case (len(args) > 1)
+// in completeAttachArgs: the function must return nil and NoFileComp.
+func TestCompleteAttachArgs_DefaultBranch(t *testing.T) {
+	t.Parallel()
+
+	swapFactories(t, &mockImporter{}, &mockExporter{})
+
+	cmd := newRootCmd()
+	cmd.SetContext(context.Background())
+
+	got, _ := completeAttachArgs(cmd, []string{"host", "1-1", "extra"}, "")
+	require.Nil(t, got)
+}
+
+// TestParseAttachArgs_InvalidBackoff pins the parseBackoff error branch:
+// a non-empty but malformed --backoff value must return an errUsage error.
+func TestParseAttachArgs_InvalidBackoff(t *testing.T) {
+	t.Parallel()
+
+	af := &attachFlags{Backoff: "invalid-backoff-spec"}
+	_, err := parseAttachArgs([]string{"10.0.0.1", "1-1"}, af)
+	require.Error(t, err)
+}
