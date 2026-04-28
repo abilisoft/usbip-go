@@ -80,3 +80,28 @@ func TestTableRendererSessions_WriteError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "render session table")
 }
+
+// TestTableRendererEvent_WriteError_KnownType pins the write-error path inside
+// tableRenderer.Event when the event is recognised by classifyEvent (the
+// fmt.Fprintf at the end of the function fails). The error must be wrapped in
+// "render event: ...".
+func TestTableRendererEvent_WriteError_KnownType(t *testing.T) {
+	t.Parallel()
+
+	ev := domain.DeviceBoundEvent{Device: domain.Device{BusID: domain.BusID("1-1")}}
+
+	err := tableRenderer{}.Event(failWriter{}, ev)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "render event")
+}
+
+// TestTableRendererEvent_WriteError_UnknownType pins the write-error path inside
+// the !ok branch of tableRenderer.Event: when classifyEvent returns nil the
+// fallback fmt.Fprintf must propagate the writer error wrapped in "render event: ...".
+func TestTableRendererEvent_WriteError_UnknownType(t *testing.T) {
+	t.Parallel()
+
+	err := tableRenderer{}.Event(failWriter{}, unknownEvent{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "render event")
+}

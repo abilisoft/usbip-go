@@ -26,6 +26,10 @@ const activationFdName = "usbipd-go"
 var errAmbiguousSocketNames = errors.New(
 	"LISTEN_FDS passed but no matching FileDescriptorName and multiple fds present")
 
+// listenersWithNames is the seam for activation.ListenersWithNames; swapped
+// in tests to inject errors without manipulating process-level fds.
+var listenersWithNames = activation.ListenersWithNames
+
 // listenOrActivation returns the listener usbipd-go should Serve on. It
 // prefers systemd-passed named sockets, falls back to an unnamed single
 // fd, and finally falls back to a plain net.Listen on cfg.Listen.
@@ -37,7 +41,7 @@ var errAmbiguousSocketNames = errors.New(
 //     guess and return an error.
 //   - Otherwise, plain net.ListenConfig on cfg.Listen.
 func listenOrActivation(ctx context.Context, cfg *Config) (net.Listener, error) {
-	named, err := activation.ListenersWithNames()
+	named, err := listenersWithNames()
 	if err != nil {
 		// ListenersWithNames returns a non-nil error when the
 		// process was not started via systemd socket activation
