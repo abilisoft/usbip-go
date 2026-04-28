@@ -115,5 +115,6 @@ func TestParseRemote_ColonAtZeroIndexEmptyHost(t *testing.T) {
 	_, err := domain.ParseRemote(":3240")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "empty",
-		"input with leading colon must surface an empty-host error; mutant `>` would treat the whole string as a bare host and surface a character/format error instead")
+		"input with leading colon must surface an empty-host error; "+
+			"mutant `>` would treat the whole string as a bare host and surface a character/format error instead")
 }

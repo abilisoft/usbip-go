@@ -7,7 +7,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"io/fs"
 	"path/filepath"
 	"testing"
@@ -45,6 +44,6 @@ func TestBindStatusSocket_MissingParentDirSurfacesENOENT(t *testing.T) {
 		"failed bind must return a nil listener so callers cannot accidentally Serve on a half-bound UDS")
 	require.Contains(t, err.Error(), missingParent+".lock",
 		"error message must name the lock file path so the operator knows which directory is missing")
-	require.True(t, errors.Is(err, fs.ErrNotExist),
+	require.ErrorIs(t, err, fs.ErrNotExist,
 		"error must wrap fs.ErrNotExist so callers can errors.Is-classify the missing-parent case")
 }

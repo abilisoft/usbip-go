@@ -8,6 +8,7 @@ package kernel_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"testing"
 	"testing/fstest"
@@ -73,7 +74,12 @@ type errorReadLinkFS struct {
 
 // Open delegates to the wrapped FS.
 func (e *errorReadLinkFS) Open(name string) (fs.File, error) {
-	return e.inner.Open(name)
+	f, err := e.inner.Open(name)
+	if err != nil {
+		return nil, fmt.Errorf("errorReadLinkFS.Open %q: %w", name, err)
+	}
+
+	return f, nil
 }
 
 // ReadLink always returns the configured error.
@@ -86,5 +92,10 @@ func (e *errorReadLinkFS) ReadLink(string) (string, error) {
 // driving the vhci guard never inspect this output directly; the
 // pass-through is enough.
 func (e *errorReadLinkFS) Lstat(name string) (fs.FileInfo, error) {
-	return fs.Stat(e.inner, name)
+	fi, err := fs.Stat(e.inner, name)
+	if err != nil {
+		return nil, fmt.Errorf("errorReadLinkFS.Lstat %q: %w", name, err)
+	}
+
+	return fi, nil
 }

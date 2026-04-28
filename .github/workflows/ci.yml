@@ -142,11 +142,24 @@ jobs:
             subject=$(git log -1 --format=%s "$sha")
             added_test=$(git diff-tree --no-commit-id --name-only --diff-filter=A -r "$sha" | { grep -E '_test\.go$' || true; })
             non_test_go=$(git diff-tree --no-commit-id --name-only -r "$sha" | { grep -E '\.go$' || true; } | { grep -v '_test\.go$' || true; })
-            if [ -n "$prev_added_test" ] && [ -z "$non_test_go" ] && ! printf '%s' "$subject" | grep -qiE '^refactor:' ; then
-              echo "FAIL: commit $sha (\"$subject\") follows a RED commit but adds no implementation and is not labeled 'refactor:'"
+            # A RED commit (new test files for new behavior) must be
+            # followed by a GREEN that adds production .go files OR by a
+            # Conventional Commit type that legitimately ships no
+            # production code: refactor, test (more tests for shipped
+            # code, e.g. mutation/coverage hardening), docs, chore, ci,
+            # style, build, perf. Anything else is a RED that never
+            # went green.
+            if [ -n "$prev_added_test" ] && [ -z "$non_test_go" ] && ! printf '%s' "$subject" | grep -qiE '^(refactor|test|docs|chore|ci|style|build|perf)(\([^)]*\))?:' ; then
+              echo "FAIL: commit $sha (\"$subject\") follows a RED commit but adds no implementation and is not labeled refactor/test/docs/chore/ci/style/build/perf"
               fail=1
             fi
-            if [ -n "$added_test" ]; then
+            # A commit is RED (carries forward, requires GREEN next)
+            # only when it adds new test files AND ships no production
+            # code in the same commit AND uses a behavior-introducing
+            # type (feat/fix). A feat/fix that ships both tests and
+            # impl is self-greening; test:/refactor:/etc. signal "no
+            # new behavior" and never carry RED forward.
+            if [ -n "$added_test" ] && [ -z "$non_test_go" ] && printf '%s' "$subject" | grep -qiE '^(feat|fix)(\([^)]*\))?:' ; then
               prev_added_test="$sha"
             else
               prev_added_test=""

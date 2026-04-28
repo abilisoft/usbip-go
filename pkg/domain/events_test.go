@@ -112,8 +112,10 @@ func itoaForTest(n int) string {
 	}
 
 	var buf []byte
+
 	for n > 0 {
 		buf = append([]byte{byte('0' + n%10)}, buf...)
+
 		n /= 10
 	}
 

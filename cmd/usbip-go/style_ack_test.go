@@ -57,5 +57,6 @@ func TestFormatAck_AlwaysEmitsAnsiPreNormalisation(t *testing.T) {
 	got := formatAck("bound", "1-1")
 
 	require.Contains(t, got, "\x1b[",
-		"formatAck must always emit ANSI escapes pre-normalisation; styleWriter at the call site strips them when NO_COLOR is set or stdout is not a TTY")
+		"formatAck must always emit ANSI escapes pre-normalisation; "+
+			"styleWriter at the call site strips them when NO_COLOR is set or stdout is not a TTY")
 }

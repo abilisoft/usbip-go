@@ -55,20 +55,20 @@ func buildVHCIRootedFakeSysfs(t *testing.T, busID string) string {
 	root := t.TempDir()
 
 	devDir := filepath.Join(root, "sys/bus/usb/devices")
-	require.NoError(t, os.MkdirAll(devDir, 0o755))
+	require.NoError(t, os.MkdirAll(devDir, 0o750))
 
 	// The actual device dir, rooted under vhci_hcd as the kernel
 	// would do for an importer-side stub.
 	target := filepath.Join(root, "sys/devices/platform/vhci_hcd.0/usb1", busID)
-	require.NoError(t, os.MkdirAll(target, 0o755))
+	require.NoError(t, os.MkdirAll(target, 0o750))
 
 	// Symlink: /sys/bus/usb/devices/<busID> -> ../../../devices/...
 	relTarget := filepath.Join("..", "..", "..", "devices", "platform", "vhci_hcd.0", "usb1", busID)
 	require.NoError(t, os.Symlink(relTarget, filepath.Join(devDir, busID)))
 
 	// Modules required for the preflight check to pass.
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "sys/module/usbip_core"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "sys/module/usbip_host"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "sys/module/usbip_core"), 0o750))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "sys/module/usbip_host"), 0o750))
 
 	return root
 }

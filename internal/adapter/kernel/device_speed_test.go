@@ -47,6 +47,7 @@ func TestListLocalDevices_AllRealSysfsSpeedStrings(t *testing.T) {
 			t.Parallel()
 
 			attrs := makeDeviceAttrs()
+
 			attrs["speed"] = tc.sysfs
 
 			mfs := mergeFS(deviceSysfs("1-1", attrs), moduleDirs())
@@ -90,6 +91,7 @@ func TestListLocalDevices_RejectsUnrecognizedSysfsSpeed(t *testing.T) {
 			t.Parallel()
 
 			attrs := makeDeviceAttrs()
+
 			attrs["speed"] = tc.sysfs
 
 			mfs := mergeFS(deviceSysfs("1-1", attrs), moduleDirs())
@@ -99,6 +101,7 @@ func TestListLocalDevices_RejectsUnrecognizedSysfsSpeed(t *testing.T) {
 			// unrelated read failure that would also produce an empty
 			// device list and falsely satisfy a require.Empty assertion.
 			var logBuf bytes.Buffer
+
 			logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 			a, err := kernel.NewExporterAdapter(

@@ -96,12 +96,13 @@ func TestBusIDIsValid_BoundaryLength(t *testing.T) {
 	const prefix = "1-1."
 
 	atBoundary := prefix + strings.Repeat("9", domain.BusIDSize-len(prefix))
-	require.Equal(t, domain.BusIDSize, len(atBoundary), "sanity: at-boundary input length")
+	require.Len(t, atBoundary, domain.BusIDSize, "sanity: at-boundary input length")
 	require.False(t, domain.BusID(atBoundary).IsValid(),
-		"a busid whose length equals BusIDSize must be invalid; CONDITIONALS_BOUNDARY mutant `>` would mistakenly accept it")
+		"a busid whose length equals BusIDSize must be invalid; "+
+			"CONDITIONALS_BOUNDARY mutant `>` would mistakenly accept it")
 
 	belowBoundary := prefix + strings.Repeat("9", domain.BusIDSize-1-len(prefix))
-	require.Equal(t, domain.BusIDSize-1, len(belowBoundary), "sanity: below-boundary input length")
+	require.Len(t, belowBoundary, domain.BusIDSize-1, "sanity: below-boundary input length")
 	require.True(t, domain.BusID(belowBoundary).IsValid(),
 		"a busid one byte below the cap must remain valid; sanity check that we are not over-rejecting")
 }
@@ -138,7 +139,8 @@ func TestValidateWireBusID_RuneBoundaries(t *testing.T) {
 
 			_, err := domain.ValidateWireBusID(s)
 			require.Error(t, err,
-				"just-out-of-range rune %q must be rejected; a CONDITIONALS_BOUNDARY mutation that broadens the boundary by one would silently accept it", s)
+				"just-out-of-range rune %q must be rejected; "+
+					"a CONDITIONALS_BOUNDARY mutation that broadens the boundary by one would silently accept it", s)
 		})
 	}
 }
@@ -160,7 +162,7 @@ func TestParseBusID_LengthErrorNamesExactCap(t *testing.T) {
 	// the total length on BusIDSize EXACTLY. "1-" is 2 chars, so
 	// we pad with BusIDSize-2 digits.
 	tooLong := "1-" + strings.Repeat("1", domain.BusIDSize-2)
-	require.Equal(t, domain.BusIDSize, len(tooLong),
+	require.Len(t, tooLong, domain.BusIDSize,
 		"sanity: input must hit the boundary len == BusIDSize so the >=/> mutation has an observable difference")
 
 	_, err := domain.ParseBusID(tooLong)

@@ -53,7 +53,8 @@ func TestParseRemote_BoundaryCases(t *testing.T) {
 
 		_, err := domain.ParseRemote("a:b:c")
 		require.Error(t, err,
-			"a host with exactly ipv6MinColons=2 colons that is not a valid IP must be rejected; CONDITIONALS_BOUNDARY mutant would skip the validation")
+			"a host with exactly ipv6MinColons=2 colons that is not a valid IP must be rejected; "+
+				"CONDITIONALS_BOUNDARY mutant would skip the validation")
 	})
 
 	// remote.go:139 — `idx >= 0` for LastIndexByte(s, ':'). Boundary:

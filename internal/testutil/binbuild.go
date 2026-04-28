@@ -4,13 +4,22 @@
 package testutil
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+// binaryBuildTimeout caps the `go build` subprocess BuildBinary
+// shells out to. Five minutes is generous enough for a cold module
+// cache on CI runners; well under the test-package timeout so a
+// hung build surfaces as a clear binbuild failure rather than the
+// outer test hitting -timeout.
+const binaryBuildTimeout = 5 * time.Minute
 
 // BuildBinary compiles ./cmd/<name>/ to an absolute-path temp binary
 // the test can exec. Caller passes the leaf command directory name
@@ -36,11 +45,15 @@ func BuildBinary(t *testing.T, name string) string {
 	require.NoError(t, err)
 
 	out := filepath.Join(tmp, name)
-
 	root := RepoRoot(t)
 
-	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", out, "./cmd/"+name+"/")
+	ctx, cancel := context.WithTimeout(context.Background(), binaryBuildTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "go", "build", "-buildvcs=false", "-o", out, "./cmd/"+name+"/")
+
 	cmd.Dir = root
+
 	cmd.Env = append(os.Environ(),
 		"CGO_ENABLED=0",
 		"TMPDIR="+tmp,

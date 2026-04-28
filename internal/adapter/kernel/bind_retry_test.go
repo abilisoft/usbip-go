@@ -22,19 +22,27 @@ import (
 // (e.g. range 5 -> range 4) only when a test fails on attempt N+1
 // after N early-return failures. Inject EBUSY on the first four
 // bind writes, success on the fifth.
+// usbipHostBindPath is the kernel sysfs target the retry tests
+// pattern-match against; extracted as a constant so the goconst
+// rule does not flag the duplicated literal across cases.
+const usbipHostBindPath = "/sys/bus/usb/drivers/usbip-host/bind"
+
 func TestBind_UsesAtLeastFiveRetryAttempts(t *testing.T) {
 	t.Parallel()
 
 	busID := domain.BusID("1-1")
 
 	var mu sync.Mutex
+
 	bindAttempts := 0
 
 	writeFn := func(p, _ string) error {
-		if p == "/sys/bus/usb/drivers/usbip-host/bind" {
+		if p == usbipHostBindPath {
 			mu.Lock()
 			bindAttempts++
+
 			n := bindAttempts
+
 			mu.Unlock()
 
 			// Fail attempts 1..4; succeed on 5.
@@ -58,6 +66,7 @@ func TestBind_UsesAtLeastFiveRetryAttempts(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
+
 	require.Equal(t, 5, bindAttempts,
 		"exactly 5 bind attempts: 4 EBUSY + 1 success")
 }
@@ -80,6 +89,7 @@ func TestBind_RetriesEBUSYOnUSBIPHostBind(t *testing.T) {
 	busID := domain.BusID("1-1")
 
 	var mu sync.Mutex
+
 	bindAttempts := 0
 
 	writeFn := func(p, _ string) error {
@@ -87,9 +97,10 @@ func TestBind_RetriesEBUSYOnUSBIPHostBind(t *testing.T) {
 		// Step 1 (match_busid add) succeeds.
 		// Step 2+ (usbip-host bind) returns EBUSY for the first
 		// attempt, succeeds on the second.
-		if p == "/sys/bus/usb/drivers/usbip-host/bind" {
+		if p == usbipHostBindPath {
 			mu.Lock()
 			bindAttempts++
+
 			n := bindAttempts
 			mu.Unlock()
 
@@ -109,10 +120,12 @@ func TestBind_RetriesEBUSYOnUSBIPHostBind(t *testing.T) {
 
 	err = a.Bind(context.Background(), busID)
 	require.NoError(t, err,
-		"Bind must transparently retry the usbip-host bind step on EBUSY; the kernel needs a moment to release the device refcount after the old driver unbind")
+		"Bind must transparently retry the usbip-host bind step on EBUSY; "+
+			"the kernel needs a moment to release the device refcount after the old driver unbind")
 
 	mu.Lock()
 	defer mu.Unlock()
+
 	require.Equal(t, 2, bindAttempts,
 		"first attempt EBUSY → second attempt succeeds → exactly 2 bind writes total")
 }

@@ -67,19 +67,19 @@ func speedStyle(speed usbip.Speed) lipgloss.Style {
 	base := styledCell
 
 	switch speed {
-	case usbip.Speed(domain.SpeedUnknown):
+	case domain.SpeedUnknown:
 		return base.Foreground(lipgloss.Color("#878787")) // dim gray
-	case usbip.Speed(domain.SpeedLow):
+	case domain.SpeedLow:
 		return base.Foreground(lipgloss.Color("#a8a8a8")) // gray
-	case usbip.Speed(domain.SpeedFull):
+	case domain.SpeedFull:
 		return base.Foreground(lipgloss.Color("#ffffff")) // white
-	case usbip.Speed(domain.SpeedHigh):
+	case domain.SpeedHigh:
 		return base.Foreground(lipgloss.Color("#5f87ff")) // blue
-	case usbip.Speed(domain.SpeedWireless):
+	case domain.SpeedWireless:
 		return base.Foreground(lipgloss.Color("#af5fff")) // purple
-	case usbip.Speed(domain.SpeedSuper):
+	case domain.SpeedSuper:
 		return base.Foreground(lipgloss.Color("#ff5fff")) // magenta
-	case usbip.Speed(domain.SpeedSuperPlus):
+	case domain.SpeedSuperPlus:
 		return base.Foreground(lipgloss.Color("#ff5fff")).Bold(true) // bold magenta
 	default:
 		return base

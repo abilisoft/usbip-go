@@ -37,6 +37,7 @@ func TestUSBIPGoBinary_HelpListsAllSubcommands(t *testing.T) {
 	// own indented line. Anchor the regex on at-least-two-spaces +
 	// command + word-boundary so "bind" cannot pass via "unbind".
 	help := string(out)
+
 	for _, cmd := range []string{
 		"attach", "detach", "bind", "unbind", "list", "port",
 		"watch", "completion", "version",

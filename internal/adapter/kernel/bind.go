@@ -46,8 +46,10 @@ const usbipHostBindRetryAttempts = 5
 // in milliseconds. Worst case (5 retries) sleeps ~3.1s before
 // surfacing EBUSY — long enough for any reasonable kernel-side drain,
 // short enough for an operator running `usbip-go bind` interactively
-// to perceive as "took a beat" rather than "hung".
-var usbipHostBindRetryBackoffMs = []int{0, 100, 200, 400, 800}
+// to perceive as "took a beat" rather than "hung". Declared as a
+// fixed-size array (not a slice) so it is a true constant table —
+// gochecknoglobals tolerates [N]T literals as compile-time constants.
+var usbipHostBindRetryBackoffMs = [usbipHostBindRetryAttempts]int{0, 100, 200, 400, 800}
 
 // Bind performs the three-write sequence required by usbip-host:
 //  1. unbind current driver from the primary interface (iface
@@ -89,30 +91,9 @@ func (a *ExporterAdapter) Bind(ctx context.Context, busID domain.BusID) error {
 	// no longer has to chase `ip link set <enxXX> down` manually.
 	a.deactivateNetdevs(busID)
 
-	// currentDriver returns ErrDeviceNotBound when the interface has
-	// no driver attached — common right after a previous half-failed
-	// bind (driver unbound, usbip-host did not claim) or after a
-	// fresh hot-plug where the kernel has not yet probed. In that
-	// case skip the unbind step (nothing to unbind) and proceed
-	// straight to match_busid + usbip-host bind. Other errors
-	// (ErrDeviceNotFound, permission, I/O) still surface.
-	driver, err := a.currentDriver(iface)
-	switch {
-	case errors.Is(err, domain.ErrDeviceNotBound):
-		a.logger.Debug("bind: interface has no driver attached; skipping unbind step",
-			"busid", busID, "iface", iface)
-	case err != nil:
+	err = a.unbindCurrentDriver(busID, iface)
+	if err != nil {
 		return err
-	default:
-		// Old driver is typically an interface-level usb_driver
-		// (cdc_ether, usbhid, etc.) — kernel sysfs unbind_store
-		// looks the device up by name on the bus, so it must match
-		// the bound device's name. For interface drivers that means
-		// iface ("1-1:2.0").
-		err = a.writeClassified(driverPath(driver, SysfsDriverUnbind), iface)
-		if err != nil {
-			return err
-		}
 	}
 
 	err = a.writeClassified(
@@ -150,6 +131,31 @@ func (a *ExporterAdapter) Bind(ctx context.Context, busID domain.BusID) error {
 	}
 
 	return nil
+}
+
+// unbindCurrentDriver releases whatever interface driver currently
+// owns the primary interface (typically an interface-level usb_driver
+// such as cdc_ether or usbhid). The half-state where currentDriver
+// returns ErrDeviceNotBound — common after a half-failed prior bind
+// or a fresh hot-plug whose probe has not landed yet — is treated as
+// already-unbound and ignored; only true read errors surface.
+func (a *ExporterAdapter) unbindCurrentDriver(busID domain.BusID, iface string) error {
+	driver, err := a.currentDriver(iface)
+	if errors.Is(err, domain.ErrDeviceNotBound) {
+		a.logger.Debug("bind: interface has no driver attached; skipping unbind step",
+			"busid", busID, "iface", iface)
+
+		return nil
+	}
+
+	if err != nil {
+		return err
+	}
+	// Old driver is typically an interface-level usb_driver — kernel
+	// sysfs unbind_store looks the device up by name on the bus, so
+	// it must match the bound device's name. For interface drivers
+	// that means the iface ("1-1:2.0").
+	return a.writeClassified(driverPath(driver, SysfsDriverUnbind), iface)
 }
 
 // Unbind reverses Bind: gracefully disconnects any active importer
@@ -263,7 +269,7 @@ func (a *ExporterAdapter) bindUSBIPHostWithRetry(ctx context.Context, busID doma
 		if backoff := usbipHostBindRetryBackoffMs[attempt]; backoff > 0 {
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return fmt.Errorf("bind: retry interrupted: %w", ctx.Err())
 			case <-a.clock.After(time.Duration(backoff) * time.Millisecond):
 			}
 

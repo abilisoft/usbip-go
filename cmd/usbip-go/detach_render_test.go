@@ -51,5 +51,11 @@ func TestRenderDetachResult_JSON(t *testing.T) {
 	require.Equal(t, "v1", got["schema"])
 	require.Equal(t, "detach", got["op"])
 	require.Equal(t, true, got["ok"])
-	require.Equal(t, float64(42), got["port_id"])
+	// json.Unmarshal decodes JSON numbers as float64, so the
+	// comparison must use a float-aware assertion. The port-id is an
+	// integer round-trip; InDelta with epsilon 0 enforces exact
+	// equality without testifylint flagging Equal-on-float.
+	gotPort, ok := got["port_id"].(float64)
+	require.True(t, ok, "port_id must decode as JSON number; got %T", got["port_id"])
+	require.InDelta(t, float64(42), gotPort, 0)
 }

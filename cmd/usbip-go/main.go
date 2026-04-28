@@ -38,7 +38,8 @@ func applyNoColorEarly(args []string) {
 		v := strings.TrimPrefix(a, "--no-color=")
 		// Cobra parses bool flag values via strconv.ParseBool; mirror
 		// that here so `--no-color=false` does NOT enable the env.
-		if b, err := strconv.ParseBool(v); err == nil && b {
+		b, err := strconv.ParseBool(v)
+		if err == nil && b {
 			_ = os.Setenv("NO_COLOR", "1")
 			return
 		}

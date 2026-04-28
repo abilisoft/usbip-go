@@ -70,6 +70,7 @@ func TestEncodeDecodeDeviceSpeed_AllValuesRoundTrip(t *testing.T) {
 			// symmetry test alone could not.
 			raw := encoded.Bytes()
 			require.GreaterOrEqual(t, len(raw), offDevSpeedWire+4)
+
 			gotWire := binary.BigEndian.Uint32(raw[offDevSpeedWire : offDevSpeedWire+4])
 			require.Equal(t, uint32(sp), gotWire,
 				"encoded speed bytes at offset %d must equal big-endian uint32(Speed)", offDevSpeedWire)

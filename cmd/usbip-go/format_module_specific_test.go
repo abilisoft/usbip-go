@@ -4,7 +4,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"testing"
 
@@ -25,6 +24,8 @@ import (
 // that includes modules they do not need (vhci_hcd on a server,
 // usbip_host on a client).
 func TestFormatError_KernelModuleMissingNamesTheActualModule(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name          string
 		wrappedDetail string
@@ -47,8 +48,10 @@ func TestFormatError_KernelModuleMissingNamesTheActualModule(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			wrapped := fmt.Errorf("%w: %s", domain.ErrKernelModuleMissing, tc.wrappedDetail)
-			require.True(t, errors.Is(wrapped, domain.ErrKernelModuleMissing),
+			require.ErrorIs(t, wrapped, domain.ErrKernelModuleMissing,
 				"sanity: wrapped error must still match the sentinel")
 
 			got := FormatError(wrapped)

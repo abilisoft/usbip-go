@@ -8,7 +8,6 @@ package main_test
 import (
 	"bytes"
 	"context"
-	"errors"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -57,6 +56,7 @@ func TestUSBIPDGoBinary_MissingStatusSocketParent_ExitAndStderr(t *testing.T) {
 	)
 
 	var stdout, stderr bytes.Buffer
+
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -71,7 +71,7 @@ func TestUSBIPDGoBinary_MissingStatusSocketParent_ExitAndStderr(t *testing.T) {
 		"daemon must exit on its own — context timeout indicates it hung instead of exiting on bad status socket")
 
 	var exitErr *exec.ExitError
-	require.True(t, errors.As(runErr, &exitErr),
+	require.ErrorAs(t, runErr, &exitErr,
 		"daemon must exit cleanly (not crash) on missing-parent — got %T: %v", runErr, runErr)
 	require.NotZero(t, exitErr.ExitCode(),
 		"non-zero exit signals systemd / supervisor to report failure")
@@ -97,7 +97,9 @@ func TestUSBIPDGoBinary_VersionExitsZeroWithoutDaemonBind(t *testing.T) {
 	defer cancel()
 
 	var stdout, stderr bytes.Buffer
+
 	cmd := exec.CommandContext(ctx, bin, "version")
+
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 

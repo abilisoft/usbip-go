@@ -129,6 +129,7 @@ func (tableRenderer) Ports(w io.Writer, ports []usbip.Port) error {
 
 	for _, p := range ports {
 		statusStr := p.Status.String()
+
 		rows = append(rows, []string{
 			strconv.FormatUint(uint64(p.ID), 10),
 			statusStr,

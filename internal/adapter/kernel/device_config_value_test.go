@@ -21,8 +21,8 @@ import (
 // readInterfaces uses the device's currently-active configuration
 // (bConfigurationValue=2 here) instead of the historical hardcoded
 // config 1. Without this, devices with config != 1 surface as
-// domain.Device with an empty Interfaces slice — the same class of
-// bug as the speed-string and bind hardcoded ":1.0" issues.
+// domain.Device with an empty Interfaces slice — the same regression
+// class as the speed-string and bind hardcoded ":1.0" cases.
 func TestListLocalDevices_EnumeratesInterfacesAtActiveConfig(t *testing.T) {
 	t.Parallel()
 
