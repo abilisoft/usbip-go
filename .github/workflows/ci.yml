@@ -335,7 +335,10 @@ jobs:
   mutation:
     name: Mutation testing
     runs-on: ubuntu-24.04
-    if: github.event_name == 'schedule'
+    # Runs on every push and PR — pkg/domain + internal/adapter/wire
+    # together complete in ~3-4 minutes serial. Promoted from
+    # schedule-only because efficacy regressions only surfaced on
+    # the weekly cron previously.
     permissions:
       contents: read
       id-token: write

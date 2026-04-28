@@ -16,3 +16,10 @@ excluded-files:
 # turns legitimate KILLED/LIVED into TIMED OUT noise; bump to 10 so
 # the tool reports the actual mutant verdict.
 timeout-coefficient: 10
+
+# Threshold gates. Current baseline: pkg/domain 97.47% efficacy,
+# internal/adapter/wire 86.54%. Set the floor below current so a
+# regression of one mutant trips the build, but not so tight that
+# transient timeouts on a busy runner false-fail.
+threshold-efficacy: 85
+threshold-mcover: 80
