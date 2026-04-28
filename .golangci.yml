@@ -211,6 +211,15 @@ linters:
         # rationale as coverage_extra_test.go: t.Setenv pattern is
         # incompatible with t.Parallel.
         linters: [paralleltest, tparallel]
+      - path: cmd/usbip-go/root_no_color_env_test\.go
+        # TestPersistentPreRunE_NoColorSetsEnv mutates the process-wide
+        # NO_COLOR env via os.Setenv (not t.Setenv — we need Cleanup
+        # control). t.Parallel + direct os.Setenv is unsafe across tests.
+        linters: [paralleltest, tparallel]
+      - path: cmd/usbipd-go/style_no_color_test\.go
+        # TestStyleWriter_NoColorEnvAppendsNormalized uses t.Setenv to
+        # set NO_COLOR; t.Setenv is incompatible with t.Parallel.
+        linters: [paralleltest, tparallel]
       - path: cmd/.+/binary_.+_test\.go
         # Binary-level integration tests build the project's own binary
         # in t.TempDir and exec it under exec.CommandContext. G204
