@@ -51,6 +51,21 @@ func TestReadSpeedAttr(t *testing.T) {
 	}
 }
 
+// TestReadSpeedAttr_ReadLineError pins that ReadSpeedAttr propagates
+// the error from ReadLine when the sysfs attribute file is absent.
+// Covers the early-return path before the map lookup.
+func TestReadSpeedAttr_ReadLineError(t *testing.T) {
+	t.Parallel()
+
+	// Empty MapFS: no speed file → ReadLine returns an error.
+	fsys := fstest.MapFS{}
+
+	_, err := kernel.ReadSpeedAttr(fsys, "sys/bus/usb/devices/1-1/speed")
+	require.Error(t, err, "ReadSpeedAttr must propagate the ReadLine error for a missing sysfs attribute")
+	require.NotContains(t, err.Error(), "unrecognized sysfs speed",
+		"a missing file error must not be confused with a speed-table miss")
+}
+
 func TestReadSpeedAttrRejectsUnrecognized(t *testing.T) {
 	t.Parallel()
 
