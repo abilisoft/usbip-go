@@ -17,6 +17,51 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
+// TestBind_UsesAtLeastFiveRetryAttempts pins the retry budget at >= 5
+// attempts. Mutation testing kills off-by-one shrinks of the loop
+// (e.g. range 5 -> range 4) only when a test fails on attempt N+1
+// after N early-return failures. Inject EBUSY on the first four
+// bind writes, success on the fifth.
+func TestBind_UsesAtLeastFiveRetryAttempts(t *testing.T) {
+	t.Parallel()
+
+	busID := domain.BusID("1-1")
+
+	var mu sync.Mutex
+	bindAttempts := 0
+
+	writeFn := func(p, _ string) error {
+		if p == "/sys/bus/usb/drivers/usbip-host/bind" {
+			mu.Lock()
+			bindAttempts++
+			n := bindAttempts
+			mu.Unlock()
+
+			// Fail attempts 1..4; succeed on 5.
+			if n < 5 {
+				return unix.EBUSY
+			}
+		}
+
+		return nil
+	}
+
+	a, err := kernel.NewExporterAdapter(
+		kernel.WithFS(bindFS(string(busID))),
+		kernel.WithWriteFunc(writeFn),
+	)
+	require.NoError(t, err)
+
+	err = a.Bind(context.Background(), busID)
+	require.NoError(t, err,
+		"Bind must retry the usbip-host bind step at least 5 times before surfacing EBUSY")
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, 5, bindAttempts,
+		"exactly 5 bind attempts: 4 EBUSY + 1 success")
+}
+
 // TestBind_RetriesEBUSYOnUSBIPHostBind pins the auto-retry contract:
 // the kernel needs a brief window to release the device's refcount
 // after the old interface driver is unbound. The first usbip-host
