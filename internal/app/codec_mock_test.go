@@ -7,12 +7,11 @@
 package app_test
 
 import (
-	"io"
-	"sync"
-
 	"github.com/abilisoft/usbip-go/internal/adapter/wire"
 	"github.com/abilisoft/usbip-go/internal/app"
 	"github.com/abilisoft/usbip-go/pkg/domain"
+	"io"
+	"sync"
 )
 
 // Ensure, that ProtocolCodecMock does implement app.ProtocolCodec.
@@ -36,6 +35,9 @@ var _ app.ProtocolCodec = &ProtocolCodecMock{}
 //			},
 //			DecodeOpReqImportFunc: func(r io.Reader) (domain.BusID, error) {
 //				panic("mock out the DecodeOpReqImport method")
+//			},
+//			DecodeOpReqImportBodyFunc: func(r io.Reader) (domain.BusID, error) {
+//				panic("mock out the DecodeOpReqImportBody method")
 //			},
 //			EncodeOpRepDevlistFunc: func(w io.Writer, devs []domain.Device) error {
 //				panic("mock out the EncodeOpRepDevlist method")
@@ -67,6 +69,9 @@ type ProtocolCodecMock struct {
 
 	// DecodeOpReqImportFunc mocks the DecodeOpReqImport method.
 	DecodeOpReqImportFunc func(r io.Reader) (domain.BusID, error)
+
+	// DecodeOpReqImportBodyFunc mocks the DecodeOpReqImportBody method.
+	DecodeOpReqImportBodyFunc func(r io.Reader) (domain.BusID, error)
 
 	// EncodeOpRepDevlistFunc mocks the EncodeOpRepDevlist method.
 	EncodeOpRepDevlistFunc func(w io.Writer, devs []domain.Device) error
@@ -102,6 +107,11 @@ type ProtocolCodecMock struct {
 			// R is the r argument value.
 			R io.Reader
 		}
+		// DecodeOpReqImportBody holds details about calls to the DecodeOpReqImportBody method.
+		DecodeOpReqImportBody []struct {
+			// R is the r argument value.
+			R io.Reader
+		}
 		// EncodeOpRepDevlist holds details about calls to the EncodeOpRepDevlist method.
 		EncodeOpRepDevlist []struct {
 			// W is the w argument value.
@@ -127,14 +137,15 @@ type ProtocolCodecMock struct {
 			BusID domain.BusID
 		}
 	}
-	lockDecodeHeader       sync.RWMutex
-	lockDecodeOpRepDevlist sync.RWMutex
-	lockDecodeOpRepImport  sync.RWMutex
-	lockDecodeOpReqImport  sync.RWMutex
-	lockEncodeOpRepDevlist sync.RWMutex
-	lockEncodeOpRepImport  sync.RWMutex
-	lockEncodeOpReqDevlist sync.RWMutex
-	lockEncodeOpReqImport  sync.RWMutex
+	lockDecodeHeader          sync.RWMutex
+	lockDecodeOpRepDevlist    sync.RWMutex
+	lockDecodeOpRepImport     sync.RWMutex
+	lockDecodeOpReqImport     sync.RWMutex
+	lockDecodeOpReqImportBody sync.RWMutex
+	lockEncodeOpRepDevlist    sync.RWMutex
+	lockEncodeOpRepImport     sync.RWMutex
+	lockEncodeOpReqDevlist    sync.RWMutex
+	lockEncodeOpReqImport     sync.RWMutex
 }
 
 // DecodeHeader calls DecodeHeaderFunc.
@@ -262,6 +273,38 @@ func (mock *ProtocolCodecMock) DecodeOpReqImportCalls() []struct {
 	mock.lockDecodeOpReqImport.RLock()
 	calls = mock.calls.DecodeOpReqImport
 	mock.lockDecodeOpReqImport.RUnlock()
+	return calls
+}
+
+// DecodeOpReqImportBody calls DecodeOpReqImportBodyFunc.
+func (mock *ProtocolCodecMock) DecodeOpReqImportBody(r io.Reader) (domain.BusID, error) {
+	if mock.DecodeOpReqImportBodyFunc == nil {
+		panic("ProtocolCodecMock.DecodeOpReqImportBodyFunc: method is nil but ProtocolCodec.DecodeOpReqImportBody was just called")
+	}
+	callInfo := struct {
+		R io.Reader
+	}{
+		R: r,
+	}
+	mock.lockDecodeOpReqImportBody.Lock()
+	mock.calls.DecodeOpReqImportBody = append(mock.calls.DecodeOpReqImportBody, callInfo)
+	mock.lockDecodeOpReqImportBody.Unlock()
+	return mock.DecodeOpReqImportBodyFunc(r)
+}
+
+// DecodeOpReqImportBodyCalls gets all the calls that were made to DecodeOpReqImportBody.
+// Check the length with:
+//
+//	len(mockedProtocolCodec.DecodeOpReqImportBodyCalls())
+func (mock *ProtocolCodecMock) DecodeOpReqImportBodyCalls() []struct {
+	R io.Reader
+} {
+	var calls []struct {
+		R io.Reader
+	}
+	mock.lockDecodeOpReqImportBody.RLock()
+	calls = mock.calls.DecodeOpReqImportBody
+	mock.lockDecodeOpReqImportBody.RUnlock()
 	return calls
 }
 

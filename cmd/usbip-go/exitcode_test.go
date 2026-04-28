@@ -85,7 +85,7 @@ func TestFormatErrorTable(t *testing.T) {
 	}{
 		{"nil-is-empty", nil, ""},
 		{"permission", usbip.ErrPermission, "usbip-go: operation requires elevated privileges"},
-		{"kernel-module", usbip.ErrKernelModuleMissing, "usbip-go: kernel module not loaded"},
+		{"kernel-module", usbip.ErrKernelModuleMissing, "kernel module not loaded"},
 		{"device-not-found", usbip.ErrDeviceNotFound, "usbip-go: device not found"},
 		{"device-already-bound", usbip.ErrDeviceAlreadyBound, "usbip-go: device is already bound"},
 		{"port-in-use", usbip.ErrPortInUse, "usbip-go: port is in use"},

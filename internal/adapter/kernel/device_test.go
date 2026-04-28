@@ -46,7 +46,7 @@ func makeDeviceAttrs() map[string]string {
 		"bcdDevice":           "1100\n",
 		"busnum":              "1\n",
 		"devnum":              "7\n",
-		"speed":               "3\n",
+		"speed":               "480\n",
 		"bDeviceClass":        "00\n",
 		"bDeviceSubClass":     "00\n",
 		"bDeviceProtocol":     "00\n",

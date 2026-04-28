@@ -69,15 +69,7 @@ Settings → Branches → Add branch ruleset for `main`:
 
 ## OpenSSF Best Practices badge
 
-The repo qualifies for the **Passing** tier out of the gate:
-public repository, license, contribution guide, security policy,
-test suite with mechanical CI gates, no known vulnerabilities,
-documentation. Apply for the badge after the v1.0.0 push at
-<https://www.bestpractices.coreinfrastructure.org/projects/new>.
-The application URL is the GitHub repo; the criteria checklist is
-mostly auto-detectable.
-
-The **Silver** and **Gold** tiers add criteria like multiple active
+The repo holds the **Passing** tier badge. The **Silver** and **Gold** tiers add criteria like multiple active
 committers, a documented governance model, and a third-party
 security audit on the change history. Silver is realistic post-1.0
 once a second maintainer joins; Gold is a multi-quarter ask and is

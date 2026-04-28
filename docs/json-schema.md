@@ -2,9 +2,13 @@
 
 Stable contract for every JSON object emitted by usbip-go. This
 document fixes field names, types, and semantics at schema v1 per
-v1 contract §7.5. Any change here requires a documented schema
-bump and is called out in the GitHub Release notes generated at
-tag time.
+v1 contract §7.5.
+
+The schema is mutable BEFORE the first stable release (v1.1.0).
+Field semantics may shift between v0.x and v1.0.x without a schema
+bump because no public consumer has shipped against them. Once
+v1.1.0 lands, any breaking change here requires a documented
+schema bump and a GitHub Release note at tag time.
 
 The CLI's `--output=table` (default) human-readable format is NOT
 covered by this contract: borders, spacing, and column
@@ -45,7 +49,7 @@ referenced by every envelope below.
 | `busid` | string | `domain.BusID` | Linux USB topology identifier, e.g. `"1-1.2"`. |
 | `busnum` | integer (u16) | `domain.Device.BusNum` | |
 | `devnum` | integer (u16) | `domain.Device.DevNum` | |
-| `speed` | string | `domain.Speed.String()` | Long-form: `unknown`, `Low-Speed (1.5Mbps)`, `Full-Speed (12Mbps)`, `High-Speed (480Mbps)`, `Wireless`, `SuperSpeed (5Gbps)`, `SuperSpeed+ (10Gbps)`, or `speed(N)` for unknown wire values. |
+| `speed` | string | `domain.Speed.String()` | Long-form: `unknown`, `Low-Speed (1.5Mbps)`, `Full-Speed (12Mbps)`, `High-Speed (480Mbps)`, `Wireless`, `SuperSpeed (5Gbps)`, `SuperSpeed+ (10/20Gbps)`, or `speed(N)` for unknown wire values. |
 | `vendor_id` | string | `domain.Device.VendorID` | Lowercase 4-digit hex, e.g. `"0951"` — matches `lsusb` convention. |
 | `product_id` | string | `domain.Device.ProductID` | Same format as `vendor_id`. |
 

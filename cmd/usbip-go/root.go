@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -83,6 +84,14 @@ func newRootCmd() *cobra.Command {
 			err := validateGlobalFlags(gf)
 			if err != nil {
 				return err
+			}
+
+			// --no-color must propagate to the table renderer (lipgloss
+			// reads NO_COLOR via the colorprofile package). os.Setenv
+			// before any styleWriter is constructed so the first render
+			// already sees the demand.
+			if gf.NoColor {
+				_ = os.Setenv("NO_COLOR", "1")
 			}
 
 			log, err := buildLogger(*gf)

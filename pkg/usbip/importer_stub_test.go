@@ -245,6 +245,16 @@ func (s *stubCodec) DecodeOpReqImport(r io.Reader) (domain.BusID, error) {
 	return "", nil
 }
 
+// DecodeOpReqImportBody dispatches to the same hook as DecodeOpReqImport;
+// pkg/usbip tests do not distinguish header-included vs body-only reads.
+func (s *stubCodec) DecodeOpReqImportBody(r io.Reader) (domain.BusID, error) {
+	if s.decodeOpReqImportFn != nil {
+		return s.decodeOpReqImportFn(r)
+	}
+
+	return "", nil
+}
+
 // DecodeOpRepImport dispatches to the hook or returns a zero Device.
 func (s *stubCodec) DecodeOpRepImport(r io.Reader) (domain.Device, error) {
 	if s.decodeOpRepImportFn != nil {

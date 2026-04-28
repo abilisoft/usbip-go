@@ -139,6 +139,23 @@ func TestCodecDecodeOpRepDevlistNilLogger(t *testing.T) {
 	require.Nil(t, got)
 }
 
+// TestCodecDecodeOpReqImportBody pins that the Codec wrapper forwards
+// to the package-level body-only decoder. Uses bare busid bytes (no
+// header) to verify the method does not re-read an already-consumed
+// header.
+func TestCodecDecodeOpReqImportBody(t *testing.T) {
+	t.Parallel()
+
+	c := wire.NewCodec()
+
+	buf := make([]byte, domain.BusIDSize)
+	copy(buf, "1-1")
+
+	got, err := c.DecodeOpReqImportBody(bytes.NewReader(buf))
+	require.NoError(t, err)
+	require.Equal(t, domain.BusID("1-1"), got)
+}
+
 // captureHandler collects every slog.Record it handles. Instances are
 // created per-test; concurrency-safe via an internal mutex so the
 // handler can be safely shared within a single test's goroutines.

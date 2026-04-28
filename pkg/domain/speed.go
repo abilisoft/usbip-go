@@ -6,7 +6,8 @@ package domain
 import "strconv"
 
 // Speed is a USB speed enum matching kernel enum usb_device_speed values.
-// Numeric values are the kernel values; no translation occurs on sysfs reads.
+// Sysfs reports Mbps strings ("5000"), not these integers; the kernel
+// adapter translates via ReadSpeedAttr before populating this field.
 type Speed uint32
 
 // USB device speeds, numeric values match the kernel's usb_device_speed.
@@ -17,7 +18,7 @@ const (
 	SpeedHigh      Speed = 3 // 480 Mbit/s
 	SpeedWireless  Speed = 4
 	SpeedSuper     Speed = 5 // 5 Gbit/s
-	SpeedSuperPlus Speed = 6 // 10 Gbit/s
+	SpeedSuperPlus Speed = 6 // 10 or 20 Gbit/s (USB 3.1 Gen 2, USB 3.2 Gen 2x2)
 )
 
 // IsKnown reports whether s falls inside the finite enum declared
@@ -52,7 +53,11 @@ func (s Speed) String() string {
 	case SpeedSuper:
 		return "SuperSpeed (5Gbps)"
 	case SpeedSuperPlus:
-		return "SuperSpeed+ (10Gbps)"
+		// USB_SPEED_SUPER_PLUS covers both Gen 2 (10Gbps) and Gen 2x2
+		// (20Gbps); the kernel encodes the actual rate in udev->ssp_rate
+		// which the wire protocol does not transmit. The label spans
+		// both rates rather than misrepresenting one.
+		return "SuperSpeed+ (10/20Gbps)"
 	default:
 		return "speed(" + strconv.FormatUint(uint64(s), 10) + ")"
 	}

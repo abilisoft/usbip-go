@@ -188,6 +188,14 @@ linters:
         # error branches can be reached without test-only production
         # exports.
         linters: [testpackage]
+      - path: internal/app/coverage_whitebox_test\.go
+        # Lives in `package app` (not `app_test`) to reach unexported
+        # helpers: classifyDisconnectReason, eventEndsSessionForBusID,
+        # classifyBindError, classifyUnbindError, ipFromAddr,
+        # newSessionIDError. Promoting these to exported test seams
+        # would pollute the public API surface; whitebox access is the
+        # correct approach here.
+        linters: [testpackage]
       - path: cmd/usbip-go/coverage_extra_test\.go
         # TestCompletionPathPerShell, TestCompletionPathUnknownShellRejected,
         # TestXDGDataHomeUsesEnvWhenSet, TestXDGDataHomeFallsBackToHomeDir
@@ -196,6 +204,62 @@ linters:
         # tparallel rules push for parallel execution by default; the
         # exclusion is scoped to this single file.
         linters: [paralleltest, tparallel]
+      - path: cmd/usbip-go/no_color_help_test\.go
+        # TestRunCtx_NoColorAppliedBeforeHelp / NoColorEqualsFormAlsoApplied
+        # mutate the process-wide NO_COLOR env to verify that runCtx
+        # propagates --no-color before fang renders help. Same
+        # rationale as coverage_extra_test.go: t.Setenv pattern is
+        # incompatible with t.Parallel.
+        linters: [paralleltest, tparallel]
+      - path: cmd/usbip-go/root_no_color_env_test\.go
+        # TestPersistentPreRunE_NoColorSetsEnv mutates the process-wide
+        # NO_COLOR env via os.Setenv (not t.Setenv — we need Cleanup
+        # control). t.Parallel + direct os.Setenv is unsafe across tests.
+        linters: [paralleltest, tparallel]
+      - path: cmd/usbipd-go/style_no_color_test\.go
+        # TestStyleWriter_NoColorEnvAppendsNormalized uses t.Setenv to
+        # set NO_COLOR; t.Setenv is incompatible with t.Parallel.
+        linters: [paralleltest, tparallel]
+      - path: cmd/.+/binary_.+_test\.go
+        # Binary-level integration tests build the project's own binary
+        # in t.TempDir and exec it under exec.CommandContext. G204
+        # (gosec subprocess with variable) flags every non-constant cmd
+        # path; the path here is the test-controlled build artifact,
+        # not untrusted input. Covers binary_smoke_test.go,
+        # binary_missing_parent_dir_test.go, and any future
+        # binary_*_test.go in the daemon and client packages.
+        text: 'G204:'
+        linters: [gosec]
+      - path: internal/testutil/binbuild\.go
+        # Test helper that builds the project binary into t.TempDir
+        # before tests exec it. The exec.Command target is the just-
+        # produced artifact; G204's "subprocess with variable" warning
+        # does not apply to the build/exec test infrastructure.
+        text: 'G204:'
+        linters: [gosec]
+      - path: internal/adapter/kernel/speed\.go
+        # sysfsMbpsToSpeed is an immutable Mbps→domain.Speed lookup
+        # table. Go has no const-map primitive, and replacing it with
+        # a function that builds the map per call would defeat the
+        # point of the lookup. Scoped exclusion documents the reason.
+        linters: [gochecknoglobals]
+      - path: internal/adapter/kernel/bind\.go
+        # usbipHostBindRetryBackoffMs is a fixed-size compile-time
+        # constant table for the EBUSY retry schedule. Same rationale
+        # as speed.go: no const-array primitive, function rebuild
+        # wastes allocation per Bind call.
+        linters: [gochecknoglobals]
+      - path: cmd/usbipd-go/activation\.go
+        # listenersWithNames is a test-injection seam for the
+        # activation.ListenersWithNames call; the var is set once at
+        # package init and swapped only in activation_test.go.
+        linters: [gochecknoglobals]
+      - path: cmd/usbipd-go/activation_test\.go
+        # TestListenOrActivation_ErrorPath swaps the listenersWithNames
+        # package-level seam; t.Parallel + package-level mutation is
+        # unsafe across tests. errActivationInjected is a package-level
+        # static error (required by err113), which trips gochecknoglobals.
+        linters: [paralleltest, tparallel, gochecknoglobals]
     # Generated files (standard header "Code generated ... DO NOT EDIT.") are
     # auto-detected by golangci-lint and skipped. All other files run against
     # the full linter set; there is no path-based exclusion for live code.

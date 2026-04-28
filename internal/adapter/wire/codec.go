@@ -104,6 +104,13 @@ func (*Codec) DecodeOpReqImport(r io.Reader) (domain.BusID, error) {
 	return DecodeOpReqImport(r)
 }
 
+// DecodeOpReqImportBody forwards to the package-level body-only
+// decoder. Daemon dispatchers that already consumed the header use
+// this to read just the busid without re-reading the 8 header bytes.
+func (*Codec) DecodeOpReqImportBody(r io.Reader) (domain.BusID, error) {
+	return DecodeOpReqImportBody(r)
+}
+
 // EncodeOpRepImport forwards to the package-level EncodeOpRepImport.
 func (*Codec) EncodeOpRepImport(w io.Writer, dev domain.Device) error {
 	return EncodeOpRepImport(w, dev)
