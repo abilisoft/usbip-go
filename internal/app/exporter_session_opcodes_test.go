@@ -61,7 +61,10 @@ func TestExporterServe_ReplyOpcodeClosesConn(t *testing.T) {
 			require.NoError(t, err)
 
 			// Server must close the conn after receiving a reply opcode.
-			require.NoError(t, client.SetReadDeadline(time.Now().Add(2*time.Second)))
+			// SetReadDeadline may fail when the server has already closed
+			// its end of the pipe; discard that error — the deadline is a
+			// safety net against hangs, not a correctness assertion.
+			_ = client.SetReadDeadline(time.Now().Add(2 * time.Second))
 
 			_, err = client.Read(make([]byte, 1))
 			require.Error(t, err, "server must close conn on reply opcode %v", tc.op)
@@ -107,7 +110,9 @@ func TestExporterServe_UnknownOpcodeClosesConn(t *testing.T) {
 	_, err = client.Write(opHeader(wire.OpCode(0x9999)))
 	require.NoError(t, err)
 
-	require.NoError(t, client.SetReadDeadline(time.Now().Add(2*time.Second)))
+	// SetReadDeadline may fail when the server has already closed its end
+	// of the pipe; discard — the deadline is a safety net, not an assertion.
+	_ = client.SetReadDeadline(time.Now().Add(2 * time.Second))
 
 	_, err = client.Read(make([]byte, 1))
 	require.Error(t, err, "server must close conn on unknown opcode")
@@ -154,7 +159,9 @@ func TestExporterServe_DevlistKernelError(t *testing.T) {
 	_, err = client.Write(opHeader(wire.OpReqDevlist))
 	require.NoError(t, err)
 
-	require.NoError(t, client.SetReadDeadline(time.Now().Add(2*time.Second)))
+	// SetReadDeadline may fail when the server has already closed its end
+	// of the pipe; discard — the deadline is a safety net, not an assertion.
+	_ = client.SetReadDeadline(time.Now().Add(2 * time.Second))
 
 	_, err = client.Read(make([]byte, 1))
 	require.Error(t, err, "server must close conn when ListLocalDevices errors")
@@ -273,7 +280,9 @@ func TestExporterServe_DevlistWriteErrorClosesConn(t *testing.T) {
 	_, err = client.Write(opHeader(wire.OpReqDevlist))
 	require.NoError(t, err)
 
-	require.NoError(t, client.SetReadDeadline(time.Now().Add(2*time.Second)))
+	// SetReadDeadline may fail when the server has already closed its end
+	// of the pipe; discard — the deadline is a safety net, not an assertion.
+	_ = client.SetReadDeadline(time.Now().Add(2 * time.Second))
 
 	// Read until EOF or error: server must close after the encode error.
 	buf := make([]byte, 128)
