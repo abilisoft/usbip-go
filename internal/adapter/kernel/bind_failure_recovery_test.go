@@ -68,7 +68,7 @@ func TestBind_FailureTriggersDriversProbe(t *testing.T) {
 	var sawProbe, sawRollback bool
 
 	for _, c := range rec.calls {
-		if c.Path == "/sys/bus/usb/drivers_probe" && c.Data == busID {
+		if c.Path == driversProbePath && c.Data == busID {
 			sawProbe = true
 		}
 

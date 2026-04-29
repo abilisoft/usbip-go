@@ -28,6 +28,7 @@ import (
 const (
 	usbipHostBindPath       = "/sys/bus/usb/drivers/usbip-host/bind"
 	usbipHostMatchBusIDPath = "/sys/bus/usb/drivers/usbip-host/match_busid"
+	driversProbePath        = "/sys/bus/usb/drivers_probe"
 )
 
 func TestBind_UsesAtLeastFiveRetryAttempts(t *testing.T) {

@@ -60,6 +60,8 @@ func listExportedFS() fstest.MapFS {
 		mfs[base+"/bNumInterfaces"] = &fstest.MapFile{Data: []byte("1\n")}
 		mfs[base+"/driver/driver_name"] = &fstest.MapFile{Data: []byte(b.driver + "\n")}
 		mfs[base+"/driver"] = &fstest.MapFile{Data: []byte(b.driver + "\n")}
+		mfs[base+"/manufacturer"] = &fstest.MapFile{Data: []byte("ASIX\n")}
+		mfs[base+"/product"] = &fstest.MapFile{Data: []byte("AX88179\n")}
 
 		if b.status != "" {
 			mfs[base+"/usbip_status"] = &fstest.MapFile{Data: []byte(b.status + "\n")}

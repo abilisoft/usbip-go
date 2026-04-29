@@ -229,19 +229,20 @@ func (a *ExporterAdapter) checkAlreadyExported(busID domain.BusID) error {
 // Upstream usbip-utils tools/usb/usbip/src/usbip_bind.c::unbind_other()
 // performs this same step before adding the busid to match_busid.
 //
-// Precondition: checkAlreadyExported has already run, so the
-// "driver == usbip-host" case is unreachable here.
+// Preconditions handled by the caller (Bind):
+//   - checkAlreadyExported has already run, so any non-ENOENT
+//     currentDriver error has already surfaced. Re-checking the
+//     classification here would be dead code; instead, treat any
+//     read failure as "no driver to unbind" and continue. The kernel
+//     will surface a real EBUSY at the bind step if the bare device
+//     still owns a driver.
 func (a *ExporterAdapter) unbindCurrentDeviceDriver(busID domain.BusID) error {
 	driver, err := a.currentDriver(string(busID))
-	if errors.Is(err, domain.ErrDeviceNotBound) {
-		a.logger.Debug("bind: bare device has no driver attached; skipping device-level unbind",
-			"busid", busID)
+	if err != nil {
+		a.logger.Debug("bind: skipping device-level unbind — driver state unreadable or absent",
+			"busid", busID, "err", err)
 
 		return nil
-	}
-
-	if err != nil {
-		return err
 	}
 
 	return a.writeClassified(driverPath(driver, SysfsDriverUnbind), string(busID))
