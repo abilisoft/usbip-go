@@ -606,16 +606,25 @@ func (i *Importer) acquireAttachSlot(
 }
 
 // classifyDecodeImportErr maps a DecodeOpRepImport failure onto the
-// closest §11.5.5 AttachOutcome label. A non-zero OP_REP_IMPORT status
-// surfaces as domain.ErrDeviceNotFound — a domain-level rejection,
-// not a wire framing fault; any other decode error is a
-// genuine protocol mismatch. The closed-set outcome label for "peer
-// rejected the import" stays kernel_error because the v1 contract §11.5.5
-// outcome enum does not yet split "rejected" from "kernel_error"; the
-// important fix is that errors.Is(err, domain.ErrDeviceNotFound) is
-// true on the returned Attach error so callers can distinguish.
+// closest §11.5.5 AttachOutcome label. A non-zero OP_REP_IMPORT
+// status is a domain-level peer rejection (one of ST_NA, ST_NODEV,
+// ST_DEV_BUSY, ST_DEV_ERR per upstream usbip_common.h) — NOT a
+// wire framing fault. Any of those rejections must be classified
+// as kernel_error so observability does not over-count
+// protocol_mismatch when remote daemons are simply busy or
+// reporting device errors. Genuine wire decode failures (header
+// parse, device-body underrun) remain protocol_mismatch.
+//
+// The closed-set outcome label still stays kernel_error for all
+// peer rejections because the v1 contract §11.5.5 enum does not
+// yet split "rejected" from "kernel_error"; what matters is that
+// errors.Is on the returned Attach error reaches the precise
+// sentinel (NotFound, AlreadyBound, Unavailable) so callers can
+// distinguish.
 func classifyDecodeImportErr(err error) AttachOutcome {
-	if errors.Is(err, domain.ErrDeviceNotFound) {
+	if errors.Is(err, domain.ErrDeviceNotFound) ||
+		errors.Is(err, domain.ErrDeviceAlreadyBound) ||
+		errors.Is(err, domain.ErrDeviceUnavailable) {
 		return AttachOutcomeKernelError
 	}
 
