@@ -36,6 +36,8 @@ const (
 	devAttrConfigValue   = "bConfigurationValue"
 	devAttrNumConfigs    = "bNumConfigurations"
 	devAttrNumInterfaces = "bNumInterfaces"
+	devAttrManufacturer  = "manufacturer"
+	devAttrProduct       = "product"
 
 	ifaceAttrClass    = "bInterfaceClass"
 	ifaceAttrSubClass = "bInterfaceSubClass"
@@ -162,6 +164,9 @@ func (a *ExporterAdapter) readDeviceCore(base string, busID domain.BusID) (domai
 		return domain.Device{}, err
 	}
 
+	manufacturer := readOptionalStringAttr(a.fs, path.Join(base, devAttrManufacturer))
+	productName := readOptionalStringAttr(a.fs, path.Join(base, devAttrProduct))
+
 	return domain.Device{
 		Path:          base,
 		BusID:         busID,
@@ -177,7 +182,22 @@ func (a *ExporterAdapter) readDeviceCore(base string, busID domain.BusID) (domai
 		ConfigValue:   classes.configValue,
 		NumConfigs:    classes.numConfigs,
 		NumInterfaces: classes.numInterfaces,
+		Manufacturer:  manufacturer,
+		Product:       productName,
 	}, nil
+}
+
+// readOptionalStringAttr reads a sysfs string attribute that the kernel may
+// not populate (manufacturer/product are unset when the device descriptor's
+// iManufacturer/iProduct index is 0). Missing or unreadable attrs return
+// the empty string — they are decorative, not load-bearing.
+func readOptionalStringAttr(fsys fs.FS, p string) string {
+	s, err := ReadLine(fsys, p)
+	if err != nil {
+		return ""
+	}
+
+	return s
 }
 
 type deviceNumbers struct {
