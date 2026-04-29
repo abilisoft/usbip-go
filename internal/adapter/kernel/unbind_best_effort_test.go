@@ -34,7 +34,7 @@ func TestUnbind_UnbindFails_SkipsRebind(t *testing.T) {
 	rec := &writeRecord{}
 
 	a, err := kernel.NewExporterAdapter(
-		kernel.WithFS(bindFS(string(busID))),
+		kernel.WithFS(boundFS(string(busID))),
 		// errAt(1, EBUSY): write index 1 is usbip-host/unbind
 		// (index 0 is the pre-disconnect sockfd write whose error
 		// is intentionally swallowed).

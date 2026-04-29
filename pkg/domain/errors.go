@@ -51,4 +51,18 @@ var (
 	// Hosted on pkg/domain so the public facade can re-export it
 	// alongside the other spec-listed sentinels.
 	ErrAttachInProgress = errors.New("attach already in progress for this endpoint")
+	// ErrUnsupportedDevice indicates the device cannot be exported via
+	// usbip — typically a USB hub (bDeviceClass=0x09) or the vhci-hcd
+	// loopback device. Distinct from ErrDeviceNotFound (device exists)
+	// and ErrBusIDInvalid (id format is valid). Surfaced BEFORE any
+	// destructive sysfs write so detaching a hub's drivers does not
+	// cascade-disconnect downstream devices.
+	ErrUnsupportedDevice = errors.New("device not supported for usbip export")
+	// ErrDeviceUnavailable indicates the remote daemon reports the
+	// device exists but is currently unusable for import (e.g.
+	// stub-side internal error, ST_DEV_ERR=3 from upstream
+	// usbip_common.h). Distinct from ErrDeviceAlreadyBound (busy/
+	// already attached, ST_DEV_BUSY=2) and ErrDeviceNotFound
+	// (ST_NODEV=4).
+	ErrDeviceUnavailable = errors.New("remote device unavailable")
 )

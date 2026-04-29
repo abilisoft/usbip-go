@@ -29,7 +29,7 @@ func TestUnbind_PreDisconnectSocketfdWriteFails_Continues(t *testing.T) {
 	rec := &writeRecord{}
 
 	a, err := kernel.NewExporterAdapter(
-		kernel.WithFS(bindFS(string(busID))),
+		kernel.WithFS(boundFS(string(busID))),
 		// errAt(0, EIO): the sockfd pre-disconnect write (index 0) fails;
 		// all subsequent writes (unbind, match_busid, rebind) succeed.
 		kernel.WithWriteFunc(rec.errAt(0, unix.EIO)),
@@ -81,7 +81,7 @@ func TestUnbind_UnbindAndMatchBothFail_WarnLog(t *testing.T) {
 	}
 
 	a, err := kernel.NewExporterAdapter(
-		kernel.WithFS(bindFS(string(busID))),
+		kernel.WithFS(boundFS(string(busID))),
 		kernel.WithWriteFunc(kernel.WriteFunc(failAt1and2)),
 	)
 	require.NoError(t, err)
@@ -137,7 +137,7 @@ func TestUnbind_MatchAndRebindBothFail_WarnLog(t *testing.T) {
 	}
 
 	a, err := kernel.NewExporterAdapter(
-		kernel.WithFS(bindFS(string(busID))),
+		kernel.WithFS(boundFS(string(busID))),
 		kernel.WithWriteFunc(kernel.WriteFunc(failAt2and3)),
 	)
 	require.NoError(t, err)

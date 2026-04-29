@@ -57,6 +57,19 @@ func (r *writeRecord) errAt(i int, err error) kernel.WriteFunc {
 	}
 }
 
+// boundFS returns a MapFS for testing Unbind: modules present, bare
+// device's driver is usbip-host (post-Bind state). Tests that
+// exercise the Unbind() path use this instead of bindFS so the
+// Unbind precheck (currentDriver == usbip-host) passes.
+func boundFS(busID string) fstest.MapFS {
+	mfs := bindFS(busID)
+
+	mfs["sys/bus/usb/devices/"+busID+"/driver/driver_name"] = &fstest.MapFile{Data: []byte("usbip-host\n")}
+	mfs["sys/bus/usb/devices/"+busID+"/driver"] = &fstest.MapFile{Data: []byte("usbip-host\n")}
+
+	return mfs
+}
+
 // bindFS returns a MapFS wired up for a bind/unbind round trip on the
 // supplied busID: modules present, device-driver symlink in place. The
 // bare device carries the generic "usb" device-level driver (the kernel
@@ -87,7 +100,6 @@ func TestBind_WritesExactSequence(t *testing.T) {
 	t.Parallel()
 
 	busID := domain.BusID("1-1.2")
-	iface := string(busID) + ":1.0"
 	rec := &writeRecord{}
 
 	a, err := kernel.NewExporterAdapter(
@@ -99,27 +111,27 @@ func TestBind_WritesExactSequence(t *testing.T) {
 	err = a.Bind(context.Background(), busID)
 	require.NoError(t, err)
 
-	require.Len(t, rec.calls, 4)
-
-	require.Equal(t, writeCall{
-		Path: "/sys/bus/usb/drivers/usbhid/unbind",
-		Data: iface,
-	}, rec.calls[0])
+	// Three writes: bare-device unbind, match_busid add, usbip-host bind.
+	// Mirrors upstream usbip_bind.c::bind_device(): unbind_other()
+	// detaches the bare-device usb_driver and USB core's generic
+	// disconnect cascades to interface drivers (cdc_ether, usbhid, …),
+	// so we do NOT issue an explicit per-interface unbind.
+	require.Len(t, rec.calls, 3)
 
 	require.Equal(t, writeCall{
 		Path: "/sys/bus/usb/drivers/usb/unbind",
 		Data: string(busID),
-	}, rec.calls[1])
+	}, rec.calls[0])
 
 	require.Equal(t, writeCall{
 		Path: "/sys/bus/usb/drivers/usbip-host/match_busid",
 		Data: "add " + string(busID),
-	}, rec.calls[2])
+	}, rec.calls[1])
 
 	require.Equal(t, writeCall{
 		Path: "/sys/bus/usb/drivers/usbip-host/bind",
 		Data: string(busID),
-	}, rec.calls[3])
+	}, rec.calls[2])
 }
 
 func TestUnbind_WritesReverseSequence(t *testing.T) {
@@ -129,7 +141,7 @@ func TestUnbind_WritesReverseSequence(t *testing.T) {
 	rec := &writeRecord{}
 
 	a, err := kernel.NewExporterAdapter(
-		kernel.WithFS(bindFS(string(busID))),
+		kernel.WithFS(boundFS(string(busID))),
 		kernel.WithWriteFunc(rec.record()),
 	)
 	require.NoError(t, err)
@@ -216,30 +228,28 @@ func TestBind_ModuleMissingShortCircuits(t *testing.T) {
 	require.Empty(t, rec.calls, "no sysfs writes should be attempted when module is missing")
 }
 
-// TestBind_NoDriverAttachedSkipsUnbindStep pins the half-state
-// recovery contract: an interface that exists in sysfs but has no
-// driver attached (e.g. left over from a previous failed bind, or
-// a fresh hot-plug pre-probe) must not block bind. There is
-// nothing to unbind in step 1, so Bind proceeds straight to
-// match_busid + usbip-host bind.
+// TestBind_NoDeviceDriver_ProceedsToMatchAndBind pins the half-state
+// recovery contract: a device sysfs entry that exists but has no
+// bare-device driver attached (e.g. left over from a previous failed
+// bind, or a fresh hot-plug pre-probe) must not block bind. There is
+// nothing to unbind so Bind proceeds straight to match_busid +
+// usbip-host bind — only TWO writes total.
 //
-// Older revisions returned ErrDeviceNotBound here, forcing
-// operators to manually trigger /sys/bus/usb/drivers_probe to
-// re-attach a driver they then immediately want unbound. That
-// surface is now handled inside Bind.
-func TestBind_NoDriverAttachedSkipsUnbindStep(t *testing.T) {
+// Older revisions returned ErrDeviceNotBound here, forcing operators
+// to manually trigger /sys/bus/usb/drivers_probe to re-attach a
+// driver they then immediately want unbound. That surface is handled
+// inside Bind.
+func TestBind_NoDeviceDriver_ProceedsToMatchAndBind(t *testing.T) {
 	t.Parallel()
 
 	busID := domain.BusID("1-1")
-	iface := string(busID) + ":1.0"
 	rec := &writeRecord{}
 
 	m := bindFS(string(busID))
-	// Remove both driver-indicator paths while keeping the interface
-	// directory itself present. This is the "unbound but device
-	// exists" scenario.
-	delete(m, "sys/bus/usb/devices/"+iface+"/driver/driver_name")
-	delete(m, "sys/bus/usb/devices/"+iface+"/driver")
+	// Remove the bare-device driver-indicator paths. Device dir stays
+	// present so checkAlreadyExported sees "no driver" and continues.
+	delete(m, "sys/bus/usb/devices/"+string(busID)+"/driver/driver_name")
+	delete(m, "sys/bus/usb/devices/"+string(busID)+"/driver")
 
 	a, err := kernel.NewExporterAdapter(
 		kernel.WithFS(m),
@@ -249,10 +259,10 @@ func TestBind_NoDriverAttachedSkipsUnbindStep(t *testing.T) {
 
 	err = a.Bind(context.Background(), busID)
 	require.NoError(t, err,
-		"Bind must succeed when interface has no driver — there is nothing to unbind")
-	require.Len(t, rec.calls, 3,
-		"interface unbind skipped (no driver); device-level unbind + match_busid add + usbip-host bind still fire")
+		"Bind must succeed when the bare device has no driver — nothing to unbind")
+	require.Len(t, rec.calls, 2,
+		"no driver means no unbind; match_busid add + usbip-host bind only")
 
-	require.Equal(t, "/sys/bus/usb/drivers/usb/unbind", rec.calls[0].Path,
-		"device-level unbind must still detach the bare \"usb\" driver from the bare busid")
+	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/match_busid", rec.calls[0].Path)
+	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/bind", rec.calls[1].Path)
 }

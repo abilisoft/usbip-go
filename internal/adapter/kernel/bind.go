@@ -51,22 +51,11 @@ const usbipHostBindRetryAttempts = 5
 // gochecknoglobals tolerates [N]T literals as compile-time constants.
 var usbipHostBindRetryBackoffMs = [usbipHostBindRetryAttempts]int{0, 100, 200, 400, 800}
 
-// Bind performs the three-write sequence required by usbip-host:
-//  1. unbind current driver from the primary interface (iface
-//     "<busid>:<bConfigurationValue>.0")
-//  2. add the busID to usbip-host/match_busid
-//  3. bind usbip-host to the device (BARE busid; usbip-host is a
-//     usb_device_driver and matches at usb_device level)
-//
-// Step 3 failure rolls back step 2 (match_busid del) so the busid
-// table is not poisoned. Step 2 failure is left as-is — the unbind
-// in step 1 is preserved so the operator can rebind manually,
-// matching upstream usbip_bind.c semantics.
-//
-// Module preflight runs first so runtime module loss surfaces as
-// ErrKernelModuleMissing rather than ErrDeviceNotFound on the first
-// write.
-func (a *ExporterAdapter) Bind(ctx context.Context, busID domain.BusID) error {
+// preflightBind runs the non-mutating checks before Bind starts
+// touching sysfs: kernel module availability, vhci-loop refusal, hub
+// guard, and already-exported short-circuit. Extracted from Bind() to
+// keep the main flow under the gocognit threshold.
+func (a *ExporterAdapter) preflightBind(ctx context.Context, busID domain.BusID) error {
 	err := a.ModulesAvailable(ctx)
 	if err != nil {
 		return err
@@ -77,30 +66,73 @@ func (a *ExporterAdapter) Bind(ctx context.Context, busID domain.BusID) error {
 		return err
 	}
 
-	iface, err := a.ifaceSuffix(busID)
+	// Hub guard. usbip-host's stub_probe rejects hubs at
+	// drivers/usb/usbip/stub_dev.c:347-351; upstream usbip_bind.c
+	// reads bDeviceClass and refuses at libsrc lines 82-91. We refuse
+	// HERE — before any unbind write — because detaching the generic
+	// "usb" device driver from a hub disconnects every downstream
+	// device hanging off it. By the time the kernel rejects, damage
+	// is done.
+	err = a.refuseHubDevice(busID)
+	if err != nil {
+		return err
+	}
+
+	// Already-bound short-circuit. Must run BEFORE ifaceSuffix
+	// because once the device is bound to usbip-host the kernel's USB
+	// core has already unconfigured it (bConfigurationValue=0); a
+	// later ifaceSuffix would surface a misleading
+	// "no active configuration" ErrDeviceNotBound. Returns nil for
+	// any non-usbip-host driver so the pipeline continues.
+	return a.checkAlreadyExported(busID)
+}
+
+// Bind performs the four-write sequence required by usbip-host:
+//  1. unbind current driver from the primary interface (iface
+//     "<busid>:<bConfigurationValue>.0")
+//  2. unbind the bare-device usb_driver (typically the generic "usb"
+//     driver) so usbip-host can claim the usb_device
+//  3. add the busID to usbip-host/match_busid
+//  4. bind usbip-host to the device (BARE busid; usbip-host is a
+//     usb_device_driver and matches at usb_device level)
+//
+// Step 4 failure rolls back step 3 (match_busid del) so the busid
+// table is not poisoned. The earlier unbinds are preserved so the
+// operator can rebind manually, matching upstream usbip_bind.c
+// semantics.
+//
+// preflightBind() runs first: kernel-module check, vhci-loop refusal,
+// hub guard (refuses bDeviceClass=0x09 to prevent cascade-disconnect),
+// and already-exported short-circuit (returns ErrDeviceAlreadyBound
+// before any sysfs mutation). The pipeline is serialized per-busid via
+// lockBusID so concurrent Bind/Unbind calls cannot race on
+// match_busid.
+func (a *ExporterAdapter) Bind(ctx context.Context, busID domain.BusID) error {
+	mu := a.lockBusID(busID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	err := a.preflightBind(ctx, busID)
 	if err != nil {
 		return err
 	}
 
 	// USB-to-Ethernet / cellular dongles register one or more netdevs
-	// (cdc_ether, r8152, ...). Those netdevs hold a usb_device
-	// refcount as long as IFF_UP is set, so the subsequent
-	// usbip-host bind step returns EBUSY. Walk the per-device
-	// /sys/bus/usb/devices/<busid>/net/<name> directories and clear
-	// IFF_UP on each before unbinding the driver, so the operator
-	// no longer has to chase `ip link set <enxXX> down` manually.
+	// (cdc_ether, cdc_ncm, r8152, …). Those netdevs hold a
+	// usb_device refcount as long as IFF_UP is set, so the bare
+	// device unbind below would return EBUSY mid-cascade. Walk every
+	// /net/<name> subtree (bare device + each interface) and clear
+	// IFF_UP first.
 	a.deactivateNetdevs(busID)
 
-	err = a.unbindCurrentDriver(busID, iface)
-	if err != nil {
-		return err
-	}
-
-	// usbip-host is a struct usb_device_driver — it claims the bare
-	// device, not the interface. The kernel's bind_store rejects
-	// EBUSY when the bare device already has a driver attached, even
-	// the no-op generic "usb" device driver. Detach it before the
-	// match_busid add, mirroring usbip_bind.c::unbind_other().
+	// Bare-device unbind only. Mirrors upstream
+	// usbip_bind.c::unbind_other() which detaches the usb_device
+	// driver and lets USB core's generic disconnect cascade
+	// (drivers/usb/core/generic.c:265-272) unbind every interface.
+	// Doing the cascade ourselves with a hand-rolled iface unbind
+	// diverges from upstream: it only covers <busid>:<cfg>.0 and
+	// leaves composite devices in a half-state on subsequent
+	// failure.
 	err = a.unbindCurrentDeviceDriver(busID)
 	if err != nil {
 		return err
@@ -143,29 +175,32 @@ func (a *ExporterAdapter) Bind(ctx context.Context, busID domain.BusID) error {
 	return nil
 }
 
-// unbindCurrentDriver releases whatever interface driver currently
-// owns the primary interface (typically an interface-level usb_driver
-// such as cdc_ether or usbhid). The half-state where currentDriver
-// returns ErrDeviceNotBound — common after a half-failed prior bind
-// or a fresh hot-plug whose probe has not landed yet — is treated as
-// already-unbound and ignored; only true read errors surface.
-func (a *ExporterAdapter) unbindCurrentDriver(busID domain.BusID, iface string) error {
-	driver, err := a.currentDriver(iface)
+// checkAlreadyExported returns ErrDeviceAlreadyBound when the bare
+// device is already bound to usbip-host. Runs BEFORE ifaceSuffix so
+// that operators see the real already-bound state rather than a
+// downstream "bConfigurationValue=0 (no active configuration)" error
+// — that's the kernel state after USB core unconfigures the device on
+// driver detach (drivers/usb/core/generic.c:265-272), and it persists
+// for as long as usbip-host owns the device.
+//
+// Returns nil for "no driver attached" (transient hot-plug state) and
+// for any non-usbip-host driver (typical case — the caller proceeds
+// to detach it).
+func (a *ExporterAdapter) checkAlreadyExported(busID domain.BusID) error {
+	driver, err := a.currentDriver(string(busID))
 	if errors.Is(err, domain.ErrDeviceNotBound) {
-		a.logger.Debug("bind: interface has no driver attached; skipping unbind step",
-			"busid", busID, "iface", iface)
-
 		return nil
 	}
 
 	if err != nil {
 		return err
 	}
-	// Old driver is typically an interface-level usb_driver — kernel
-	// sysfs unbind_store looks the device up by name on the bus, so
-	// it must match the bound device's name. For interface drivers
-	// that means the iface ("1-1:2.0").
-	return a.writeClassified(driverPath(driver, SysfsDriverUnbind), iface)
+
+	if driver == usbipHostDriverName {
+		return fmt.Errorf("%w: device %s already bound to usbip-host", domain.ErrDeviceAlreadyBound, busID)
+	}
+
+	return nil
 }
 
 // unbindCurrentDeviceDriver releases the device-level usb_driver bound
@@ -179,12 +214,8 @@ func (a *ExporterAdapter) unbindCurrentDriver(busID domain.BusID, iface string) 
 // Upstream usbip-utils tools/usb/usbip/src/usbip_bind.c::unbind_other()
 // performs this same step before adding the busid to match_busid.
 //
-// Three cases:
-//   - No driver attached: no work, return nil.
-//   - Already bound to usbip-host: return ErrDeviceAlreadyBound — caller
-//     short-circuits with an unambiguous error (instead of waiting for
-//     the bind step to surface EBUSY with the same meaning).
-//   - Other driver: write bare busid to <driver>/unbind.
+// Precondition: checkAlreadyExported has already run, so the
+// "driver == usbip-host" case is unreachable here.
 func (a *ExporterAdapter) unbindCurrentDeviceDriver(busID domain.BusID) error {
 	driver, err := a.currentDriver(string(busID))
 	if errors.Is(err, domain.ErrDeviceNotBound) {
@@ -198,30 +229,60 @@ func (a *ExporterAdapter) unbindCurrentDeviceDriver(busID domain.BusID) error {
 		return err
 	}
 
-	if driver == usbipHostDriverName {
-		return fmt.Errorf("%w: device %s already bound to usbip-host", domain.ErrDeviceAlreadyBound, busID)
-	}
-
 	return a.writeClassified(driverPath(driver, SysfsDriverUnbind), string(busID))
 }
 
-// Unbind reverses Bind: gracefully disconnects any active importer
-// session, writes to usbip-host/unbind, removes the busID from
-// match_busid, then triggers a default-driver rebind.
+// preflightUnbind runs non-mutating checks before Unbind touches
+// sysfs: kernel module availability and the driver==usbip-host
+// precheck. Extracted to keep Unbind() under gocognit threshold.
+func (a *ExporterAdapter) preflightUnbind(ctx context.Context, busID domain.BusID) error {
+	err := a.ModulesAvailable(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Refuse if the device is not actually bound to usbip-host.
+	// Upstream usbip_unbind.c::unbind_device() does the same precheck
+	// at lines 54-58. Without it we'd write match_busid del /
+	// usbip-host/unbind for busids we never claimed.
+	driver, err := a.currentDriver(string(busID))
+	if errors.Is(err, domain.ErrDeviceNotBound) {
+		return fmt.Errorf("%w: device %s has no driver attached", domain.ErrDeviceNotBound, busID)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if driver != usbipHostDriverName {
+		return fmt.Errorf("%w: device %s is bound to %q, not usbip-host",
+			domain.ErrDeviceNotBound, busID, driver)
+	}
+
+	return nil
+}
+
+// Unbind reverses Bind: refuses if the device is not bound to
+// usbip-host (precheck mirrors upstream usbip_unbind.c lines 54-58),
+// gracefully disconnects any active importer session, writes the
+// usbip-host/unbind sequence, removes the busID from match_busid,
+// and triggers a default-driver rebind.
 //
 // The pre-disconnect step is crucial: writing -1 to the per-device
 // usbip_sockfd attribute triggers SDEV_EVENT_DOWN in the kernel and
 // drops any in-flight URBs cleanly. Without it, the subsequent
-// usbip-host/unbind write blocks indefinitely while the kernel
-// waits for the importer socket to drain — operators saw
-// `usbip-go unbind` hang.
-//
-// The pre-disconnect failure is non-fatal because a freshly-bound
+// usbip-host/unbind write blocks indefinitely while the kernel waits
+// for the importer socket to drain — operators saw `usbip-go unbind`
+// hang. The pre-disconnect failure is non-fatal: a freshly-bound
 // device with no active session has no sockfd attribute (or the
 // attribute returns ENODEV); the unbind sequence continues either
-// way.
+// way. Serialized per-busid via lockBusID.
 func (a *ExporterAdapter) Unbind(ctx context.Context, busID domain.BusID) error {
-	err := a.ModulesAvailable(ctx)
+	mu := a.lockBusID(busID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	err := a.preflightUnbind(ctx, busID)
 	if err != nil {
 		return err
 	}
@@ -552,30 +613,42 @@ func (a *ExporterAdapter) refuseVHCIBindLoop(busID domain.BusID) error {
 	return nil
 }
 
-// ifaceSuffix returns "<busID>:<bConfigurationValue>.0", the primary
-// interface sysfs suffix for the device's currently-active
-// configuration. Matches upstream libsrc/usbip_host_driver.c which
-// formats the iface as "%s:%d.0" with the device's
-// bConfigurationValue. Hardcoding ":1.0" breaks for any device whose
-// active configuration is not 1 (e.g. many USB-to-Ethernet adapters
-// default to config 2).
-func (a *commonAdapter) ifaceSuffix(busID domain.BusID) (string, error) {
-	configValue, err := readU16Attr(a.fs, path.Join(SysfsUSBDevices, string(busID), devAttrConfigValue))
+// usbHubClass is the bDeviceClass value the USB spec assigns to hub
+// devices. usbip-host's stub_probe rejects hubs in
+// drivers/usb/usbip/stub_dev.c (lines ~347-351) but only AFTER the
+// generic-usb driver has already been detached, which by that point
+// has cascade-disconnected every downstream device. Refusing at the
+// adapter layer prevents that destructive prelude.
+const usbHubClass = 0x09
+
+// refuseHubDevice rejects bind attempts against USB hub devices
+// before any sysfs mutation. Reads /sys/bus/usb/devices/<busID>/
+// bDeviceClass and returns ErrUnsupportedDevice when the value is
+// 0x09 (HUB). Mirrors upstream usbip_bind.c::unbind_other() lines
+// 82-91 which performs the same check userspace-side.
+//
+// A missing bDeviceClass attribute is treated as "no — let the
+// downstream sysfs reads surface ErrDeviceNotFound" rather than
+// asserting hub-ness; the guard is best-effort defense, not the
+// device-existence check.
+func (a *ExporterAdapter) refuseHubDevice(busID domain.BusID) error {
+	classRaw, err := ReadHex16(a.fs, path.Join(SysfsUSBDevices, string(busID), devAttrDeviceClass))
 	if err != nil {
-		return "", err
+		// Missing attribute (real ENOENT or wrapped ErrDeviceNotFound):
+		// let downstream readers raise the canonical not-found error.
+		if isMissing(err) {
+			return nil
+		}
+
+		return fmt.Errorf("hub guard: read bDeviceClass %s: %w", busID, err)
 	}
 
-	if configValue == 0 {
-		return "", fmt.Errorf("%w: device %s reports bConfigurationValue=0 (no active configuration)",
-			domain.ErrDeviceNotBound, busID)
+	if classRaw == usbHubClass {
+		return fmt.Errorf("%w: %s is a USB hub (bDeviceClass=0x09); detaching its driver "+
+			"would disconnect every downstream device", domain.ErrUnsupportedDevice, busID)
 	}
 
-	if configValue > byteMax {
-		return "", fmt.Errorf("%w: %s/bConfigurationValue=%d (exceeds u8)",
-			errSysfsValueOutOfRange, busID, configValue)
-	}
-
-	return fmt.Sprintf("%s:%d.0", busID, configValue), nil
+	return nil
 }
 
 // driverPath returns "/sys/bus/usb/drivers/<driver>/<attr>".
