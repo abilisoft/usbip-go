@@ -155,24 +155,39 @@ func (a *ExporterAdapter) Bind(ctx context.Context, busID domain.BusID) error {
 	// the dev->driver match, and surface ENODEV.
 	err = a.bindUSBIPHostWithRetry(ctx, busID)
 	if err != nil {
-		// Roll back the match_busid add so the busid table is not
-		// poisoned with an entry that has no driver attached.
-		// Mirrors upstream usbip_bind.c bind_device error path.
-		// Rollback failure is logged but does not mask the original
-		// error; the caller wants to see WHY bind failed first.
-		rbErr := a.writeClassified(
-			path.Join(SysfsUSBIPHostDriver, SysfsMatchBusID),
-			MatchBusIDDelPrefix+string(busID),
-		)
-		if rbErr != nil {
-			a.logger.Warn("bind rollback (match_busid del) failed",
-				"busid", busID, "rollback_err", rbErr, "primary_err", err)
-		}
+		a.rollbackBind(busID, err)
 
 		return err
 	}
 
 	return nil
+}
+
+// rollbackBind undoes the match_busid add on a bind failure and
+// nudges the kernel to re-attach the original device-level driver.
+//
+// Without the drivers_probe poke, the device is left orphaned after
+// bind fails: bare-device unbind already detached the original driver
+// and the kernel's auto-probe only fires on hot-plug events. Writing
+// the busid to /sys/bus/usb/drivers_probe forces the kernel's driver
+// match-table to re-evaluate immediately so udev/operators see a
+// device with its original driver back. Both writes are best-effort —
+// the primary bind error is the user-visible signal.
+func (a *ExporterAdapter) rollbackBind(busID domain.BusID, primaryErr error) {
+	rbErr := a.writeClassified(
+		path.Join(SysfsUSBIPHostDriver, SysfsMatchBusID),
+		MatchBusIDDelPrefix+string(busID),
+	)
+	if rbErr != nil {
+		a.logger.Warn("bind rollback (match_busid del) failed",
+			"busid", busID, "rollback_err", rbErr, "primary_err", primaryErr)
+	}
+
+	probeErr := a.writeClassified(SysfsDriversProbe, string(busID))
+	if probeErr != nil {
+		a.logger.Debug("bind rollback (drivers_probe) failed — kernel may auto-probe later",
+			"busid", busID, "probe_err", probeErr, "primary_err", primaryErr)
+	}
 }
 
 // checkAlreadyExported returns ErrDeviceAlreadyBound when the bare

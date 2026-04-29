@@ -114,6 +114,62 @@ func (a *ExporterAdapter) ListLocalDevices(ctx context.Context) ([]domain.Device
 	return devices, nil
 }
 
+// usbipStatusUsed is the SDEV_ST_USED value the kernel writes to
+// /sys/bus/usb/devices/<busid>/usbip_status when an importer is
+// actively attached. Matches drivers/usb/usbip/stub_dev.h definitions.
+const usbipStatusUsed = "2"
+
+// ListExportedDevices returns only devices currently exportable on
+// the wire: bound to usbip-host AND not actively claimed by an
+// importer. Mirrors upstream usbipd.c::send_reply_devlist (lines
+// 172-206) which filters via usbip_host_driver.c::is_my_device()
+// and excludes SDEV_ST_USED.
+//
+// Operators and the CLI's `list -l` continue to use ListLocalDevices
+// to see every USB device on the host regardless of bind state. The
+// daemon's OP_REP_DEVLIST handler must use THIS method so peers do
+// not receive a bus dump including unbound or in-use devices.
+func (a *ExporterAdapter) ListExportedDevices(ctx context.Context) ([]domain.Device, error) {
+	all, err := a.ListLocalDevices(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	exported := make([]domain.Device, 0, len(all))
+
+	for _, d := range all {
+		if !a.isExportable(d.BusID) {
+			continue
+		}
+
+		exported = append(exported, d)
+	}
+
+	return exported, nil
+}
+
+// isExportable reports whether busID is currently bound to usbip-host
+// AND its usbip_status is not SDEV_ST_USED. Read errors on either
+// attribute are treated as "not exportable" — better to hide a
+// device that might be transient than to advertise one we cannot
+// confirm is ready.
+func (a *ExporterAdapter) isExportable(busID domain.BusID) bool {
+	driver, err := a.currentDriver(string(busID))
+	if err != nil || driver != usbipHostDriverName {
+		return false
+	}
+
+	status, err := ReadLine(a.fs, path.Join(SysfsUSBDevices, string(busID), SysfsUsbipStatus))
+	if err != nil {
+		// Status absent is unusual but possible during a transient
+		// rebind. Be permissive: treat the device as available so
+		// peers see it once the kernel finishes attaching.
+		return true
+	}
+
+	return status != usbipStatusUsed
+}
+
 // readDevice reads the ten-attribute per-device sysfs block plus the
 // primary interface descriptor for busID.
 func (a *ExporterAdapter) readDevice(busID domain.BusID) (domain.Device, error) {
