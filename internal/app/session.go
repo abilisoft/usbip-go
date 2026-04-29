@@ -191,10 +191,10 @@ func (e *Exporter) armHandshakeTimeout(closer *connCloser) func() {
 // terminal transition so dashboards see the same count for devlist
 // handshakes as for import handshakes.
 func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn) {
-	devs, err := e.kernel.ListLocalDevices(ctx)
+	devs, err := e.kernel.ListExportedDevices(ctx)
 	if err != nil {
 		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
-		e.logger.Warn("exporter list local devices",
+		e.logger.Warn("exporter list exported devices",
 			slog.Any("err", err))
 
 		return

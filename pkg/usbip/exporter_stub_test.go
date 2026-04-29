@@ -32,6 +32,13 @@ func (s *stubExporterKernel) ListLocalDevices(ctx context.Context) ([]domain.Dev
 	return nil, nil
 }
 
+// ListExportedDevices reuses the same hook as ListLocalDevices —
+// the public-facade exporter tests do not exercise the wire-side
+// filter; the kernel adapter unit tests cover that path instead.
+func (s *stubExporterKernel) ListExportedDevices(ctx context.Context) ([]domain.Device, error) {
+	return s.ListLocalDevices(ctx)
+}
+
 // Bind dispatches to the hook or returns nil.
 func (s *stubExporterKernel) Bind(ctx context.Context, busID domain.BusID) error {
 	if s.bindFn != nil {

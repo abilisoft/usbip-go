@@ -133,7 +133,7 @@ func DecodeOpRepImport(r io.Reader) (domain.Device, DecodeFlags, error) {
 	if status != 0 {
 		return domain.Device{}, DecodeFlags{},
 			fmt.Errorf("%w: OP_REP_IMPORT status=%d",
-				domain.ErrDeviceNotFound, status)
+				mapImportStatus(status), status)
 	}
 
 	dev, flags, err := DecodeDevice(r)
@@ -142,4 +142,36 @@ func DecodeOpRepImport(r io.Reader) (domain.Device, DecodeFlags, error) {
 	}
 
 	return dev, flags, nil
+}
+
+// OP_REP_IMPORT status codes from upstream tools/usb/usbip/libsrc/
+// usbip_common.h:
+//
+//	ST_OK         = 0  // success
+//	ST_NA         = 1  // device not exported / unknown
+//	ST_DEV_BUSY   = 2  // already in use by another importer
+//	ST_DEV_ERR    = 3  // stub-side internal error
+//	ST_NODEV      = 4  // no such device on remote
+const (
+	importStatusNA      = 1
+	importStatusDevBusy = 2
+	importStatusDevErr  = 3
+	importStatusNoDev   = 4
+)
+
+// mapImportStatus converts a non-zero OP_REP_IMPORT status to the
+// matching domain sentinel. Unknown codes default to ErrDeviceNotFound
+// — a forward-compatible fallback that preserves the catch-all
+// behaviour callers historically depended on.
+func mapImportStatus(status uint32) error {
+	switch status {
+	case importStatusNA, importStatusNoDev:
+		return domain.ErrDeviceNotFound
+	case importStatusDevBusy:
+		return domain.ErrDeviceAlreadyBound
+	case importStatusDevErr:
+		return domain.ErrDeviceUnavailable
+	default:
+		return domain.ErrDeviceNotFound
+	}
 }

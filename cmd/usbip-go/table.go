@@ -77,6 +77,14 @@ func newStyledTable(cellStyler func(row, col int, value string) lipgloss.Style) 
 }
 
 // Devices writes a styled table of local/remote devices.
+//
+// Columns:
+//   - BUSID:  sysfs bus identifier
+//   - DEVICE: device-supplied iManufacturer + iProduct strings, dash if absent
+//   - SPEED:  enumerated USB link speed
+//   - VID:PID: idVendor:idProduct hex pair
+//   - CLASS:  USB device class as human name (Class.String())
+//   - IF:     bNumInterfaces — useful sanity-check for composite devices
 func (tableRenderer) Devices(w io.Writer, devs []usbip.Device) error {
 	rows := make([][]string, 0, len(devs))
 	speeds := make([]usbip.Speed, 0, len(devs))
@@ -84,21 +92,26 @@ func (tableRenderer) Devices(w io.Writer, devs []usbip.Device) error {
 	for _, d := range devs {
 		rows = append(rows, []string{
 			string(d.BusID),
+			deviceLabel(d),
 			d.Speed.String(),
 			fmt.Sprintf("%04x:%04x", d.VendorID, d.ProductID),
-			strconv.Itoa(int(d.Class)),
+			d.Class.String(),
+			strconv.Itoa(int(d.NumInterfaces)),
 		})
 		speeds = append(speeds, d.Speed)
 	}
 
 	const (
-		colBusID = 0
-		colSpeed = 1
+		colBusID  = 0
+		colDevice = 1
+		colSpeed  = 2
 	)
 
 	t := newStyledTable(func(row, col int, _ string) lipgloss.Style {
 		switch col {
 		case colBusID:
+			return emphasizeStyle
+		case colDevice:
 			return emphasizeStyle
 		case colSpeed:
 			return speedStyle(speeds[row])
@@ -106,7 +119,7 @@ func (tableRenderer) Devices(w io.Writer, devs []usbip.Device) error {
 			return styledCell
 		}
 	}).
-		Headers("BUSID", "SPEED", "VID:PID", "CLASS").
+		Headers("BUSID", "DEVICE", "SPEED", "VID:PID", "CLASS", "IF").
 		Rows(rows...)
 
 	_, err := fmt.Fprintln(styleWriter(w), t.Render())
@@ -115,6 +128,26 @@ func (tableRenderer) Devices(w io.Writer, devs []usbip.Device) error {
 	}
 
 	return nil
+}
+
+// deviceLabel formats a human-friendly device name using the
+// iManufacturer + iProduct strings the device reports via sysfs.
+// Falls back to "—" when both are empty (string descriptors not
+// populated, common on cheap composite devices).
+func deviceLabel(d usbip.Device) string {
+	if d.Manufacturer == "" && d.Product == "" {
+		return "—"
+	}
+
+	if d.Manufacturer == "" {
+		return d.Product
+	}
+
+	if d.Product == "" {
+		return d.Manufacturer
+	}
+
+	return d.Manufacturer + " " + d.Product
 }
 
 // Ports writes a styled table of attached vhci ports.

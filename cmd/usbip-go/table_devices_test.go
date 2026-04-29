@@ -105,3 +105,35 @@ func TestTableRendererEvent_WriteError_UnknownType(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "render event")
 }
+
+// TestDeviceLabel_AllBranches pins every branch of deviceLabel:
+// both empty (placeholder), only manufacturer, only product, both
+// populated. Together with the populated-both case in goldenDevices
+// these cover all four arms.
+func TestDeviceLabel_AllBranches(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name         string
+		manufacturer string
+		product      string
+		want         string
+	}{
+		{"both empty -> placeholder", "", "", "—"},
+		{"manufacturer empty -> product only", "", "DataTraveler", "DataTraveler"},
+		{"product empty -> manufacturer only", "Kingston", "", "Kingston"},
+		{"both populated -> joined with space", "Kingston", "DataTraveler", "Kingston DataTraveler"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := deviceLabel(usbip.Device{
+				Manufacturer: tc.manufacturer,
+				Product:      tc.product,
+			})
+			require.Equal(t, tc.want, got)
+		})
+	}
+}

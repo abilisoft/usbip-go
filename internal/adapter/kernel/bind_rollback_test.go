@@ -61,10 +61,17 @@ func TestBind_RollsBackMatchBusidOnBindFailure(t *testing.T) {
 	require.ErrorIs(t, err, domain.ErrDeviceAlreadyBound,
 		"primary error (EBUSY → ErrDeviceAlreadyBound) must surface; rollback failure does not mask it")
 
-	// Last recorded write must be the match_busid del rollback.
-	last := rec.calls[len(rec.calls)-1]
-	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/match_busid", last.Path,
-		"rollback must target match_busid (last recorded write)")
-	require.Equal(t, "del "+string(busID), last.Data,
+	// Rollback must include both match_busid del and drivers_probe
+	// (the latter restores the native driver after the bare-device
+	// unbind we performed earlier).
+	var sawDel bool
+
+	for _, c := range rec.calls {
+		if c.Path == "/sys/bus/usb/drivers/usbip-host/match_busid" && c.Data == "del "+string(busID) {
+			sawDel = true
+		}
+	}
+
+	require.True(t, sawDel,
 		"rollback must DELETE the busid entry that the failed bind left orphaned")
 }

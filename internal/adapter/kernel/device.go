@@ -36,6 +36,8 @@ const (
 	devAttrConfigValue   = "bConfigurationValue"
 	devAttrNumConfigs    = "bNumConfigurations"
 	devAttrNumInterfaces = "bNumInterfaces"
+	devAttrManufacturer  = "manufacturer"
+	devAttrProduct       = "product"
 
 	ifaceAttrClass    = "bInterfaceClass"
 	ifaceAttrSubClass = "bInterfaceSubClass"
@@ -112,6 +114,62 @@ func (a *ExporterAdapter) ListLocalDevices(ctx context.Context) ([]domain.Device
 	return devices, nil
 }
 
+// usbipStatusUsed is the SDEV_ST_USED value the kernel writes to
+// /sys/bus/usb/devices/<busid>/usbip_status when an importer is
+// actively attached. Matches drivers/usb/usbip/stub_dev.h definitions.
+const usbipStatusUsed = "2"
+
+// ListExportedDevices returns only devices currently exportable on
+// the wire: bound to usbip-host AND not actively claimed by an
+// importer. Mirrors upstream usbipd.c::send_reply_devlist (lines
+// 172-206) which filters via usbip_host_driver.c::is_my_device()
+// and excludes SDEV_ST_USED.
+//
+// Operators and the CLI's `list -l` continue to use ListLocalDevices
+// to see every USB device on the host regardless of bind state. The
+// daemon's OP_REP_DEVLIST handler must use THIS method so peers do
+// not receive a bus dump including unbound or in-use devices.
+func (a *ExporterAdapter) ListExportedDevices(ctx context.Context) ([]domain.Device, error) {
+	all, err := a.ListLocalDevices(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	exported := make([]domain.Device, 0, len(all))
+
+	for _, d := range all {
+		if !a.isExportable(d.BusID) {
+			continue
+		}
+
+		exported = append(exported, d)
+	}
+
+	return exported, nil
+}
+
+// isExportable reports whether busID is currently bound to usbip-host
+// AND its usbip_status is not SDEV_ST_USED. Read errors on either
+// attribute are treated as "not exportable" — better to hide a
+// device that might be transient than to advertise one we cannot
+// confirm is ready.
+func (a *ExporterAdapter) isExportable(busID domain.BusID) bool {
+	driver, err := a.currentDriver(string(busID))
+	if err != nil || driver != usbipHostDriverName {
+		return false
+	}
+
+	status, err := ReadLine(a.fs, path.Join(SysfsUSBDevices, string(busID), SysfsUsbipStatus))
+	if err != nil {
+		// Status absent is unusual but possible during a transient
+		// rebind. Be permissive: treat the device as available so
+		// peers see it once the kernel finishes attaching.
+		return true
+	}
+
+	return status != usbipStatusUsed
+}
+
 // readDevice reads the ten-attribute per-device sysfs block plus the
 // primary interface descriptor for busID.
 func (a *ExporterAdapter) readDevice(busID domain.BusID) (domain.Device, error) {
@@ -162,6 +220,9 @@ func (a *ExporterAdapter) readDeviceCore(base string, busID domain.BusID) (domai
 		return domain.Device{}, err
 	}
 
+	manufacturer := readOptionalStringAttr(a.fs, path.Join(base, devAttrManufacturer))
+	productName := readOptionalStringAttr(a.fs, path.Join(base, devAttrProduct))
+
 	return domain.Device{
 		Path:          base,
 		BusID:         busID,
@@ -177,7 +238,22 @@ func (a *ExporterAdapter) readDeviceCore(base string, busID domain.BusID) (domai
 		ConfigValue:   classes.configValue,
 		NumConfigs:    classes.numConfigs,
 		NumInterfaces: classes.numInterfaces,
+		Manufacturer:  manufacturer,
+		Product:       productName,
 	}, nil
+}
+
+// readOptionalStringAttr reads a sysfs string attribute that the kernel may
+// not populate (manufacturer/product are unset when the device descriptor's
+// iManufacturer/iProduct index is 0). Missing or unreadable attrs return
+// the empty string — they are decorative, not load-bearing.
+func readOptionalStringAttr(fsys fs.FS, p string) string {
+	s, err := ReadLine(fsys, p)
+	if err != nil {
+		return ""
+	}
+
+	return s
 }
 
 type deviceNumbers struct {

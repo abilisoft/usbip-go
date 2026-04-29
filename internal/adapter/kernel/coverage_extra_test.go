@@ -7,6 +7,8 @@ package kernel
 
 import (
 	"errors"
+	"fmt"
+	"io/fs"
 	"log/slog"
 	"testing"
 	"testing/fstest"
@@ -19,6 +21,94 @@ import (
 
 // errFake is a sentinel injected by fake netlink/socket mocks.
 var errFakeReceive = errors.New("fake netlink receive error")
+
+// errOnDriverNameRead is an fs.FS that errors with EACCES when the
+// caller opens the configured target path. Used to exercise
+// currentDriver's non-ENOENT error branch from unbindCurrentDeviceDriver
+// — that branch is normally intercepted by checkAlreadyExported in
+// Bind, so direct whitebox invocation is the only path to coverage.
+type errOnDriverNameRead struct {
+	inner  fs.FS
+	target string
+}
+
+func (e errOnDriverNameRead) Open(name string) (fs.File, error) {
+	if name == e.target {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrPermission}
+	}
+
+	f, err := e.inner.Open(name)
+	if err != nil {
+		return nil, fmt.Errorf("errOnDriverNameRead delegate: %w", err)
+	}
+
+	return f, nil
+}
+
+// TestBusIDInterfaceDirs_ReadErrorReturnsNil pins the defensive
+// branch in busIDInterfaceDirs: when the parent
+// /sys/bus/usb/devices listing fails (sysfs permission lock-down,
+// transient I/O glitch), the helper returns nil so the caller —
+// deactivateNetdevs — silently no-ops. Production-only state on
+// real Linux; the MapFS-backed test exercises it via a poisoned
+// Open.
+func TestBusIDInterfaceDirs_ReadErrorReturnsNil(t *testing.T) {
+	t.Parallel()
+
+	const busID = "1-1"
+
+	mfs := fstest.MapFS{
+		"sys/bus/usb/devices/" + busID: {Mode: 0o755},
+	}
+
+	a := &ExporterAdapter{commonAdapter: commonAdapter{
+		fs: errOnDriverNameRead{
+			inner:  mfs,
+			target: "sys/bus/usb/devices",
+		},
+		write:  func(_, _ string) error { return nil },
+		logger: slog.Default(),
+	}}
+
+	got := a.busIDInterfaceDirs(domain.BusID(busID))
+	require.Nil(t, got,
+		"busIDInterfaceDirs must return nil on listing error so callers no-op cleanly")
+}
+
+// TestUnbindCurrentDeviceDriver_NonAbsenceErrorPropagates pins the
+// defensive depth restored after the round-2 refactor:
+// unbindCurrentDeviceDriver MUST surface a non-absence currentDriver
+// error rather than silently swallowing it. The Bind path's
+// checkAlreadyExported normally surfaces such errors first, but
+// sysfs state can drift between the two reads (driver hot-detach,
+// permission change). Direct whitebox invocation exercises the
+// explicit branch.
+func TestUnbindCurrentDeviceDriver_NonAbsenceErrorPropagates(t *testing.T) {
+	t.Parallel()
+
+	const busID = "1-1"
+
+	mfs := fstest.MapFS{
+		"sys/bus/usb/devices/" + busID:                         {Mode: 0o755},
+		"sys/bus/usb/devices/" + busID + "/driver":             {Data: []byte("usb\n")},
+		"sys/bus/usb/devices/" + busID + "/driver/driver_name": {Data: []byte("usb\n")},
+	}
+
+	a := &ExporterAdapter{commonAdapter: commonAdapter{
+		fs: errOnDriverNameRead{
+			inner:  mfs,
+			target: "sys/bus/usb/devices/" + busID + "/driver/driver_name",
+		},
+		write:  func(_, _ string) error { return nil },
+		logger: slog.Default(),
+	}}
+
+	err := a.unbindCurrentDeviceDriver(domain.BusID(busID))
+	require.Error(t, err,
+		"non-absence currentDriver read failure must propagate — defense in depth")
+	require.NotErrorIs(t, err, domain.ErrDeviceNotBound,
+		"propagated error must NOT be ErrDeviceNotBound — that branch is the absence-shaped no-op")
+}
 
 // TestMapUDCEventBranches covers every branch of mapUDCEvent: the
 // add/change paths emit DeviceBoundEvent, remove emits

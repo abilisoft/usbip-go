@@ -33,14 +33,17 @@ func defaultKernelModuleProbe(ctx context.Context) (map[string]usbip.ModuleState
 	return mods, nil
 }
 
-// BoundDevices reports the current export list. The stable one-shot
-// ListAvailable snapshot is what status consumers want; streaming
-// changes is a future addition. A ListAvailable failure propagates
-// to the handler so GET / can render a bound_devices_error field
-// rather than masquerading the failure as an empty bound_devices
-// array.
+// BoundDevices reports the current EXPORT list — devices currently
+// claimed by usbip-host that are not actively attached by an
+// importer. Uses ListExported (filtered driver=usbip-host AND
+// usbip_status != USED) so the JSON field name matches its
+// content; a ListAvailable snapshot would also include unbound
+// USB devices and contradict the field's semantics. A failure
+// propagates to the handler so GET / can render a
+// bound_devices_error field rather than masquerading the failure
+// as an empty bound_devices array.
 func (s *statusExporter) BoundDevices(ctx context.Context) ([]usbip.Device, error) {
-	devs, err := s.exp.ListAvailable(ctx)
+	devs, err := s.exp.ListExported(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list bound devices: %w", err)
 	}

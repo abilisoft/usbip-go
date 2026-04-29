@@ -64,6 +64,19 @@ var (
 	// caller. Aliased to pkg/domain so errors.Is matches against
 	// either form.
 	ErrAttachInProgress = domain.ErrAttachInProgress
+
+	// ErrUnsupportedDevice indicates the device cannot be exported
+	// via usbip — typically a USB hub (bDeviceClass=0x09). Surfaced
+	// before any destructive sysfs write so detaching the hub's
+	// driver does not cascade-disconnect its downstream devices.
+	ErrUnsupportedDevice = domain.ErrUnsupportedDevice
+
+	// ErrDeviceUnavailable indicates the remote daemon reports the
+	// device exists but is currently unusable for import (stub-side
+	// internal error, ST_DEV_ERR=3 on the wire). Distinct from
+	// ErrDeviceAlreadyBound (busy / already attached) and
+	// ErrDeviceNotFound (no such device).
+	ErrDeviceUnavailable = domain.ErrDeviceUnavailable
 )
 
 // Public lifecycle sentinels. ErrImporterClosed and

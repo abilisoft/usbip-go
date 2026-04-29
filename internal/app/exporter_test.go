@@ -231,3 +231,47 @@ func TestExporterListAvailableKernelFailure(t *testing.T) {
 	require.Nil(t, devs)
 	require.ErrorIs(t, err, errBoom)
 }
+
+// TestExporterListExportedHappyPath asserts ListExported forwards to
+// kernel.ListExportedDevices (the wire-side filter) and returns the
+// slice verbatim. ListExported is what the OP_REP_DEVLIST handler
+// and the status-socket bound_devices field consume; conflating it
+// with ListLocalDevices would advertise unbound USB hardware to
+// peers.
+func TestExporterListExportedHappyPath(t *testing.T) {
+	t.Parallel()
+
+	want := []domain.Device{
+		{BusID: domain.BusID("1-1"), Path: "/sys/devices/pci/usb1/1-1"},
+	}
+
+	kernel := &ExporterKernelMock{
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) { return want, nil },
+	}
+
+	exp := newExporterForTest(t, app.WithExporterKernel(kernel))
+
+	got, err := exp.ListExported(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+	require.Len(t, kernel.ListExportedDevicesCalls(), 1)
+}
+
+// TestExporterListExportedKernelFailure asserts kernel errors from
+// the filtered enumeration surface with a descriptive wrap so the
+// caller can distinguish "unable to list" from "list is empty".
+func TestExporterListExportedKernelFailure(t *testing.T) {
+	t.Parallel()
+
+	kernel := &ExporterKernelMock{
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return nil, errBoom
+		},
+	}
+
+	exp := newExporterForTest(t, app.WithExporterKernel(kernel))
+
+	devs, err := exp.ListExported(context.Background())
+	require.Nil(t, devs)
+	require.ErrorIs(t, err, errBoom)
+}

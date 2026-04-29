@@ -16,31 +16,28 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
-// TestUnbind_AttemptsRebindEvenAfterEarlierFailure pins the
-// best-effort contract: when usbip-host/unbind fails, Unbind STILL
-// attempts the match_busid del and the rebind trigger so the
-// device's match_busid table entry is cleared and the original
-// kernel driver can take the device back. Without this, an
-// intermediate failure would leave the system in a half-state
-// where the operator sees the device but neither usbip-host nor
-// the original driver claim it.
+// TestUnbind_UnbindFails_SkipsRebind pins the kernel-safety contract:
+// when usbip-host/unbind fails, Unbind MUST NOT write to rebind.
+// Kernels through 6.8 (Pi 5) NULL-deref in do_rebind() when the
+// per-busid stub has no live udev — exactly the state when unbind
+// failed (no stub_probe ran, or device was already detached).
 //
-// Setup: writeFunc fails on the FIRST write (usbip-host unbind).
+// Setup: writeFunc fails on usbip-host/unbind (index 1).
 // Test asserts:
-//   - All three writes are attempted (length == 3)
-//   - The primary error (EBUSY) is surfaced, not a downstream error
-func TestUnbind_AttemptsRebindEvenAfterEarlierFailure(t *testing.T) {
+//   - sockfd + unbind + match_busid del are attempted (3 writes)
+//   - rebind is NOT attempted
+//   - The primary error (EBUSY → ErrDeviceAlreadyBound) is surfaced
+func TestUnbind_UnbindFails_SkipsRebind(t *testing.T) {
 	t.Parallel()
 
 	busID := domain.BusID("1-1")
 	rec := &writeRecord{}
 
 	a, err := kernel.NewExporterAdapter(
-		kernel.WithFS(bindFS(string(busID))),
-		// errAt(1, EBUSY): write index 1 is the usbip-host/unbind
+		kernel.WithFS(boundFS(string(busID))),
+		// errAt(1, EBUSY): write index 1 is usbip-host/unbind
 		// (index 0 is the pre-disconnect sockfd write whose error
-		// is intentionally swallowed). Mock the FIRST classified
-		// failure on the actual unbind path.
+		// is intentionally swallowed).
 		kernel.WithWriteFunc(rec.errAt(1, unix.EBUSY)),
 	)
 	require.NoError(t, err)
@@ -49,10 +46,14 @@ func TestUnbind_AttemptsRebindEvenAfterEarlierFailure(t *testing.T) {
 	require.ErrorIs(t, err, domain.ErrDeviceAlreadyBound,
 		"the FIRST error (usbip-host unbind EBUSY) must be surfaced as the primary return")
 
-	require.Len(t, rec.calls, 4,
-		"all four sysfs writes must be attempted even after the unbind fails — best-effort cleanup")
+	require.Len(t, rec.calls, 3,
+		"unbind failure must skip rebind to avoid kernel NULL deref in do_rebind")
 
 	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/unbind", rec.calls[1].Path)
 	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/match_busid", rec.calls[2].Path)
-	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/rebind", rec.calls[3].Path)
+
+	for _, c := range rec.calls {
+		require.NotEqual(t, "/sys/bus/usb/drivers/usbip-host/rebind", c.Path,
+			"rebind write must NOT fire when unbind failed — Pi 5 kernel 6.8 NULL-derefs")
+	}
 }
