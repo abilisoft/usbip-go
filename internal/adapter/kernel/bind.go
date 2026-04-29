@@ -96,6 +96,16 @@ func (a *ExporterAdapter) Bind(ctx context.Context, busID domain.BusID) error {
 		return err
 	}
 
+	// usbip-host is a struct usb_device_driver — it claims the bare
+	// device, not the interface. The kernel's bind_store rejects
+	// EBUSY when the bare device already has a driver attached, even
+	// the no-op generic "usb" device driver. Detach it before the
+	// match_busid add, mirroring usbip_bind.c::unbind_other().
+	err = a.unbindCurrentDeviceDriver(busID)
+	if err != nil {
+		return err
+	}
+
 	err = a.writeClassified(
 		path.Join(SysfsUSBIPHostDriver, SysfsMatchBusID),
 		MatchBusIDAddPrefix+string(busID),
@@ -158,6 +168,43 @@ func (a *ExporterAdapter) unbindCurrentDriver(busID domain.BusID, iface string) 
 	return a.writeClassified(driverPath(driver, SysfsDriverUnbind), iface)
 }
 
+// unbindCurrentDeviceDriver releases the device-level usb_driver bound
+// to the bare USB device (path /sys/bus/usb/devices/<busid>). usbip-host
+// is a struct usb_device_driver and binds at usb_device level — the
+// kernel's driver_match in bind_store rejects EBUSY when dev->driver is
+// already set. Unless we actively detach the generic "usb" driver (or
+// any other device-level driver) from the bare busid, the subsequent
+// usbip-host/bind write returns EBUSY (surfaced as ErrDeviceAlreadyBound).
+//
+// Upstream usbip-utils tools/usb/usbip/src/usbip_bind.c::unbind_other()
+// performs this same step before adding the busid to match_busid.
+//
+// Three cases:
+//   - No driver attached: no work, return nil.
+//   - Already bound to usbip-host: return ErrDeviceAlreadyBound — caller
+//     short-circuits with an unambiguous error (instead of waiting for
+//     the bind step to surface EBUSY with the same meaning).
+//   - Other driver: write bare busid to <driver>/unbind.
+func (a *ExporterAdapter) unbindCurrentDeviceDriver(busID domain.BusID) error {
+	driver, err := a.currentDriver(string(busID))
+	if errors.Is(err, domain.ErrDeviceNotBound) {
+		a.logger.Debug("bind: bare device has no driver attached; skipping device-level unbind",
+			"busid", busID)
+
+		return nil
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if driver == usbipHostDriverName {
+		return fmt.Errorf("%w: device %s already bound to usbip-host", domain.ErrDeviceAlreadyBound, busID)
+	}
+
+	return a.writeClassified(driverPath(driver, SysfsDriverUnbind), string(busID))
+}
+
 // Unbind reverses Bind: gracefully disconnects any active importer
 // session, writes to usbip-host/unbind, removes the busID from
 // match_busid, then triggers a default-driver rebind.
@@ -195,29 +242,29 @@ func (a *ExporterAdapter) Unbind(ctx context.Context, busID domain.BusID) error 
 	// busid ("1-1"), not iface. See the matching comment in Bind.
 	unbindErr := a.writeClassified(path.Join(SysfsUSBIPHostDriver, SysfsDriverUnbind), string(busID))
 
-	// match_busid del and the rebind trigger run regardless of the
-	// unbind result so the device table is not stuck with a stale
-	// entry and the original kernel driver gets a chance to take the
-	// device back. The unbind error (if any) wins as the primary
-	// return so the operator sees the root cause; secondary errors
-	// are logged.
+	// match_busid del runs regardless of the unbind result so the
+	// device table is not stuck with a stale entry. The rebind
+	// trigger is gated on unbind success: kernels through 6.8 (Pi 5)
+	// NULL-deref in do_rebind() when the per-busid stub has no live
+	// udev — exactly the state when unbind failed (no stub_probe
+	// ever ran, or the device was already detached). Writing to
+	// rebind in that state oopses the kernel. The C usbip-utils only
+	// triggers rebind after a successful unbind for the same reason.
 	matchErr := a.writeClassified(
 		path.Join(SysfsUSBIPHostDriver, SysfsMatchBusID),
 		MatchBusIDDelPrefix+string(busID),
 	)
 
-	rebindErr := a.writeClassified(path.Join(SysfsUSBIPHostDriver, SysfsRebind), string(busID))
+	var rebindErr error
+	if unbindErr == nil {
+		rebindErr = a.writeClassified(path.Join(SysfsUSBIPHostDriver, SysfsRebind), string(busID))
+	}
 
 	switch {
 	case unbindErr != nil:
 		if matchErr != nil {
 			a.logger.Warn("unbind: match_busid del failed after primary unbind error",
 				"busid", busID, "match_err", matchErr, "primary_err", unbindErr)
-		}
-
-		if rebindErr != nil {
-			a.logger.Warn("unbind: rebind trigger failed after primary unbind error",
-				"busid", busID, "rebind_err", rebindErr, "primary_err", unbindErr)
 		}
 
 		return unbindErr
@@ -320,17 +367,20 @@ const iffUp = 0x1
 // previously had to run `ip link set <enxXX> down` manually before
 // every bind; this routine performs the same operation by writing
 // a flags value with the IFF_UP bit cleared to /sys/class/net/<name>/flags.
+//
+// Composite CDC devices (cdc_ncm + cdc_ether on the same hardware,
+// e.g. ASIX AX88179) register the netdev under the *interface* node
+// (/sys/bus/usb/devices/<busid>:<cfg>.<iface>/net/<name>) rather than
+// directly under the bare device. Walk both the bare-device /net
+// subdir and every interface /net subdir so the IFF_UP clear hits
+// regardless of where the kernel attached the netdev.
 func (a *ExporterAdapter) deactivateNetdevs(busID domain.BusID) {
-	netRoot := path.Join(SysfsUSBDevices, string(busID), "net")
-
-	names, err := ListDirEntries(a.fs, netRoot)
-	if err != nil {
-		// No /net subdir is the common case — most USB devices are
-		// not network adapters. Nothing to do.
+	netdevs := a.collectNetdevNames(busID)
+	if len(netdevs) == 0 {
 		return
 	}
 
-	for _, name := range names {
+	for _, name := range netdevs {
 		flagsPath := path.Join("/sys/class/net", name, "flags")
 
 		// /sys/class/net/<name>/flags is a hex string ("0x1003"), so
@@ -360,6 +410,74 @@ func (a *ExporterAdapter) deactivateNetdevs(busID domain.BusID) {
 		a.logger.Debug("bind preflight: deactivated netdev to free device for usbip-host",
 			"busid", busID, "netdev", name)
 	}
+}
+
+// collectNetdevNames enumerates every netdev associated with busID by
+// scanning two sysfs locations:
+//
+//  1. /sys/bus/usb/devices/<busID>/net/* — the simple case where the
+//     device-level driver owns the netdev directly.
+//  2. /sys/bus/usb/devices/<busID>:*/net/* — composite devices that
+//     register the netdev under an interface (cdc_ncm, cdc_ether on
+//     ASIX AX88179, etc.). Without this, deactivateNetdevs misses
+//     netdevs entirely on multi-interface USB ethernet adapters.
+//
+// Returns deduplicated names; the same netdev may appear in both
+// locations if sysfs cross-links the bare device into the interface
+// dir on some kernel versions.
+func (a *ExporterAdapter) collectNetdevNames(busID domain.BusID) []string {
+	seen := map[string]struct{}{}
+
+	a.addNetdevsFrom(seen, path.Join(SysfsUSBDevices, string(busID), "net"))
+
+	for _, ifaceDir := range a.busIDInterfaceDirs(busID) {
+		a.addNetdevsFrom(seen, path.Join(SysfsUSBDevices, ifaceDir, "net"))
+	}
+
+	if len(seen) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(seen))
+	for n := range seen {
+		out = append(out, n)
+	}
+
+	return out
+}
+
+// addNetdevsFrom appends every entry under netRoot into seen. Missing
+// directories are ignored (most USB devices have no /net subtree at all).
+func (a *ExporterAdapter) addNetdevsFrom(seen map[string]struct{}, netRoot string) {
+	entries, err := ListDirEntries(a.fs, netRoot)
+	if err != nil {
+		return
+	}
+
+	for _, name := range entries {
+		seen[name] = struct{}{}
+	}
+}
+
+// busIDInterfaceDirs returns the names of every sysfs entry under
+// /sys/bus/usb/devices that belongs to busID's interface set
+// (e.g. "3-1:1.0", "3-1:2.0", "3-1:2.1"). Returns nil on read error.
+func (a *ExporterAdapter) busIDInterfaceDirs(busID domain.BusID) []string {
+	entries, err := ListDirEntries(a.fs, SysfsUSBDevices)
+	if err != nil {
+		return nil
+	}
+
+	prefix := string(busID) + ":"
+	out := make([]string, 0)
+
+	for _, e := range entries {
+		if strings.HasPrefix(e, prefix) {
+			out = append(out, e)
+		}
+	}
+
+	return out
 }
 
 // readNetdevFlagsHex reads /sys/class/net/<name>/flags as a hex

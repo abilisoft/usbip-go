@@ -21,6 +21,11 @@ const (
 	// SysfsUSBIPHostDriver is the usbip-host driver-level attribute root.
 	SysfsUSBIPHostDriver = "/sys/bus/usb/drivers/usbip-host"
 
+	// usbipHostDriverName is the basename of the usbip-host driver as it
+	// appears in /sys/bus/usb/devices/<busid>/driver after bind. Used to
+	// short-circuit a re-bind attempt when the device is already exported.
+	usbipHostDriverName = "usbip-host"
+
 	// SysfsDriverBind is the generic driver "bind" attribute filename.
 	SysfsDriverBind = "bind"
 	// SysfsDriverUnbind is the generic driver "unbind" attribute filename.

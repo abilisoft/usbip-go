@@ -58,7 +58,10 @@ func (r *writeRecord) errAt(i int, err error) kernel.WriteFunc {
 }
 
 // bindFS returns a MapFS wired up for a bind/unbind round trip on the
-// supplied busID: modules present, device-driver symlink in place.
+// supplied busID: modules present, device-driver symlink in place. The
+// bare device carries the generic "usb" device-level driver (the kernel
+// default for all enumerated USB devices) so the bind sequence exercises
+// unbindCurrentDeviceDriver in addition to the interface unbind.
 func bindFS(busID string) fstest.MapFS {
 	iface := busID + ":1.0"
 
@@ -72,6 +75,8 @@ func bindFS(busID string) fstest.MapFS {
 		"sys/bus/usb/drivers/usbip-host/rebind":                 &fstest.MapFile{Data: []byte("")},
 		"sys/bus/usb/devices/" + busID:                          &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + busID + "/bConfigurationValue": &fstest.MapFile{Data: []byte("1\n")},
+		"sys/bus/usb/devices/" + busID + "/driver/driver_name":  &fstest.MapFile{Data: []byte("usb\n")},
+		"sys/bus/usb/devices/" + busID + "/driver":              &fstest.MapFile{Data: []byte("usb\n")},
 		"sys/bus/usb/devices/" + iface:                          &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + iface + "/driver/driver_name":  &fstest.MapFile{Data: []byte("usbhid\n")},
 		"sys/bus/usb/devices/" + iface + "/driver":              &fstest.MapFile{Data: []byte("usbhid\n")},
@@ -94,7 +99,7 @@ func TestBind_WritesExactSequence(t *testing.T) {
 	err = a.Bind(context.Background(), busID)
 	require.NoError(t, err)
 
-	require.Len(t, rec.calls, 3)
+	require.Len(t, rec.calls, 4)
 
 	require.Equal(t, writeCall{
 		Path: "/sys/bus/usb/drivers/usbhid/unbind",
@@ -102,14 +107,19 @@ func TestBind_WritesExactSequence(t *testing.T) {
 	}, rec.calls[0])
 
 	require.Equal(t, writeCall{
+		Path: "/sys/bus/usb/drivers/usb/unbind",
+		Data: string(busID),
+	}, rec.calls[1])
+
+	require.Equal(t, writeCall{
 		Path: "/sys/bus/usb/drivers/usbip-host/match_busid",
 		Data: "add " + string(busID),
-	}, rec.calls[1])
+	}, rec.calls[2])
 
 	require.Equal(t, writeCall{
 		Path: "/sys/bus/usb/drivers/usbip-host/bind",
 		Data: string(busID),
-	}, rec.calls[2])
+	}, rec.calls[3])
 }
 
 func TestUnbind_WritesReverseSequence(t *testing.T) {
@@ -240,6 +250,9 @@ func TestBind_NoDriverAttachedSkipsUnbindStep(t *testing.T) {
 	err = a.Bind(context.Background(), busID)
 	require.NoError(t, err,
 		"Bind must succeed when interface has no driver — there is nothing to unbind")
-	require.Len(t, rec.calls, 2,
-		"sequence with no old driver: match_busid add, usbip-host bind")
+	require.Len(t, rec.calls, 3,
+		"interface unbind skipped (no driver); device-level unbind + match_busid add + usbip-host bind still fire")
+
+	require.Equal(t, "/sys/bus/usb/drivers/usb/unbind", rec.calls[0].Path,
+		"device-level unbind must still detach the bare \"usb\" driver from the bare busid")
 }
