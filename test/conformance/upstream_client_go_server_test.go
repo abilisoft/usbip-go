@@ -213,6 +213,14 @@ func (s *stubExporterKernel) ListLocalDevices(_ context.Context) ([]domain.Devic
 	return s.devices, nil
 }
 
+// ListExportedDevices returns the same devices as ListLocalDevices.
+// The conformance test is upstream-client + go-server end-to-end and
+// does not exercise the wire-side driver/usbip_status filter;
+// advertising every fixture device is correct for these scenarios.
+func (s *stubExporterKernel) ListExportedDevices(ctx context.Context) ([]domain.Device, error) {
+	return s.ListLocalDevices(ctx)
+}
+
 func (*stubExporterKernel) Bind(_ context.Context, _ domain.BusID) error   { return nil }
 func (*stubExporterKernel) Unbind(_ context.Context, _ domain.BusID) error { return nil }
 func (*stubExporterKernel) ExportOnConn(_ context.Context, _ net.Conn, _ domain.BusID) error {
