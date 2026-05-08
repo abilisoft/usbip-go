@@ -147,7 +147,8 @@ func TestExporterServe_DevlistRequest(t *testing.T) {
 
 	lis := newPipeListener()
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterCodec(codec),
 	)
@@ -244,7 +245,8 @@ func TestExporterServe_ImportHappyPath(t *testing.T) {
 
 	lis := newPipeListener()
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterCodec(codec),
 	)

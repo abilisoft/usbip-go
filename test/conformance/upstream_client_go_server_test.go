@@ -152,7 +152,8 @@ func TestConformanceUpstreamSendsExpectedOpReqDevlist(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	out, runErr := exec.CommandContext(ctx,
+	out, runErr := exec.CommandContext(
+		ctx,
 		usbipPath, "--tcp-port", portStrVal, "list", "-r", "127.0.0.1",
 	).CombinedOutput()
 	require.NoError(t, runErr, "usbip list output=%q", out)

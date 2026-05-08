@@ -53,7 +53,8 @@ func TestImporterAttachRejectsRemoteMaliciousBusID(t *testing.T) {
 		},
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport),
 		app.WithImporterCodec(codec),

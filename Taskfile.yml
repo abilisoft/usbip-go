@@ -245,7 +245,14 @@ tasks:
 
   ci:lint:
     deps: [_check:tooling]
-    cmds: [golangci-lint run ./...]
+    # Explicit module roots instead of ./...: the latter recurses into
+    # build/cache/go-mod/, which the hermetic cache populates with
+    # external module source on the first build. Linting that source
+    # surfaces 200+ findings against third-party code we do not own and
+    # cannot fix. The four roots listed cover every package the project
+    # actually owns; build/cov_stats.go is a coverage helper inspected
+    # by gofmt only and excluded from the lint surface deliberately.
+    cmds: [golangci-lint run ./cmd/... ./pkg/... ./internal/... ./test/... ./examples/...]
 
   ci:fmt:
     deps: [_check:tooling]

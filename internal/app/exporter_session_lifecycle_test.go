@@ -54,7 +54,8 @@ func TestExporterSession_LifecycleFollowsKernelDetachEvent(t *testing.T) {
 
 	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 9), Port: 9400})
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterEvents(kernelEvents),
 		app.WithExporterCodec(codec),
@@ -151,7 +152,8 @@ func TestExporterSession_ShutdownEndsKernelOwnedSession(t *testing.T) {
 
 	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 10), Port: 9500})
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterEvents(kernelEvents),
 		app.WithExporterCodec(codec),

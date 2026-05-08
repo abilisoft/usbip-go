@@ -130,12 +130,15 @@ func newRootCmd() *cobra.Command {
 	// cobra's internal bash-completion annotation writer.
 	if !skipFlagCompletionRegistration {
 		_ = cmd.RegisterFlagCompletionFunc("output", cobra.FixedCompletions(
-			[]cobra.Completion{outputTable, outputJSON}, cobra.ShellCompDirectiveNoFileComp))
+			[]cobra.Completion{outputTable, outputJSON}, cobra.ShellCompDirectiveNoFileComp,
+		))
 		_ = cmd.RegisterFlagCompletionFunc("log-level", cobra.FixedCompletions(
 			[]cobra.Completion{"error", "warn", "info", "debug", "trace"},
-			cobra.ShellCompDirectiveNoFileComp))
+			cobra.ShellCompDirectiveNoFileComp,
+		))
 		_ = cmd.RegisterFlagCompletionFunc("log-format", cobra.FixedCompletions(
-			[]cobra.Completion{"auto", "pretty", "json"}, cobra.ShellCompDirectiveNoFileComp))
+			[]cobra.Completion{"auto", "pretty", "json"}, cobra.ShellCompDirectiveNoFileComp,
+		))
 	}
 
 	cmd.AddCommand(newVersionCmd())

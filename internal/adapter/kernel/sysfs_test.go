@@ -101,7 +101,8 @@ func TestReadUint_Decimal(t *testing.T) {
 func TestListDirEntries_SortedNames(t *testing.T) {
 	t.Parallel()
 
-	mfs := makeFSWithDirs(nil,
+	mfs := makeFSWithDirs(
+		nil,
 		"/sys/bus/usb/devices/1-1",
 		"/sys/bus/usb/devices/1-1.2",
 		"/sys/bus/usb/devices/usb1",

@@ -36,7 +36,8 @@ func TestExporter_ArmHandshakeTimeoutRegistersTimerBeforeReturn(t *testing.T) {
 
 	clk := testutil.NewFakeClockAt(exporterTestEpoch())
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterClock(clk),
 		app.WithExporterHandshakeTimeout(handshakeTimeout),
 	)

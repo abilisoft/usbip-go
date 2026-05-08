@@ -30,7 +30,8 @@ func newExporterForTest(t *testing.T, opts ...app.ExporterOption) *app.Exporter 
 
 	base := make([]app.ExporterOption, 0, baseOptCount+len(opts))
 
-	base = append(base,
+	base = append(
+		base,
 		app.WithExporterKernel(&ExporterKernelMock{}),
 		app.WithExporterEvents(&KernelEventsMock{
 			SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {

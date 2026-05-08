@@ -73,7 +73,8 @@ func TestExporterSession_SubscribesBeforeHandoff(t *testing.T) {
 
 	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 11), Port: 9600})
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterEvents(kev),
 		app.WithExporterCodec(codec),
@@ -238,7 +239,8 @@ func TestExporterSession_ClosesAcceptedConnAfterSessionEnd(t *testing.T) {
 
 	lis := newCountingListener()
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterEvents(kev),
 		app.WithExporterCodec(codec),
@@ -328,7 +330,8 @@ func TestExporterSession_ClosesAcceptedConnOnSubscribeFailure(t *testing.T) {
 
 	lis := newCountingListener()
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterEvents(kev),
 		app.WithExporterCodec(codec),
@@ -401,7 +404,8 @@ func TestExporterSession_ClosesAcceptedConnOnEventsChannelClosed(t *testing.T) {
 
 	lis := newCountingListener()
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterEvents(kev),
 		app.WithExporterCodec(codec),
@@ -511,7 +515,8 @@ func TestExporterShutdown_DisconnectsActiveSessions(t *testing.T) {
 
 	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 15), Port: 9100})
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterEvents(kev),
 		app.WithExporterCodec(codec),
@@ -606,7 +611,8 @@ func TestExporterShutdown_TimeoutIsMinOfCtxAndConfig(t *testing.T) {
 
 	const configTimeout = 50 * time.Millisecond
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterCodec(codec),
 		app.WithExporterShutdownTimeout(configTimeout),

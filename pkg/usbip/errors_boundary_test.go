@@ -111,18 +111,21 @@ func TestTranslateInternalErrCovers(t *testing.T) {
 
 	require.NoError(t, usbip.TranslateInternalErrForTest(nil))
 
-	require.ErrorIs(t,
+	require.ErrorIs(
+		t,
 		usbip.TranslateInternalErrForTest(internalapp.ErrServeAlreadyRunning),
 		usbip.ErrServeAlreadyRunning,
 	)
-	require.NotErrorIs(t,
+	require.NotErrorIs(
+		t,
 		usbip.TranslateInternalErrForTest(internalapp.ErrServeAlreadyRunning),
 		internalapp.ErrServeAlreadyRunning,
 	)
 
 	// Pass-through: an unrelated error carries through unchanged so
 	// adapter-level wrap chains (transport/kernel/codec) survive.
-	require.ErrorIs(t,
+	require.ErrorIs(
+		t,
 		usbip.TranslateInternalErrForTest(domain.ErrDeviceNotFound),
 		domain.ErrDeviceNotFound,
 	)

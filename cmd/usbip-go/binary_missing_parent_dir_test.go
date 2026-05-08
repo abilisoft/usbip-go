@@ -48,7 +48,8 @@ func TestUSBIPDGoBinary_MissingStatusSocketParent_ExitAndStderr(t *testing.T) {
 	// Capture stdout and stderr separately so we can pin which stream
 	// the operator-facing error lands on (stderr is the systemd
 	// journal expectation).
-	cmd := exec.CommandContext(ctx, bin,
+	cmd := exec.CommandContext(
+		ctx, bin,
 		"serve",
 		"--listen", "127.0.0.1:0",
 		"--status-socket", missing,

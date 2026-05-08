@@ -80,7 +80,8 @@ func TestImporterListRemotePassesTransportOptions(t *testing.T) {
 		},
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterTransport(transport),
 		app.WithImporterTransportOptions(want),
 	)
@@ -112,7 +113,8 @@ func TestImporterAttachPassesImporterTransportOptions(t *testing.T) {
 		},
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport),
 		app.WithImporterTransportOptions(want),

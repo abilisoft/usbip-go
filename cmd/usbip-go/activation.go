@@ -24,7 +24,8 @@ const activationFdName = "usbip-go"
 // FileDescriptorName. The operator must fix their .socket unit; we
 // refuse to guess.
 var errAmbiguousSocketNames = errors.New(
-	"LISTEN_FDS passed but no matching FileDescriptorName and multiple fds present")
+	"LISTEN_FDS passed but no matching FileDescriptorName and multiple fds present",
+)
 
 // listenersWithNames is the seam for activation.ListenersWithNames; swapped
 // in tests to inject errors without manipulating process-level fds.

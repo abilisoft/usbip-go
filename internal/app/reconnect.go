@@ -141,7 +141,8 @@ func (i *Importer) runReconnectWatcher(parent context.Context, p reconnectParams
 
 	events, unsubscribe, err := i.events.Subscribe(ctx)
 	if err != nil {
-		i.logger.Warn("reconnect watcher subscribe failed",
+		i.logger.Warn(
+			"reconnect watcher subscribe failed",
 			slog.Any("port_id", p.portID),
 			slog.Uint64("generation", p.handle.generation),
 			slog.Any("err", err),
@@ -286,7 +287,8 @@ const staleEventLogMessage = "stale event ignored"
 func (i *Importer) logStaleEventDrop(
 	d domain.PortDetachedEvent, p reconnectParams, currentGen uint64,
 ) {
-	i.logger.Debug(staleEventLogMessage,
+	i.logger.Debug(
+		staleEventLogMessage,
 		slog.Any("port_id", d.Port.ID),
 		slog.Uint64("watcher_generation", p.handle.generation),
 		slog.Uint64("current_generation", currentGen),
@@ -332,7 +334,8 @@ func (i *Importer) isCurrentHandle(id domain.PortID, h *portHandle) bool {
 func (i *Importer) portIsDetached(ctx context.Context, id domain.PortID) bool {
 	ports, err := i.kernel.ListPorts(ctx)
 	if err != nil {
-		i.logger.Debug("reconnect watcher poll failed",
+		i.logger.Debug(
+			"reconnect watcher poll failed",
 			slog.Any("port_id", id),
 			slog.Any("err", err),
 		)
@@ -413,7 +416,8 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 			return
 		}
 
-		i.logger.Warn("reconnect attempt failed",
+		i.logger.Warn(
+			"reconnect attempt failed",
 			slog.Any("port_id", p.portID),
 			slog.Int("attempt", attempt),
 			slog.String("source", source),
@@ -429,7 +433,8 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 	// here because the loop only exits on success return.
 	attempts := attempt - 1
 
-	i.logger.Warn("reconnect giving up after max attempts",
+	i.logger.Warn(
+		"reconnect giving up after max attempts",
 		slog.Any("port_id", p.portID),
 		slog.Int("attempt", attempts),
 		slog.String("source", source),
@@ -490,7 +495,8 @@ func (i *Importer) finishReconnectSuccess(
 		p.opts.Backoff.Reset()
 	}
 
-	i.logger.Info("reconnect succeeded",
+	i.logger.Info(
+		"reconnect succeeded",
 		slog.Any("old_port_id", p.portID),
 		slog.Any("new_port_id", newPort.ID),
 		slog.Int("attempt", attempt),
@@ -530,7 +536,8 @@ func (i *Importer) rollbackSupersededReconnect(
 
 	err := i.kernel.DetachPort(ctx, newID)
 	if err != nil {
-		i.logger.Warn("rollback reconnect detach failed; handle preserved for retry",
+		i.logger.Warn(
+			"rollback reconnect detach failed; handle preserved for retry",
 			slog.Any("new_port_id", newID),
 			slog.Any("old_port_id", p.portID),
 			slog.String("source", source),
@@ -550,7 +557,8 @@ func (i *Importer) rollbackSupersededReconnect(
 
 	i.mu.Unlock()
 
-	i.logger.Info("reconnect rolled back after Detach",
+	i.logger.Info(
+		"reconnect rolled back after Detach",
 		slog.Any("new_port_id", newID),
 		slog.Any("old_port_id", p.portID),
 		slog.String("source", source),
@@ -651,7 +659,8 @@ func (i *Importer) fireOnReconnect(
 				return
 			}
 
-			i.logger.Error("OnReconnect callback panicked",
+			i.logger.Error(
+				"OnReconnect callback panicked",
 				slog.Uint64("port_id", uint64(portID)),
 				slog.Int("attempt", attempt),
 				slog.String("source", source),

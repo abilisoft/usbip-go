@@ -131,7 +131,8 @@ func TestExporter_HandshakeTimeoutClosesConnExactlyOnce(t *testing.T) {
 
 	lis := newCountingListener()
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(&ExporterKernelMock{}),
 		app.WithExporterCodec(codec),
 		app.WithExporterClock(clk),

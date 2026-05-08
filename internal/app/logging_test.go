@@ -57,7 +57,8 @@ func TestAttachFailurePathCarriesSpecRequiredAttrs(t *testing.T) {
 		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport),
 		app.WithImporterCodec(codec),
@@ -110,7 +111,8 @@ func TestAttachKernelErrorRecordCarriesBusIDAndRemote(t *testing.T) {
 		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport),
 		app.WithImporterCodec(codec),
@@ -206,7 +208,8 @@ func TestReconnectGiveUpRecordCarriesPortIDAndAttempt(t *testing.T) {
 		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterEvents(eventsMock),
 		app.WithImporterTransport(transport),
@@ -329,7 +332,8 @@ func TestReconnectGiveUpRecordCarriesAttemptAndSource(t *testing.T) {
 		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterEvents(eventsMock),
 		app.WithImporterTransport(transport),
@@ -449,7 +453,8 @@ func TestReconnectOnReconnectPanicRecordCarriesPortIDAndSource(t *testing.T) {
 		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterEvents(eventsMock),
 		app.WithImporterTransport(transport),
@@ -642,7 +647,8 @@ func TestAttachKernelHandoffOutcomeClassification(t *testing.T) {
 				DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
 			}
 
-			imp := newImporterForTest(t,
+			imp := newImporterForTest(
+				t,
 				app.WithImporterKernel(kernel),
 				app.WithImporterTransport(transport),
 				app.WithImporterCodec(codec),

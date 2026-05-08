@@ -141,7 +141,8 @@ func TestProcessDeathCheckpointAnnouncedBeforeFailingOp(t *testing.T) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, helper)
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(
+		os.Environ(),
 		killHelperEnvKillAt+"=after_sysfs",
 		killHelperEnvServer+"="+refusedAddr,
 		killHelperEnvBusID+"=usbip-vudc.0",
@@ -209,7 +210,8 @@ func runKillScenario(t *testing.T, helper string, sc killScenario) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, helper)
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(
+		os.Environ(),
 		killHelperEnvKillAt+"="+sc.killAt,
 		killHelperEnvServer+"="+sc.server,
 		killHelperEnvBusID+"="+sc.busID,

@@ -84,7 +84,8 @@ func run(addr, busIDArg string) error {
 
 	defer func() {
 		uctx, cancel := context.WithTimeout(
-			context.WithoutCancel(ctx), shutdownTimeout)
+			context.WithoutCancel(ctx), shutdownTimeout,
+		)
 		defer cancel()
 
 		uerr := exp.Unbind(uctx, busID)
@@ -109,7 +110,8 @@ func run(addr, busIDArg string) error {
 	serveErr := exp.Serve(ctx, listener)
 
 	sctx, cancel := context.WithTimeout(
-		context.WithoutCancel(ctx), shutdownTimeout)
+		context.WithoutCancel(ctx), shutdownTimeout,
+	)
 	defer cancel()
 
 	shutdownErr := exp.Shutdown(sctx)
