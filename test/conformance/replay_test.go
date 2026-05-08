@@ -74,9 +74,11 @@ func TestConformanceReplayOpRepDevlistRoundTrip(t *testing.T) {
 
 	raw := mustDecodeHex(t, upstreamOpRepDevlistHex)
 
-	devices, trailing, err := wire.DecodeOpRepDevlist(bytes.NewReader(raw))
+	devices, flags, err := wire.DecodeOpRepDevlist(bytes.NewReader(raw))
 	require.NoError(t, err)
-	require.False(t, trailing, "fixture must decode without trailing bytes")
+	require.False(t, flags.TrailingBytes, "fixture must decode without trailing bytes")
+	require.Empty(t, flags.TruncatedPaddedStrings,
+		"fixture must decode without padded-string truncation")
 	require.Len(t, devices, 1)
 
 	var buf bytes.Buffer
@@ -99,7 +101,7 @@ func TestConformanceReplayOpRepImportRoundTrip(t *testing.T) {
 
 	raw := mustDecodeHex(t, upstreamOpRepImportHex)
 
-	dev, err := wire.DecodeOpRepImport(bytes.NewReader(raw))
+	dev, _, err := wire.DecodeOpRepImport(bytes.NewReader(raw))
 	require.NoError(t, err)
 	require.Equal(t, upstreamVudcDevice(), dev)
 
@@ -132,7 +134,7 @@ func TestConformanceReplayOpRepImportDecodeMutationDetected(t *testing.T) {
 	copy(mutated, raw)
 	mutated[productIDLoOffset] ^= 0x0F
 
-	dev, err := wire.DecodeOpRepImport(bytes.NewReader(mutated))
+	dev, _, err := wire.DecodeOpRepImport(bytes.NewReader(mutated))
 	require.NoError(t, err)
 	require.NotEqual(t, upstreamVudcDevice().ProductID, dev.ProductID,
 		"single-byte mutation at ProductID offset must produce a distinguishable device")

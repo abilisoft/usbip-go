@@ -17,9 +17,9 @@ import (
 type DecodeFlags struct {
 	// TruncatedPaddedStrings records every fixed-width string field
 	// whose bytes reached the end of the field without a NUL
-	// terminator. Each entry names the field and the device index
-	// inside the reply (0 for single-device replies, -1 when the
-	// decode was not inside a devlist).
+	// terminator. Each entry names the field and the 0-based device
+	// position inside the reply (0 for both single-device replies and
+	// the first device of a devlist).
 	TruncatedPaddedStrings []PaddedStringTruncation
 	// TrailingBytes is true when the decoder observed bytes after the
 	// declared frame boundary. Currently set only by
@@ -33,9 +33,10 @@ type PaddedStringTruncation struct {
 	// Field is a dotted identifier naming the truncated field
 	// (e.g. "device.path", "device.busid").
 	Field string
-	// DeviceIndex is the 0-based position inside a devlist reply, or
-	// -1 when the decode was not inside a devlist (single-device
-	// replies use 0 for consistency with the devlist case).
+	// DeviceIndex is the 0-based position inside the reply. Devlist
+	// decoders overwrite it with the in-slice index of each device;
+	// single-device decoders (DecodeOpRepImport, direct DecodeDevice)
+	// leave it at 0.
 	DeviceIndex int
 }
 

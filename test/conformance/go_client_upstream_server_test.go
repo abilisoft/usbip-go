@@ -184,7 +184,7 @@ func TestConformanceGoClientOpRepImport(t *testing.T) {
 	err = wire.EncodeOpReqImport(conn, upstreamVudcDevice().BusID)
 	require.NoError(t, err)
 
-	dev, err := wire.DecodeOpRepImport(conn)
+	dev, _, err := wire.DecodeOpRepImport(conn)
 	require.NoError(t, err)
 	require.Equal(t, upstreamVudcDevice(), dev)
 
@@ -247,7 +247,7 @@ func TestConformanceSyntheticUpstreamCapturesBusID(t *testing.T) {
 
 	// Drain the reply so the server handler exits cleanly and
 	// ReceivedBusID is safe to read (handler has returned).
-	_, _ = wire.DecodeOpRepImport(conn)
+	_, _, _ = wire.DecodeOpRepImport(conn)
 	_ = conn.Close()
 	_ = upstream.Close()
 
