@@ -62,7 +62,7 @@ const moduleSysfsRoot = "/sys/module"
 // cleanup routine the test must defer.
 type VUDCDevice struct {
 	// BusID is the usbip-vudc.N bus id the gadget is bound to and the
-	// value Importer.Attach / usbipd.Bind operate against.
+	// value Importer.Attach / Exporter.Bind operate against.
 	BusID string
 
 	// Name is the configfs subdirectory name holding the gadget

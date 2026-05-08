@@ -441,7 +441,7 @@ func (e *Exporter) waitForSessionEnd(
 }
 
 // eventEndsSessionForBusID returns true iff ev is a kernel-side signal
-// that the exporter session for busID has ended. The v1 contract §5.4 contract
+// that the exporter session for busID has ended. v1 contract §5.4
 // says the kernel emits a `remove` uevent on the exported device's
 // DEVPATH when the session tears down; the EventsAdapter's dispatcher
 // turns that into a PortDetachedEvent or DeviceUnboundEvent depending

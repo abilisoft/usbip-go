@@ -16,7 +16,7 @@ import (
 )
 
 // NetTransport is the pure-Go implementation of the app.Transport
-// contract declared in v1 contract §5.1. It wraps net.Dialer / net.ListenConfig
+// surface declared in v1 contract §5.1. It wraps net.Dialer / net.ListenConfig
 // so that every dial and listen observes a caller-supplied context, and
 // flips TCP_NODELAY on dialed connections to minimise USB/IP handshake
 // latency.

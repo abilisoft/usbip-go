@@ -46,7 +46,7 @@ const daemonStartSignal = "usbipd-go accepting connections"
 //
 // Test flow:
 //  1. Harness vudc + env-supplied usbip-host busid.
-//  2. Start our usbipd subprocess on 127.0.0.1:0 with the busid
+//  2. Start our usbipd-go subprocess on 127.0.0.1:0 with the busid
 //     already bound (Bind happens from the parent before spawning).
 //  3. Parent (as importer) attaches the device via TCP.
 //  4. Kill the daemon (SIGKILL).
