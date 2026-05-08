@@ -13,6 +13,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// errNoErrno is the static sentinel for the "error carries no errno"
+// row in TestSysfsErrnoFromErrorMapsPOSIX. err113 requires named
+// errors instead of ad-hoc errors.New at call sites.
+var errNoErrno = errors.New("no errno")
+
 // TestMustNewMetricsRegistersFullCatalog proves MustNewMetrics registers
 // every §11.5.5 entry exactly once against a fresh registry. A duplicate
 // name (the classic Prometheus failure mode) would make Gather surface
@@ -330,11 +335,13 @@ func TestAdapterSysfsWriteFailureClosedLabelSet(t *testing.T) {
 	require.NoError(t, err)
 
 	var writeFailures *dto.MetricFamily
+
 	for _, f := range fams {
 		if f.GetName() == "usbip_adapter_sysfs_write_failures_total" {
 			writeFailures = f
 		}
 	}
+
 	require.NotNil(t, writeFailures, "usbip_adapter_sysfs_write_failures_total must be registered")
 
 	// Cardinality ceiling: len(path-set) * len(errno-set) label combos max.
@@ -384,7 +391,7 @@ func TestSysfsErrnoFromErrorMapsPOSIX(t *testing.T) {
 		{unix.EIO, app.SysfsErrnoEIO},
 		{unix.EINVAL, app.SysfsErrnoOther},
 		{fmt.Errorf("wrapped: %w", unix.EACCES), app.SysfsErrnoEACCES},
-		{errors.New("no errno"), app.SysfsErrnoOther},
+		{errNoErrno, app.SysfsErrnoOther},
 		{nil, app.SysfsErrnoOther},
 	}
 
