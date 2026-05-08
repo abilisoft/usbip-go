@@ -250,6 +250,33 @@ jobs:
             exit 1
           fi
 
+  changelog-check:
+    name: Changelog check (git-cliff)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install git-cliff
+        # Pinned version; bump deliberately in a separate commit.
+        env:
+          GIT_CLIFF_VERSION: '2.12.0'
+        run: |
+          set -euo pipefail
+          url="https://github.com/orhun/git-cliff/releases/download/v${GIT_CLIFF_VERSION}/git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          curl -sSL "$url" | tar -xz -C /tmp
+          sudo install "/tmp/git-cliff-${GIT_CLIFF_VERSION}/git-cliff" /usr/local/bin/git-cliff
+          git-cliff --version
+      - name: Verify CHANGELOG.md is up to date
+        run: |
+          set -euo pipefail
+          git-cliff --config cliff.toml > /tmp/cliff-expected.md
+          if ! diff -u CHANGELOG.md /tmp/cliff-expected.md; then
+            echo ""
+            echo "CHANGELOG.md is out of date. Regenerate with 'task changelog' and commit the result."
+            exit 1
+          fi
+
   coverage:
     name: Coverage (Compliance Gate 4)
     runs-on: ubuntu-24.04
