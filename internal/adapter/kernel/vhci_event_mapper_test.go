@@ -198,6 +198,23 @@ func TestVhciEventMapper_MalformedDevpath(t *testing.T) {
 		{name: "not a vhci devpath", devpath: "/devices/pci0000:00/0000:00:14.0/usb1/1-1"},
 		{name: "no busid segment", devpath: "/devices/platform/vhci_hcd.0/usb1"},
 		{name: "non numeric bus", devpath: "/devices/platform/vhci_hcd.0/usbfoo/foo-1"},
+		// Unanchored-regex safeguard: a USB interface sub-path must not
+		// match the VHCI pattern. The regex trailing "$" anchor prevents
+		// the outer FindStringSubmatch from truncating an interface-
+		// shaped devpath down to the parent busid and emitting a spurious
+		// PortDetachedEvent on ACTION=remove.
+		{
+			name:    "usb interface sub-path",
+			devpath: "/devices/platform/vhci_hcd.0/usb1/1-1/1-1:1.0",
+		},
+		{
+			name:    "usb endpoint sub-path",
+			devpath: "/devices/platform/vhci_hcd.0/usb1/1-1/1-1:1.0/ep_81",
+		},
+		{
+			name:    "dotted busid with interface",
+			devpath: "/devices/platform/vhci_hcd.0/usb1/1-1.2:1.0",
+		},
 	}
 
 	for _, tc := range cases {
@@ -285,6 +302,62 @@ func TestVhciEventMapper_DottedBusIDProducesFlatPort(t *testing.T) {
 		"rhport0 is always the leading segment before the first '.'")
 	require.Equal(t, domain.BusID("1-2.3"), detach.Port.BusID,
 		"full dotted busid preserved verbatim in the emitted event")
+}
+
+// TestVhciEventMapper_AnchoredRegexPreservesValidBusIDs is the positive
+// counterpart to the unanchored-regex guard in the Malformed table. It
+// pins that the end-anchored vhci devpath regex still accepts the full
+// range of VALID devpath shapes the kernel emits on root-hub-level
+// add/remove events: single-digit root port, dotted hub-attached busid
+// (1-1.2), and deeper chains (1-1.2.3). Each case maps to a
+// PortDetachedEvent whose Port.BusID preserves the full dotted path.
+func TestVhciEventMapper_AnchoredRegexPreservesValidBusIDs(t *testing.T) {
+	t.Parallel()
+
+	topo := loadTopoForMapperTest(t, singleControllerTopoFS())
+	mapper := kernel.NewVHCIEventMapperForTest(topo)
+
+	cases := []struct {
+		name    string
+		devpath string
+		busID   domain.BusID
+	}{
+		{
+			name:    "flat root-port busid",
+			devpath: "/devices/platform/vhci_hcd.0/usb1/1-1",
+			busID:   "1-1",
+		},
+		{
+			name:    "dotted hub-attached busid",
+			devpath: "/devices/platform/vhci_hcd.0/usb1/1-1.2",
+			busID:   "1-1.2",
+		},
+		{
+			name:    "deep hub chain busid",
+			devpath: "/devices/platform/vhci_hcd.0/usb1/1-1.2.3",
+			busID:   "1-1.2.3",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fields := map[string]string{
+				"ACTION":    "remove",
+				"SUBSYSTEM": "usb",
+				"DEVPATH":   tc.devpath,
+			}
+
+			ev, ok := mapper.MapEventForTest(fields)
+			require.True(t, ok, "valid devpath %q must map", tc.devpath)
+
+			detach, isDetach := ev.(domain.PortDetachedEvent)
+			require.True(t, isDetach, "expected PortDetachedEvent, got %T", ev)
+			require.Equal(t, tc.busID, detach.Port.BusID,
+				"full dotted busid must be preserved verbatim")
+		})
+	}
 }
 
 // TestVhciEventMapper_UsbipHostPassThrough confirms the mapper does not
