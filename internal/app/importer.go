@@ -550,8 +550,10 @@ func longestShutdownTimeout(handles []*portHandle) time.Duration {
 // importer has already shut down, ErrAttachInProgress when another
 // Attach for this key is still running, or a release func the caller
 // MUST invoke on every return path to free the slot. The check +
-// insert happens under i.mu so the race window between "observe
-// empty" and "insert" vanishes.
+// insert + wg.Add happen under i.mu so Close observes every
+// in-flight Attach via waitGroupBounded: an Attach that gets past
+// the closed check has incremented wg, and a Close that sets closed
+// first blocks the wg Add from ever reaching Attach's body.
 func (i *Importer) acquireAttachSlot(
 	endpoint domain.RemoteEndpoint, busID domain.BusID,
 ) (func(), error) {
@@ -570,11 +572,13 @@ func (i *Importer) acquireAttachSlot(
 	}
 
 	i.inFlight[key] = struct{}{}
+	i.wg.Add(1)
 
 	return func() {
 		i.mu.Lock()
 		delete(i.inFlight, key)
 		i.mu.Unlock()
+		i.wg.Done()
 	}, nil
 }
 
