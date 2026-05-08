@@ -89,6 +89,13 @@ var errTopologyNoControllers = errors.New("vhci topology: no controllers found")
 // port arithmetic would be wrong.
 var errTopologyInconsistent = errors.New("vhci topology: nports not divisible by 2*nControllers")
 
+// errTopologyIncomplete surfaces when one or more vhci_hcd.<N>
+// controllers exposes fewer than hubsPerController usb children. A
+// partial BusMap would silently misroute every flat-port lookup keyed
+// on an absent bus, so we refuse the snapshot instead of accepting
+// truncation.
+var errTopologyIncomplete = errors.New("vhci topology: controller missing one or more usb child hubs")
+
 // maxControllerProbe caps the status.N probe loop. The kernel's
 // VHCI_NR_HCS default is 1 and is rarely reconfigured above single
 // digits; capping at 16 is well above any realistic deployment and
@@ -121,8 +128,9 @@ const hubsPerController = 2
 
 // discoverTopology reads the full vhci_hcd topology from fsys. fsys
 // must be rooted at "/" (e.g. os.DirFS("/") in production, a MapFS in
-// tests). Errors: missing nports, inconsistent nports, or zero
-// controllers discovered.
+// tests). Errors: missing nports, inconsistent nports, zero
+// controllers discovered, or any controller failing the
+// len(BusMap) == nControllers * hubsPerController invariant.
 func discoverTopology(fsys fs.FS) (Topology, error) {
 	nports, err := ReadUint(fsys, path.Join(SysfsVHCIHCD, SysfsVHCINPorts))
 	if err != nil {
@@ -142,6 +150,12 @@ func discoverTopology(fsys fs.FS) (Topology, error) {
 	busMap, err := buildBusMap(fsys, nControllers)
 	if err != nil {
 		return Topology{}, err
+	}
+
+	expected := int(nControllers) * hubsPerController
+	if len(busMap) != expected {
+		return Topology{}, fmt.Errorf("%w: got %d bus entries, want %d (nControllers=%d)",
+			errTopologyIncomplete, len(busMap), expected, nControllers)
 	}
 
 	return Topology{
@@ -255,7 +269,7 @@ func appendControllerBusMap(fsys fs.FS, idx uint32, busMap map[uint32]VHCILocati
 	entries, err := fs.ReadDir(fsys, fsPathFromAbs(ctrlDir))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil
+			return fmt.Errorf("%w: vhci_hcd.%d missing platform directory", errTopologyIncomplete, idx)
 		}
 
 		return classifyFSErr("readdir", ctrlDir, err)
@@ -264,6 +278,11 @@ func appendControllerBusMap(fsys fs.FS, idx uint32, busMap map[uint32]VHCILocati
 	children, err := collectUSBChildren(fsys, ctrlDir, entries)
 	if err != nil {
 		return err
+	}
+
+	if len(children) != hubsPerController {
+		return fmt.Errorf("%w: vhci_hcd.%d has %d usb children (want %d)",
+			errTopologyIncomplete, idx, len(children), hubsPerController)
 	}
 
 	sort.Slice(children, func(i, j int) bool {
