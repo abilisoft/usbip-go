@@ -197,6 +197,15 @@ func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn)
 // stopTimeout is the handshake-timeout disarm callback; it is invoked
 // AFTER DecodeOpReqImport completes so a stalled body-decode still
 // fires the handshake deadline (Fix 3).
+//
+// After ExportOnConn returns success the kernel owns the fd but the
+// session is still live (RANK 1); the real sysfs write completes
+// immediately and the kernel carries the session for its actual
+// duration. The handler MUST NOT exit yet — an early return would fire
+// the deferred endSession and unregister the session, leaving Sessions()
+// empty while the device is still exported and leaking the accepted
+// conn. waitForSessionEnd blocks until the kernel signals session end
+// via a matching uevent, Shutdown signals handle.done, or ctx cancels.
 func (e *Exporter) serveImport(
 	ctx context.Context, reader io.Reader, conn net.Conn, stopTimeout func(),
 ) bool {
@@ -268,9 +277,87 @@ func (e *Exporter) serveImport(
 		return false
 	}
 
-	e.metrics.ExporterDisconnect(DisconnectReasonGraceful)
+	reason := e.waitForSessionEnd(ctx, busID, handle)
+
+	e.metrics.ExporterDisconnect(reason)
 
 	return true
+}
+
+// waitForSessionEnd blocks the post-ExportOnConn handler until the
+// kernel signals the session ended (RANK 1). Signals observed, in
+// priority order:
+//
+//  1. handle.done closed — Shutdown is tearing the exporter down;
+//     returns DisconnectReasonShutdown. Exporter.Shutdown cancels every
+//     handle before draining sessionsWG, so the handler exits promptly.
+//  2. ctx cancelled — same treatment as handle.done.
+//  3. A KernelEvents event whose busid matches busID:
+//     - PortDetachedEvent: kernel published a `remove`-action uevent
+//       for the exported device — returns DisconnectReasonClientGone
+//       because the remote client's detach drove the signal.
+//     - DeviceUnboundEvent: local unbind of the busid — same treatment.
+//  4. KernelEvents Subscribe error — treated as best-effort: the
+//     handler cannot block on an unavailable event stream, so it
+//     returns DisconnectReasonKernelError immediately rather than
+//     stranding the accepted conn. The subscription error is logged.
+//
+// The subscription is unique per-handler (no shared filtering) so the
+// handler cannot interfere with Importer reconnect watchers or
+// WatchSessions consumers.
+func (e *Exporter) waitForSessionEnd(
+	ctx context.Context, busID domain.BusID, handle *sessionHandle,
+) DisconnectReason {
+	events, cancel, err := e.events.Subscribe(ctx)
+	if err != nil {
+		e.logger.Warn("exporter session-end subscribe failed",
+			slog.Any("busid", busID),
+			slog.Any("err", err))
+
+		return DisconnectReasonKernelError
+	}
+
+	defer cancel()
+
+	for {
+		select {
+		case <-handle.done:
+			return DisconnectReasonShutdown
+		case <-ctx.Done():
+			return DisconnectReasonShutdown
+		case ev, ok := <-events:
+			if !ok {
+				// Source closed without a matching event. The kernel
+				// events subscription has torn down from under us; the
+				// safest thing is to unwind the session as if the kernel
+				// signalled end — otherwise the handler leaks forever.
+				return DisconnectReasonKernelError
+			}
+
+			if eventEndsSessionForBusID(ev, busID) {
+				return DisconnectReasonClientGone
+			}
+		}
+	}
+}
+
+// eventEndsSessionForBusID returns true iff ev is a kernel-side signal
+// that the exporter session for busID has ended. The spec §5.4 contract
+// says the kernel emits a `remove` uevent on the exported device's
+// DEVPATH when the session tears down; parseUevent turns that into a
+// PortDetachedEvent or DeviceUnboundEvent depending on the SUBSYSTEM.
+// Matching on BusID is sufficient — both events carry the busid verbatim
+// and the handler's subscription is per-session so no cross-talk can
+// masquerade as an end signal.
+func eventEndsSessionForBusID(ev domain.Event, busID domain.BusID) bool {
+	switch e := ev.(type) {
+	case domain.PortDetachedEvent:
+		return e.Port.BusID == busID
+	case domain.DeviceUnboundEvent:
+		return e.Device.BusID == busID
+	}
+
+	return false
 }
 
 // classifyDisconnectReason maps an ExportOnConn terminator onto the
