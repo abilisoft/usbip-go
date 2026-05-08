@@ -79,6 +79,10 @@ type drainArgs struct {
 // expires. A dial failure after the first POST is treated as success
 // per v1 contract §7.7 (the daemon exited while we were polling).
 func runDrain(cmd *cobra.Command, args drainArgs) error {
+	if args.socketPath == "" {
+		return errStatusSocketDisabled
+	}
+
 	client := newDrainHTTPClient(args.socketPath)
 
 	ctx, cancel := context.WithTimeout(cmd.Context(), args.drainTimeout)
@@ -154,6 +158,14 @@ func postDrain(ctx context.Context, client *http.Client) error {
 // a non-2xx response. err113 wants sentinels for dynamic messages, so
 // the HTTP status code is appended via fmt.Errorf("%w: ...").
 var errDrainPostFailed = errors.New("POST /drain failed")
+
+// errStatusSocketDisabled signals an empty --status-socket: the daemon's
+// status endpoint is configuration-disabled, so drain has no channel
+// to reach the running process. Surfaced as a targeted error so
+// operators do not chase a raw dial failure with no context.
+var errStatusSocketDisabled = errors.New(
+	"usbip drain: status socket is disabled (--status-socket is empty); " +
+		"start the daemon with a non-empty --status-socket to enable drain")
 
 // pollUntilIdle loops GET / requests at pollInterval until sessions is
 // empty AND listening.accepting is false, or the context is done. A

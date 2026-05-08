@@ -565,6 +565,46 @@ func TestStatusGroupChownResolvesCallerGroup(t *testing.T) {
 	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }
 
+// TestStatusDrainRejectsQueryParams pins the v1 freeze: POST /drain
+// MUST NOT silently accept query parameters. A future operator who
+// types `usbip drain --force` against a build that does not
+// understand `?force=true` should get a clear 400 Bad Request, not
+// a silent success that makes them think force took effect.
+// ADR-0012 keeps the door open for v2 to add typed flags without
+// the silent-accept ambiguity.
+func TestStatusDrainRejectsQueryParams(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	sockPath := filepath.Join(dir, "status.sock")
+
+	src := &fakeStatusSource{
+		listenAddr: "0.0.0.0:3240",
+		accepting:  true,
+		modules:    map[string]usbip.ModuleState{"usbip_core": usbip.ModuleStateLoaded},
+	}
+
+	cleanup := startStatusTestServer(t, src, sockPath)
+	t.Cleanup(cleanup)
+
+	client := newUDSHTTPClient(sockPath)
+
+	req, err := http.NewRequestWithContext(context.Background(),
+		http.MethodPost, "http://usbipd/drain?force=true", nil)
+	require.NoError(t, err)
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = resp.Body.Close() })
+
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode,
+		"POST /drain with query params must surface 400 so silent-accept ambiguity cannot mask an unrecognised future flag")
+
+	require.Equalf(t, int32(0), src.drainCalled.Load(),
+		"rejected request must NOT trigger Drain")
+}
+
 // TestStatusDrainHandlerIdempotent locks ADR-0012's idempotency
 // guarantee: repeated POST /drain calls return 200 each time but the
 // underlying Drain operation runs at most once. Without the
