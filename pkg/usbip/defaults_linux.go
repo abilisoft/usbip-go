@@ -19,7 +19,15 @@ import (
 func newDefaultImporter(opts []ImporterOption) (*Importer, error) {
 	cfg := importerConfig{}
 
+	// Skip nil option funcs so callers can compose With* helpers
+	// conditionally (e.g. `opt := cond ? With... : nil`) without a
+	// runtime panic. Go convention tolerates nil in variadic slots; see
+	// http.Handler composition for a standard-library precedent.
 	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+
 		opt(&cfg)
 	}
 
@@ -62,7 +70,12 @@ const importerBaseOptCount = 4
 func newDefaultExporter(opts []ExporterOption) (*Exporter, error) {
 	cfg := exporterConfig{}
 
+	// Skip nil option funcs per the rationale on newDefaultImporter.
 	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+
 		opt(&cfg)
 	}
 
