@@ -44,9 +44,6 @@ type globalFlags struct {
 	// NoColor disables ANSI colors in the pretty handler and the
 	// table renderer, mirroring NO_COLOR=<any> env behaviour.
 	NoColor bool
-	// Config is an optional YAML config path. Currently unused by the
-	// subcommands; retained on the global surface for spec §7.2 parity.
-	Config string
 	// CompleteNetwork gates network-backed shell completion. When
 	// false (the default), second-arg completion for `usbip attach`
 	// returns an empty list to avoid silently dialing remotes during
@@ -109,7 +106,6 @@ func newRootCmd() *cobra.Command {
 	flags.StringVar(&gf.LogFormat, "log-format", "auto", "log handler: auto/pretty/json")
 	flags.CountVarP(&gf.VerboseCount, "verbose", "v", "verbose counter: -v=debug, -vv=trace")
 	flags.BoolVar(&gf.NoColor, "no-color", false, "disable ANSI color output")
-	flags.StringVar(&gf.Config, "config", "", "path to YAML config file")
 	flags.BoolVar(&gf.CompleteNetwork, "complete-network", false,
 		"allow network-dialing shell completion (same as USBIP_COMPLETE_NETWORK=1)")
 
