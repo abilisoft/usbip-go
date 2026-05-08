@@ -1,7 +1,6 @@
 package domain_test
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -32,9 +31,8 @@ func TestSentinels_AreDistinctAndNonNil(t *testing.T) {
 
 	seen := make(map[error]string, len(sentinels))
 	for _, s := range sentinels {
-		require.NotNilf(t, s.err, "%s is nil", s.name)
+		require.Errorf(t, s.err, "%s is nil", s.name)
 		require.Equalf(t, s.msg, s.err.Error(), "%s message", s.name)
-		require.Truef(t, errors.Is(s.err, s.err), "%s not Is itself", s.name)
 
 		prev, dup := seen[s.err]
 		require.Falsef(t, dup, "%s duplicates %s", s.name, prev)
@@ -47,7 +45,7 @@ func TestSentinels_PairwiseDistinct(t *testing.T) {
 	t.Parallel()
 
 	// Sanity: each sentinel is not Is of another.
-	require.False(t, errors.Is(domain.ErrDeviceNotFound, domain.ErrPortInUse))
-	require.False(t, errors.Is(domain.ErrProtocolError, domain.ErrProtocolMismatch))
-	require.False(t, errors.Is(domain.ErrAlreadyRunning, domain.ErrAlreadyShutdown))
+	require.NotErrorIs(t, domain.ErrDeviceNotFound, domain.ErrPortInUse)
+	require.NotErrorIs(t, domain.ErrProtocolError, domain.ErrProtocolMismatch)
+	require.NotErrorIs(t, domain.ErrAlreadyRunning, domain.ErrAlreadyShutdown)
 }
