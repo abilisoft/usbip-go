@@ -100,6 +100,14 @@ func (a internalBackoffAdapter) Reset() { a.pub.Reset() }
 // optional. Native internal types (FixedBackoff, *ExponentialBackoff)
 // are unwrapped to skip the forwarding layer; everything else goes
 // through the adapter.
+//
+// A typed-nil concrete backoff (`(*FixedBackoff)(nil)` or
+// `(*ExponentialBackoff)(nil)` passed through the BackoffStrategy
+// interface) does NOT satisfy the top-level nil check — the interface
+// value carries a non-nil type word with a nil data word. Each case
+// re-checks for nil before dereferencing so the caller receives nil
+// and the internal layer falls back to its default backoff instead of
+// panicking.
 func backoffToInternal(b BackoffStrategy) internalapp.BackoffStrategy {
 	if b == nil {
 		return nil
@@ -109,8 +117,16 @@ func backoffToInternal(b BackoffStrategy) internalapp.BackoffStrategy {
 	case FixedBackoff:
 		return internalapp.FixedBackoff{Delay: v.Delay}
 	case *FixedBackoff:
+		if v == nil {
+			return nil
+		}
+
 		return internalapp.FixedBackoff{Delay: v.Delay}
 	case *ExponentialBackoff:
+		if v == nil {
+			return nil
+		}
+
 		return v.inner
 	}
 
