@@ -215,7 +215,7 @@ terminator even when the string fills the field.
 
 The codec's inputs are pinned against real captures from upstream
 `usbipd`. Fixtures live in
-[`test/conformance/testdata/`](../test/conformance/testdata). The
-conformance suite decodes each capture, re-encodes, and asserts
+[`internal/adapter/wire/testdata/`](../internal/adapter/wire/testdata).
+The conformance suite decodes each capture, re-encodes, and asserts
 byte-for-byte equality — see [`wire-trace.md`](wire-trace.md) for
 the capture recipe.
