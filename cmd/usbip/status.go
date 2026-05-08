@@ -442,10 +442,14 @@ func handleStatusGet(w http.ResponseWriter, r *http.Request, src statusSource) {
 // no-op acknowledgement. The two-code split lets monitoring tools
 // distinguish "I initiated this drain" from "someone else already
 // did" without parsing a response body. The underlying src.Drain
-// implementation is also idempotent (Exporter.Shutdown wraps in
-// sync.Once); the handler-level guard avoids the wasted goroutines
-// and the duplicate error log noise that would otherwise occur on
-// the rare path where Drain returns non-nil.
+// implementation is also idempotent: Exporter.Shutdown flips a
+// `shutdown` flag under its mutex on first entry and captures-and-
+// clears the tracked listener so subsequent calls find an empty
+// session map and return after the no-op cleanup pass (see
+// ADR-0012's Idempotency section for the three layers). The handler-
+// level CAS guard avoids the wasted goroutines and the duplicate
+// error log noise that would otherwise occur on the rare path where
+// Drain returns non-nil.
 func handleStatusDrain(drainCtx context.Context, started *atomic.Bool, w http.ResponseWriter, src statusSource) {
 	if !started.CompareAndSwap(false, true) {
 		w.WriteHeader(http.StatusOK)
