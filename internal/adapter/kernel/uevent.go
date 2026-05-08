@@ -132,12 +132,16 @@ func (a *EventsAdapter) Subscribe(ctx context.Context) (<-chan domain.Event, fun
 	// Honour the caller's ctx — cancel auto-unsubscribes this
 	// subscriber only. The dispatcher keeps running as long as any
 	// other subscriber is attached. Exits on whichever signal fires
-	// first: ctx cancellation or explicit unsub.
+	// first: ctx cancellation, explicit unsub, or dispatcher exit
+	// (fatal netlink error). Without the dispatcher.done case a
+	// dispatcher death would leak this watcher per live subscription
+	// until the caller's ctx eventually cancels.
 	go func() {
 		select {
 		case <-ctx.Done():
 			unsub()
 		case <-unsubSig:
+		case <-dispatcher.done:
 		}
 	}()
 
