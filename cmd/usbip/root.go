@@ -110,6 +110,11 @@ func newRootCmd() *cobra.Command {
 
 	cmd.AddCommand(newVersionCmd())
 	cmd.AddCommand(newListCmd())
+	cmd.AddCommand(newAttachCmd())
+	cmd.AddCommand(newDetachCmd())
+	cmd.AddCommand(newPortCmd())
+	cmd.AddCommand(newBindCmd())
+	cmd.AddCommand(newUnbindCmd())
 
 	return cmd
 }
