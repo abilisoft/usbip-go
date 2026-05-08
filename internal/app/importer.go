@@ -160,9 +160,27 @@ func NewImporter(opts ...ImporterOption) *Importer {
 
 // Close cancels every registered handle's context, waits for any
 // background goroutines to drain, and marks the Importer closed.
-// Subsequent Close calls are no-ops via sync.Once. The wait group is
-// currently empty (auto-reconnect goroutines land in Task 5.8) but the
-// wait is wired now so the contract is stable across that addition.
+// Subsequent Close calls are no-ops via sync.Once.
+//
+// Close's wait is bounded by the longest shutdownTimeout across the
+// registered handles (see [AttachOptions.ShutdownTimeout]): on timer
+// fire, Close returns even if the waitgroup has not drained. This is
+// a WALL-CLOCK bound only. Any in-flight wg-tracked goroutines —
+// reconnect watchers stuck inside kernel.AttachRemote, blocking
+// OnReconnect callbacks (RANK 11), or detach goroutines waiting on
+// kernel.DetachPort — may continue running past Close's return and
+// will be cleaned up when they naturally unwind. Callers who require
+// synchronous shutdown must either (a) use a negative shutdownTimeout
+// to request an unbounded wait, or (b) ensure their workloads honour
+// ctx cancellation (RANK 10).
+//
+// The internal waiter goroutine spawned by waitGroupBounded does not
+// observe the bound itself: it parks on sync.WaitGroup.Wait and exits
+// only when the wg drains. When Close returns on timeout with
+// uncompleted goroutines, that waiter also lingers until the wg
+// eventually clears — this is accepted as the cost of bounded Close
+// (sync.WaitGroup cannot be cancelled from outside). In practice this
+// means the waiter's lifetime matches the stuck workload's.
 //
 // The handle map is NOT nilled here: a concurrent Attach may be parked
 // past AttachRemote but before registerHandle, and nilling the map
