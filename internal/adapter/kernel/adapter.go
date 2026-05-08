@@ -34,22 +34,27 @@ type commonAdapter struct {
 	statusTopoCache *statusTopologyCache
 }
 
-// topologyCache memoises a single discoverTopology result. It is kept
-// behind a pointer so copies of commonAdapter share the same underlying
-// cache and vet's copylocks check never trips on commonAdapter values.
+// topologyCache memoises a successful discoverTopology result and
+// retries on every call after a transient failure — errors are never
+// cached. A long-lived daemon that survives a vhci_hcd module reload
+// must recover automatically; a sync.Once that memoised the first
+// error would wedge the adapter forever. It is kept behind a pointer
+// so copies of commonAdapter share the same underlying cache and vet's
+// copylocks check never trips on commonAdapter values.
 type topologyCache struct {
-	once sync.Once
+	mu   sync.Mutex
 	topo Topology
-	err  error
+	ok   bool
 }
 
-// statusTopologyCache memoises a single discoverStatusTopology result.
+// statusTopologyCache memoises a successful discoverStatusTopology
+// result with the same retry-on-error semantics as topologyCache.
 // Separate from topologyCache so the status-reading path does not pay
 // the BusMap walk (or its failure) that full-Topology consumers need.
 type statusTopologyCache struct {
-	once sync.Once
+	mu   sync.Mutex
 	topo StatusTopology
-	err  error
+	ok   bool
 }
 
 // ImporterAdapter satisfies app.ImporterKernel. It operates against the
