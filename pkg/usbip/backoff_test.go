@@ -115,6 +115,37 @@ func (*customBackoff) Next(_ int) time.Duration { return 42 * time.Millisecond }
 // Reset tracks invocations so tests can assert the forwarded call.
 func (c *customBackoff) Reset() { c.resetCount++ }
 
+// TestBackoffToInternalTypedNilDoesNotPanic proves a consumer that
+// hands the constructor a typed-nil concrete backoff (for example
+// `(*usbip.FixedBackoff)(nil)` passed through the BackoffStrategy
+// interface) does not crash the translator. The previous implementation
+// dereferenced the nil pointer inside the type-switch; this test locks
+// in the defensive-nil guard.
+func TestBackoffToInternalTypedNilDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   usbip.BackoffStrategy
+	}{
+		{"TypedNilFixedBackoff", (*usbip.FixedBackoff)(nil)},
+		{"TypedNilExponentialBackoff", (*usbip.ExponentialBackoff)(nil)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// NotPanics wraps the invocation; a panic from the
+			// type-switch deref would mark the test failed with the
+			// panic's recover message.
+			require.NotPanics(t, func() {
+				_ = usbip.BackoffToInternalForTest(tc.in)
+			})
+		})
+	}
+}
+
 // TestBackoffToInternalMapsEachShape exercises the type-switch inside
 // the facade's translation helper: nil stays nil, FixedBackoff value
 // and pointer unwrap to the internal FixedBackoff, *ExponentialBackoff
