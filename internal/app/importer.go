@@ -309,6 +309,11 @@ func (i *Importer) Attach(
 		return domain.Port{}, fmt.Errorf("attach: %w", err)
 	}
 
+	if opts.MaxAttempts < 0 {
+		return domain.Port{}, fmt.Errorf("%w: MaxAttempts %d must be non-negative (0 means infinite)",
+			ErrAttachOptionsInvalid, opts.MaxAttempts)
+	}
+
 	endpoint = endpoint.NormalizePort()
 
 	release, err := i.acquireAttachSlot(endpoint, busID)
