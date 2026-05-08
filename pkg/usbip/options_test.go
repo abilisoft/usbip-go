@@ -195,6 +195,49 @@ func TestWithExporterBuildInfoZeroIsNoop(t *testing.T) {
 	require.Empty(t, bi.GoVersion)
 }
 
+// TestNewExporterWithBuildInfoStampsMetric drives the full public
+// construction path with both WithExporterMetricsRegisterer and
+// WithExporterBuildInfo — the combination exporterConfigToInternal
+// uses to forward the build-info stamp into the internal bundle.
+// Covers the non-zero buildInfo branch of exporterConfigToInternal
+// which the unit tests' forTest accessors cannot reach.
+func TestNewExporterWithBuildInfoStampsMetric(t *testing.T) {
+	t.Parallel()
+
+	reg := prometheus.NewRegistry()
+
+	_, err := usbip.NewExporter(
+		usbip.WithExporterMetricsRegisterer(reg),
+		usbip.WithExporterBuildInfo("v9.9.9", "cafebabe", "go1.99"),
+	)
+	require.NoError(t, err)
+
+	mfs, gatherErr := reg.Gather()
+	require.NoError(t, gatherErr)
+
+	var found bool
+
+	for _, mf := range mfs {
+		if mf.GetName() != "usbip_build_info" {
+			continue
+		}
+
+		labels := map[string]string{}
+
+		for _, lp := range mf.GetMetric()[0].GetLabel() {
+			labels[lp.GetName()] = lp.GetValue()
+		}
+
+		require.Equal(t, "v9.9.9", labels["version"])
+		require.Equal(t, "cafebabe", labels["commit"])
+		require.Equal(t, "go1.99", labels["go_version"])
+
+		found = true
+	}
+
+	require.True(t, found, "usbip_build_info must appear after NewExporter with build-info option")
+}
+
 // TestExporterOptionTypeIsFunc pins the public ExporterOption shape.
 func TestExporterOptionTypeIsFunc(t *testing.T) {
 	t.Parallel()

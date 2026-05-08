@@ -64,6 +64,19 @@ const (
 	checkpointAfterSysfs checkpoint = "after_sysfs"
 )
 
+// Exit codes. Named so mnd does not flag the inline literals and
+// parents can map them back to failure class. exitSuccess is returned
+// implicitly via `return 0` from main-run (normal termination).
+const (
+	exitInvalidEnv   = 2
+	exitAttachFailed = 3
+)
+
+// errAddressMissingColon is the static sentinel for parseEndpoint when
+// the input lacks a host:port separator. err113 requires named errors
+// instead of ad-hoc errors.New at call sites.
+var errAddressMissingColon = errors.New("no ':' in address")
+
 func main() {
 	os.Exit(run())
 }
@@ -75,30 +88,30 @@ func main() {
 func run() int {
 	target := checkpoint(os.Getenv(killEnv))
 	if target == "" {
-		fmt.Fprintln(checkpointWriter, "FATAL: USBIP_TEST_KILL_AT unset")
+		_, _ = fmt.Fprintln(checkpointWriter, "FATAL: USBIP_TEST_KILL_AT unset")
 
-		return 2
+		return exitInvalidEnv
 	}
 
 	server := os.Getenv(serverEnv)
 	if server == "" {
-		fmt.Fprintln(checkpointWriter, "FATAL: USBIP_TEST_SERVER unset")
+		_, _ = fmt.Fprintln(checkpointWriter, "FATAL: USBIP_TEST_SERVER unset")
 
-		return 2
+		return exitInvalidEnv
 	}
 
 	busID := os.Getenv(busIDEnv)
 	if busID == "" {
-		fmt.Fprintln(checkpointWriter, "FATAL: USBIP_TEST_BUSID unset")
+		_, _ = fmt.Fprintln(checkpointWriter, "FATAL: USBIP_TEST_BUSID unset")
 
-		return 2
+		return exitInvalidEnv
 	}
 
 	endpoint, err := parseEndpoint(server)
 	if err != nil {
-		fmt.Fprintf(checkpointWriter, "FATAL: parse server %q: %v\n", server, err)
+		_, _ = fmt.Fprintf(checkpointWriter, "FATAL: parse server %q: %v\n", server, err)
 
-		return 2
+		return exitInvalidEnv
 	}
 
 	announceCheckpoint(checkpointBeforeDial)
@@ -109,9 +122,9 @@ func run() int {
 
 	imp, err := usbip.NewImporter()
 	if err != nil {
-		fmt.Fprintf(checkpointWriter, "FATAL: NewImporter: %v\n", err)
+		_, _ = fmt.Fprintf(checkpointWriter, "FATAL: NewImporter: %v\n", err)
 
-		return 2
+		return exitInvalidEnv
 	}
 
 	defer func() { _ = imp.Close() }()
@@ -129,11 +142,10 @@ func run() int {
 
 	_, err = imp.Attach(context.Background(), endpoint, domain.BusID(busID), usbip.AttachOptions{})
 	if err != nil {
-		fmt.Fprintf(checkpointWriter, "attach error: %v\n", err)
-		// Non-fatal for parent assertions; exit 3 so parent can
-		// distinguish "attach failed as expected" from "attach
-		// succeeded".
-		return 3
+		_, _ = fmt.Fprintf(checkpointWriter, "attach error: %v\n", err)
+		// Non-fatal for parent assertions; parent distinguishes
+		// "attach failed as expected" from "attach succeeded".
+		return exitAttachFailed
 	}
 
 	announceCheckpoint(checkpointAfterSysfs)
@@ -172,7 +184,7 @@ func splitHostPort(addr string) (string, string, error) {
 		}
 	}
 
-	return "", "", errors.New("no ':' in address")
+	return "", "", errAddressMissingColon
 }
 
 // announceCheckpoint writes "AT=<point>\n" to stderr so the parent
@@ -180,7 +192,7 @@ func splitHostPort(addr string) (string, string, error) {
 // checkpoint. A single Write is atomic up to PIPE_BUF (4096 bytes on
 // Linux) so no partial-line reads are possible.
 func announceCheckpoint(c checkpoint) {
-	fmt.Fprintf(checkpointWriter, "AT=%s\n", c)
+	_, _ = fmt.Fprintf(checkpointWriter, "AT=%s\n", c)
 }
 
 // parkForSIGKILL blocks forever. The parent SIGKILLs the child to
