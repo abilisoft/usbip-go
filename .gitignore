@@ -75,13 +75,12 @@ Thumbs.db
 # ---------------------------------------------------------------------------
 # AI assistant state — never committed
 # ---------------------------------------------------------------------------
-# Claude Code: ignore local overrides and scratch state, but keep any
-# repo-shared config the team has opted to commit.
-.claude/*.local.*
-.claude/settings.local.json
-.claude/cache/
-.claude/logs/
-.claude/tmp/
+# Claude Code: ignore the entire .claude/ tree by default. The Claude
+# harness drops zero-byte sandbox shadows in there (agents, commands,
+# skills, settings.json) that must not be committed; team-shared
+# config, if it ever needs to be versioned, should be added with
+# `git add -f` on an explicit path.
+.claude/
 /tmp/claude-*
 
 # OpenAI Codex (CLI + companion plugin). Pattern covers both the
