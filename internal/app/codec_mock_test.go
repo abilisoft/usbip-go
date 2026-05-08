@@ -7,11 +7,12 @@
 package app_test
 
 import (
+	"io"
+	"sync"
+
 	"github.com/abilisoft/usbip-go/internal/adapter/wire"
 	"github.com/abilisoft/usbip-go/internal/app"
 	"github.com/abilisoft/usbip-go/pkg/domain"
-	"io"
-	"sync"
 )
 
 // Ensure, that ProtocolCodecMock does implement app.ProtocolCodec.

@@ -51,28 +51,50 @@ type errorEntry struct {
 // mutate it.
 func errorRegistry() []errorEntry {
 	return []errorEntry{
-		{usbip.ErrPermission, ExitPermission,
-			"usbip-go: operation requires elevated privileges (CAP_SYS_ADMIN). Try: sudo usbip-go"},
-		{usbip.ErrKernelModuleMissing, ExitKernelModule,
-			"usbip-go: kernel module not loaded. Try: sudo modprobe usbip_core vhci_hcd usbip_host"},
-		{usbip.ErrDeviceNotFound, ExitDeviceNotFound,
-			"usbip-go: device not found: %s"},
-		{usbip.ErrDeviceAlreadyBound, ExitDeviceBusy,
-			"usbip-go: device is already bound: %s"},
-		{usbip.ErrPortInUse, ExitDeviceBusy,
-			"usbip-go: port is in use: %s"},
-		{usbip.ErrDeviceNotBound, ExitDeviceBusy,
-			"usbip-go: device is not bound: %s"},
-		{usbip.ErrProtocolMismatch, ExitProtocolMismatch,
-			"usbip-go: protocol mismatch: %s"},
-		{usbip.ErrNoFreePort, ExitNoFreePort,
-			"usbip-go: no free vhci port available: %s"},
-		{usbip.ErrProtocolError, ExitProtocolError,
-			"usbip-go: peer reported an error: %s"},
-		{context.DeadlineExceeded, ExitTimeout,
-			"usbip-go: operation timed out: %s"},
-		{context.Canceled, ExitInterrupted,
-			"usbip-go: operation interrupted: %s"},
+		{
+			usbip.ErrPermission, ExitPermission,
+			"usbip-go: operation requires elevated privileges (CAP_SYS_ADMIN). Try: sudo usbip-go",
+		},
+		{
+			usbip.ErrKernelModuleMissing, ExitKernelModule,
+			"usbip-go: kernel module not loaded. Try: sudo modprobe usbip_core vhci_hcd usbip_host",
+		},
+		{
+			usbip.ErrDeviceNotFound, ExitDeviceNotFound,
+			"usbip-go: device not found: %s",
+		},
+		{
+			usbip.ErrDeviceAlreadyBound, ExitDeviceBusy,
+			"usbip-go: device is already bound: %s",
+		},
+		{
+			usbip.ErrPortInUse, ExitDeviceBusy,
+			"usbip-go: port is in use: %s",
+		},
+		{
+			usbip.ErrDeviceNotBound, ExitDeviceBusy,
+			"usbip-go: device is not bound: %s",
+		},
+		{
+			usbip.ErrProtocolMismatch, ExitProtocolMismatch,
+			"usbip-go: protocol mismatch: %s",
+		},
+		{
+			usbip.ErrNoFreePort, ExitNoFreePort,
+			"usbip-go: no free vhci port available: %s",
+		},
+		{
+			usbip.ErrProtocolError, ExitProtocolError,
+			"usbip-go: peer reported an error: %s",
+		},
+		{
+			context.DeadlineExceeded, ExitTimeout,
+			"usbip-go: operation timed out: %s",
+		},
+		{
+			context.Canceled, ExitInterrupted,
+			"usbip-go: operation interrupted: %s",
+		},
 	}
 }
 
