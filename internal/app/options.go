@@ -21,6 +21,7 @@ type importerConfig struct {
 	codec     ProtocolCodec
 	clock     Clock
 	logger    *slog.Logger
+	metrics   *Metrics
 }
 
 // WithImporterKernel injects the kernel-side adapter (vhci_hcd
@@ -56,6 +57,13 @@ func WithImporterLogger(l *slog.Logger) ImporterOption {
 	return func(c *importerConfig) { c.logger = l }
 }
 
+// WithImporterMetrics injects the §11.5.5 metrics bundle. A nil *Metrics
+// opts the Importer into the no-op accessor path already implemented by
+// MustNewMetrics — call sites don't need a pre-call nil guard.
+func WithImporterMetrics(m *Metrics) ImporterOption {
+	return func(c *importerConfig) { c.metrics = m }
+}
+
 // ExporterOption configures an Exporter at construction time. Apply
 // options by passing them to NewExporter; options mutate an internal
 // config struct in declaration order so the last option wins for any
@@ -75,6 +83,7 @@ type exporterConfig struct {
 	codec     ProtocolCodec
 	clock     Clock
 	logger    *slog.Logger
+	metrics   *Metrics
 
 	maxSessions        int
 	maxSessionsPerPeer int
@@ -117,6 +126,13 @@ func WithExporterClock(clk Clock) ExporterOption {
 // slog.Default() when unspecified.
 func WithExporterLogger(l *slog.Logger) ExporterOption {
 	return func(c *exporterConfig) { c.logger = l }
+}
+
+// WithExporterMetrics injects the §11.5.5 metrics bundle. A nil *Metrics
+// opts the Exporter into the no-op accessor path implemented by
+// MustNewMetrics — call sites don't need a pre-call nil guard.
+func WithExporterMetrics(m *Metrics) ExporterOption {
+	return func(c *exporterConfig) { c.metrics = m }
 }
 
 // WithExporterMaxSessions caps the total concurrent accepted sessions
