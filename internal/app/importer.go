@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -82,6 +83,14 @@ type attachKey struct {
 // on watcherDone before proceeding anyway. Carried on the handle (not
 // on the Importer) because it is set per-Attach and must outlast the
 // Attach call itself.
+//
+// detaching is set by Detach BEFORE cancel so a reconnect watcher still
+// parked inside kernel.AttachRemote past the bounded wait cannot
+// silently register a fresh handle for the device the user asked to
+// release (RANK 3). The watcher checks this flag AFTER Attach returns
+// success and rolls back the kernel handoff when it finds the flag set.
+// Using atomic.Bool sidesteps the "watcher holds mu" deadlock risk: the
+// watcher reads via Load without touching the Importer mutex.
 type portHandle struct {
 	done            chan struct{}
 	cancelOnce      sync.Once
@@ -90,6 +99,7 @@ type portHandle struct {
 	generation      uint64
 	watcherDone     chan struct{}
 	shutdownTimeout time.Duration
+	detaching       atomic.Bool
 }
 
 // cancel closes the done channel exactly once, signalling any watcher
@@ -304,6 +314,12 @@ func (i *Importer) Attach(
 // reconnect attempt cannot overlap with the sysfs write. When the
 // kernel rejects the detach, the handle is left registered so callers
 // can retry.
+//
+// Detach sets handle.detaching BEFORE cancel so a reconnect watcher
+// wedged inside kernel.AttachRemote past the bounded wait cannot
+// silently register a fresh handle after Detach returns (RANK 3). The
+// watcher observes the flag on its post-Attach check and rolls back the
+// kernel handoff instead of taking ownership of the replacement port.
 func (i *Importer) Detach(ctx context.Context, id domain.PortID) error {
 	i.mu.Lock()
 
@@ -329,6 +345,13 @@ func (i *Importer) Detach(ctx context.Context, id domain.PortID) error {
 	// where Close could return while sysfs writes are still in-flight.
 	i.wg.Add(1)
 	defer i.wg.Done()
+
+	// Mark the handle as detaching BEFORE releasing the lock so a
+	// concurrent watcher reading the flag cannot observe it unset after
+	// the post-Attach check (RANK 3). Pairing the store with the mu-
+	// protected lookup makes the happens-before explicit: any watcher
+	// holding the RLock later will see the flag set.
+	h.detaching.Store(true)
 
 	i.mu.Unlock()
 
