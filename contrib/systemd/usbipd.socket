@@ -1,0 +1,10 @@
+[Unit]
+Description=USB/IP (Go) daemon socket
+
+[Socket]
+ListenStream=0.0.0.0:3240
+Accept=no
+FileDescriptorName=usbipd
+
+[Install]
+WantedBy=sockets.target
