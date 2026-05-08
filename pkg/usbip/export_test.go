@@ -9,3 +9,9 @@ import internalapp "github.com/abilisoft/usbip-go/internal/app"
 func NewImporterFromInternalForTest(inner *internalapp.Importer) *Importer {
 	return &Importer{inner: inner}
 }
+
+// NewExporterFromInternalForTest mirrors NewImporterFromInternalForTest
+// for the Exporter wrapper.
+func NewExporterFromInternalForTest(inner *internalapp.Exporter) *Exporter {
+	return &Exporter{inner: inner}
+}
