@@ -301,6 +301,16 @@ func (c *captureCodec) EncodeOpRepImport(w io.Writer, d domain.Device) error {
 	return nil
 }
 
+// EncodeOpRepImportError forwards to the real codec.
+func (c *captureCodec) EncodeOpRepImportError(w io.Writer, status uint32) error {
+	err := c.real.EncodeOpRepImportError(w, status)
+	if err != nil {
+		return err //nolint:wrapcheck // forward the real codec's error unchanged for test interceptor transparency
+	}
+
+	return nil
+}
+
 // DecodeHeader forwards to the real codec and sets requestSeen when
 // the header is OP_REQ_DEVLIST.
 func (c *captureCodec) DecodeHeader(r io.Reader) (uint16, wire.OpCode, uint32, error) {

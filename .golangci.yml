@@ -173,6 +173,14 @@ linters:
         # to the Linux file-descriptor ABI.
         text: 'G115:'
         linters: [gosec]
+      - path: internal/adapter/kernel/(attach|export)\.go
+        # extractFD dups the kernel-supplied uintptr fd via syscall.Dup
+        # (which returns int); the dup'd value round-trips through
+        # uintptr to format the sysfs payload and back to int for the
+        # deferred Close. Same Linux fd-fits-in-positive-int rationale
+        # as the transport_options_linux_test exclusion above.
+        text: 'G115:'
+        linters: [gosec]
       - path: internal/adapter/kernel/coverage_extra_test\.go
         # This file lives in `package kernel` (not `kernel_test`) so
         # it can call unexported helpers (commonAdapter,

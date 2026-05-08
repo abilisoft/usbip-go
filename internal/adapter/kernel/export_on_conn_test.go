@@ -56,7 +56,6 @@ func socketPair(t *testing.T) (net.Conn, net.Conn) {
 	return lc, rc
 }
 
-
 // exportFS builds the MapFS the exporter-side tests need: modules
 // present plus the target device's per-device sysfs dir with a
 // writable usbip_sockfd attribute.

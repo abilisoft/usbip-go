@@ -176,7 +176,8 @@ func runAttach(cmd *cobra.Command, args []string, af *attachFlags) error {
 		}
 	}
 
-	if renderErr := renderAttachResult(cmd, port); renderErr != nil {
+	renderErr := renderAttachResult(cmd, port)
+	if renderErr != nil {
 		_ = imp.Close()
 
 		return renderErr

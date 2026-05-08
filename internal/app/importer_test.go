@@ -1158,6 +1158,7 @@ func TestImporterAttachConcurrentWithCloseNoPanic(t *testing.T) {
 	// echoes its own request. A shared queue would race across the 16
 	// concurrent goroutines and mismatch encode/decode pairs.
 	var pendingMu sync.Mutex
+
 	pending := make(map[any]domain.BusID, parallelAttaches)
 	codec := &ProtocolCodecMock{
 		EncodeOpReqImportFunc: func(w io.Writer, b domain.BusID) error {
@@ -1174,6 +1175,7 @@ func TestImporterAttachConcurrentWithCloseNoPanic(t *testing.T) {
 			pendingMu.Unlock()
 
 			d := attachDevice()
+
 			d.BusID = b
 
 			return d, nil

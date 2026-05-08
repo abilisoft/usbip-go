@@ -147,7 +147,8 @@ func (a *ImporterAdapter) attachAtPort(
 	// Step 2: kernel holds its own ref; dropping ours is safe.
 	// A Close error here does not affect the kernel's socket reference,
 	// but log it so transient fd-table issues are visible under debug.
-	if cerr := conn.Close(); cerr != nil {
+	cerr := conn.Close()
+	if cerr != nil {
 		a.logger.Debug("attach: close userspace fd after kernel handoff",
 			slog.Any("err", cerr))
 	}
@@ -221,8 +222,10 @@ func extractFD(conn net.Conn) (uintptr, error) {
 		return 0, fmt.Errorf("attach: SyscallConn: %w", err)
 	}
 
-	var fd uintptr
-	var dupErr error
+	var (
+		fd     uintptr
+		dupErr error
+	)
 
 	cerr := raw.Control(func(f uintptr) {
 		duped, e := syscall.Dup(int(f))
@@ -230,11 +233,13 @@ func extractFD(conn net.Conn) (uintptr, error) {
 			dupErr = fmt.Errorf("dup fd: %w", e)
 			return
 		}
+
 		fd = uintptr(duped)
 	})
 	if cerr != nil {
 		return 0, fmt.Errorf("attach: Control: %w", cerr)
 	}
+
 	if dupErr != nil {
 		return 0, fmt.Errorf("attach: %w", dupErr)
 	}
