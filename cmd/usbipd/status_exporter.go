@@ -63,6 +63,13 @@ type statusExporter struct {
 	activation bool
 	accepting  atomic.Bool
 
+	// listenerBound is the §11.5.5 /readyz input that separates
+	// "bind succeeded" from "accept loop processing connections"
+	// (Finding 5). It flips true as soon as listener.Addr() confirms
+	// a non-nil bind and stays true until the daemon exits; accepting
+	// flips true only after the first successful Accept.
+	listenerBound atomic.Bool
+
 	// drain is the runDaemon-provided callback that cancels the
 	// Serve-ctx with a labelled cause so POST /drain can wind down
 	// the accept loop without racing Exporter.Shutdown. Stored in an
@@ -83,13 +90,22 @@ type statusExporter struct {
 // newStatusExporter wires an Exporter + listener into a statusSource.
 // activation is the systemd-activation flag rendered under
 // listening.activation in the §7.7 status JSON; accepting starts false
-// and flips true once runDaemon calls Serve.
+// and flips true on the first successful Accept of the real listener.
+// listenerBound flips true immediately when lis has a non-nil Addr so
+// /readyz can distinguish "bind succeeded" from "accept loop actually
+// running".
 func newStatusExporter(exp *usbip.Exporter, lis net.Listener, activation bool) *statusExporter {
-	return &statusExporter{
+	s := &statusExporter{
 		exp:        exp,
 		listenAddr: listenerAddr(lis),
 		activation: activation,
 	}
+
+	if lis != nil && lis.Addr() != nil {
+		s.listenerBound.Store(true)
+	}
+
+	return s
 }
 
 // listenerAddr extracts a printable address string. On a nil listener
