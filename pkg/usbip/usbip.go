@@ -3,8 +3,10 @@ package usbip
 import (
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 	"net"
+	"strings"
 	"time"
 
 	internalapp "github.com/abilisoft/usbip-go/internal/app"
@@ -35,6 +37,16 @@ func translateInternalErr(err error) error {
 		return ErrExporterShutdown
 	case errors.Is(err, internalapp.ErrServeAlreadyRunning):
 		return ErrServeAlreadyRunning
+	case errors.Is(err, internalapp.ErrAttachOptionsInvalid):
+		// Replace the internal sentinel with the facade alias while
+		// preserving the detail text. Using the message string
+		// (not the error value) in the trailing verb is deliberate:
+		// wrapping the internal error would re-expose its identity
+		// via errors.Is and break the package boundary contract.
+		detail := strings.TrimPrefix(err.Error(),
+			internalapp.ErrAttachOptionsInvalid.Error()+": ")
+
+		return fmt.Errorf("%w: %s", ErrAttachOptionsInvalid, detail)
 	}
 
 	return err

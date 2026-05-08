@@ -89,4 +89,12 @@ var (
 	// loops would fight over the shared session bookkeeping, so the
 	// second call is rejected.
 	ErrServeAlreadyRunning = errors.New("exporter: Serve already running")
+
+	// ErrAttachOptionsInvalid indicates Importer.Attach was called with
+	// an AttachOptions field carrying a value the reconnect machinery
+	// cannot interpret — most commonly a negative MaxAttempts. The
+	// facade assigns a distinct identity (not aliased to internal/app)
+	// so errors.Is classification is available through the public
+	// surface without a cross-package import.
+	ErrAttachOptionsInvalid = errors.New("attach options invalid")
 )
