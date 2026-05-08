@@ -746,4 +746,3 @@ func findPortStatus(ports []domain.Port, id domain.PortID) domain.Status {
 
 	return domain.StatusNull
 }
-

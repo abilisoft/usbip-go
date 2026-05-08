@@ -396,8 +396,8 @@ func (e *Exporter) observeImportHandshakeDuration(handshakeStart time.Time) {
 //  2. ctx cancelled — same treatment as handle.done.
 //  3. A KernelEvents event whose busid matches busID:
 //     - PortDetachedEvent: kernel published a `remove`-action uevent
-//       for the exported device — returns DisconnectReasonClientGone
-//       because the remote client's detach drove the signal.
+//     for the exported device — returns DisconnectReasonClientGone
+//     because the remote client's detach drove the signal.
 //     - DeviceUnboundEvent: local unbind of the busid — same treatment.
 //
 // The subscription is opened by serveImport BEFORE kernel.ExportOnConn

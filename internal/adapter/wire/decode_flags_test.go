@@ -228,4 +228,3 @@ func (s *slogSink) records() []slogRecord {
 
 	return out
 }
-

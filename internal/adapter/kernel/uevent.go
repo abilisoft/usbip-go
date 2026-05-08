@@ -756,9 +756,9 @@ var vhciDevpathPattern = regexp.MustCompile(`^/devices/platform/vhci_hcd\.\d+/us
 // Regex group indices for vhciDevpathPattern. Named so the extraction
 // code reads without magic numbers.
 const (
-	vhciDevpathGroupBus         = 1
-	vhciDevpathGroupFullBusID   = 2
-	vhciDevpathGroupRootPort    = 3
+	vhciDevpathGroupBus       = 1
+	vhciDevpathGroupFullBusID = 2
+	vhciDevpathGroupRootPort  = 3
 )
 
 // usbipHostBusIDPattern captures the trailing bus-id segment of a

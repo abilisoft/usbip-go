@@ -107,4 +107,3 @@ func (tableRenderer) Event(w io.Writer, ev usbip.Event) error {
 
 	return nil
 }
-

@@ -308,4 +308,3 @@ func hasTrailingBytes(br *bufio.Reader) bool {
 
 	return err == nil
 }
-

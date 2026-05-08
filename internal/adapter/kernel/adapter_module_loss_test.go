@@ -35,9 +35,9 @@ func allModulesFS() fstest.MapFS {
 	iface := busID + ":1.0"
 
 	return fstest.MapFS{
-		"sys/module/usbip_core": &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host": &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/vhci_hcd":   &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/usbip_core":                                &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/usbip_host":                                &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/vhci_hcd":                                  &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/drivers/usbip-host":                       &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/drivers/usbip-host/match_busid":           &fstest.MapFile{Data: []byte("")},
 		"sys/bus/usb/drivers/usbip-host/bind":                  &fstest.MapFile{Data: []byte("")},
@@ -47,8 +47,8 @@ func allModulesFS() fstest.MapFS {
 		"sys/bus/usb/devices/" + busID + "/usbip_sockfd":       &fstest.MapFile{Data: []byte("")},
 		"sys/bus/usb/devices/" + iface:                         &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + iface + "/driver/driver_name": &fstest.MapFile{Data: []byte("usbhid\n")},
-		"sys/devices/platform/vhci_hcd.0":        &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/devices/platform/vhci_hcd.0/nports": &fstest.MapFile{Data: []byte("16\n")},
+		"sys/devices/platform/vhci_hcd.0":                      &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/devices/platform/vhci_hcd.0/nports":               &fstest.MapFile{Data: []byte("16\n")},
 		"sys/devices/platform/vhci_hcd.0/status": &fstest.MapFile{Data: []byte(
 			"hub port sta spd dev      sockfd local_busid\n" +
 				"hs  0000 000 000 00000000 000000 0-0\n",

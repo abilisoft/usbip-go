@@ -560,7 +560,7 @@ func TestDetachPort_AcceptsInRangePort(t *testing.T) {
 		"detach payload must be the bare decimal of the flat port id")
 }
 
-// TestDetachPort_SucceedsDespiteIncompleteBusMap pins the 
+// TestDetachPort_SucceedsDespiteIncompleteBusMap pins the
 // layering invariant on the detach side: bounds validation must
 // consume only StatusTopology (NControllers + VHCIPorts), never the
 // BusMap. A controller mid-probe whose usb* children are not yet
@@ -886,9 +886,9 @@ func TestFindFreePort_SSMatchesFlatBoundary(t *testing.T) {
 	t.Parallel()
 
 	const (
-		testNPorts      = 8
-		testHCPorts     = 4 // nports / (nControllers * hubsPerController) = 8 / (1*2)
-		freeSSFlatPort  = testHCPorts
+		testNPorts     = 8
+		testHCPorts    = 4 // nports / (nControllers * hubsPerController) = 8 / (1*2)
+		freeSSFlatPort = testHCPorts
 	)
 
 	state := newSinglePortStatus(testNPorts)

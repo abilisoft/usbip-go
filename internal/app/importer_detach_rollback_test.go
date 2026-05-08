@@ -38,9 +38,9 @@ func TestImporterReconnectStuckWatcher_DoesNotSilentlyReattachAfterDetach(t *tes
 	t.Parallel()
 
 	var (
-		attachCount  atomic.Int32
-		release      = make(chan struct{})
-		detachedIDs  = make(chan domain.PortID, 4)
+		attachCount atomic.Int32
+		release     = make(chan struct{})
+		detachedIDs = make(chan domain.PortID, 4)
 	)
 
 	// First AttachRemote (initial Attach) returns a port immediately.

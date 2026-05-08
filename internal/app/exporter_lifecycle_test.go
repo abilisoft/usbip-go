@@ -625,4 +625,3 @@ func TestExporterShutdown_RecoversFromSpuriousDeadlineRace(t *testing.T) {
 			i)
 	}
 }
-

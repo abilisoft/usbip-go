@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-
 // TestModuleStateMarshalJSON proves the tri-state ModuleState renders
 // as a lowercase string matching the §7.7 status-JSON contract. The
 // previous two-state design collapsed EACCES / EIO onto "missing"; the
