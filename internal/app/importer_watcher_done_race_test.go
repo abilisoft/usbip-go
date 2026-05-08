@@ -13,18 +13,16 @@ import (
 
 // TestImporterAttachDetachWatcherDoneRaceFree hammers concurrent
 // Attach + Detach pairs with AutoReconnect=true under the race
-// detector. The historical ordering wrote h.watcherDone AFTER
-// registerHandle had already published h into the handle map; a
-// Detach racing the narrow window between that publication and the
-// subsequent assignment triggered a -race report because the
-// watcher-channel field was read under mu while being written
-// without any happens-before relationship. Each iteration launches
-// Attach and Detach on separate goroutines targeting the same
-// pre-known port id so the Detach can fire BEFORE Attach has
-// written the channel; 500 iterations with GOMAXPROCS>1 is enough
-// for the detector to fire in practice pre-fix. Post-fix
-// watcherDone is assigned under mu inside registerHandle, removing
-// the race mechanically.
+// detector. h.watcherDone must be published to the handle map under
+// the same mu-locked critical section that records the handle — a
+// Detach racing the narrow window between map publication and a
+// later unsynchronised assignment would otherwise trip -race because
+// the channel field would be read under mu while being written with
+// no happens-before relationship. Each iteration launches Attach and
+// Detach on separate goroutines targeting the same pre-known port id
+// so the Detach can fire before Attach has completed; 500 iterations
+// with GOMAXPROCS>1 is enough for the detector to fire when the
+// invariant regresses.
 func TestImporterAttachDetachWatcherDoneRaceFree(t *testing.T) {
 	t.Parallel()
 
