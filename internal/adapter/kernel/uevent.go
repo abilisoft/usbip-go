@@ -410,10 +410,16 @@ func isInterestingUevent(fields map[string]string) bool {
 
 // vhciDevpathPattern matches the vhci-managed USB devpath shape:
 //
-//	/devices/platform/vhci_hcd.0/usb<N>/<N>-<P>
+//	/devices/platform/vhci_hcd.0/usb<N>/<BusID>
 //
-// Capturing groups: (bus, port).
-var vhciDevpathPattern = regexp.MustCompile(`/devices/platform/vhci_hcd\.0/usb(\d+)/(\d+-\d+)`)
+// The bus ID follows the Linux USB topology grammar
+// (pkg/domain/busid.go:18): one or more decimal digits, a dash, then
+// a dot-separated sequence of decimal numbers. Hub-attached devices
+// therefore have dotted bus IDs like "1-1.2" or "2-3.4.5"; pre-fix
+// this regex only captured the leading "N-P" pair and silently
+// truncated every hub-attached device's busid. Capturing groups:
+// (bus, bus_id).
+var vhciDevpathPattern = regexp.MustCompile(`/devices/platform/vhci_hcd\.0/usb(\d+)/(\d+-\d+(?:\.\d+)*)`)
 
 // mapUeventToDomain maps a parsed uevent fields map into a domain
 // event. Missing ACTION or non-USB paths return ok=false so the caller
