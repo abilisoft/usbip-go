@@ -54,22 +54,29 @@ type Exporter struct {
 
 	// wg tracks the ctx-listener-closer goroutine spawned by Serve;
 	// Serve waits on it before returning.
-	wg sync.WaitGroup
+	wg lifecycleWaitGroup
 
 	// sessionsWG tracks per-connection handler goroutines and their
 	// handshake-timeout watchers. Serve deliberately does NOT wait on
 	// sessionsWG (v1 contract §3.4: Serve returns on ctx cancel; Shutdown
 	// drains in-flight sessions bounded by its own ctx).
-	sessionsWG sync.WaitGroup
+	sessionsWG lifecycleWaitGroup
 
-	// sessionsDrainedOnce lazily spawns a single goroutine that waits
-	// on sessionsWG and closes sessionsDrained. Multiple Shutdown
-	// calls share this drain future so a truly-stuck handler cannot
-	// leak one waiter goroutine per Shutdown. The once-init happens
-	// inside waitSessionsBounded — at construction time Serve may not
-	// be up yet, so sessionsWG has no participants to wait for.
+	// sessionsDrainedOnce lazily captures sessionsWG's drain channel.
+	// Multiple Shutdown calls share this drain future so bounded waits
+	// observe the same session lifecycle without allocating waiter
+	// goroutines. The once-init happens inside waitSessionsBounded — at
+	// construction time Serve may not be up yet, so sessionsWG has no
+	// participants to wait for.
 	sessionsDrainedOnce sync.Once
-	sessionsDrained     chan struct{}
+	sessionsDrained     <-chan struct{}
+
+	// acceptLoopExited is closed by Serve immediately after acceptLoop
+	// returns. Shutdown waits on it before calling drainFuture so that
+	// no sessionsWG.Go call can race with the captured drain channel.
+	// Reset to a fresh channel by startServing on each Serve call; nil
+	// before first Serve.
+	acceptLoopExited chan struct{}
 }
 
 // sessionHandle is the per-session bookkeeping entry. done is closed
@@ -155,7 +162,6 @@ func NewExporterWithError(opts ...ExporterOption) (*Exporter, error) {
 		shutdownTimeout:  cfg.shutdownTimeout,
 		sessions:         make(map[domain.SessionID]*sessionHandle),
 		perPeer:          make(map[string]int),
-		sessionsDrained:  make(chan struct{}),
 	}, nil
 }
 
@@ -330,6 +336,12 @@ func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
 
 	loopErr := e.acceptLoop(ctx, listener)
 
+	// Signal Shutdown that acceptLoop has exited and no further
+	// sessionsWG.Go calls will occur. This must happen before
+	// stopWatcher/wg.Wait so Shutdown observes the signal before
+	// drainFuture captures sessionsWG's drain channel.
+	close(e.acceptLoopExited)
+
 	// Release the ctx-listener-closer before waiting on wg. When
 	// acceptLoop exits via Shutdown-driven listener close the ctx is
 	// still live and the watcher is parked on ctx.Done; without this
@@ -375,6 +387,7 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 	// park Serve on Accept forever and silently break the "Shutdown
 	// stops accepting new connections" contract.
 	listener := e.listener
+	acceptLoopExited := e.acceptLoopExited
 
 	e.listener = nil
 
@@ -413,6 +426,14 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 		}
 
 		h.cancel()
+	}
+
+	// Wait for acceptLoop to exit so no sessionsWG.Go call can race
+	// with drainFuture's sessionsWG drain-channel capture. acceptLoopExited
+	// is nil when Shutdown is called without a prior Serve; the channel
+	// is already closed when Shutdown is called after Serve returns.
+	if acceptLoopExited != nil {
+		<-acceptLoopExited
 	}
 
 	drainCtx, cancel := e.applyShutdownBackstop(ctx)
@@ -475,6 +496,7 @@ func (e *Exporter) startServing(listener net.Listener) error {
 
 	e.serving = true
 	e.listener = listener
+	e.acceptLoopExited = make(chan struct{})
 
 	return nil
 }
@@ -558,18 +580,15 @@ func (e *Exporter) acceptLoop(ctx context.Context, listener net.Listener) error 
 }
 
 // drainFuture returns the shared sessionsWG-drain channel. The first
-// call spawns the single `sessionsWG.Wait(); close(sessionsDrained)`
-// goroutine via sync.Once; subsequent calls return the same channel.
-// Construction-time initialisation is not sufficient because Serve
-// (and hence any sessionsWG.Go(...) calls) may not have happened yet
-// — delaying the spawn until the first Shutdown keeps the waiter
-// aligned with actual draining need.
+// call captures the lifecycle wait group's current drain channel via
+// sync.Once; subsequent calls return the same channel. Construction-
+// time initialisation is not sufficient because Serve (and hence any
+// sessionsWG.Go(...) calls) may not have happened yet — delaying the
+// capture until the first Shutdown keeps the future aligned with actual
+// draining need.
 func (e *Exporter) drainFuture() <-chan struct{} {
 	e.sessionsDrainedOnce.Do(func() {
-		go func() {
-			e.sessionsWG.Wait()
-			close(e.sessionsDrained)
-		}()
+		e.sessionsDrained = e.sessionsWG.DoneChan()
 	})
 
 	return e.sessionsDrained
@@ -595,11 +614,10 @@ const shutdownResidualGrace = 100 * time.Millisecond
 // tradeoff because Shutdown-blocks-forever is a worse failure mode
 // than a bounded goroutine leak.
 //
-// The `sessionsWG.Wait()` observer is a single lazily-spawned
-// goroutine shared across every Shutdown call. A truly-stuck handler
-// keeps Wait() blocked forever; sessionsDrainedOnce gates the spawn
-// so the waiter is allocated at most once per Exporter rather than
-// leaking one parked waiter per Shutdown.
+// The sessionsWG observer is a single lazily-captured drain channel
+// shared across every Shutdown call. A truly-stuck handler keeps that
+// channel open forever, but no additional waiter goroutine is allocated
+// by the bounded wait path.
 //
 // After observing ctx.Done, a non-blocking re-check of `done` guards
 // against the select-race where both channels are ready at once and

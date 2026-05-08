@@ -8,6 +8,7 @@ package kernel
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"path"
 	"strconv"
@@ -132,7 +133,12 @@ func (a *ImporterAdapter) attachAtPort(
 	}
 
 	// Step 2: kernel holds its own ref; dropping ours is safe.
-	_ = conn.Close()
+	// A Close error here does not affect the kernel's socket reference,
+	// but log it so transient fd-table issues are visible under debug.
+	if cerr := conn.Close(); cerr != nil {
+		a.logger.Debug("attach: close userspace fd after kernel handoff",
+			slog.Any("err", cerr))
+	}
 
 	return portID, nil
 }

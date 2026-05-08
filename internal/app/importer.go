@@ -22,6 +22,68 @@ import (
 // negative ShutdownTimeout disables the bound (wait indefinitely).
 const defaultShutdownTimeout = 5 * time.Second
 
+// lifecycleWaitGroup tracks goroutines and exposes a reusable drain
+// channel. sync.WaitGroup can only be observed by blocking in Wait, so
+// timeout-bounded callers would otherwise need a helper goroutine that
+// can outlive the caller when the group never drains.
+type lifecycleWaitGroup struct {
+	mu      sync.Mutex
+	count   int
+	drained chan struct{}
+}
+
+func (g *lifecycleWaitGroup) Add(delta int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if delta == 0 {
+		return
+	}
+
+	if delta > 0 && g.count == 0 {
+		g.drained = make(chan struct{})
+	}
+
+	next := g.count + delta
+	if next < 0 {
+		panic("app: negative lifecycleWaitGroup counter")
+	}
+
+	g.count = next
+	if g.count == 0 {
+		close(g.drained)
+	}
+}
+
+func (g *lifecycleWaitGroup) Done() {
+	g.Add(-1)
+}
+
+func (g *lifecycleWaitGroup) Go(f func()) {
+	g.Add(1)
+
+	go func() {
+		defer g.Done()
+		f()
+	}()
+}
+
+func (g *lifecycleWaitGroup) Wait() {
+	<-g.DoneChan()
+}
+
+func (g *lifecycleWaitGroup) DoneChan() <-chan struct{} {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.drained == nil {
+		g.drained = make(chan struct{})
+		close(g.drained)
+	}
+
+	return g.drained
+}
+
 // Importer is the use-case service that imports remote USB devices via
 // the vhci_hcd kernel surface. One Importer is sufficient for a whole
 // process; construct via NewImporter and release via Close. The zero
@@ -55,7 +117,7 @@ type Importer struct {
 	// device onto two local ports. Guarded by mu.
 	inFlight map[attachKey]struct{}
 	nextGen  uint64
-	wg       sync.WaitGroup
+	wg       lifecycleWaitGroup
 	// subscribers is the per-call fanout list for app-synthesized port
 	// lifecycle events (PortReconnectExhausted). Watch merges these with
 	// the upstream KernelEvents subscription so consumers see all port
@@ -198,13 +260,9 @@ func NewImporter(opts ...ImporterOption) *Importer {
 // to request an unbounded wait, or (b) ensure their workloads honour
 // ctx cancellation.
 //
-// The internal waiter goroutine spawned by waitGroupBounded does not
-// observe the bound itself: it parks on sync.WaitGroup.Wait and exits
-// only when the wg drains. When Close returns on timeout with
-// uncompleted goroutines, that waiter also lingers until the wg
-// eventually clears — this is accepted as the cost of bounded Close
-// (sync.WaitGroup cannot be cancelled from outside). In practice this
-// means the waiter's lifetime matches the stuck workload's.
+// waitGroupBounded observes the Importer's lifecycle wait group through
+// a drain channel, so a timeout-bounded Close does not allocate an
+// extra goroutine that can linger behind the Close call.
 //
 // The handle map is NOT nilled here: a concurrent Attach may be parked
 // past AttachRemote but before registerHandle, and nilling the map
@@ -579,12 +637,7 @@ func (i *Importer) waitGroupBounded(handles []*portHandle) {
 		return
 	}
 
-	done := make(chan struct{})
-
-	go func() {
-		i.wg.Wait()
-		close(done)
-	}()
+	done := i.wg.DoneChan()
 
 	select {
 	case <-done:
