@@ -14,6 +14,11 @@ var (
 	// /sys/. Production writes must be rooted there; tests that want
 	// arbitrary paths inject their own WriteFunc.
 	errNonSysfsPath = errors.New("sysfs write rejected: path not rooted at /sys/")
+
+	// errConnNotSyscall flags a conn that cannot expose a syscall.Conn
+	// — typically net.Pipe, which provides in-memory piping with no
+	// backing OS fd. Fd-passing fails fast for this caller mistake.
+	errConnNotSyscall = errors.New("conn does not implement syscall.Conn; fd-passing requires a real OS fd")
 )
 
 // errorsIsAny returns true iff err chains to any of the supplied
