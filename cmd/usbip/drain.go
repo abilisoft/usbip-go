@@ -83,6 +83,10 @@ func runDrain(cmd *cobra.Command, args drainArgs) error {
 		return errStatusSocketDisabled
 	}
 
+	if args.pollInterval <= 0 {
+		return errDrainPollIntervalInvalid
+	}
+
 	client := newDrainHTTPClient(args.socketPath)
 
 	ctx, cancel := context.WithTimeout(cmd.Context(), args.drainTimeout)
@@ -99,14 +103,11 @@ func runDrain(cmd *cobra.Command, args drainArgs) error {
 	}
 
 	if errors.Is(err, context.DeadlineExceeded) {
-		_, writeErr := fmt.Fprintf(cmd.ErrOrStderr(),
-			"drain timed out after %s\n", args.drainTimeout)
-		if writeErr != nil {
-			// Stderr unwriteable is an unusual failure mode — surface
-			// it rather than silently swallow the write.
-			return fmt.Errorf("write drain-timeout notice: %w", writeErr)
-		}
-
+		// main's renderMainError formats every returned error through
+		// FormatError, which maps errDrainTimeout to "usbip: drain
+		// timed out: %s". Writing a second "drain timed out after X"
+		// line to stderr here would print the message twice — once
+		// from this branch and once from the main-loop renderer.
 		return fmt.Errorf("%w after %s", errDrainTimeout, args.drainTimeout)
 	}
 
@@ -166,6 +167,14 @@ var errDrainPostFailed = errors.New("POST /drain failed")
 var errStatusSocketDisabled = errors.New(
 	"usbip drain: status socket is disabled (--status-socket is empty); " +
 		"start the daemon with a non-empty --status-socket to enable drain")
+
+// errDrainPollIntervalInvalid signals a non-positive --poll-interval:
+// time.NewTicker panics on zero or negative durations, so the value
+// must be validated at the cobra layer before pollUntilIdle reaches
+// the ticker constructor. Mapped to ExitUsage via errorRegistry so
+// supervisors distinguish operator-config faults from runtime errors.
+var errDrainPollIntervalInvalid = errors.New(
+	"usbip drain: --poll-interval must be a positive duration")
 
 // pollUntilIdle loops GET / requests at pollInterval until sessions is
 // empty AND listening.accepting is false, or the context is done. A

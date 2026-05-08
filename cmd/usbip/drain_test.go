@@ -180,7 +180,12 @@ func TestDrainSubcommandTimeout(t *testing.T) {
 	err := cmd.ExecuteContext(context.Background())
 	require.Error(t, err)
 	require.ErrorIs(t, err, errDrainTimeout)
-	require.Contains(t, stderr.String(), "drain timed out")
+	// runDrain returns the timeout error; main's renderMainError is
+	// the sole stderr writer for it (so the message is not printed
+	// twice). cobra-internal stderr stays silent because newDrainCmd
+	// sets SilenceErrors=true. The drain-timeout phrase MUST appear
+	// in the returned error itself so renderMainError can format it.
+	require.Contains(t, err.Error(), "drain timed out")
 }
 
 // TestIsDaemonGoneErrorClassification pins the transport-error
@@ -280,6 +285,40 @@ func TestDrainSubcommandUDSDisappears(t *testing.T) {
 
 	err := cmd.ExecuteContext(context.Background())
 	require.NoError(t, err, "stderr: %s", stderr.String())
+}
+
+// TestDrainSubcommandRejectsNonPositivePollInterval pins the
+// operator-ergonomics guard: time.NewTicker(0) panics, time.NewTicker
+// of a negative duration also panics. A real operator can crash the
+// drain client with `usbip drain --poll-interval=0s` if the value
+// reaches NewTicker unvalidated. Catch it at the cobra layer with a
+// targeted error mapped to ExitUsage.
+func TestDrainSubcommandRejectsNonPositivePollInterval(t *testing.T) {
+	t.Parallel()
+
+	for _, badInterval := range []string{"0s", "-1s"} {
+		t.Run(badInterval, func(t *testing.T) {
+			t.Parallel()
+
+			cmd := newDrainCmd()
+			cmd.SetArgs([]string{
+				"--status-socket", "/run/usbip-go/status.sock",
+				"--poll-interval", badInterval,
+			})
+
+			var stdout, stderr bytes.Buffer
+
+			cmd.SetOut(&stdout)
+			cmd.SetErr(&stderr)
+
+			err := cmd.ExecuteContext(context.Background())
+			require.Errorf(t, err, "drain must reject non-positive --poll-interval %q", badInterval)
+			require.Contains(t, err.Error(), "poll-interval",
+				"error must name the offending flag so operators can correct it")
+			require.Equalf(t, ExitUsage, MapError(err),
+				"non-positive --poll-interval is a usage class fault and must map to ExitUsage")
+		})
+	}
 }
 
 // TestDrainSubcommandRejectsEmptyStatusSocket pins the operator-

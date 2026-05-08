@@ -134,11 +134,16 @@ glossary entry in CONTEXT.md). The daemon's job is:
    peer detaches its port — the daemon's exit only stops the daemon
    from accounting the session, not the data path.
 
-Operators upgrading via drain-and-replace see in-flight transfers
-continue across the daemon swap because the kernel state survives
-`usbip` process exit and the new process picks up the live ports
-through the kernel's existing accounting (per v1 contract §5.4
-item 7).
+Operators upgrading via drain-and-replace see in-flight USB
+transfers continue across the daemon swap because the KERNEL state
+survives `usbip` process exit (per v1 contract §5.4 item 7). The
+new daemon process does NOT inherit the OLD process's app-layer
+session accounting — its `Sessions()` snapshot starts empty, and
+pre-existing kernel-tracked sessions appear in `usbip list -e`
+(via sysfs) but not in `Watch` / `WatchSessions` events from the
+new process. Operators who need accounting continuity must drain
+fully before upgrading rather than mid-flight. See `docs/ops.md`
+"Drain-and-upgrade" for the operational consequence.
 
 ## Failure modes and operator escape hatches
 
