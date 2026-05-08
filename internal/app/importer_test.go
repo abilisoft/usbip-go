@@ -170,8 +170,8 @@ type fakeConn struct {
 	closeOnce sync.Once
 }
 
-func newFakeConn(readData []byte) *fakeConn {
-	return &fakeConn{readData: readData, closedCh: make(chan struct{})}
+func newFakeConn() *fakeConn {
+	return &fakeConn{closedCh: make(chan struct{})}
 }
 
 // Read copies from the buffered readData; returns io.EOF when drained.
@@ -255,7 +255,7 @@ func testRemote() domain.RemoteEndpoint {
 func TestImporterListRemoteHappyPath(t *testing.T) {
 	t.Parallel()
 
-	conn := newFakeConn(nil)
+	conn := newFakeConn()
 
 	transport := &TransportMock{
 		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
@@ -339,7 +339,7 @@ func TestImporterListRemoteDialFailure(t *testing.T) {
 func TestImporterListRemoteDecodeFailure(t *testing.T) {
 	t.Parallel()
 
-	conn := newFakeConn(nil)
+	conn := newFakeConn()
 
 	transport := &TransportMock{
 		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
@@ -411,7 +411,7 @@ func attachDevice() domain.Device {
 func TestImporterAttachHappyPath(t *testing.T) {
 	t.Parallel()
 
-	conn := newFakeConn(nil)
+	conn := newFakeConn()
 
 	const wantPortID domain.PortID = 4
 
@@ -556,7 +556,7 @@ func TestImporterAttachDialFailure(t *testing.T) {
 func TestImporterAttachEncodeFailure(t *testing.T) {
 	t.Parallel()
 
-	conn := newFakeConn(nil)
+	conn := newFakeConn()
 
 	kernel := &ImporterKernelMock{
 		ModulesAvailableFunc: func(_ context.Context) error { return nil },
@@ -587,7 +587,7 @@ func TestImporterAttachEncodeFailure(t *testing.T) {
 func TestImporterAttachDecodeFailure(t *testing.T) {
 	t.Parallel()
 
-	conn := newFakeConn(nil)
+	conn := newFakeConn()
 
 	kernel := &ImporterKernelMock{
 		ModulesAvailableFunc: func(_ context.Context) error { return nil },
@@ -622,7 +622,7 @@ func TestImporterAttachDecodeFailure(t *testing.T) {
 func TestImporterAttachAttachRemoteFailure(t *testing.T) {
 	t.Parallel()
 
-	conn := newFakeConn(nil)
+	conn := newFakeConn()
 
 	kernel := &ImporterKernelMock{
 		ModulesAvailableFunc: func(_ context.Context) error { return nil },
