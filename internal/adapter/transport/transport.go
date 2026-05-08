@@ -134,6 +134,14 @@ func (t *NetTransport) Listen(ctx context.Context, addr string) (net.Listener, e
 // has observed the stop signal, so callers who Close() immediately
 // after constructing the wrapper cannot race the goroutine into a
 // leak.
+//
+// Lifecycle obligation: callers MUST either cancel the context passed
+// to Listen OR call the returned listener's Close. Dropping the
+// listener reference without doing one of those strands the watcher
+// goroutine until the context is cancelled — the same FD-leak
+// contract stdlib net.Listener already imposes, with a bundled
+// goroutine on top. Standard defer-Close or shutdown-context patterns
+// satisfy this; panic-without-recover paths do not.
 type ctxListener struct {
 	net.Listener
 
