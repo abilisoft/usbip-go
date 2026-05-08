@@ -45,14 +45,14 @@ func EncodeHeader(op OpCode, status uint32) []byte {
 //   - Partial header → io.ErrUnexpectedEOF wrapped.
 //   - Version != ProtocolVersion → ErrProtocolMismatch.
 //   - Unknown opcode → ErrProtocolMismatch.
-//   - Status != 0 on a reply → ErrProtocolError.
+//   - Status != 0 → ErrProtocolError (all opcodes; see OP_REP_IMPORT exception below).
 //
 // OP_REP_IMPORT is the narrow exception to the status-non-zero rule:
 // the spec treats a non-zero OP_REP_IMPORT status as the peer saying
 // "device unavailable / busy / not found" (a domain-level rejection),
 // not a wire framing fault. DecodeOpRepImport calls decodeHeaderAllowStatus
-// directly and classifies the status itself. Other reply opcodes keep
-// the ErrProtocolError surface for malformed-reply detection.
+// directly and classifies the status itself. That path never reaches
+// DecodeHeader, so the unconditional status check here is safe.
 //
 // The 4-tuple return is dictated by the spec-level codec surface:
 // callers need both the raw version (for diagnostics) and the validated
@@ -63,8 +63,8 @@ func DecodeHeader(r io.Reader) (uint16, OpCode, uint32, error) {
 		return 0, 0, 0, err
 	}
 
-	if status != 0 && isReplyOpCode(op) {
-		return 0, 0, 0, fmt.Errorf("%w: reply opcode 0x%04x status=%d",
+	if status != 0 {
+		return 0, 0, 0, fmt.Errorf("%w: opcode 0x%04x status=%d",
 			domain.ErrProtocolError, uint16(op), status)
 	}
 

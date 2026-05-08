@@ -31,14 +31,3 @@ func isKnownOpCode(op OpCode) bool {
 	}
 }
 
-// isReplyOpCode reports whether op is an OP_REP_* reply opcode. Status
-// byte != 0 in a reply header is a fatal protocol error; the same
-// condition on a request is impossible in practice (clients send
-// status=0), so the decoder only flags status on replies.
-//
-// Callers MUST first validate op via isKnownOpCode — an unknown opcode
-// returns false from this function, matching the conservative "not a
-// reply" interpretation.
-func isReplyOpCode(op OpCode) bool {
-	return op == OpRepDevlist || op == OpRepImport
-}

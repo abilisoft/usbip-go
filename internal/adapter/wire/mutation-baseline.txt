@@ -16,15 +16,14 @@ devnum max-uint16) reported:
   Test efficacy: 76.92%
 
 The three LIVED mutants at that time were:
-  - opcodes.go:40:12  CONDITIONALS_NEGATION in isReplyOpCode
+  - opcodes.go:40:12  CONDITIONALS_NEGATION in isReplyOpCode  [REMOVED: isReplyOpCode
+                      deleted after DecodeHeader was updated to reject non-zero status
+                      on all opcodes, not just reply opcodes]
   - layout.go:119:14  CONDITIONALS_BOUNDARY on busnum guard
   - layout.go:123:14  CONDITIONALS_BOUNDARY on devnum guard
 
 The boundary-value tests (TestDecodeDeviceBusnumAtMaxU16 /
 TestDecodeDeviceDevnumAtMaxU16) target the two layout.go survivors.
-The isReplyOpCode survivor is unreachable with well-formed USBIP
-traffic (isKnownOpCode gates every invocation) and is accepted as a
-vacuous mutation.
 
 Follow-up (Phase 2 post-task):
   - Tune the gremlins per-mutant timeout to convert TIMED_OUT
