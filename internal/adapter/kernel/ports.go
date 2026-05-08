@@ -215,11 +215,20 @@ func parseStatusRow(line string) (parsedPort, bool) {
 		return parsedPort{}, false
 	}
 
+	speed := domain.Speed(nums.spd)
+	if !speed.IsKnown() {
+		// A row whose `spd` falls outside enum usb_device_speed is a
+		// malformed sysfs read (driver bug / interrupted write).
+		// Reject the row so the caller's port table never carries an
+		// undefined Speed downstream into metrics or CLI rendering.
+		return parsedPort{}, false
+	}
+
 	return parsedPort{
 		hub:    hub,
 		port:   domain.PortID(nums.port),
 		status: translateVDEVStatus(nums.sta),
-		speed:  domain.Speed(nums.spd),
+		speed:  speed,
 		devID:  domain.DeviceID(nums.devID),
 		busID:  domain.BusID(fields[rowIdxBusID]),
 	}, true

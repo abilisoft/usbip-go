@@ -100,13 +100,13 @@ func TestListExportedDevices_PropagatesListLocalErr(t *testing.T) {
 		"ListExportedDevices must propagate the ListLocalDevices error rather than masking it")
 }
 
-// TestListExportedDevices_NoUsbipStatusAttr_TreatsAsAvailable pins
-// isExportable's permissive contract for a missing usbip_status
-// file: the kernel does not always populate the attribute mid-bind
-// and a device whose driver is usbip-host but whose status read
-// fails should still be advertised. Hiding it would create a
-// race-window blackout from peers watching the devlist.
-func TestListExportedDevices_NoUsbipStatusAttr_TreatsAsAvailable(t *testing.T) {
+// TestListExportedDevices_NoUsbipStatusAttr_HiddenFromList pins
+// isExportable's strict contract for a missing usbip_status file:
+// when the kernel has not populated the attribute, the device is
+// not yet attachable and MUST be hidden from the export list.
+// Advertising it would have peers attempt attaches the kernel
+// rejects; hiding it briefly during rebind is the safer trade-off.
+func TestListExportedDevices_NoUsbipStatusAttr_HiddenFromList(t *testing.T) {
 	t.Parallel()
 
 	const busID = "1-1"
@@ -123,7 +123,7 @@ func TestListExportedDevices_NoUsbipStatusAttr_TreatsAsAvailable(t *testing.T) {
 
 	devs, err := a.ListExportedDevices(context.Background())
 	require.NoError(t, err)
-	require.Len(t, devs, 1,
-		"a usbip-host device with absent usbip_status must remain in the export list — "+
-			"peers see it once the kernel completes the attach")
+	require.Empty(t, devs,
+		"a usbip-host device with absent usbip_status must NOT appear in the "+
+			"export list — peers would otherwise attempt attaches the kernel rejects")
 }
