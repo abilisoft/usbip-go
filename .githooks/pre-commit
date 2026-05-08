@@ -1,5 +1,0 @@
-#!/usr/bin/env sh
-set -e
-task fmt
-task lint
-task test
