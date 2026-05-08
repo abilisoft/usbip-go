@@ -73,3 +73,36 @@ func (b BusID) IsValid() bool {
 
 	return busIDPattern.MatchString(s)
 }
+
+// ValidateWireBusID applies the permissive wire-receive acceptance
+// check: the field must be non-empty, shorter than the 32-byte field,
+// free of NUL and non-printable bytes, and free of leading or trailing
+// whitespace. Peer-supplied busids cover more shapes than the strict
+// topology pattern (notably usbip-vudc.0 from the upstream vudc
+// driver), so wire decoders use this rule while user-facing entry
+// points continue to route through ParseBusID's topology check.
+func ValidateWireBusID(s string) (BusID, error) {
+	if s == "" {
+		return "", fmt.Errorf("%w: empty", ErrBusIDInvalid)
+	}
+
+	if len(s) >= BusIDSize {
+		return "", fmt.Errorf("%w: length %d exceeds %d", ErrBusIDInvalid, len(s), BusIDSize-1)
+	}
+
+	if strings.ContainsRune(s, '\x00') {
+		return "", fmt.Errorf("%w: contains NUL byte", ErrBusIDInvalid)
+	}
+
+	if strings.TrimSpace(s) != s {
+		return "", fmt.Errorf("%w: %q has leading or trailing whitespace", ErrBusIDInvalid, s)
+	}
+
+	for _, r := range s {
+		if r < 0x20 || r > 0x7e {
+			return "", fmt.Errorf("%w: %q contains non-printable byte", ErrBusIDInvalid, s)
+		}
+	}
+
+	return BusID(s), nil
+}
