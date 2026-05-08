@@ -100,12 +100,11 @@ cleanup() {
   # Remove symlinks from configs/*/ (function links must go before rmdir).
   if [[ -d "${VUDC_ROOT}" ]]; then
     sudo find "${VUDC_ROOT}/configs" -type l -print 2>/dev/null | sudo xargs -r rm -f
-    # configfs dirs must be removed depth-first; rmdir on parents succeeds
-    # only after children are gone.
-    sudo find "${VUDC_ROOT}/configs" -mindepth 2 -maxdepth 2 -type d -exec rmdir {} \; 2>/dev/null
-    sudo find "${VUDC_ROOT}/configs" -mindepth 1 -maxdepth 1 -type d -exec rmdir {} \; 2>/dev/null
-    sudo find "${VUDC_ROOT}/functions" -mindepth 1 -maxdepth 1 -type d -exec rmdir {} \; 2>/dev/null
-    sudo find "${VUDC_ROOT}/strings" -mindepth 1 -maxdepth 1 -type d -exec rmdir {} \; 2>/dev/null
+    # configfs dirs must be removed depth-first. find -depth guarantees
+    # children are processed before parents; leaf dirs (e.g.
+    # configs/c.1/strings/0x409) vanish first so their parents can
+    # subsequently rmdir.
+    sudo find "${VUDC_ROOT}" -mindepth 1 -depth -type d -exec rmdir {} \; 2>/dev/null
     sudo rmdir "${VUDC_ROOT}" 2>/dev/null
   fi
 
@@ -198,21 +197,32 @@ sleep 1
 
 echo "==> starting usbipd -e (device/vudc mode)"
 USBIPD_LOG="/tmp/usbip-fixture-usbipd.log"
+# Refuse to proceed if another usbipd is already using port 3240 — we
+# must capture bytes from a usbipd we ourselves launched in vudc mode,
+# not a coincidentally-running host-mode daemon from some other setup.
+if sudo ss -Hlnt "sport = :${USBIPD_PORT}" | grep -q .; then
+  echo "port ${USBIPD_PORT} already in use; refusing to capture against a foreign daemon" >&2
+  sudo ss -Hlnt "sport = :${USBIPD_PORT}" >&2
+  exit 2
+fi
+
 # usbipd's --pid uses optional_argument, so "-P <file>" or "-PP <file>"
 # (space-separated) parses as "-P" (default pidfile) plus a stray
-# positional and exits silently. Use the long form with = instead,
-# then fall back to pgrep if the pidfile didn't materialise.
-sudo "${UPSTREAM_USBIPD}" -D -e "--pid=${USBIPD_PIDFILE}" 2>"${USBIPD_LOG}" || true
+# positional and exits silently. Use the long form with = instead. If
+# that invocation fails or does not write the pidfile, abort — do NOT
+# fall back to pgrep, because a pre-existing rogue usbipd would poison
+# the capture.
+if ! sudo "${UPSTREAM_USBIPD}" -D -e "--pid=${USBIPD_PIDFILE}" 2>"${USBIPD_LOG}"; then
+  echo "usbipd invocation failed; log:" >&2
+  cat "${USBIPD_LOG}" >&2 2>/dev/null || true
+  exit 2
+fi
 sleep 2
 
 if [[ ! -f "${USBIPD_PIDFILE}" ]]; then
-  USBIPD_PID="$(pgrep -x usbipd | head -1 || true)"
-  if [[ -z "${USBIPD_PID}" ]]; then
-    echo "usbipd did not start; log:" >&2
-    cat "${USBIPD_LOG}" >&2 2>/dev/null || true
-    exit 2
-  fi
-  echo "${USBIPD_PID}" | sudo tee "${USBIPD_PIDFILE}" >/dev/null
+  echo "usbipd daemonised but did not write ${USBIPD_PIDFILE}; log:" >&2
+  cat "${USBIPD_LOG}" >&2 2>/dev/null || true
+  exit 2
 fi
 echo "    usbipd pid: $(cat "${USBIPD_PIDFILE}")"
 
@@ -221,16 +231,23 @@ echo "    usbipd pid: $(cat "${USBIPD_PIDFILE}")"
 # OP_REP_DEVLIST, OP_REQ_IMPORT, and OP_REP_IMPORT.
 # ----------------------------------------------------------------------
 
+# `usbip list` must succeed end-to-end; a silent failure here would let
+# a malformed OP_REP_DEVLIST pass downstream as fixture truth.
 echo "==> client: usbip list -r 127.0.0.1"
-"${UPSTREAM_USBIP}" list -r 127.0.0.1 || true
+"${UPSTREAM_USBIP}" list -r 127.0.0.1
 sleep 1
 
-# import is issued but we DO NOT keep the resulting vhci attachment —
-# once we have the OP_REP_IMPORT bytes captured we kill the daemon.
-# Upstream's attach would try to write the sockfd into vhci_hcd, which
-# we do not need for fixture purposes.
-echo "==> client: usbip attach -r 127.0.0.1 -b ${VUDC_BUSID} (may fail at vhci handoff — we only care about the reply bytes)"
-"${UPSTREAM_USBIP}" attach -r 127.0.0.1 -b "${VUDC_BUSID}" || true
+# Attach is the one step where a non-zero exit is expected and does NOT
+# mean the wire exchange failed: upstream's attach writes the socket fd
+# to vhci_hcd AFTER receiving OP_REP_IMPORT, and that handoff fails on
+# a self-attach against a vudc we own. Byte-level validity is enforced
+# by the size checks after extraction (§ Step 6). Capture BOTH stdout
+# and stderr so an unexpected earlier failure (e.g. protocol mismatch)
+# still surfaces as a size-check abort rather than silently stamping
+# partial bytes as fixture truth.
+echo "==> client: usbip attach -r 127.0.0.1 -b ${VUDC_BUSID} (post-handshake vhci handoff is expected to fail)"
+"${UPSTREAM_USBIP}" attach -r 127.0.0.1 -b "${VUDC_BUSID}" \
+  > /tmp/usbip-fixture-attach.log 2>&1 || true
 sleep 1
 
 # ----------------------------------------------------------------------
@@ -294,16 +311,40 @@ hex_to_bin "${REP_LIST_HEX}"   "${TESTDATA_DIR}/real_op_rep_devlist_1.bin"
 hex_to_bin "${REQ_IMPORT_HEX}" "${TESTDATA_DIR}/real_op_req_import.bin"
 hex_to_bin "${REP_IMPORT_HEX}" "${TESTDATA_DIR}/real_op_rep_import.bin"
 
-# Sanity-check expected lengths per spec §6.2.
+# Enforce exact on-wire sizes per spec §6.2. A size mismatch means the
+# capture window caught either too little (truncated TCP) or too much
+# (post-handshake URB bytes concatenated onto the reply), and either
+# case must abort — a warn would let corrupt bytes land as fixture truth.
 req_devlist_sz=$(stat -c%s "${TESTDATA_DIR}/real_op_req_devlist.bin")
 req_import_sz=$(stat -c%s "${TESTDATA_DIR}/real_op_req_import.bin")
 rep_import_sz=$(stat -c%s "${TESTDATA_DIR}/real_op_rep_import.bin")
 rep_devlist_sz=$(stat -c%s "${TESTDATA_DIR}/real_op_rep_devlist_1.bin")
 
-[[ "${req_devlist_sz}" -eq 8 ]]   || echo "WARN: OP_REQ_DEVLIST = ${req_devlist_sz}B (expected 8)" >&2
-[[ "${req_import_sz}" -eq 40 ]]   || echo "WARN: OP_REQ_IMPORT  = ${req_import_sz}B (expected 40)" >&2
-[[ "${rep_import_sz}" -ge 8 ]]    || echo "WARN: OP_REP_IMPORT  = ${rep_import_sz}B (expected ≥8; 320 on success)" >&2
-[[ "${rep_devlist_sz}" -ge 324 ]] || echo "WARN: OP_REP_DEVLIST = ${rep_devlist_sz}B (expected ≥324 for 1 device)" >&2
+size_fail=0
+abort_on_size() {
+  local name="$1" got="$2" want="$3"
+  echo "FATAL: ${name} = ${got}B (expected ${want})" >&2
+  size_fail=1
+}
+
+[[ "${req_devlist_sz}" -eq 8 ]]   || abort_on_size OP_REQ_DEVLIST   "${req_devlist_sz}" 8
+[[ "${req_import_sz}" -eq 40 ]]   || abort_on_size OP_REQ_IMPORT    "${req_import_sz}"  40
+# OP_REP_IMPORT is 320 on success (status=0 + 312-byte body) or exactly
+# 8 on error (header-only with non-zero status). Anything else means
+# the capture either truncated the body or tacked on extra URB traffic.
+case "${rep_import_sz}" in
+  8|320) ;;
+  *) abort_on_size OP_REP_IMPORT "${rep_import_sz}" "8 (error) or 320 (success)" ;;
+esac
+# OP_REP_DEVLIST minimum for one device with zero interfaces = 324.
+# Upper bound depends on bNumInterfaces of the advertised device, so
+# accept >= 324 but bail on anything unreasonable (>1 MiB is certainly
+# not a single handshake reply).
+if [[ "${rep_devlist_sz}" -lt 324 || "${rep_devlist_sz}" -gt 1048576 ]]; then
+  abort_on_size OP_REP_DEVLIST "${rep_devlist_sz}" ">=324 and <=1MiB"
+fi
+
+[[ "${size_fail}" -eq 0 ]] || exit 2
 
 # ----------------------------------------------------------------------
 # Step 7 — manifest
