@@ -48,4 +48,12 @@ var (
 	// pass-2 RANK 6 — promoted to pkg/domain so the public facade
 	// can re-export it alongside the other spec-listed sentinels).
 	ErrAttachInProgress = errors.New("attach already in progress for this endpoint")
+	// ErrPortOutOfRange indicates a vhci port identifier falls
+	// outside the kernel's flat port space [0, nports). Surfaced by
+	// the kernel adapter's attach path as a defence-in-depth guard
+	// against out-of-range selections reaching vhci_sysfs.c::
+	// attach_store (which would return -EINVAL without the port +
+	// nports context an operator needs to diagnose a topology-cache
+	// drift or a bypassed findFreePort path).
+	ErrPortOutOfRange = errors.New("vhci port out of range")
 )

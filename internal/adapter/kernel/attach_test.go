@@ -153,6 +153,150 @@ func attachFS() fstest.MapFS {
 	}
 }
 
+// TestAttachRemote_RejectsOutOfRangePort pins Task 4's defence-in-
+// depth bounds check: a flat port identifier outside the kernel's
+// port space must be refused by the adapter before any sysfs write.
+// vhci_sysfs.c::attach_store returns -EINVAL when `port >= nports`,
+// but surfacing that bare errno gives operators no context; the
+// adapter therefore validates proactively and returns
+// ErrPortOutOfRange with port + nports context wrapped in.
+//
+// Pre-fix: attachAtPort writes the payload regardless of port range,
+// so the write spy records one call and the adapter returns nil.
+// Post-fix: validateAttachPort short-circuits before writeClassified,
+// the spy records zero calls, and errors.Is surfaces
+// domain.ErrPortOutOfRange.
+//
+// attachFS() has nports=8, so port 20 is well outside [0, 8).
+// AttachAtPortForTest drives the post-selection attach path
+// directly with the out-of-range port; findFreePort upstream
+// cannot emit such a value (parseStatusFile already rejects rows
+// outside the controller window), but the bounds check hardens the
+// path against stale caches or future bypass callers — the exact
+// hole Task 4 closes.
+func TestAttachRemote_RejectsOutOfRangePort(t *testing.T) {
+	t.Parallel()
+
+	left, right := socketpairConns(t)
+
+	defer func() {
+		_ = right.Close()
+		_ = left.Close() // caller owns conn on pre-handoff failure; test cleans up.
+	}()
+
+	wrapped := &closeCountingConn{Conn: left}
+
+	var writes atomic.Int32
+
+	writer := func(string, string) error {
+		writes.Add(1)
+
+		return nil
+	}
+
+	a, err := kernel.NewImporterAdapter(
+		kernel.WithFS(attachFS()),
+		kernel.WithWriteFunc(writer),
+	)
+	require.NoError(t, err)
+
+	spec := app.RemoteDeviceSpec{DevID: 1, Speed: domain.SpeedHigh}
+
+	// attachFS() declares nports=8; port 20 is well past the window.
+	_, err = kernel.AttachAtPortForTest(context.Background(), a, wrapped, domain.PortID(20), spec)
+	require.ErrorIs(t, err, domain.ErrPortOutOfRange,
+		"flat port 20 is outside [0, 8); must surface ErrPortOutOfRange")
+	require.EqualValues(t, 0, writes.Load(),
+		"bounds check must refuse the port BEFORE any sysfs write")
+	require.EqualValues(t, 0, wrapped.closes.Load(),
+		"pre-handoff failure must not close the caller's conn")
+}
+
+// TestAttachRemote_RejectsPortAtNportsBoundary pins the exact
+// boundary semantics of the validator: nports itself is the first
+// invalid identifier (the valid range is half-open [0, nports));
+// an off-by-one making the range inclusive would corrupt the very
+// top slot. attachFS() declares nports=8, so port 8 must be
+// rejected and port 7 (the last valid slot) must succeed.
+func TestAttachRemote_RejectsPortAtNportsBoundary(t *testing.T) {
+	t.Parallel()
+
+	// Reject: port == nports. findFreePort's last valid return under
+	// nports=8 is 7; port 8 is the first invalid slot.
+	t.Run("at_nports_is_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		left, right := socketpairConns(t)
+
+		defer func() {
+			_ = right.Close()
+			_ = left.Close()
+		}()
+
+		wrapped := &closeCountingConn{Conn: left}
+
+		var writes atomic.Int32
+
+		writer := func(string, string) error {
+			writes.Add(1)
+
+			return nil
+		}
+
+		a, err := kernel.NewImporterAdapter(
+			kernel.WithFS(attachFS()),
+			kernel.WithWriteFunc(writer),
+		)
+		require.NoError(t, err)
+
+		spec := app.RemoteDeviceSpec{DevID: 1, Speed: domain.SpeedHigh}
+
+		_, err = kernel.AttachAtPortForTest(context.Background(), a, wrapped, domain.PortID(8), spec)
+		require.ErrorIs(t, err, domain.ErrPortOutOfRange,
+			"flat port 8 is the off-by-one boundary — range is [0, 8)")
+		require.EqualValues(t, 0, writes.Load(),
+			"port == nports must not reach sysfs write")
+	})
+
+	// Accept: port == nports-1, the last valid identifier. This
+	// guards against an off-by-one in the validator that would
+	// reject the top slot.
+	t.Run("nports_minus_one_is_accepted", func(t *testing.T) {
+		t.Parallel()
+
+		left, right := socketpairConns(t)
+
+		defer func() { _ = right.Close() }() // adapter closes left on success.
+
+		wrapped := &closeCountingConn{Conn: left}
+
+		var writes atomic.Int32
+
+		writer := func(string, string) error {
+			writes.Add(1)
+
+			return nil
+		}
+
+		a, err := kernel.NewImporterAdapter(
+			kernel.WithFS(attachFS()),
+			kernel.WithWriteFunc(writer),
+		)
+		require.NoError(t, err)
+
+		spec := app.RemoteDeviceSpec{DevID: 1, Speed: domain.SpeedHigh}
+
+		got, err := kernel.AttachAtPortForTest(context.Background(), a, wrapped, domain.PortID(7), spec)
+		require.NoError(t, err,
+			"flat port 7 (nports-1=7) is the last valid slot; validator must accept it")
+		require.EqualValues(t, 7, got)
+		require.EqualValues(t, 1, writes.Load(),
+			"valid port must reach sysfs write exactly once")
+		require.EqualValues(t, 1, wrapped.closes.Load(),
+			"conn must be closed exactly once after successful attach")
+	})
+}
+
 // TestFormatAttachPayload_FieldOrderingMatchesKernel pins the exact
 // byte-for-byte shape the adapter writes to vhci_hcd's attach sysfs
 // node. Kernel 7.0's vhci_sysfs.c::attach_store consumes the write

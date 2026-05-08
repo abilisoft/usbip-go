@@ -3,8 +3,10 @@
 package kernel
 
 import (
+	"context"
 	"io/fs"
 	"log/slog"
+	"net"
 
 	"github.com/abilisoft/usbip-go/internal/app"
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -85,6 +87,28 @@ func FormatAttachPayloadForTest(
 	portID domain.PortID, fd uintptr, devID domain.DeviceID, speed domain.Speed,
 ) string {
 	return formatAttachPayload(portID, fd, devID, speed)
+}
+
+// AttachAtPortForTest exposes the unexported attachAtPort so tests
+// can drive the post-selection half of AttachRemote with an explicit
+// flat port — the synthetic "a bad port somehow reached attach"
+// scenario Task 4's bounds check guards against. Production
+// AttachRemote always routes through findFreePort first; this helper
+// bypasses that step so the bounds-check contract can be pinned
+// without depending on findFreePort emitting an out-of-range value
+// (which parseStatusFile already prevents upstream).
+//
+// The helper threads context + conn + spec through the same code
+// path the production method uses, so the write spy, fd extraction
+// and conn-close lifecycle all match AttachRemote's guarantees.
+func AttachAtPortForTest(
+	ctx context.Context,
+	a *ImporterAdapter,
+	conn net.Conn,
+	port domain.PortID,
+	spec app.RemoteDeviceSpec,
+) (domain.PortID, error) {
+	return a.attachAtPort(ctx, conn, port, spec)
 }
 
 // ParseStatusFileForTest exposes the unexported parseStatusFile so
