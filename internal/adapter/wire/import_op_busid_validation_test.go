@@ -28,12 +28,18 @@ func TestDecodeOpReqImportRejectsInvalidBusID(t *testing.T) {
 	buf.Write(wire.EncodeHeader(wire.OpReqImport, 0))
 
 	payload := make([]byte, domain.BusIDSize)
-	copy(payload, "not a busid")
+	// Leading whitespace survives ReadPaddedString's printable scan but
+	// yields an ambiguous busid for every downstream helper (sysfs
+	// lookup, log correlation, metrics cardinality). The wire-level
+	// validator must reject it with ErrBusIDInvalid so the peer learns
+	// the input was malformed rather than the request succeeding
+	// against whatever whitespace-prefixed busid happens to match.
+	copy(payload, " 1-1")
 	buf.Write(payload)
 
 	_, err := wire.DecodeOpReqImport(&buf)
 	require.Error(t, err,
-		"decoder must reject a peer-supplied busid that fails topology validation")
+		"decoder must reject a peer-supplied busid with leading whitespace")
 	require.ErrorIs(t, err, domain.ErrBusIDInvalid,
 		"rejection must classify as ErrBusIDInvalid so callers can branch correctly")
 }
