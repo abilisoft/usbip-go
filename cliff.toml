@@ -64,6 +64,7 @@ commit_parsers = [
     { message = "^test",     group = "Tests" },
     { message = "^ci",       group = "CI & Build" },
     { message = "^build",    group = "CI & Build" },
+    { message = "^deps",     group = "Dependencies" },
     { message = "^chore",    group = "Chores" },
     { message = "^style",    group = "Style" },
     # Anything with BREAKING CHANGE or ! after type — surfaced first.
