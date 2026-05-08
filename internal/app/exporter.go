@@ -413,26 +413,35 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 		}
 	}
 
+	// Cancel every session handle FIRST so the bounded drain can make
+	// progress even if a graceful Disconnect wedges. h.cancel() unblocks
+	// waitForSessionEnd's Shutdown branch unconditionally and is cheap
+	// (channel close), so it must precede the synchronous kernel call.
+	for _, h := range handles {
+		h.cancel()
+	}
+
 	// Graceful: ask the kernel to release each active session's socket.
 	// Disconnect writes -1 to usbip_sockfd; the kernel-side session
-	// teardown emits the remove uevent that the
-	// handler's pre-opened subscription observes. Failures are logged
-	// but not fatal — the bounded drain falls through to force-close
-	// + handle.cancel() so a kernel that ignores Disconnect still
-	// unwinds. h.cancel() also fires immediately so a kernel path that
-	// silently accepts Disconnect without emitting the remove uevent
-	// (e.g. unit-test mocks, kernel without full netlink plumbing)
-	// still terminates the parked handler via the Shutdown branch of
-	// waitForSessionEnd.
+	// teardown emits the remove uevent that the handler's pre-opened
+	// subscription observes. Failures are logged but not fatal — the
+	// bounded drain falls through to force-close so a kernel that
+	// ignores Disconnect still unwinds. The call is synchronous but
+	// each invocation runs in its own goroutine: a single wedged sysfs
+	// write must not block the rest of the loop nor the subsequent
+	// waitSessionsBounded path. Goroutines that never return are
+	// accepted as a leaked-goroutine trade-off (same rationale as the
+	// truly-stuck handler note in waitSessionsBounded) — Shutdown-blocks-
+	// forever is a worse failure mode.
 	for _, h := range handles {
-		err := e.kernel.Disconnect(ctx, h.session.BusID)
-		if err != nil {
-			e.logger.Warn("shutdown kernel disconnect",
-				slog.Any("busid", h.session.BusID),
-				slog.Any("err", err))
-		}
-
-		h.cancel()
+		go func() {
+			err := e.kernel.Disconnect(ctx, h.session.BusID)
+			if err != nil {
+				e.logger.Warn("shutdown kernel disconnect",
+					slog.Any("busid", h.session.BusID),
+					slog.Any("err", err))
+			}
+		}()
 	}
 
 	// Wait for acceptLoop to exit so no sessionsWG.Go call can race

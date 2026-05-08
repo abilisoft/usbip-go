@@ -255,14 +255,9 @@ func (e *Exporter) serveImport(
 	// re-read 8 bytes from the busid region and surface ErrProtocolMismatch
 	// with the busid's first two bytes ("3-" -> 0x332d) as the bogus version.
 	busID, err := e.codec.DecodeOpReqImportBody(reader)
-
-	// Disarm the handshake deadline only once the full handshake read
-	// has completed — successful or not. If we leave the watcher armed
-	// past this point the long-running ExportOnConn call would be torn
-	// down when the clock ticks forward.
-	stopTimeout()
-
 	if err != nil {
+		stopTimeout()
+
 		e.logger.Warn("exporter decode import request",
 			slog.String("op", string(HandshakeOpImport)),
 			slog.String("outcome", string(OutcomeHandshakeFailed)),
@@ -270,6 +265,14 @@ func (e *Exporter) serveImport(
 
 		return
 	}
+
+	// Keep the handshake deadline armed across the OP_REP_IMPORT reply
+	// writes (success and error paths). A client that submits a valid
+	// request body and then stops reading would otherwise park the
+	// handler in EncodeOpRep* indefinitely. The timeout is disarmed
+	// inside each terminal branch — replyImportError does so after its
+	// error reply, runRegisteredSession does so after the success reply
+	// and before the long-running ExportOnConn call.
 
 	// Look up the requested device BEFORE building any session state.
 	// The exporter MUST send an OP_REP_IMPORT reply (success or error)
@@ -279,6 +282,7 @@ func (e *Exporter) serveImport(
 	dev, lookupErr := e.lookupExportedDevice(ctx, busID)
 	if lookupErr != nil {
 		e.replyImportError(conn, busID, classifyImportLookupStatus(lookupErr), lookupErr)
+		stopTimeout()
 
 		return
 	}
@@ -286,6 +290,7 @@ func (e *Exporter) serveImport(
 	sess, err := e.buildSession(conn, busID)
 	if err != nil {
 		e.replyImportError(conn, busID, wire.ImportStatusDevErr, err)
+		stopTimeout()
 
 		return
 	}
@@ -316,10 +321,12 @@ func (e *Exporter) serveImport(
 				slog.Any("err", encErr))
 		}
 
+		stopTimeout()
+
 		return
 	}
 
-	e.runRegisteredSession(ctx, conn, busID, handle, dev)
+	e.runRegisteredSession(ctx, conn, busID, handle, dev, stopTimeout)
 }
 
 // lookupExportedDevice scans the kernel-reported exported device set
@@ -401,6 +408,7 @@ func (e *Exporter) runRegisteredSession(
 	busID domain.BusID,
 	handle *sessionHandle,
 	dev domain.Device,
+	stopTimeout func(),
 ) {
 	// Successful registration: count the accept BEFORE ExportOnConn
 	// because the kernel call may block for the session's entire
@@ -459,6 +467,8 @@ func (e *Exporter) runRegisteredSession(
 				slog.Any("err", encErr))
 		}
 
+		stopTimeout()
+
 		return
 	}
 
@@ -482,8 +492,16 @@ func (e *Exporter) runRegisteredSession(
 			slog.String("disconnect_reason", reason),
 			slog.Any("err", err))
 
+		stopTimeout()
+
 		return
 	}
+
+	// Reply written; disarm the handshake deadline before the long-
+	// running ExportOnConn block. Leaving the watcher armed past this
+	// point would tear down the conn after the kernel had taken
+	// ownership of it.
+	stopTimeout()
 
 	err = e.kernel.ExportOnConn(ctx, conn, busID)
 	if err != nil {
