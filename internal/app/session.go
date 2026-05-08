@@ -363,10 +363,13 @@ func (e *Exporter) runRegisteredSession(
 
 	err := e.kernel.ExportOnConn(ctx, conn, busID)
 	if err != nil {
+		reason := string(classifyDisconnectReason(err))
+		handle.disconnectReason.Store(&reason)
+
 		if !errors.Is(err, context.Canceled) {
 			e.logger.Warn("exporter export on conn",
 				slog.Any("busid", busID),
-				slog.String("disconnect_reason", string(DisconnectReasonKernelError)),
+				slog.String("disconnect_reason", reason),
 				slog.Any("err", err))
 		}
 
@@ -375,8 +378,11 @@ func (e *Exporter) runRegisteredSession(
 
 	// ExportOnConn returned success: the kernel accepted the fd, the
 	// handshake is done. Park on waitForSessionEnd until the kernel
-	// signals the session ended.
-	e.waitForSessionEnd(ctx, busID, handle, events)
+	// signals the session ended; the typed disconnect reason is used
+	// to override the deferred endSession's free-form "handler exited"
+	// fallback so journald carries the closed-set classification.
+	reason := string(e.waitForSessionEnd(ctx, busID, handle, events))
+	handle.disconnectReason.Store(&reason)
 }
 
 // waitForSessionEnd blocks the post-ExportOnConn handler until the
@@ -471,7 +477,18 @@ func classifyDisconnectReason(err error) DisconnectReason {
 // bookkeeping call does not also trigger fan-out under the write lock
 // (publishSessionEvent takes an RLock of the same mu, which would
 // deadlock).
+//
+// reason is the FALLBACK reason supplied at defer time (typically
+// "handler exited"). When waitForSessionEnd recorded a typed
+// DisconnectReason on the handle BEFORE the deferred call fires,
+// that closed-set value wins so journald carries the precise
+// classification (graceful / client_gone / kernel_error / shutdown)
+// rather than a free-form fallback.
 func (e *Exporter) endSession(h *sessionHandle, reason string) {
+	if typed := h.disconnectReason.Load(); typed != nil && *typed != "" {
+		reason = *typed
+	}
+
 	e.unregisterSession(h.session.ID)
 
 	e.publishSessionEvent(domain.SessionEndedEvent{
