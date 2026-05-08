@@ -58,6 +58,16 @@ func (r RemoteEndpoint) NormalizePort() RemoteEndpoint {
 	return r
 }
 
+// Validate applies the same host-acceptance rules as ParseRemote to a
+// programmatically constructed endpoint. Callers that accept a
+// RemoteEndpoint from outside their own code (public API boundaries,
+// RPC payloads, config deserialisation) invoke Validate before
+// dialing; this keeps the dialer path pure and makes empty-Host input
+// a first-class error instead of an accidental loopback dial.
+func (r RemoteEndpoint) Validate() error {
+	return validateHost(r.Host)
+}
+
 // ParseRemote accepts "host", "host:port", "[v6]:port", bare "v6"
 // (multi-colon), or bracketed "[v6]" forms. Port defaults to
 // DefaultPort when omitted. Port 0 is rejected as a sentinel value.
