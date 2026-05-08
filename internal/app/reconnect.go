@@ -290,9 +290,7 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 	lastErr := fmt.Errorf("%w: port %d via %s", ErrPortDetached, p.portID, source)
 
 	for attempt := 1; p.opts.MaxAttempts == 0 || attempt <= p.opts.MaxAttempts; attempt++ {
-		if p.opts.OnReconnect != nil {
-			p.opts.OnReconnect(attempt, lastErr)
-		}
+		i.fireOnReconnect(p.opts.OnReconnect, attempt, lastErr)
 
 		if !i.waitBackoff(ctx, p, attempt) {
 			return
@@ -365,4 +363,33 @@ func (i *Importer) removeHandle(id domain.PortID, owned *portHandle) {
 	if cur, ok := i.handles[id]; ok && cur == owned {
 		delete(i.handles, id)
 	}
+}
+
+// fireOnReconnect invokes cb in a fresh goroutine with panic recovery.
+// Running off the watcher goroutine isolates a slow callback from the
+// retry cadence (the watcher must stay responsive to ctx cancellation);
+// the recover block logs and drops panics so a buggy caller cannot
+// crash the process or leave the watcher in an indeterminate state.
+// cb may run concurrently with other Importer operations — callers who
+// need synchronous semantics must wire their own buffering.
+func (i *Importer) fireOnReconnect(cb func(int, error), attempt int, err error) {
+	if cb == nil {
+		return
+	}
+
+	go func() {
+		defer func() {
+			r := recover()
+			if r == nil {
+				return
+			}
+
+			i.logger.Error("OnReconnect callback panicked",
+				slog.Int("attempt", attempt),
+				slog.Any("panic", r),
+			)
+		}()
+
+		cb(attempt, err)
+	}()
 }
