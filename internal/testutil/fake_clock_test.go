@@ -10,25 +10,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeClockEpoch is a fixed reference time used across FakeClock tests
-// so assertions are stable regardless of wall-clock drift.
-var fakeClockEpoch = time.Date(2026, time.April, 18, 12, 0, 0, 0, time.UTC)
+// Constants used across FakeClock tests so assertions are stable
+// regardless of wall-clock drift and repeated literals collapse under
+// goconst/mnd.
+const (
+	fakeClockEpochYear  = 2026
+	fakeClockEpochMonth = time.April
+	fakeClockEpochDay   = 18
+	fakeClockEpochHour  = 12
+)
+
+// newFakeClockEpoch returns the fixed reference time used across tests.
+// A function (rather than a package-level var) keeps the testutil test
+// file free of globals (gochecknoglobals).
+func newFakeClockEpoch() time.Time {
+	return time.Date(fakeClockEpochYear, fakeClockEpochMonth, fakeClockEpochDay, fakeClockEpochHour, 0, 0, 0, time.UTC)
+}
 
 // TestFakeClockNow asserts NewFakeClockAt sets the initial Now().
 func TestFakeClockNow(t *testing.T) {
 	t.Parallel()
 
-	clock := testutil.NewFakeClockAt(fakeClockEpoch)
-	require.Equal(t, fakeClockEpoch, clock.Now())
+	epoch := newFakeClockEpoch()
+	clock := testutil.NewFakeClockAt(epoch)
+	require.Equal(t, epoch, clock.Now())
 }
 
 // TestFakeClockSleepAdvances asserts Sleep advances Now by exactly d.
 func TestFakeClockSleepAdvances(t *testing.T) {
 	t.Parallel()
 
-	clock := testutil.NewFakeClockAt(fakeClockEpoch)
+	epoch := newFakeClockEpoch()
+	clock := testutil.NewFakeClockAt(epoch)
 	clock.Sleep(1 * time.Second)
-	require.Equal(t, fakeClockEpoch.Add(1*time.Second), clock.Now())
+	require.Equal(t, epoch.Add(1*time.Second), clock.Now())
 }
 
 // TestFakeClockAdvanceFiresAfterChannels asserts Advance triggers any
@@ -37,7 +52,8 @@ func TestFakeClockSleepAdvances(t *testing.T) {
 func TestFakeClockAdvanceFiresAfterChannels(t *testing.T) {
 	t.Parallel()
 
-	clock := testutil.NewFakeClockAt(fakeClockEpoch)
+	epoch := newFakeClockEpoch()
+	clock := testutil.NewFakeClockAt(epoch)
 	chFive := clock.After(5 * time.Second)
 	chTen := clock.After(10 * time.Second)
 
@@ -45,7 +61,7 @@ func TestFakeClockAdvanceFiresAfterChannels(t *testing.T) {
 
 	select {
 	case got := <-chFive:
-		require.Equal(t, fakeClockEpoch.Add(5*time.Second), got)
+		require.Equal(t, epoch.Add(5*time.Second), got)
 	default:
 		t.Fatal("5s channel should have fired")
 	}
@@ -60,7 +76,7 @@ func TestFakeClockAdvanceFiresAfterChannels(t *testing.T) {
 
 	select {
 	case got := <-chTen:
-		require.Equal(t, fakeClockEpoch.Add(10*time.Second), got)
+		require.Equal(t, epoch.Add(10*time.Second), got)
 	default:
 		t.Fatal("10s channel should have fired after second advance")
 	}
@@ -72,16 +88,28 @@ func TestFakeClockAdvanceFiresAfterChannels(t *testing.T) {
 func TestFakeClockAfterZeroFiresImmediately(t *testing.T) {
 	t.Parallel()
 
-	clock := testutil.NewFakeClockAt(fakeClockEpoch)
+	epoch := newFakeClockEpoch()
+	clock := testutil.NewFakeClockAt(epoch)
 	ch := clock.After(0)
 
 	select {
 	case got := <-ch:
-		require.Equal(t, fakeClockEpoch, got)
+		require.Equal(t, epoch, got)
 	default:
 		t.Fatal("After(0) must deliver immediately")
 	}
 }
+
+// fakeClockRaceGoroutines is the number of goroutines contending for
+// the FakeClock mutex in the concurrency test.
+const fakeClockRaceGoroutines = 8
+
+// fakeClockRacePerGoroutine is the number of Sleep calls each
+// goroutine in the concurrency test issues.
+const fakeClockRacePerGoroutine = 4
+
+// fakeClockRaceStep is the per-Sleep advance in the concurrency test.
+const fakeClockRaceStep = 1 * time.Millisecond
 
 // TestFakeClockConcurrentSafe runs parallel Sleep and Advance calls
 // through the race detector. Only total elapsed is asserted; ordering
@@ -89,27 +117,26 @@ func TestFakeClockAfterZeroFiresImmediately(t *testing.T) {
 func TestFakeClockConcurrentSafe(t *testing.T) {
 	t.Parallel()
 
-	clock := testutil.NewFakeClockAt(fakeClockEpoch)
+	epoch := newFakeClockEpoch()
+	clock := testutil.NewFakeClockAt(epoch)
 
 	var wg sync.WaitGroup
-	const goroutines = 8
-	const perGoroutine = 4
-	const step = 1 * time.Millisecond
 
-	wg.Add(goroutines)
+	wg.Add(fakeClockRaceGoroutines)
 
-	for range goroutines {
+	for range fakeClockRaceGoroutines {
 		go func() {
 			defer wg.Done()
-			for range perGoroutine {
-				clock.Sleep(step)
+
+			for range fakeClockRacePerGoroutine {
+				clock.Sleep(fakeClockRaceStep)
 			}
 		}()
 	}
 
 	wg.Wait()
 
-	expected := fakeClockEpoch.Add(step * goroutines * perGoroutine)
+	expected := epoch.Add(fakeClockRaceStep * fakeClockRaceGoroutines * fakeClockRacePerGoroutine)
 	require.Equal(t, expected, clock.Now())
 }
 
@@ -118,6 +145,6 @@ func TestFakeClockConcurrentSafe(t *testing.T) {
 func TestFakeClockSatisfiesInterface(t *testing.T) {
 	t.Parallel()
 
-	var clock app.Clock = testutil.NewFakeClockAt(fakeClockEpoch)
+	var clock app.Clock = testutil.NewFakeClockAt(newFakeClockEpoch())
 	require.NotNil(t, clock)
 }
