@@ -115,6 +115,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newPortCmd())
 	cmd.AddCommand(newBindCmd())
 	cmd.AddCommand(newUnbindCmd())
+	cmd.AddCommand(newWatchCmd())
 
 	return cmd
 }
