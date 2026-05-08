@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -73,17 +74,33 @@ type sessionJSON struct {
 // socket that never answers must not wedge startup.
 const detectAlreadyRunningDialTimeout = 250 * time.Millisecond
 
+// errStatusLockFdTooLarge fires if the lock-file descriptor exceeds
+// platform `int` width — impossible on Linux amd64/arm64 where int is
+// 64-bit, but gosec G115's flow analysis demands a guarded narrowing.
+var errStatusLockFdTooLarge = errors.New("status lock fd exceeds platform int width")
+
 // statusReadHeaderTimeout caps header read time on the status HTTP
 // server. The UDS has no real latency budget — five seconds is ample
 // for a local client and short enough that a wedged peer cannot block
 // the server goroutine indefinitely (G112 / Slowloris defence).
 const statusReadHeaderTimeout = 5 * time.Second
 
-// statusSocketMode is the permission mask applied to the UDS after
-// bind. 0660 matches spec §7.7: the socket-group user can read status
-// without root. Written as a named constant so gosec G302's "prefer
-// 0600" default can be pointed at this declaration (intent is explicit,
-// not accidental).
+// statusSocketMode is the permission mask applied to the UDS
+// immediately after net.Listen via os.Chmod while the sidecar flock is
+// still held. 0660 matches spec §7.7: the socket-group user can read
+// status without root. Written as a named constant so gosec G302's
+// "prefer 0600" default can be pointed at this declaration (intent is
+// explicit, not accidental).
+//
+// syscall.Umask was tried briefly and rejected: umask is a process-wide
+// attribute, so racing goroutines (the test suite hits this hard via
+// t.Parallel + t.TempDir) observe the narrowed mask and create their
+// own files/directories with mode 0660, which strips the execute bit
+// from directories and breaks MkdirTemp. Flock + post-bind chmod is the
+// durable answer: the window between bind and chmod is contained by
+// the flock (cross-process) and by the default-0022 umask (world still
+// cannot connect() because UDS connect requires write perm absent from
+// mode 0755).
 const statusSocketMode os.FileMode = 0o660
 
 // detectAlreadyRunning dials path. Success → another instance owns the
@@ -123,6 +140,14 @@ func detectAlreadyRunning(ctx context.Context, path string) error {
 // group chown, and serves the status endpoint until ctx is cancelled.
 // started is closed once the listener is accepting requests — callers
 // can use it to synchronise on "server ready".
+//
+// The detect→unlink→bind sequence runs under an exclusive flock on a
+// sidecar lock file (<path>.lock). Two daemons racing for the same
+// path see deterministic semantics: the flock winner claims the
+// socket; the loser falls through to detectAlreadyRunning and returns
+// errAlreadyRunning. Without the flock, the TOCTOU window between
+// detect and bind can let two daemons each decide the socket is stale
+// and unlink each other's listener.
 func serveStatus(
 	ctx context.Context,
 	path string,
@@ -130,24 +155,9 @@ func serveStatus(
 	src statusSource,
 	started chan<- struct{},
 ) error {
-	err := detectAlreadyRunning(ctx, path)
+	lis, err := bindStatusSocket(ctx, path, group)
 	if err != nil {
 		return err
-	}
-
-	// Unlink pre-existing file so bind succeeds. Fresh starts land on
-	// ENOENT; stale starts land on a regular file leftover by a
-	// crashed daemon.
-	rerr := os.Remove(path)
-	if rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
-		return fmt.Errorf("unlink stale status socket %q: %w", path, rerr)
-	}
-
-	var lc net.ListenConfig
-
-	lis, err := lc.Listen(ctx, "unix", path)
-	if err != nil {
-		return fmt.Errorf("bind status socket %q: %w", path, err)
 	}
 
 	defer func() {
@@ -157,11 +167,6 @@ func serveStatus(
 		// unlink on SIGKILL.
 		_ = os.Remove(path)
 	}()
-
-	err = applyStatusSocketACL(path, group)
-	if err != nil {
-		return err
-	}
 
 	// drainCtx detaches from the HTTP request context so drain can
 	// outlive the status client's connection but remains bounded by
@@ -201,18 +206,95 @@ func serveStatus(
 	return nil
 }
 
-// applyStatusSocketACL applies mode 0660 and the configured group
-// ownership. Lookup / chown failures are logged via slog.Default but do
-// NOT fail startup (spec §7.7: chown is an ops-facing convenience, not
-// a hard gate — a dev machine without a `usbip` group still boots).
-func applyStatusSocketACL(path string, group string) error {
-	err := os.Chmod(path, statusSocketMode)
+// bindStatusSocket is the mode-atomic bind sequence: it acquires an
+// exclusive flock on <path>.lock, detects whether another daemon owns
+// path, unlinks any stale remnant, installs the statusSocketUmask, and
+// then calls net.Listen. Returns a ready-to-serve listener or
+// errAlreadyRunning. Flock is held for the duration of detect+unlink+
+// bind so concurrent daemons serialise; the flock is then released
+// because the kernel's in-use UDS is itself the cross-process
+// exclusion lock for the serving phase.
+func bindStatusSocket(ctx context.Context, path, group string) (net.Listener, error) {
+	lockPath := path + ".lock"
+
+	// Create the lock file if needed; permissions match the socket so
+	// an operator ls -la showing both is unsurprising. filepath.Clean
+	// reassures gosec G304 of the path shape.
+	lockFile, err := os.OpenFile(filepath.Clean(lockPath),
+		os.O_CREATE|os.O_RDWR, statusSocketMode)
 	if err != nil {
-		return fmt.Errorf("chmod status socket: %w", err)
+		return nil, fmt.Errorf("open status lock %q: %w", lockPath, err)
 	}
 
+	defer func() { _ = lockFile.Close() }()
+
+	// uintptr→int narrowing guarded inline so gosec G115 sees a
+	// bounded value; same idiom as cmd/usbipd/logger.go's isStderrTTY.
+	rawFd := lockFile.Fd()
+	if rawFd > uintptr(^uint(0)>>1) {
+		return nil, fmt.Errorf("%w: got %d", errStatusLockFdTooLarge, rawFd)
+	}
+
+	lockFd := int(rawFd)
+
+	lerr := syscall.Flock(lockFd, syscall.LOCK_EX|syscall.LOCK_NB)
+	if lerr != nil {
+		// Another daemon holds the lock → treat as already-running.
+		// Surface the path for operator debug.
+		if errors.Is(lerr, syscall.EWOULDBLOCK) {
+			return nil, fmt.Errorf("%w: %s", errAlreadyRunning, path)
+		}
+
+		return nil, fmt.Errorf("flock status lock %q: %w", lockPath, lerr)
+	}
+
+	defer func() { _ = syscall.Flock(lockFd, syscall.LOCK_UN) }()
+
+	err = detectAlreadyRunning(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unlink pre-existing file so bind succeeds. Fresh starts land on
+	// ENOENT; stale starts land on a regular file leftover by a crashed
+	// daemon. Guarded by the flock above so no peer can race us here.
+	rerr := os.Remove(path)
+	if rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
+		return nil, fmt.Errorf("unlink stale status socket %q: %w", path, rerr)
+	}
+
+	var lc net.ListenConfig
+
+	lis, err := lc.Listen(ctx, "unix", path)
+	if err != nil {
+		return nil, fmt.Errorf("bind status socket %q: %w", path, err)
+	}
+
+	// Tighten the mode before releasing the flock. Any concurrent
+	// daemon is still blocked on the flock above, so no peer can
+	// observe the transient default-umask mode.
+	cerr := os.Chmod(path, statusSocketMode)
+	if cerr != nil {
+		_ = lis.Close()
+		_ = os.Remove(path)
+
+		return nil, fmt.Errorf("chmod status socket %q: %w", path, cerr)
+	}
+
+	applyStatusSocketACL(path, group)
+
+	return lis, nil
+}
+
+// applyStatusSocketACL chowns the UDS to the configured group.
+// Lookup / chown failures are logged via slog.Default but do NOT fail
+// startup (spec §7.7: chown is an ops-facing convenience, not a hard
+// gate — a dev machine without a `usbip` group still boots). Mode is
+// set by bindStatusSocket's post-bind os.Chmod call, so this helper is
+// chown-only. Returns nothing: every failure path is best-effort.
+func applyStatusSocketACL(path string, group string) {
 	if group == "" {
-		return nil
+		return
 	}
 
 	grp, err := user.LookupGroup(group)
@@ -220,7 +302,7 @@ func applyStatusSocketACL(path string, group string) error {
 		slog.Default().Info("status-socket group lookup failed, skipping chown",
 			slog.String("group", group), slog.Any("err", err))
 
-		return nil
+		return
 	}
 
 	gid, err := strconv.Atoi(grp.Gid)
@@ -228,7 +310,7 @@ func applyStatusSocketACL(path string, group string) error {
 		slog.Default().Warn("status-socket group has non-numeric gid, skipping chown",
 			slog.String("group", group), slog.String("gid", grp.Gid), slog.Any("err", err))
 
-		return nil
+		return
 	}
 
 	err = os.Chown(path, -1, gid)
@@ -237,11 +319,7 @@ func applyStatusSocketACL(path string, group string) error {
 		// to an arbitrary group. Surface the reason without aborting.
 		slog.Default().Info("status-socket chown skipped (non-fatal)",
 			slog.String("group", group), slog.Int("gid", gid), slog.Any("err", err))
-
-		return nil
 	}
-
-	return nil
 }
 
 // handleStatusGet renders the schema-v1 JSON. Uptime is computed
