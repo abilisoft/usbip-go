@@ -119,7 +119,7 @@ jobs:
         run: nix develop --command task ci:test
 
   conformance:
-    name: Conformance (upstream usbip-utils)
+    name: Conformance (wire bytes + optional upstream usbip)
     runs-on: ubuntu-24.04
     container:
       image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
