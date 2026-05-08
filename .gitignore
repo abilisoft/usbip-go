@@ -1,6 +1,25 @@
+# Build artifacts
 /bin/
 /dist/
 /coverage.out
 /coverage.html
 *.log
 .task/
+
+# Claude Code local state (project .claude/settings.json + agents/commands/skills ARE committed)
+.claude/settings.local.json
+.claude/*.local.*
+.claude/session*
+.claude/cache/
+.claude/debug/
+
+# Codex (OpenAI Codex companion / plugin state)
+.codex/
+codex-*.log
+/tmp/codex-*
+
+# Other AI-assistant session state — never commit these
+.ai/
+.cursor/
+.aider*
+/tmp/claude-*
