@@ -165,9 +165,9 @@ func attachFS() fstest.MapFS {
 // worst, and the pre-write boundary is unreachable by production
 // callers that go through findFreePort).
 //
-// Pre-fix: only domain.ErrPortOutOfRange and the public re-export
-// satisfy errors.Is; no adapter-local shim exists.
-// Post-fix: kernel.ErrPortOutOfRangeForTest exposes the adapter's
+// Before this commit: only domain.ErrPortOutOfRange and the public
+// re-export satisfy errors.Is; no adapter-local shim exists.
+// After: kernel.ErrPortOutOfRangeForTest exposes the adapter's
 // internal sentinel, domain + usbip entries are gone, and the
 // attach path wraps the adapter-local sentinel.
 func TestAttachRemote_PortOutOfRangeSentinelIsAdapterLocal(t *testing.T) {
@@ -202,14 +202,14 @@ func TestAttachRemote_PortOutOfRangeSentinelIsAdapterLocal(t *testing.T) {
 // port space must be refused by the adapter before any sysfs write.
 // vhci_sysfs.c::attach_store returns -EINVAL when `port >= nports`,
 // but surfacing that bare errno gives operators no context; the
-// adapter therefore validates proactively and returns
-// ErrPortOutOfRange with port + nports context wrapped in.
+// adapter therefore validates proactively and wraps the adapter-
+// local errPortOutOfRange sentinel with port + nports context.
 //
 // Pre-fix: attachAtPort writes the payload regardless of port range,
 // so the write spy records one call and the adapter returns nil.
 // Post-fix: validateAttachPort short-circuits before writeClassified,
-// the spy records zero calls, and errors.Is surfaces
-// domain.ErrPortOutOfRange.
+// the spy records zero calls, and errors.Is surfaces the adapter-
+// local sentinel via its test shim.
 //
 // attachFS() has nports=8, so port 20 is well outside [0, 8).
 // AttachAtPortForTest drives the post-selection attach path
@@ -248,8 +248,8 @@ func TestAttachRemote_RejectsOutOfRangePort(t *testing.T) {
 
 	// attachFS() declares nports=8; port 20 is well past the window.
 	_, err = kernel.AttachAtPortForTest(context.Background(), a, wrapped, domain.PortID(20), spec)
-	require.ErrorIs(t, err, domain.ErrPortOutOfRange,
-		"flat port 20 is outside [0, 8); must surface ErrPortOutOfRange")
+	require.ErrorIs(t, err, kernel.ErrPortOutOfRangeForTest,
+		"flat port 20 is outside [0, 8); must surface errPortOutOfRange")
 	require.EqualValues(t, 0, writes.Load(),
 		"bounds check must refuse the port BEFORE any sysfs write")
 	require.EqualValues(t, 0, wrapped.closes.Load(),
@@ -365,7 +365,7 @@ func TestAttachRemote_RejectsPortAtNportsBoundary(t *testing.T) {
 		spec := app.RemoteDeviceSpec{DevID: 1, Speed: domain.SpeedHigh}
 
 		_, err = kernel.AttachAtPortForTest(context.Background(), a, wrapped, domain.PortID(8), spec)
-		require.ErrorIs(t, err, domain.ErrPortOutOfRange,
+		require.ErrorIs(t, err, kernel.ErrPortOutOfRangeForTest,
 			"flat port 8 is the off-by-one boundary — range is [0, 8)")
 		require.EqualValues(t, 0, writes.Load(),
 			"port == nports must not reach sysfs write")

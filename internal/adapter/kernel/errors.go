@@ -26,6 +26,21 @@ var (
 	// (ListLocalDevices) then skip the malformed device instead of
 	// reporting nonsense truncated fields.
 	errSysfsValueOutOfRange = errors.New("sysfs value out of range for target width")
+
+	// errPortOutOfRange signals that a requested flat vhci port
+	// identifier falls outside [0, NControllers*VHCIPorts). Surfaced
+	// by attachAtPort as a pre-sysfs-write defence-in-depth guard;
+	// vhci_sysfs.c::attach_store would otherwise return -EINVAL with
+	// no port + nports context. The sentinel is adapter-local on
+	// purpose: only the VHCI adapter knows what "flat port" means,
+	// so placing it on pkg/domain or re-exporting on pkg/usbip
+	// would bleed a kernel implementation detail through the layer
+	// boundary. White-box tests reach it via the
+	// ErrPortOutOfRangeForTest shim in export_test.go; public
+	// callers receive a wrapped fmt.Errorf whose message preserves
+	// operator-facing context (port + nports) without inviting a
+	// semver dependency.
+	errPortOutOfRange = errors.New("vhci port out of range")
 )
 
 // errorsIsAny returns true iff err chains to any of the supplied
