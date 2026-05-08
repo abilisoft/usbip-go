@@ -3,7 +3,6 @@ package wire_test
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -23,23 +22,22 @@ import (
 func TestDecodeDeviceRejectsUnknownSpeed(t *testing.T) {
 	t.Parallel()
 
-	// 312-byte well-formed device descriptor with Speed set to an
-	// out-of-range value. Layout constants live in wire/layout.go;
-	// duplicated here because they're package-private.
+	// Layout per wire/layout.go: device descriptor is 312 bytes with
+	// Speed at offset 296 (after path[256] + busid[32] + busnum u32 +
+	// devnum u32).
 	const (
-		offDevSpeed = 268
+		offDevSpeed = 296
 		deviceSize  = 312
 	)
 
 	buf := make([]byte, deviceSize)
-	// busid "1-1" to avoid unrelated rejections from future wire
-	// hardening.
+	// busid "1-1" is always valid.
 	copy(buf[256:288], []byte("1-1"))
 	binary.BigEndian.PutUint32(buf[offDevSpeed:], 0xDEADBEEF)
 
 	_, err := wire.DecodeDevice(bytes.NewReader(buf))
 	require.Error(t, err,
 		"decoder must reject a device whose Speed is outside the domain enum")
-	require.True(t, errors.Is(err, domain.ErrProtocolError),
+	require.ErrorIs(t, err, domain.ErrProtocolError,
 		"speed-range rejection must wrap ErrProtocolError")
 }
