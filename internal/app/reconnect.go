@@ -289,8 +289,13 @@ func (i *Importer) portIsDetached(ctx context.Context, id domain.PortID) bool {
 func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, source string) {
 	lastErr := fmt.Errorf("%w: port %d via %s", ErrPortDetached, p.portID, source)
 
-	for attempt := 1; p.opts.MaxAttempts == 0 || attempt <= p.opts.MaxAttempts; attempt++ {
-		i.fireOnReconnect(p.opts.OnReconnect, attempt, lastErr)
+	// attempt is declared outside the for-init so the give-up log line
+	// below can surface the final attempt count (Finding 9); otherwise
+	// the loop variable goes out of scope on exit.
+	attempt := 1
+
+	for ; p.opts.MaxAttempts == 0 || attempt <= p.opts.MaxAttempts; attempt++ {
+		i.fireOnReconnect(p.opts.OnReconnect, attempt, lastErr, p.portID, source)
 
 		if !i.waitBackoff(ctx, p, attempt) {
 			i.metrics.ImporterReconnectAttempt(ReconnectOutcomeCanceled)
@@ -332,8 +337,14 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 
 	i.metrics.ImporterReconnectAttempt(ReconnectOutcomeExhausted)
 	i.removeHandle(p.portID, p.handle)
+	// attempt is the for-loop's post-exit value: when the condition
+	// fails (attempt > MaxAttempts), the final attempted-and-failed
+	// iteration is attempt-1 (Finding 9). MaxAttempts==0 (infinite) is
+	// unreachable here because the loop only exits on success return.
 	i.logger.Warn("reconnect giving up after max attempts",
 		slog.Any("port_id", p.portID),
+		slog.Int("attempt", attempt-1),
+		slog.String("source", source),
 		slog.Int("max_attempts", p.opts.MaxAttempts),
 		slog.Any("last_err", lastErr),
 	)
@@ -380,7 +391,18 @@ func (i *Importer) removeHandle(id domain.PortID, owned *portHandle) {
 // crash the process or leave the watcher in an indeterminate state.
 // cb may run concurrently with other Importer operations — callers who
 // need synchronous semantics must wire their own buffering.
-func (i *Importer) fireOnReconnect(cb func(int, error), attempt int, err error) {
+//
+// portID and source are logged on the panic-recovery path (Finding 9)
+// so operators can correlate the panic with the affected device and
+// the detach-detection source (uevent vs poll) that drove the retry
+// loop.
+func (i *Importer) fireOnReconnect(
+	cb func(int, error),
+	attempt int,
+	err error,
+	portID domain.PortID,
+	source string,
+) {
 	if cb == nil {
 		return
 	}
@@ -393,7 +415,9 @@ func (i *Importer) fireOnReconnect(cb func(int, error), attempt int, err error) 
 			}
 
 			i.logger.Error("OnReconnect callback panicked",
+				slog.Uint64("port_id", uint64(portID)),
 				slog.Int("attempt", attempt),
+				slog.String("source", source),
 				slog.Any("panic", r),
 			)
 		}()
