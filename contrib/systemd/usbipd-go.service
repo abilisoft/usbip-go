@@ -4,11 +4,25 @@
 [Unit]
 Description=USB/IP (Go) daemon
 Requires=usbipd-go.socket
+# Make sure the kernel modules the daemon needs are loaded. The
+# preferred path is to drop contrib/modules-load.d/usbip-go.conf
+# at /etc/modules-load.d/usbip-go.conf so systemd-modules-load.service
+# loads them at boot — but we also chain it here so the daemon can
+# start cleanly on a host that is missing that config.
+After=systemd-modules-load.service
 
 [Service]
 Type=simple
+# ExecStartPre handles the case where modules-load.d/usbip-go.conf
+# is absent. modprobe is a no-op if the module is already loaded;
+# ignore-failures via leading "-" so a custom kernel with built-in
+# usbip support does not fail unit startup.
+ExecStartPre=-/sbin/modprobe usbip_core
+ExecStartPre=-/sbin/modprobe usbip_host
 ExecStart=/usr/bin/usbipd-go
 Restart=on-failure
+RuntimeDirectory=usbip-go
+RuntimeDirectoryMode=0755
 CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
 
 [Install]

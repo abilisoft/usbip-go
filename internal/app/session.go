@@ -247,7 +247,11 @@ func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn)
 func (e *Exporter) serveImport(
 	ctx context.Context, reader io.Reader, conn net.Conn, stopTimeout func(), handshakeStart time.Time,
 ) {
-	busID, err := e.codec.DecodeOpReqImport(reader)
+	// Body-only decode: handleConn already consumed the 8-byte header
+	// to dispatch to serveImport. Calling DecodeOpReqImport here would
+	// re-read 8 bytes from the busid region and surface ErrProtocolMismatch
+	// with the busid's first two bytes ("3-" -> 0x332d) as the bogus version.
+	busID, err := e.codec.DecodeOpReqImportBody(reader)
 
 	// Disarm the handshake deadline only once the full handshake read
 	// has completed — successful or not. If we leave the watcher armed

@@ -82,7 +82,7 @@ func TestExporter_MaxSessions(t *testing.T) {
 
 	codec := &ProtocolCodecMock{
 		DecodeHeaderFunc: wire.NewCodec().DecodeHeader,
-		DecodeOpReqImportFunc: func(_ io.Reader) (domain.BusID, error) {
+		DecodeOpReqImportBodyFunc: func(_ io.Reader) (domain.BusID, error) {
 			return domain.BusID("1-1"), nil
 		},
 	}
@@ -168,7 +168,7 @@ func TestExporter_MaxSessionsPerPeer(t *testing.T) {
 
 	codec := &ProtocolCodecMock{
 		DecodeHeaderFunc: wire.NewCodec().DecodeHeader,
-		DecodeOpReqImportFunc: func(_ io.Reader) (domain.BusID, error) {
+		DecodeOpReqImportBodyFunc: func(_ io.Reader) (domain.BusID, error) {
 			return domain.BusID("1-1"), nil
 		},
 	}
@@ -367,7 +367,7 @@ func TestExporter_HandshakeTimeoutCoversBodyDecode(t *testing.T) {
 
 	codec := &ProtocolCodecMock{
 		DecodeHeaderFunc: wire.NewCodec().DecodeHeader,
-		DecodeOpReqImportFunc: func(r io.Reader) (domain.BusID, error) {
+		DecodeOpReqImportBodyFunc: func(r io.Reader) (domain.BusID, error) {
 			select {
 			case decodeBodyReached <- struct{}{}:
 			default:

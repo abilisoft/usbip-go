@@ -24,7 +24,7 @@ func TestSpeed_String(t *testing.T) {
 		{"high", domain.SpeedHigh, "High-Speed (480Mbps)"},
 		{"wireless", domain.SpeedWireless, "Wireless"},
 		{"super", domain.SpeedSuper, "SuperSpeed (5Gbps)"},
-		{"superplus", domain.SpeedSuperPlus, "SuperSpeed+ (10Gbps)"},
+		{"superplus", domain.SpeedSuperPlus, "SuperSpeed+ (10/20Gbps)"},
 		{"fallback", domain.Speed(42), "speed(42)"},
 	}
 	for _, tc := range cases {

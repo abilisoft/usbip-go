@@ -332,6 +332,18 @@ func (c *captureCodec) DecodeOpReqImport(r io.Reader) (domain.BusID, error) {
 	return b, nil
 }
 
+// DecodeOpReqImportBody forwards to the real codec. The daemon
+// dispatcher consumes the header before calling this, so the
+// interceptor must transparently propagate the body-only path.
+func (c *captureCodec) DecodeOpReqImportBody(r io.Reader) (domain.BusID, error) {
+	b, err := c.real.DecodeOpReqImportBody(r)
+	if err != nil {
+		return b, err //nolint:wrapcheck // forward the codec's error unchanged
+	}
+
+	return b, nil
+}
+
 // DecodeOpRepImport forwards to the real codec.
 func (c *captureCodec) DecodeOpRepImport(r io.Reader) (domain.Device, error) {
 	d, err := c.real.DecodeOpRepImport(r)

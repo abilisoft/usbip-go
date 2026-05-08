@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+var errActivationInjected = errors.New("injected activation error")
 
 // dup3FdOnto performs the syscall.Dup3(srcFd, target, 0) with the
 // uintptr→int narrowing guarded inline so gosec G115's flow analysis
@@ -198,6 +201,30 @@ func TestListenOrActivationAmbiguousFds(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, lis)
 	require.Contains(t, err.Error(), "usbipd")
+}
+
+// TestListenOrActivation_ErrorPath covers the err != nil branch in
+// listenOrActivation: when listenersWithNames returns an error the function
+// must log at debug and fall back to plain listen rather than propagating the
+// error. The seam is swapped so no fd manipulation is required.
+func TestListenOrActivation_ErrorPath(t *testing.T) {
+	// Not parallel: swaps the package-level seam.
+	orig := listenersWithNames
+
+	listenersWithNames = func() (map[string][]net.Listener, error) {
+		return nil, errActivationInjected
+	}
+
+	t.Cleanup(func() { listenersWithNames = orig })
+
+	cfg := &Config{Listen: "127.0.0.1:0"}
+
+	lis, err := listenOrActivation(context.Background(), cfg)
+	require.NoError(t, err,
+		"activation error must not propagate; listenOrActivation must fall back to plain listen")
+	require.NotNil(t, lis)
+
+	t.Cleanup(func() { _ = lis.Close() })
 }
 
 // preserveFd returns the fd used to save whatever fd `target` currently

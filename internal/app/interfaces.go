@@ -74,6 +74,7 @@ type ProtocolCodec interface {
 	DecodeHeader(r io.Reader) (version uint16, op wire.OpCode, status uint32, err error)
 	DecodeOpRepDevlist(r io.Reader) ([]domain.Device, error)
 	DecodeOpReqImport(r io.Reader) (domain.BusID, error)
+	DecodeOpReqImportBody(r io.Reader) (domain.BusID, error)
 	DecodeOpRepImport(r io.Reader) (domain.Device, error)
 }
 

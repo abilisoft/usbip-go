@@ -96,7 +96,7 @@ func writeCompletionScript(out ioWriter, root *cobra.Command, shell, target stri
 		return fmt.Errorf("write completion script: %w", err)
 	}
 
-	_, err = fmt.Fprintf(out, "installed %s completion to %s\n", shell, target)
+	_, err = fmt.Fprintln(styleWriter(out), formatAck("installed "+shell+" completion to", target))
 	if err != nil {
 		return fmt.Errorf("write status line: %w", err)
 	}
@@ -111,7 +111,7 @@ func runUninstall(out ioWriter, target string) error {
 		return fmt.Errorf("remove completion script: %w", err)
 	}
 
-	_, err = fmt.Fprintf(out, "removed %s\n", target)
+	_, err = fmt.Fprintln(styleWriter(out), formatAck("removed", target))
 	if err != nil {
 		return fmt.Errorf("write status line: %w", err)
 	}

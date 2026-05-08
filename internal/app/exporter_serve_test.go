@@ -211,9 +211,21 @@ func TestExporterServe_ImportHappyPath(t *testing.T) {
 		},
 	}
 
+	// Mock the body-only decoder so it actually reads 32 bytes from
+	// the reader, mirroring the real DecodeOpReqImportBody contract.
+	// An inert mock that ignored its argument would let a regression
+	// where the daemon double-reads the header (or skips the body)
+	// pass silently.
 	codec := &ProtocolCodecMock{
 		DecodeHeaderFunc: wire.NewCodec().DecodeHeader,
-		DecodeOpReqImportFunc: func(_ io.Reader) (domain.BusID, error) {
+		DecodeOpReqImportBodyFunc: func(r io.Reader) (domain.BusID, error) {
+			body := make([]byte, domain.BusIDSize)
+
+			_, rerr := io.ReadFull(r, body)
+			if rerr != nil {
+				return "", fmt.Errorf("decode op_req_import body: %w", rerr)
+			}
+
 			return importedBusID, nil
 		},
 	}
@@ -234,7 +246,17 @@ func TestExporterServe_ImportHappyPath(t *testing.T) {
 	client, err := lis.dial(ctx)
 	require.NoError(t, err)
 
+	// Send the full OP_REQ_IMPORT frame: 8-byte header + 32-byte busid
+	// body. Without the body the body-only mock would block on
+	// ReadFull and the test would observe a handshake timeout, not a
+	// successful ExportOnConn.
 	_, err = client.Write(opHeader(wire.OpReqImport))
+	require.NoError(t, err)
+
+	body := make([]byte, domain.BusIDSize)
+	copy(body, importedBusID)
+
+	_, err = client.Write(body)
 	require.NoError(t, err)
 
 	select {

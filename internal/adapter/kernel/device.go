@@ -52,13 +52,21 @@ const byteMax = 0xFF
 const u16Max = 0xFFFF
 
 // ifaceSuffixFmt is the format of a USB interface sysfs entry. The
-// exporter reads interface attributes from "<busid>:<config>.<alt>".
-// Upstream usbip client only reads config 1, alt 0; we match.
+// exporter reads interface attributes from
+// "<busid>:<config>.<interface>" where <config> is the device's
+// currently-active bConfigurationValue (read at runtime by
+// readDevice and threaded into readInterfaces) and <interface> is
+// the per-config interface index iterated over [0, NumInterfaces).
+// The alternate setting (bAlternateSetting) lives inside the
+// interface directory as a separate sysfs attribute, not as a
+// path component.
 const ifaceSuffixFmt = "%s:%d.%d"
 
-// defaultConfigIndex identifies the "primary" configuration for
-// bind/list purposes (sysfs names interfaces as "<busid>:<config>.<intf>").
-// Matches upstream libsrc, which only reads configuration 1.
+// defaultConfigIndex is the fallback configuration index used only
+// when sysfs reports bConfigurationValue=0 (an unconfigured device).
+// readInterfaces uses the device's actual bConfigurationValue
+// otherwise; the bind path uses ifaceSuffix which reads
+// bConfigurationValue dynamically too.
 const defaultConfigIndex = 1
 
 // isBusIDLike reports whether name looks like a USB bus-device topology
@@ -114,7 +122,7 @@ func (a *ExporterAdapter) readDevice(busID domain.BusID) (domain.Device, error) 
 		return domain.Device{}, err
 	}
 
-	ifaces, err := a.readInterfaces(busID, core.NumInterfaces)
+	ifaces, err := a.readInterfaces(busID, core.ConfigValue, core.NumInterfaces)
 	if err != nil {
 		return domain.Device{}, err
 	}
@@ -189,7 +197,7 @@ func (a *ExporterAdapter) readDeviceNumbers(base string) (deviceNumbers, error) 
 		return deviceNumbers{}, err
 	}
 
-	speed, err := ReadUint(a.fs, path.Join(base, devAttrSpeed))
+	speed, err := ReadSpeedAttr(a.fs, path.Join(base, devAttrSpeed))
 	if err != nil {
 		return deviceNumbers{}, err
 	}
@@ -197,7 +205,7 @@ func (a *ExporterAdapter) readDeviceNumbers(base string) (deviceNumbers, error) 
 	return deviceNumbers{
 		bus:   busnum,
 		dev:   devnum,
-		speed: domain.Speed(speed),
+		speed: speed,
 	}, nil
 }
 
@@ -320,18 +328,29 @@ func (a *ExporterAdapter) readByteAttr(base, attr string) (uint8, error) {
 }
 
 // readInterfaces reads each interface descriptor under the device's
-// primary config (config 1). Missing interfaces (ENOENT on optional
-// sysfs attrs) are tolerated — some USB peripherals expose only a
-// subset of their configured interfaces under sysfs — but overflow
-// errors (errSysfsValueOutOfRange) are fatal for the whole device
-// read. Surfacing a device with a silently-truncated Interfaces slice
-// when sysfs reports malformed byte-width fields would hide data
+// CURRENTLY-ACTIVE configuration (the bConfigurationValue passed in
+// by readDevice). For an unconfigured device that reports
+// configValue=0, falls back to defaultConfigIndex. Missing
+// interfaces (ENOENT on optional sysfs attrs) are tolerated — some
+// USB peripherals expose only a subset of their configured
+// interfaces under sysfs — but overflow errors
+// (errSysfsValueOutOfRange) are fatal for the whole device read.
+// Surfacing a device with a silently-truncated Interfaces slice when
+// sysfs reports malformed byte-width fields would hide data
 // corruption from downstream consumers.
-func (a *ExporterAdapter) readInterfaces(busID domain.BusID, count uint8) ([]domain.Interface, error) {
+func (a *ExporterAdapter) readInterfaces(busID domain.BusID, configValue, count uint8) ([]domain.Interface, error) {
 	ifaces := make([]domain.Interface, 0, count)
 
+	// Default to config 1 if the device reports 0 (unconfigured); the
+	// interface enumeration would otherwise look for "<busid>:0.<n>"
+	// which sysfs does not populate for unconfigured devices anyway.
+	cfg := int(configValue)
+	if cfg == 0 {
+		cfg = defaultConfigIndex
+	}
+
 	for i := range int(count) {
-		suffix := fmt.Sprintf(ifaceSuffixFmt, string(busID), defaultConfigIndex, i)
+		suffix := fmt.Sprintf(ifaceSuffixFmt, string(busID), cfg, i)
 		base := path.Join(SysfsUSBDevices, suffix)
 
 		iface, err := a.readInterface(base)
@@ -341,7 +360,7 @@ func (a *ExporterAdapter) readInterfaces(busID domain.BusID, count uint8) ([]dom
 			}
 
 			return nil, fmt.Errorf("read interface %s:%d.%d: %w",
-				busID, defaultConfigIndex, i, err)
+				busID, cfg, i, err)
 		}
 
 		ifaces = append(ifaces, iface)

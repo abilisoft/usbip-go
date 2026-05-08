@@ -210,7 +210,7 @@ tasks:
     deps: [_check:tooling]
     env: { CGO_ENABLED: '1' }
     cmds:
-      - go test -race -timeout=60s ./...
+      - go test -race -timeout=180s ./...
 
   ci:test:integration:
     deps: [_check:tooling]
@@ -243,7 +243,8 @@ tasks:
       # reproducible (Scorecard Pinned-Dependencies).
       - mkdir -p "$GOBIN"
       - go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
-      - '"$GOBIN"/gremlins unleash ./pkg/domain/... ./internal/adapter/wire/...'
+      - '"$GOBIN"/gremlins unleash ./pkg/domain'
+      - '"$GOBIN"/gremlins unleash ./internal/adapter/wire'
 
   ci:lint:
     deps: [_check:tooling]

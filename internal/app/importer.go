@@ -633,12 +633,16 @@ func (i *Importer) attachOverDialed(
 	busID domain.BusID,
 	opts AttachOptions,
 ) (domain.Port, error) {
+	i.logger.Debug("attach: dialing", "endpoint", endpoint.String(), "busid", busID)
+
 	conn, err := i.transport.Dial(ctx, endpoint, i.transportOptions)
 	if err != nil {
 		i.metrics.ImporterAttached(AttachOutcomeDialFailed)
 
 		return domain.Port{}, fmt.Errorf("dial %s: %w", endpoint.String(), err)
 	}
+
+	i.logger.Debug("attach: dialed", "endpoint", endpoint.String(), "local", conn.LocalAddr().String())
 
 	// Per v1 contract §5.4 item 4: Attach owns the fd until AttachRemote
 	// succeeds. The deferred close below runs on every return; the
@@ -652,6 +656,8 @@ func (i *Importer) attachOverDialed(
 		}
 	}()
 
+	i.logger.Debug("attach: sending OP_REQ_IMPORT", "busid", busID)
+
 	err = i.codec.EncodeOpReqImport(conn, busID)
 	if err != nil {
 		i.metrics.ImporterAttached(AttachOutcomeProtocolMismatch)
@@ -659,12 +665,17 @@ func (i *Importer) attachOverDialed(
 		return domain.Port{}, fmt.Errorf("encode OP_REQ_IMPORT for %s: %w", busID, err)
 	}
 
+	i.logger.Debug("attach: awaiting OP_REP_IMPORT")
+
 	dev, err := i.codec.DecodeOpRepImport(conn)
 	if err != nil {
 		i.metrics.ImporterAttached(classifyDecodeImportErr(err))
 
 		return domain.Port{}, fmt.Errorf("decode OP_REP_IMPORT from %s: %w", endpoint.String(), err)
 	}
+
+	i.logger.Debug("attach: got OP_REP_IMPORT",
+		"busid", dev.BusID, "vid", dev.VendorID, "pid", dev.ProductID, "speed", dev.Speed.String())
 
 	devID := domain.DeviceID((uint32(dev.BusNum) << deviceIDBusShift) | uint32(dev.DevNum))
 

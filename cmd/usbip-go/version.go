@@ -26,9 +26,14 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print version metadata",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			_, err := fmt.Fprintf(cmd.OutOrStdout(),
-				"usbip-go version %s (commit %s, built %s, %s)\n",
-				version, commit, buildDate, runtime.Version())
+			out := styleWriter(cmd.OutOrStdout())
+
+			line := actionStyle.Render("usbip-go version") + " " +
+				subjectStyle.Render(version) +
+				dimStyle.Render(fmt.Sprintf(" (commit %s, built %s, %s)",
+					commit, buildDate, runtime.Version()))
+
+			_, err := fmt.Fprintln(out, line)
 			if err != nil {
 				return fmt.Errorf("write version output: %w", err)
 			}
