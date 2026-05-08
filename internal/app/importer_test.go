@@ -385,3 +385,289 @@ func TestImporterListRemoteClosedReturnsErr(t *testing.T) {
 	require.Empty(t, transport.DialCalls())
 }
 
+// attachBusID is the canonical busid used by Attach tests.
+func attachBusID() domain.BusID {
+	return domain.BusID("1-1.2")
+}
+
+// attachDevice is the canonical decoded OP_REP_IMPORT reply. Speed
+// HighSpeed and a synthetic DeviceID let tests verify the Port is
+// populated from the decoded fields rather than fabricated.
+func attachDevice() domain.Device {
+	return domain.Device{
+		Path:   "/sys/devices/pci/usb1/1-1.2",
+		BusID:  attachBusID(),
+		BusNum: 3,
+		DevNum: 7,
+		Speed:  domain.SpeedHigh,
+	}
+}
+
+// TestImporterAttachHappyPath drives the full 5-step sequence and
+// asserts the Port return value, the call order, and — critically —
+// that conn.Close is NOT called by Attach itself (the kernel owns the
+// fd post-handoff; closing it here would tear down the just-attached
+// device).
+func TestImporterAttachHappyPath(t *testing.T) {
+	t.Parallel()
+
+	conn := newFakeConn(nil)
+
+	const wantPortID domain.PortID = 4
+
+	call := []string{}
+
+	recordCall := func(name string) { call = append(call, name) }
+
+	transport := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+			recordCall("Dial")
+
+			return conn, nil
+		},
+	}
+
+	codec := &ProtocolCodecMock{
+		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error {
+			recordCall("EncodeOpReqImport")
+
+			return nil
+		},
+		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) {
+			recordCall("DecodeOpRepImport")
+
+			return attachDevice(), nil
+		},
+	}
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error {
+			recordCall("ModulesAvailable")
+
+			return nil
+		},
+		AttachRemoteFunc: func(_ context.Context, c net.Conn, spec app.RemoteDeviceSpec) (domain.PortID, error) {
+			recordCall("AttachRemote")
+			require.Same(t, conn, c)
+			require.Equal(t, attachDevice(), spec.Device)
+			require.Equal(t, attachDevice().Speed, spec.Speed)
+
+			return wantPortID, nil
+		},
+	}
+
+	imp := newImporterForTest(t,
+		app.WithImporterKernel(kernel),
+		app.WithImporterTransport(transport),
+		app.WithImporterCodec(codec),
+	)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{})
+	require.NoError(t, err)
+
+	// Call order matches the spec §5.2 sequence.
+	require.Equal(t, []string{"ModulesAvailable", "Dial", "EncodeOpReqImport", "DecodeOpRepImport", "AttachRemote"}, call)
+
+	// Port is populated from (request + decoded spec + attach result).
+	require.Equal(t, wantPortID, port.ID)
+	require.Equal(t, attachBusID(), port.BusID)
+	require.Equal(t, domain.SpeedHigh, port.Speed)
+	require.Equal(t, testRemote().NormalizePort(), port.Remote)
+	require.Equal(t, domain.StatusUsed, port.Status)
+
+	// DeviceID = (busnum << 16) | devnum.
+	require.Equal(t, domain.DeviceID((uint32(3)<<16)|uint32(7)), port.DeviceID)
+
+	// Critical: success path leaves the conn untouched — kernel owns it.
+	require.Equal(t, 0, conn.closeCount())
+}
+
+// TestImporterAttachAutoReconnectStubbed asserts that AutoReconnect=true
+// is rejected with ErrAutoReconnectNotImplemented and no work happens
+// (no modules probe, no dial).
+func TestImporterAttachAutoReconnectStubbed(t *testing.T) {
+	t.Parallel()
+
+	kernel := &ImporterKernelMock{}
+	transport := &TransportMock{}
+
+	imp := newImporterForTest(t,
+		app.WithImporterKernel(kernel),
+		app.WithImporterTransport(transport),
+	)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	_, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{AutoReconnect: true})
+	require.ErrorIs(t, err, app.ErrAutoReconnectNotImplemented)
+
+	require.Empty(t, kernel.ModulesAvailableCalls())
+	require.Empty(t, transport.DialCalls())
+}
+
+// TestImporterAttachModulesAvailableFailure asserts a ModulesAvailable
+// failure aborts before any Dial and does NOT call Close (no conn).
+func TestImporterAttachModulesAvailableFailure(t *testing.T) {
+	t.Parallel()
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return domain.ErrKernelModuleMissing },
+	}
+	transport := &TransportMock{}
+
+	imp := newImporterForTest(t,
+		app.WithImporterKernel(kernel),
+		app.WithImporterTransport(transport),
+	)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	_, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{})
+	require.ErrorIs(t, err, domain.ErrKernelModuleMissing)
+	require.Empty(t, transport.DialCalls())
+}
+
+// TestImporterAttachDialFailure asserts a dial failure returns without
+// calling anything upstream of Dial on the conn side (no conn to close).
+func TestImporterAttachDialFailure(t *testing.T) {
+	t.Parallel()
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+	}
+	transport := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+			return nil, errBoom
+		},
+	}
+
+	imp := newImporterForTest(t,
+		app.WithImporterKernel(kernel),
+		app.WithImporterTransport(transport),
+	)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	_, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{})
+	require.ErrorIs(t, err, errBoom)
+}
+
+// TestImporterAttachEncodeFailure asserts a codec encode failure closes
+// the conn exactly once — we own the fd up to the moment kernel accepts
+// it.
+func TestImporterAttachEncodeFailure(t *testing.T) {
+	t.Parallel()
+
+	conn := newFakeConn(nil)
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+	}
+	transport := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+			return conn, nil
+		},
+	}
+	codec := &ProtocolCodecMock{
+		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return errBoom },
+	}
+
+	imp := newImporterForTest(t,
+		app.WithImporterKernel(kernel),
+		app.WithImporterTransport(transport),
+		app.WithImporterCodec(codec),
+	)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	_, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{})
+	require.ErrorIs(t, err, errBoom)
+	require.Equal(t, 1, conn.closeCount())
+}
+
+// TestImporterAttachDecodeFailure asserts decode errors close the conn
+// once.
+func TestImporterAttachDecodeFailure(t *testing.T) {
+	t.Parallel()
+
+	conn := newFakeConn(nil)
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+	}
+	transport := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+			return conn, nil
+		},
+	}
+	codec := &ProtocolCodecMock{
+		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
+		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) {
+			return domain.Device{}, domain.ErrProtocolError
+		},
+	}
+
+	imp := newImporterForTest(t,
+		app.WithImporterKernel(kernel),
+		app.WithImporterTransport(transport),
+		app.WithImporterCodec(codec),
+	)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	_, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{})
+	require.ErrorIs(t, err, domain.ErrProtocolError)
+	require.Equal(t, 1, conn.closeCount())
+}
+
+// TestImporterAttachAttachRemoteFailure asserts a kernel handoff failure
+// closes the conn once — the handoff did NOT succeed, so we still own
+// the fd and MUST release it.
+func TestImporterAttachAttachRemoteFailure(t *testing.T) {
+	t.Parallel()
+
+	conn := newFakeConn(nil)
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			return 0, domain.ErrNoFreePort
+		},
+	}
+	transport := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+			return conn, nil
+		},
+	}
+	codec := &ProtocolCodecMock{
+		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
+		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
+	}
+
+	imp := newImporterForTest(t,
+		app.WithImporterKernel(kernel),
+		app.WithImporterTransport(transport),
+		app.WithImporterCodec(codec),
+	)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	_, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{})
+	require.ErrorIs(t, err, domain.ErrNoFreePort)
+	require.Equal(t, 1, conn.closeCount())
+}
+
+// TestImporterAttachClosedReturnsErr asserts Attach on a closed Importer
+// returns ErrImporterClosed without touching the kernel or transport.
+func TestImporterAttachClosedReturnsErr(t *testing.T) {
+	t.Parallel()
+
+	kernel := &ImporterKernelMock{}
+	transport := &TransportMock{}
+
+	imp := newImporterForTest(t,
+		app.WithImporterKernel(kernel),
+		app.WithImporterTransport(transport),
+	)
+	require.NoError(t, imp.Close())
+
+	_, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{})
+	require.ErrorIs(t, err, app.ErrImporterClosed)
+	require.Empty(t, kernel.ModulesAvailableCalls())
+	require.Empty(t, transport.DialCalls())
+}
