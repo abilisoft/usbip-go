@@ -220,6 +220,86 @@ func TestExporterShutdown_DeadlineExceeded(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
+// TestExporterShutdown_DeadlineExceededForcesConnClose asserts that
+// Shutdown unwedges a session whose kernel.ExportOnConn blocks forever.
+// Pre-fix: Shutdown closes handle.done but the handler is parked in
+// ExportOnConn with no signal path, so Shutdown times out AND the
+// session stays live after Shutdown returns (and the waitSessionsBounded
+// bg goroutine leaks). Post-fix: Shutdown force-closes every tracked
+// session conn so ExportOnConn errors out and the handler drains.
+func TestExporterShutdown_DeadlineExceededForcesConnClose(t *testing.T) {
+	t.Parallel()
+
+	exportStarted := make(chan struct{}, 1)
+
+	kernel := &ExporterKernelMock{
+		ExportOnConnFunc: func(_ context.Context, c net.Conn, _ domain.BusID) error {
+			select {
+			case exportStarted <- struct{}{}:
+			default:
+			}
+
+			// Block until the conn gets closed by Shutdown's force-close.
+			// Returning io.EOF keeps wrapcheck happy without re-wrapping
+			// the net error surface.
+			_, _ = io.Copy(io.Discard, c)
+
+			return io.EOF
+		},
+	}
+
+	codec := newSessionImportCodec(domain.BusID("3-1"))
+
+	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 7), Port: 9000})
+
+	exp := newExporterForTest(t,
+		app.WithExporterKernel(kernel),
+		app.WithExporterCodec(codec),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	serveDone := make(chan error, 1)
+
+	go func() { serveDone <- exp.Serve(ctx, lis) }()
+
+	client, err := lis.dial(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	_, err = client.Write(opHeader(wire.OpReqImport))
+	require.NoError(t, err)
+
+	select {
+	case <-exportStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ExportOnConn did not begin blocking within 2s")
+	}
+
+	require.Eventually(t, func() bool {
+		return len(exp.Sessions(context.Background())) == 1
+	}, 2*time.Second, 10*time.Millisecond)
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(
+		context.Background(), 50*time.Millisecond)
+	defer shutdownCancel()
+
+	_ = exp.Shutdown(shutdownCtx)
+
+	// Post-Shutdown: the session handler must have drained, i.e. the
+	// session bookkeeping entry is gone. Without force-close the handler
+	// is still parked in ExportOnConn and Sessions() still reports 1.
+	require.Eventually(t, func() bool {
+		return len(exp.Sessions(context.Background())) == 0
+	}, 500*time.Millisecond, 10*time.Millisecond,
+		"Shutdown must drive the stuck handler to exit")
+
+	cancel()
+
+	<-serveDone
+}
+
 // TestExporterWatchSessions_AfterShutdown asserts WatchSessions after
 // Shutdown returns an empty iter that terminates immediately. Matches
 // the Importer.Watch post-Close contract per spec §3.4.
