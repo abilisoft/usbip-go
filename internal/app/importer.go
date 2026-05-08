@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"iter"
 	"log/slog"
 	"net"
 	"sync"
@@ -314,6 +315,36 @@ func (i *Importer) ListPorts(ctx context.Context) ([]domain.Port, error) {
 	return ports, nil
 }
 
+// Watch returns an iter.Seq that yields domain events from the shared
+// KernelEvents source. Iteration terminates when any of the following
+// happens: the source channel closes, ctx is cancelled, the caller's
+// yield returns false (normal `break`), or Subscribe fails (in which
+// case the iter yields nothing and terminates immediately).
+//
+// Post-Close Watch returns an iter that yields nothing and terminates
+// immediately — the handle map is already torn down and there is no
+// upstream to bind to.
+func (i *Importer) Watch(ctx context.Context) iter.Seq[domain.Event] {
+	i.mu.RLock()
+
+	closed := i.closed
+
+	i.mu.RUnlock()
+
+	if closed {
+		return emptyEventSeq
+	}
+
+	ch, cancel, err := i.events.Subscribe(ctx)
+	if err != nil {
+		i.logger.Warn("watch subscribe failed", slog.Any("err", err))
+
+		return emptyEventSeq
+	}
+
+	return newEventSeq(ctx, ch, cancel)
+}
+
 // attachOverDialed factors out the dial-through-handoff portion of
 // Attach. Splitting it keeps Attach under the project's cyclomatic cap
 // and isolates the fd-passing deferred cleanup per spec §5.4.
@@ -397,5 +428,41 @@ func (i *Importer) registerHandle(id domain.PortID, busID domain.BusID, endpoint
 		done:       make(chan struct{}),
 		busID:      busID,
 		remote:     endpoint,
+	}
+}
+
+// emptyEventSeq is the iter.Seq returned by Watch when there is nothing
+// to iterate (Importer closed, Subscribe failed). It terminates
+// immediately without invoking yield.
+func emptyEventSeq(_ func(domain.Event) bool) {}
+
+// newEventSeq returns an iter.Seq that drains ch until ctx is cancelled
+// or ch closes or yield returns false. The unsubscribe cancel is always
+// called on exit so the KernelEvents fan-out releases the buffered
+// channel promptly.
+func newEventSeq(ctx context.Context, ch <-chan domain.Event, cancel func()) iter.Seq[domain.Event] {
+	return func(yield func(domain.Event) bool) {
+		defer cancel()
+
+		for drainOne(ctx, ch, yield) {
+			// loop until drainOne reports termination.
+		}
+	}
+}
+
+// drainOne performs a single select over ctx and ch, delivering one
+// event via yield if one is available. Returns true to continue the
+// loop, false to terminate. Keeping the select in its own function
+// takes the cognitive load off Watch's caller-visible body.
+func drainOne(ctx context.Context, ch <-chan domain.Event, yield func(domain.Event) bool) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case ev, ok := <-ch:
+		if !ok {
+			return false
+		}
+
+		return yield(ev)
 	}
 }
