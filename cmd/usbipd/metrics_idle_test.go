@@ -109,6 +109,7 @@ func TestWrapListenerFirstAcceptHookFiresOnce(t *testing.T) {
 	// so the loop exits without blocking indefinitely.
 	for range 5 {
 		_, _ = wrapped.Accept()
+
 		accepts.Add(1)
 	}
 
