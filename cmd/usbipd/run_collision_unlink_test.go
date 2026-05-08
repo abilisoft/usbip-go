@@ -98,7 +98,7 @@ func TestRunDaemonPreservesStatusSocketOnBindCollision(t *testing.T) {
 
 	// The incumbent's socket MUST still be on disk: the losing daemon
 	// had no right to unlink it.
-	content, statErr := os.ReadFile(sockPath)
+	content, statErr := os.ReadFile(filepath.Clean(sockPath))
 	require.NoError(t, statErr,
 		"incumbent status socket was unlinked by losing daemon: %v", statErr)
 	require.Equal(t, "incumbent", string(content),
@@ -113,7 +113,7 @@ func TestRunDaemonPreservesStatusSocketOnBindCollision(t *testing.T) {
 func statusErrAlreadyRunningObserved(t *testing.T, sockPath string) bool {
 	t.Helper()
 
-	content, err := os.ReadFile(sockPath)
+	content, err := os.ReadFile(filepath.Clean(sockPath))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("incumbent socket unlinked before ctx cancel: %v", err)
