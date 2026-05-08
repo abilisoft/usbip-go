@@ -229,3 +229,95 @@ func TestSubscribe_DialFailurePropagates(t *testing.T) {
 }
 
 var errDialFailed = errors.New("fake dial failed")
+
+// TestSubscribe_FirstSubscriberCancelDoesNotStopOthers exercises the
+// spec §5.1 "last Unsubscribe stops it" contract. If the first
+// subscriber's ctx cancellation tore down the dispatcher, remaining
+// subscribers would stop receiving events. Codex Phase 4 review
+// finding 1.
+func TestSubscribe_FirstSubscriberCancelDoesNotStopOthers(t *testing.T) {
+	t.Parallel()
+
+	a, sock := newAdapterWithFakeSocket(t)
+
+	defer func() { _ = sock.Close() }()
+
+	// Subscriber 1: cancellable.
+	ctx1, cancel1 := context.WithCancel(t.Context())
+	ch1, _, err := a.Subscribe(ctx1)
+	require.NoError(t, err)
+
+	// Subscriber 2: uses test ctx (no early cancel).
+	ch2, unsub2, err := a.Subscribe(t.Context())
+	require.NoError(t, err)
+
+	defer unsub2()
+
+	// Drain ch1 in the background so we do not fill its buffer before
+	// cancel1 fires.
+	drain1 := make(chan struct{})
+
+	go func() {
+		defer close(drain1)
+
+		for range ch1 {
+		}
+	}()
+
+	// Cancel subscriber 1. Its channel must close; the dispatcher must
+	// keep running for subscriber 2.
+	cancel1()
+	<-drain1
+
+	// Feed an event AFTER subscriber 1 has been torn down.
+	sock.feed(uevent(map[string]string{
+		"ACTION":    "add",
+		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb1/1-1",
+		"SUBSYSTEM": "usb",
+	}))
+
+	select {
+	case ev, ok := <-ch2:
+		require.True(t, ok, "subscriber 2 channel must stay open after subscriber 1 cancels")
+		_, isAttach := ev.(domain.PortAttachedEvent)
+		require.True(t, isAttach, "expected PortAttachedEvent, got %T", ev)
+	case <-time.After(2 * time.Second):
+		t.Fatal("subscriber 2 did not receive the event after subscriber 1 cancelled — dispatcher likely torn down prematurely")
+	}
+}
+
+// TestSubscribe_RegistrationRaceDoesNotDropEvent drives the window
+// between Subscribe returning and the first event arriving. The
+// dispatcher must not be receiving events before the first subscriber
+// is registered in the fan-out map. Codex Phase 4 review finding 2.
+func TestSubscribe_RegistrationRaceDoesNotDropEvent(t *testing.T) {
+	t.Parallel()
+
+	a, sock := newAdapterWithFakeSocket(t)
+
+	defer func() { _ = sock.Close() }()
+
+	// Pre-seed the socket so an event is available the instant the
+	// dispatcher's run-loop starts. If the loop starts before
+	// addSubscriber lands, this event is broadcast to zero subscribers
+	// and lost.
+	sock.feed(uevent(map[string]string{
+		"ACTION":    "add",
+		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb1/1-1",
+		"SUBSYSTEM": "usb",
+	}))
+
+	ch, unsub, err := a.Subscribe(t.Context())
+	require.NoError(t, err)
+
+	defer unsub()
+
+	select {
+	case ev, ok := <-ch:
+		require.True(t, ok, "channel closed before event arrived")
+		_, isAttach := ev.(domain.PortAttachedEvent)
+		require.True(t, isAttach, "expected PortAttachedEvent, got %T", ev)
+	case <-time.After(2 * time.Second):
+		t.Fatal("event pre-seeded before Subscribe() was dropped — registration race")
+	}
+}
