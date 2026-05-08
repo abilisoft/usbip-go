@@ -128,6 +128,10 @@ func errorRegistry() []errorEntry {
 			errStatusSocketDisabled, ExitUsage,
 			"%s",
 		},
+		{
+			errDrainPollIntervalInvalid, ExitUsage,
+			"%s",
+		},
 	}
 }
 
