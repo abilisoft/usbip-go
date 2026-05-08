@@ -1,7 +1,6 @@
 package usbip_test
 
 import (
-	"errors"
 	"testing"
 
 	internalapp "github.com/abilisoft/usbip-go/internal/app"
@@ -48,18 +47,12 @@ func TestFacadeLifecycleSentinelsDeclared(t *testing.T) {
 func TestFacadeInternalSentinelsDoNotLeak(t *testing.T) {
 	t.Parallel()
 
-	require.False(t,
-		errors.Is(usbip.ErrImporterClosed, internalapp.ErrImporterClosed),
-		"usbip.ErrImporterClosed must not be identity-equal to internal/app.ErrImporterClosed",
-	)
-	require.False(t,
-		errors.Is(usbip.ErrExporterShutdown, internalapp.ErrAlreadyShutdown),
-		"usbip.ErrExporterShutdown must not be identity-equal to internal/app.ErrAlreadyShutdown",
-	)
-	require.False(t,
-		errors.Is(usbip.ErrServeAlreadyRunning, internalapp.ErrServeAlreadyRunning),
-		"usbip.ErrServeAlreadyRunning must not be identity-equal to internal/app.ErrServeAlreadyRunning",
-	)
+	require.NotErrorIs(t, usbip.ErrImporterClosed, internalapp.ErrImporterClosed,
+		"usbip.ErrImporterClosed must not be identity-equal to internal/app.ErrImporterClosed")
+	require.NotErrorIs(t, usbip.ErrExporterShutdown, internalapp.ErrAlreadyShutdown,
+		"usbip.ErrExporterShutdown must not be identity-equal to internal/app.ErrAlreadyShutdown")
+	require.NotErrorIs(t, usbip.ErrServeAlreadyRunning, internalapp.ErrServeAlreadyRunning,
+		"usbip.ErrServeAlreadyRunning must not be identity-equal to internal/app.ErrServeAlreadyRunning")
 }
 
 // TestAlreadyShutdownReExportsDomain pins that usbip.ErrAlreadyShutdown
@@ -99,8 +92,37 @@ func TestImporterAfterCloseYieldsPublicSentinel(t *testing.T) {
 
 	_, err := imp.ListRemote(t.Context(), usbip.RemoteEndpoint{Host: "peer"})
 	require.ErrorIs(t, err, usbip.ErrImporterClosed)
-	require.False(t, errors.Is(err, internalapp.ErrImporterClosed),
+	require.NotErrorIs(t, err, internalapp.ErrImporterClosed,
 		"facade must translate internal/app.ErrImporterClosed, not leak it")
+}
+
+// TestTranslateInternalErrCovers drives every branch of the
+// internal→public sentinel translator directly. The branches for
+// ErrServeAlreadyRunning and the pass-through path cannot be reached
+// via forwarding-method tests because the only internal call site for
+// ErrServeAlreadyRunning is startServing — which is reached only via
+// Serve under concurrent invocation, beyond the scope of a facade
+// unit test.
+func TestTranslateInternalErrCovers(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, usbip.TranslateInternalErrForTest(nil))
+
+	require.ErrorIs(t,
+		usbip.TranslateInternalErrForTest(internalapp.ErrServeAlreadyRunning),
+		usbip.ErrServeAlreadyRunning,
+	)
+	require.NotErrorIs(t,
+		usbip.TranslateInternalErrForTest(internalapp.ErrServeAlreadyRunning),
+		internalapp.ErrServeAlreadyRunning,
+	)
+
+	// Pass-through: an unrelated error carries through unchanged so
+	// adapter-level wrap chains (transport/kernel/codec) survive.
+	require.ErrorIs(t,
+		usbip.TranslateInternalErrForTest(domain.ErrDeviceNotFound),
+		domain.ErrDeviceNotFound,
+	)
 }
 
 // TestExporterServeAfterShutdownYieldsPublicSentinel mirrors the
@@ -121,6 +143,6 @@ func TestExporterServeAfterShutdownYieldsPublicSentinel(t *testing.T) {
 
 	err := exp.Serve(ctx, stubListener{})
 	require.ErrorIs(t, err, usbip.ErrExporterShutdown)
-	require.False(t, errors.Is(err, internalapp.ErrAlreadyShutdown),
+	require.NotErrorIs(t, err, internalapp.ErrAlreadyShutdown,
 		"facade must translate internal/app.ErrAlreadyShutdown, not leak it")
 }

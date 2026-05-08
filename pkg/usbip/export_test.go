@@ -14,6 +14,14 @@ func BackoffToInternalForTest(b BackoffStrategy) internalapp.BackoffStrategy {
 	return backoffToInternal(b)
 }
 
+// TranslateInternalErrForTest exposes the internal→public sentinel
+// translator so errors_boundary_test.go can cover the branches that
+// forwarding tests cannot reach directly (notably ErrServeAlreadyRunning
+// and the pass-through for non-lifecycle errors).
+func TranslateInternalErrForTest(err error) error {
+	return translateInternalErr(err)
+}
+
 // NewImporterFromInternalForTest wraps an already-constructed internal
 // Importer in a public *Importer so facade tests can exercise forwarding
 // without exposing adapter injection on the public surface. Consumers
