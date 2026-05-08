@@ -21,6 +21,11 @@ func importerTestEpoch() time.Time {
 	return time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
 }
 
+// errBoom is a shared sentinel used by importer tests that need to
+// inject a failure from a dependency. Named explicitly so assertions
+// can use errors.Is instead of string comparison (satisfies err113).
+var errBoom = errors.New("boom")
+
 // newImporterForTest constructs an Importer with every required
 // dependency stubbed so individual tests only wire the mocks they
 // actually exercise.
@@ -179,6 +184,7 @@ func (c *fakeConn) Read(p []byte) (int, error) {
 	}
 
 	n := copy(p, c.readData[c.readPos:])
+
 	c.readPos += n
 
 	return n, nil
@@ -191,6 +197,7 @@ func (c *fakeConn) Write(p []byte) (int, error) {
 
 	buf := make([]byte, len(p))
 	copy(buf, p)
+
 	c.writes = append(c.writes, buf)
 
 	return len(p), nil
@@ -206,6 +213,12 @@ func (c *fakeConn) Close() error {
 
 	return nil
 }
+
+func (*fakeConn) LocalAddr() net.Addr                { return fakeAddr{} }
+func (*fakeConn) RemoteAddr() net.Addr               { return fakeAddr{} }
+func (*fakeConn) SetDeadline(_ time.Time) error      { return nil }
+func (*fakeConn) SetReadDeadline(_ time.Time) error  { return nil }
+func (*fakeConn) SetWriteDeadline(_ time.Time) error { return nil }
 
 func (c *fakeConn) closeCount() int {
 	c.mu.Lock()
@@ -223,12 +236,6 @@ func (c *fakeConn) writeLog() [][]byte {
 
 	return out
 }
-
-func (*fakeConn) LocalAddr() net.Addr                { return fakeAddr{} }
-func (*fakeConn) RemoteAddr() net.Addr               { return fakeAddr{} }
-func (*fakeConn) SetDeadline(_ time.Time) error      { return nil }
-func (*fakeConn) SetReadDeadline(_ time.Time) error  { return nil }
-func (*fakeConn) SetWriteDeadline(_ time.Time) error { return nil }
 
 // fakeAddr is a stand-in net.Addr for fakeConn. Network returns "tcp"
 // so any caller that logs the address sees a plausible value.
@@ -301,11 +308,9 @@ func TestImporterListRemoteHappyPath(t *testing.T) {
 func TestImporterListRemoteDialFailure(t *testing.T) {
 	t.Parallel()
 
-	dialErr := errors.New("boom")
-
 	transport := &TransportMock{
 		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
-			return nil, dialErr
+			return nil, errBoom
 		},
 	}
 
@@ -320,7 +325,7 @@ func TestImporterListRemoteDialFailure(t *testing.T) {
 	devs, err := imp.ListRemote(context.Background(), testRemote())
 	require.Nil(t, devs)
 	require.Error(t, err)
-	require.ErrorIs(t, err, dialErr)
+	require.ErrorIs(t, err, errBoom)
 	require.Contains(t, err.Error(), "peer.example")
 
 	// No encode or decode calls when the dial failed.
