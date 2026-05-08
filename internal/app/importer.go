@@ -270,6 +270,14 @@ func (i *Importer) Detach(ctx context.Context, id domain.PortID) error {
 		return fmt.Errorf("detach port %d: %w", id, domain.ErrDeviceNotBound)
 	}
 
+	// Enrol the kernel-side detach in the waitgroup BEFORE releasing
+	// the lock. Close acquires the lock, flips closed=true, then waits
+	// on i.wg — so incrementing here guarantees Close observes the
+	// in-flight detach and blocks until it drains, closing the window
+	// where Close could return while sysfs writes are still in-flight.
+	i.wg.Add(1)
+	defer i.wg.Done()
+
 	i.mu.Unlock()
 
 	// Cancel first (spec §5.5) — no watcher today, but the ordering
