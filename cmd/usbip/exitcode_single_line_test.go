@@ -2,12 +2,18 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/abilisoft/usbip-go/pkg/usbip"
+)
+
+var (
+	errSingleLineSecondary = errors.New("secondary context")
+	errSingleLineTertiary  = errors.New("tertiary hint")
 )
 
 // TestFormatErrorIsSingleLine pins the spec §7.4 promise that the
@@ -20,12 +26,12 @@ func TestFormatErrorIsSingleLine(t *testing.T) {
 
 	joined := errors.Join(
 		usbip.ErrDeviceNotFound,
-		errors.New("secondary context"),
-		errors.New("tertiary hint"),
+		fmt.Errorf("%w", errSingleLineSecondary),
+		fmt.Errorf("%w", errSingleLineTertiary),
 	)
 
 	out := FormatError(joined)
 	require.NotContains(t, out, "\n",
 		"FormatError output must be a single line; got %q", out)
-	require.Equal(t, strings.Count(out, "\n"), 0)
+	require.Equal(t, 0, strings.Count(out, "\n"))
 }
