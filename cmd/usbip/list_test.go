@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"iter"
-	"strings"
+	"sync"
 	"testing"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -73,7 +73,7 @@ func (m *mockImporter) Watch(ctx context.Context) iter.Seq[usbip.Event] {
 		return m.watchFn(ctx)
 	}
 
-	return func(yield func(usbip.Event) bool) {}
+	return func(_ func(usbip.Event) bool) {}
 }
 
 func (m *mockImporter) Close() error {
@@ -115,10 +115,18 @@ func (m *mockExporter) Unbind(ctx context.Context, b usbip.BusID) error {
 	return nil
 }
 
+// factoriesMu serialises swapFactories so parallel subtests sharing the
+// package-level factory vars don't clobber each other's mocks.
+var factoriesMu sync.Mutex
+
 // swapFactories installs mock factories for the duration of the test.
-// The t.Cleanup restores the originals so parallel tests don't fight.
+// The t.Cleanup restores the originals. swapFactories acquires
+// factoriesMu and releases it in the cleanup so concurrent tests wait
+// until the active test finishes before their own swap takes effect.
 func swapFactories(t *testing.T, imp *mockImporter, exp *mockExporter) {
 	t.Helper()
+
+	factoriesMu.Lock()
 
 	origImp := newImporter
 	origExp := newExporter
@@ -142,8 +150,14 @@ func swapFactories(t *testing.T, imp *mockImporter, exp *mockExporter) {
 	t.Cleanup(func() {
 		newImporter = origImp
 		newExporter = origExp
+		factoriesMu.Unlock()
 	})
 }
+
+// errTest is a package-scoped sentinel used by tests that need to
+// inject a deterministic failure. Defined once (not per-test) to
+// satisfy err113 without sprinkling //nolint directives.
+var errTest = errors.New("dial failed")
 
 // sampleDevice is a minimal deterministic device fixture.
 func sampleDevice() usbip.Device {
@@ -192,7 +206,10 @@ func TestListRemoteAndLocalMutuallyExclusive(t *testing.T) {
 
 	err := cmd.Execute()
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "mutually exclusive")
+	// Cobra phrasing: "if any flags in the group ... are set none of the
+	// others can be". We key on the group-name substring since the
+	// library wording has varied across versions.
+	require.Contains(t, err.Error(), "remote local ports")
 }
 
 // TestListRemoteJSONHasSchemaV1 — spec §7.5 schema envelope.
@@ -306,10 +323,9 @@ func TestListRemoteTable(t *testing.T) {
 func TestListRemoteError(t *testing.T) {
 	t.Parallel()
 
-	boom := errors.New("dial failed")
 	imp := &mockImporter{
 		listRemoteFn: func(_ context.Context, _ usbip.RemoteEndpoint) ([]usbip.Device, error) {
-			return nil, boom
+			return nil, errTest
 		},
 	}
 	swapFactories(t, imp, &mockExporter{})
@@ -324,5 +340,5 @@ func TestListRemoteError(t *testing.T) {
 
 	err := cmd.Execute()
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "dial failed"))
+	require.Contains(t, err.Error(), "dial failed")
 }

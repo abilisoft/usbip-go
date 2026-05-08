@@ -62,6 +62,12 @@ linters:
         - 'github.com/abilisoft/usbip-go/internal/app\.BackoffStrategy'
         - 'github.com/abilisoft/usbip-go/pkg/usbip\.BackoffStrategy'
         - 'github.com/prometheus/client_golang/prometheus\.Registerer'
+        # cmd/usbip exposes the Importer/Exporter/Renderer interfaces as
+        # the substitution seams tested via mocks; factories and
+        # pickers return the interface by design.
+        - 'github.com/abilisoft/usbip-go/cmd/usbip\.Importer'
+        - 'github.com/abilisoft/usbip-go/cmd/usbip\.Exporter'
+        - 'github.com/abilisoft/usbip-go/cmd/usbip\.Renderer'
     mnd:
       ignored-functions:
         - 'make'
