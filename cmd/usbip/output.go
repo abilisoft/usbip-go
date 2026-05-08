@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"time"
 
 	"github.com/abilisoft/usbip-go/pkg/usbip"
 )
@@ -48,27 +47,30 @@ func pickRenderer(output string) Renderer {
 // per line via Event.
 type jsonRenderer struct{}
 
-// Devices emits the list of devices wrapped in a schema envelope.
+// Devices emits the list of devices wrapped in a schema envelope. The
+// typed struct guarantees "schema" is the first JSON key (spec §7.5
+// stability rule) — Go's json.Marshal serialises struct fields in
+// source order, unlike map[string]any which sorts alphabetically.
 func (jsonRenderer) Devices(w io.Writer, devs []usbip.Device) error {
-	return writeJSON(w, map[string]any{
-		"schema":  schemaVersion,
-		"devices": jsonDevices(devs),
+	return writeJSON(w, devicesEnvelope{
+		Schema:  schemaVersion,
+		Devices: jsonDevices(devs),
 	})
 }
 
-// Ports emits the list of ports.
+// Ports emits the list of ports with a schema-first envelope.
 func (jsonRenderer) Ports(w io.Writer, ports []usbip.Port) error {
-	return writeJSON(w, map[string]any{
-		"schema": schemaVersion,
-		"ports":  jsonPorts(ports),
+	return writeJSON(w, portsEnvelope{
+		Schema: schemaVersion,
+		Ports:  jsonPorts(ports),
 	})
 }
 
-// Sessions emits the list of sessions.
+// Sessions emits the list of sessions with a schema-first envelope.
 func (jsonRenderer) Sessions(w io.Writer, sessions []usbip.Session) error {
-	return writeJSON(w, map[string]any{
-		"schema":   schemaVersion,
-		"sessions": jsonSessions(sessions),
+	return writeJSON(w, sessionsEnvelope{
+		Schema:   schemaVersion,
+		Sessions: jsonSessions(sessions),
 	})
 }
 
@@ -117,63 +119,52 @@ func writeJSON(w io.Writer, v any) error {
 	return nil
 }
 
-// jsonDevices converts a []usbip.Device into a slice of stable map
-// records suitable for the v1 schema. The explicit mapping decouples
-// JSON shape from internal struct evolution.
-func jsonDevices(devs []usbip.Device) []map[string]any {
-	out := make([]map[string]any, 0, len(devs))
+// devicesEnvelope wraps a device list in the v1 schema-first envelope.
+// Schema is declared first so json.Marshal emits it as the leading key.
+type devicesEnvelope struct {
+	Schema  string       `json:"schema"`
+	Devices []deviceView `json:"devices"`
+}
 
+// portsEnvelope wraps a port list in the v1 schema-first envelope.
+type portsEnvelope struct {
+	Schema string     `json:"schema"`
+	Ports  []portView `json:"ports"`
+}
+
+// sessionsEnvelope wraps a session list in the v1 schema-first envelope.
+type sessionsEnvelope struct {
+	Schema   string        `json:"schema"`
+	Sessions []sessionView `json:"sessions"`
+}
+
+// jsonDevices converts a []usbip.Device into a slice of v1 deviceView
+// records. Using the shared view type keeps list and event shapes in
+// lockstep for downstream consumers.
+func jsonDevices(devs []usbip.Device) []deviceView {
+	out := make([]deviceView, 0, len(devs))
 	for _, d := range devs {
-		out = append(out, map[string]any{
-			"path":       d.Path,
-			"busid":      string(d.BusID),
-			"busnum":     d.BusNum,
-			"devnum":     d.DevNum,
-			"speed":      d.Speed.String(),
-			"vendor_id":  formatHex16(d.VendorID),
-			"product_id": formatHex16(d.ProductID),
-			"bcd_device": formatHex16(d.BcdDevice),
-			"class":      uint8(d.Class),
-			"subclass":   uint8(d.Subclass),
-			"protocol":   uint8(d.Protocol),
-		})
+		out = append(out, newDeviceView(d))
 	}
 
 	return out
 }
 
-// jsonPorts converts ports to v1 map records.
-func jsonPorts(ports []usbip.Port) []map[string]any {
-	out := make([]map[string]any, 0, len(ports))
-
+// jsonPorts converts ports to v1 portView records.
+func jsonPorts(ports []usbip.Port) []portView {
+	out := make([]portView, 0, len(ports))
 	for _, p := range ports {
-		out = append(out, map[string]any{
-			"id":           uint32(p.ID),
-			"status":       p.Status.String(),
-			"speed":        p.Speed.String(),
-			"device_id":    uint32(p.DeviceID),
-			"remote":       p.Remote.String(),
-			"busid":        string(p.BusID),
-			"local_busid":  string(p.LocalBusID),
-		})
+		out = append(out, newPortView(p))
 	}
 
 	return out
 }
 
-// jsonSessions converts sessions to v1 map records.
-func jsonSessions(sessions []usbip.Session) []map[string]any {
-	out := make([]map[string]any, 0, len(sessions))
-
+// jsonSessions converts sessions to v1 sessionView records.
+func jsonSessions(sessions []usbip.Session) []sessionView {
+	out := make([]sessionView, 0, len(sessions))
 	for _, s := range sessions {
-		out = append(out, map[string]any{
-			"id":          s.ID.String(),
-			"remote":      s.RemoteAddr.String(),
-			"busid":       string(s.BusID),
-			"started_at":  s.StartedAt.UTC().Format(time.RFC3339Nano),
-			"bytes_in":    s.BytesIn,
-			"bytes_out":   s.BytesOut,
-		})
+		out = append(out, newSessionView(s))
 	}
 
 	return out
