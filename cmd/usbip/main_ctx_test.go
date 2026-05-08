@@ -4,29 +4,55 @@ import (
 	"context"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
 
-// TestRunCtxPropagatesCancellation pins the invariant that the CLI's
-// root context reaches every subcommand. A cancelled ctx passed to
-// runCtx must surface through cmd.Context() inside the subcommand so
-// long-running subcommands (attach --auto-reconnect, list -r, bind)
-// can observe SIGINT/SIGTERM and exit cleanly instead of blocking in
-// a kernel or network call.
-func TestRunCtxPropagatesCancellation(t *testing.T) {
+type probeCtxKey struct{}
+
+// TestRunCtxPropagatesRootContext pins the invariant that the CLI's
+// root context reaches every subcommand through cmd.Context. Long-
+// running subcommands (attach --auto-reconnect, list -r, bind) depend
+// on this propagation to observe SIGINT/SIGTERM via the cobra call
+// chain; a main() that called cmd.Execute() without a context would
+// silently seed a fresh context.Background and swallow the signal.
+//
+// The test injects a sentinel value into ctx, runs a probe subcommand
+// whose RunE captures cmd.Context().Value, and verifies the sentinel
+// survives the runCtx dispatch unchanged.
+func TestRunCtxPropagatesRootContext(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	ctx := context.WithValue(context.Background(), probeCtxKey{}, "sentinel")
 
-	// "list -l" reads cmd.Context() and calls pkg/usbip which honours
-	// context cancellation on the local adapter path. A pre-cancelled
-	// ctx must surface as a non-nil error from runCtx (not an OS exit
-	// code of 0 meaning "success") via the listed subcommand's
-	// ctx-aware read path.
-	code, err := runCtx(ctx, []string{"list", "-l"})
-	require.NotEqual(t, 0, code,
-		"cancelled ctx must surface a non-zero exit code from runCtx")
-	require.Error(t, err,
-		"cancelled ctx must surface an error from runCtx")
+	var captured any
+
+	probeFactory := func() *cobra.Command {
+		root := newRootCmd()
+		root.AddCommand(&cobra.Command{
+			Use:    "__probe",
+			Hidden: true,
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				captured = cmd.Context().Value(probeCtxKey{})
+
+				return nil
+			},
+		})
+
+		return root
+	}
+
+	prev := rootCmdFactory
+
+	rootCmdFactory = probeFactory
+
+	t.Cleanup(func() {
+		rootCmdFactory = prev
+	})
+
+	code, err := runCtx(ctx, []string{"__probe"})
+	require.NoError(t, err, "probe subcommand should succeed")
+	require.Equal(t, 0, code)
+	require.Equal(t, "sentinel", captured,
+		"runCtx must thread ctx through to every subcommand via cmd.Context")
 }

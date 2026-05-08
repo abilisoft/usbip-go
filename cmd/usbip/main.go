@@ -2,27 +2,42 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 )
 
 func main() {
-	code, err := run(os.Args[1:])
+	ctx, stop := signal.NotifyContext(context.Background(),
+		syscall.SIGINT, syscall.SIGTERM)
+
+	code, err := runCtx(ctx, os.Args[1:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 	}
 
+	stop()
 	os.Exit(code)
 }
 
-// run executes the root cobra command with args and returns the
-// mapped exit code. Extracted so tests can drive the entrypoint
-// without invoking os.Exit.
-func run(args []string) (int, error) {
-	cmd := newRootCmd()
+// rootCmdFactory produces the root cobra command runCtx dispatches
+// against. Tests swap it to register probe subcommands without
+// reaching into the cobra call stack; production keeps the default
+// newRootCmd factory.
+var rootCmdFactory = newRootCmd
+
+// runCtx executes the root cobra command under ctx and returns the
+// mapped exit code. Passing a cancellable ctx lets every subcommand
+// observe shutdown via cmd.Context, which matters for long-running
+// calls (attach --auto-reconnect, list -r, bind) that would
+// otherwise block in a kernel or network call past Ctrl-C.
+func runCtx(ctx context.Context, args []string) (int, error) {
+	cmd := rootCmdFactory()
 	cmd.SetArgs(args)
 
-	err := cmd.Execute()
+	err := cmd.ExecuteContext(ctx)
 	if err != nil {
 		return MapError(err), err
 	}
