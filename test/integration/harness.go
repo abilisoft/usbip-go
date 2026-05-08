@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -517,20 +518,89 @@ func writeGadgetFunctionWithBacking(t *testing.T, root string, backing []byte) e
 	return nil
 }
 
-// firstAvailableVUDC scans /sys/class/udc for a usbip-vudc.N instance
-// and returns its name. The kernel module exposes a fixed number (per
-// vudc_num module param); all-in-use returns an error so the harness
-// can skip instead of hanging on the UDC write.
+// vudcUsageTracker remembers which usbip-vudc.N instances this test
+// binary has already bound in the current process. The kernel's per-
+// vudc state (URB seqnum counter, cancelled-URB backlog on the
+// completion workqueue) does not fully reset on detach; reusing an
+// instance across tests reliably races into
+// "vhci_hcd: cannot find a urb of seqnum ..." and a hung Attach.
+// Tracking used instances in-process and always picking a fresh one
+// eliminates the race — the vudc kernel module's `num=` param
+// (set to 8 in flake.nix) provisions enough for every test case the
+// integration suite runs in one invocation.
+var vudcUsageTracker = struct {
+	mu   sync.Mutex
+	used map[string]bool
+}{used: map[string]bool{}}
+
+// firstAvailableVUDC picks the next usbip-vudc.N instance that:
+//
+//  1. has not yet been handed out in this test-binary process, AND
+//  2. is not currently in SDEV_ST_USED state (an active session)
+//
+// and records the selection so the next caller gets a different
+// instance. Exhausting the pool returns an error so the harness
+// skips cleanly instead of hanging on a racy UDC write.
 func firstAvailableVUDC() (string, error) {
 	entries, err := os.ReadDir("/sys/class/udc")
 	if err != nil {
 		return "", fmt.Errorf("read udc dir: %w", err)
 	}
 
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "usbip-vudc") {
-			return e.Name(), nil
+	const vudcStatusUsed = "2"
+
+	vudcUsageTracker.mu.Lock()
+	defer vudcUsageTracker.mu.Unlock()
+
+	// pickUnused picks the first usbip-vudc.N whose tracker flag is
+	// clear and whose kernel-side usbip_status is not USED. Returns
+	// "" if every instance is either tracked-as-used or actively
+	// hosting a session.
+	pickUnused := func() string {
+		for _, e := range entries {
+			name := e.Name()
+			if !strings.HasPrefix(name, "usbip-vudc") {
+				continue
+			}
+
+			if vudcUsageTracker.used[name] {
+				continue
+			}
+
+			status, rerr := os.ReadFile(
+				filepath.Join("/sys/devices/platform", name, "usbip_status"))
+			if rerr != nil {
+				continue
+			}
+
+			if strings.TrimSpace(string(status)) == vudcStatusUsed {
+				continue
+			}
+
+			return name
 		}
+
+		return ""
+	}
+
+	if name := pickUnused(); name != "" {
+		vudcUsageTracker.used[name] = true
+
+		return name, nil
+	}
+
+	// Pool exhausted per the in-process tracker. Clear and retry:
+	// a second test-binary invocation (e.g. `go test -count=2`) or
+	// any future harness change that runs more SetupVUDC calls than
+	// the kernel's `num=` param legitimately recycles instances. The
+	// kernel-side usbip_status check still rejects instances with a
+	// live session, so recycling only hands out truly-idle slots.
+	clear(vudcUsageTracker.used)
+
+	if name := pickUnused(); name != "" {
+		vudcUsageTracker.used[name] = true
+
+		return name, nil
 	}
 
 	return "", errors.New("no usbip-vudc UDC instance available")
