@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"net"
 	"os"
 	"strconv"
@@ -9,6 +11,56 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+// dup3FdOnto performs the syscall.Dup3(srcFd, target, 0) with the
+// uintptr→int narrowing guarded inline so gosec G115's flow analysis
+// sees a direct overflow comparison (same pattern as
+// cmd/usbip.isStderrTTY's os.Stderr.Fd() guard). External syscall
+// errors are wrapped with fmt.Errorf to satisfy wrapcheck.
+func dup3FdOnto(t *testing.T, srcFd uintptr, target int) error {
+	t.Helper()
+
+	if srcFd > uintptr(^uint(0)>>1) { // exceeds max int on this platform
+		t.Fatalf("file descriptor %d exceeds platform int range", srcFd)
+
+		return nil
+	}
+
+	err := syscall.Dup3(int(srcFd), target, 0)
+	if err != nil {
+		return fmt.Errorf("dup3 %d -> %d: %w", srcFd, target, err)
+	}
+
+	return nil
+}
+
+// tcpListen spins a TCP listener bound to loopback using the context-
+// aware ListenConfig path; noctx demands no bare net.Listen.
+func tcpListen(t *testing.T, addr string) *net.TCPListener {
+	t.Helper()
+
+	var lc net.ListenConfig
+
+	lis, err := lc.Listen(context.Background(), "tcp", addr)
+	require.NoError(t, err)
+
+	tcpLis, ok := lis.(*net.TCPListener)
+	require.True(t, ok, "expected *net.TCPListener, got %T", lis)
+
+	return tcpLis
+}
+
+// listenerFile extracts the backing *os.File from a *net.TCPListener.
+// File() dup's the underlying socket; the returned file and the
+// original listener can be closed independently.
+func listenerFile(t *testing.T, lis *net.TCPListener) *os.File {
+	t.Helper()
+
+	f, err := lis.File()
+	require.NoError(t, err)
+
+	return f
+}
 
 // TestListenOrActivationFallsBackWhenNoEnv verifies that without any
 // LISTEN_* env vars, listenOrActivation falls back to a plain TCP
@@ -24,7 +76,7 @@ func TestListenOrActivationFallsBackWhenNoEnv(t *testing.T) {
 
 	cfg := &Config{Listen: "127.0.0.1:0"}
 
-	lis, err := listenOrActivation(cfg)
+	lis, err := listenOrActivation(context.Background(), cfg)
 	require.NoError(t, err)
 	require.NotNil(t, lis)
 
@@ -49,7 +101,7 @@ func TestListenOrActivationIgnoresMismatchedPID(t *testing.T) {
 
 	cfg := &Config{Listen: "127.0.0.1:0"}
 
-	lis, err := listenOrActivation(cfg)
+	lis, err := listenOrActivation(context.Background(), cfg)
 	require.NoError(t, err)
 	require.NotNil(t, lis)
 
@@ -67,21 +119,13 @@ func TestListenOrActivationIgnoresMismatchedPID(t *testing.T) {
 // per-process, not per-goroutine.
 func TestListenOrActivationNamedSocket(t *testing.T) {
 	// Intentionally NOT t.Parallel(): fd 3 is shared process state.
-
-	srcLis, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
+	srcLis := tcpListen(t, "127.0.0.1:0")
 	t.Cleanup(func() { _ = srcLis.Close() })
 
 	// Extract the raw fd from the *net.TCPListener. File() dup's the
 	// underlying socket so we can freely dup it again to fd 3 without
 	// disturbing the original listener.
-	tcpLis, ok := srcLis.(*net.TCPListener)
-	require.True(t, ok)
-
-	srcFile, err := tcpLis.File()
-	require.NoError(t, err)
-
+	srcFile := listenerFile(t, srcLis)
 	t.Cleanup(func() { _ = srcFile.Close() })
 
 	// Preserve whatever fd 3 currently points at (if anything) so we
@@ -90,8 +134,7 @@ func TestListenOrActivationNamedSocket(t *testing.T) {
 
 	// Dup the source fd onto fd 3. After this, fd 3 refers to the same
 	// socket as srcLis, and activation.Files will hand it to us.
-	err = syscall.Dup3(int(srcFile.Fd()), 3, 0)
-	require.NoError(t, err)
+	require.NoError(t, dup3FdOnto(t, srcFile.Fd(), 3))
 
 	t.Cleanup(func() { restoreFd(t, 3, origFd3) })
 
@@ -101,7 +144,7 @@ func TestListenOrActivationNamedSocket(t *testing.T) {
 
 	cfg := &Config{Listen: "127.0.0.1:1"} // unused
 
-	lis, err := listenOrActivation(cfg)
+	lis, err := listenOrActivation(context.Background(), cfg)
 	require.NoError(t, err)
 	require.NotNil(t, lis)
 
@@ -117,36 +160,25 @@ func TestListenOrActivationNamedSocket(t *testing.T) {
 // dup'd to fd 3 and fd 4 with non-matching names.
 func TestListenOrActivationAmbiguousFds(t *testing.T) {
 	// Non-parallel: mutates fd 3 and fd 4.
-
-	lisA, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
+	lisA := tcpListen(t, "127.0.0.1:0")
 	t.Cleanup(func() { _ = lisA.Close() })
 
-	lisB, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
+	lisB := tcpListen(t, "127.0.0.1:0")
 	t.Cleanup(func() { _ = lisB.Close() })
 
-	fileA, err := lisA.(*net.TCPListener).File()
-	require.NoError(t, err)
-
+	fileA := listenerFile(t, lisA)
 	t.Cleanup(func() { _ = fileA.Close() })
 
-	fileB, err := lisB.(*net.TCPListener).File()
-	require.NoError(t, err)
-
+	fileB := listenerFile(t, lisB)
 	t.Cleanup(func() { _ = fileB.Close() })
 
 	origFd3 := preserveFd(t, 3)
 	origFd4 := preserveFd(t, 4)
 
-	require.NoError(t, syscall.Dup3(int(fileA.Fd()), 3, 0))
-
+	require.NoError(t, dup3FdOnto(t, fileA.Fd(), 3))
 	t.Cleanup(func() { restoreFd(t, 3, origFd3) })
 
-	require.NoError(t, syscall.Dup3(int(fileB.Fd()), 4, 0))
-
+	require.NoError(t, dup3FdOnto(t, fileB.Fd(), 4))
 	t.Cleanup(func() { restoreFd(t, 4, origFd4) })
 
 	t.Setenv("LISTEN_PID", strconv.Itoa(os.Getpid()))
@@ -157,7 +189,7 @@ func TestListenOrActivationAmbiguousFds(t *testing.T) {
 
 	cfg := &Config{Listen: "127.0.0.1:1"}
 
-	lis, err := listenOrActivation(cfg)
+	lis, err := listenOrActivation(context.Background(), cfg)
 	require.Error(t, err)
 	require.Nil(t, lis)
 	require.Contains(t, err.Error(), "usbipd")

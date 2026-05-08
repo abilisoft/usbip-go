@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 
@@ -14,6 +15,13 @@ import (
 // neighbouring socket.
 const activationFdName = "usbipd"
 
+// errAmbiguousSocketNames is returned by pickNamedListener when systemd
+// passes more than one socket but none carry the expected "usbipd"
+// FileDescriptorName. The operator must fix their .socket unit; we
+// refuse to guess.
+var errAmbiguousSocketNames = errors.New(
+	"LISTEN_FDS passed but no matching FileDescriptorName and multiple fds present")
+
 // listenOrActivation returns the listener usbipd should Serve on. It
 // prefers systemd-passed named sockets, falls back to an unnamed single
 // fd, and finally falls back to a plain net.Listen on cfg.Listen.
@@ -23,8 +31,8 @@ const activationFdName = "usbipd"
 //   - If LISTEN_FDS=1 and no names are present, accept the single fd.
 //   - If multiple fds are passed without a matching name, refuse to
 //     guess and return an error.
-//   - Otherwise, plain net.Listen on cfg.Listen.
-func listenOrActivation(cfg *Config) (net.Listener, error) {
+//   - Otherwise, plain net.ListenConfig on cfg.Listen.
+func listenOrActivation(ctx context.Context, cfg *Config) (net.Listener, error) {
 	named, err := activation.ListenersWithNames()
 	if err == nil && len(named) > 0 {
 		lis, activated, perr := pickNamedListener(named)
@@ -37,7 +45,7 @@ func listenOrActivation(cfg *Config) (net.Listener, error) {
 		}
 	}
 
-	return netListenCtx(context.Background(), cfg.Listen)
+	return netListenCtx(ctx, cfg.Listen)
 }
 
 // pickNamedListener implements the §7.7 decision table. The boolean
@@ -50,41 +58,63 @@ func pickNamedListener(named map[string][]net.Listener) (net.Listener, bool, err
 		return fds[0], true, nil
 	}
 
-	total := 0
-	for _, ls := range named {
-		total += len(ls)
+	total := countListeners(named)
+
+	if total == 1 {
+		return firstSingletonListener(named), true, nil
 	}
 
-	switch {
-	case total == 1:
-		for _, ls := range named {
-			if len(ls) == 1 {
-				return ls[0], true, nil
-			}
-		}
-	case total > 1:
-		// Multiple fds but none labelled "usbipd" — refuse to guess.
-		// Close every listener so fds don't leak before we return.
-		for _, ls := range named {
-			for _, l := range ls {
-				_ = l.Close()
-			}
-		}
+	if total > 1 {
+		closeAllListeners(named)
 
-		return nil, false, fmt.Errorf(
-			"LISTEN_FDS passed but no socket named %q and multiple fds present",
-			activationFdName)
+		return nil, false, fmt.Errorf("%w: want %q", errAmbiguousSocketNames, activationFdName)
 	}
 
 	return nil, false, nil
 }
 
-// netListenCtx is a tiny wrapper that accepts the future net.ListenConfig
-// context-aware listen call. Today it delegates to net.Listen for v1
-// compatibility with the cmd/usbip client path; wrapping the call keeps
-// Phase 9's context-aware upgrade a one-line change.
-func netListenCtx(_ context.Context, addr string) (net.Listener, error) {
-	lis, err := net.Listen("tcp", addr)
+// countListeners sums the total number of listeners across every named
+// slot. Extracted so pickNamedListener keeps its cognitive complexity
+// under the gocognit threshold.
+func countListeners(named map[string][]net.Listener) int {
+	total := 0
+	for _, ls := range named {
+		total += len(ls)
+	}
+
+	return total
+}
+
+// firstSingletonListener returns the one-and-only listener when the
+// named map has a single fd under any key. Precondition: callers have
+// verified total == 1 via countListeners.
+func firstSingletonListener(named map[string][]net.Listener) net.Listener {
+	for _, ls := range named {
+		if len(ls) == 1 {
+			return ls[0]
+		}
+	}
+
+	return nil
+}
+
+// closeAllListeners releases every fd referenced by named so an
+// ambiguous-socket rejection does not leak kernel resources.
+func closeAllListeners(named map[string][]net.Listener) {
+	for _, ls := range named {
+		for _, l := range ls {
+			_ = l.Close()
+		}
+	}
+}
+
+// netListenCtx wraps net.ListenConfig.Listen so the accept-path listener
+// honours ctx cancellation during bind. Delegating through a named
+// helper keeps the production call site and tests symmetric.
+func netListenCtx(ctx context.Context, addr string) (net.Listener, error) {
+	var lc net.ListenConfig
+
+	lis, err := lc.Listen(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("listen %q: %w", addr, err)
 	}

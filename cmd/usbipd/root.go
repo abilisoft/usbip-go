@@ -31,7 +31,10 @@ var configCtxKey = ctxKey{name: "config"}
 // flagCompletionFunctions map.
 var skipFlagCompletionRegistration = false
 
-// newRootCmd builds the top-level `usbipd` cobra command. The default
+// newRootCmd builds the top-level `usbipd` cobra command. The caller
+// installs the runtime context via cmd.SetContext / ExecuteContext;
+// PersistentPreRunE reads cmd.Context() — cobra's standard seam —
+// rather than accepting ctx as a constructor argument. The default
 // action (RunE on root) starts the daemon; subcommands override.
 func newRootCmd() *cobra.Command {
 	cfg := &Config{}
@@ -98,3 +101,4 @@ func loggerFromCtx(ctx context.Context) *slog.Logger {
 
 	return v
 }
+

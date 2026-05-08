@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 )
 
 // errRunNotImplemented is a placeholder returned by runDaemon until
@@ -12,9 +13,17 @@ var errRunNotImplemented = errors.New("usbipd: run not implemented")
 
 // runDaemon is the root-command default action. Task 8.4 wires the
 // listener + Exporter + status server + signal plumbing into the real
-// implementation; Task 8.1's skeleton returns a sentinel so the CLI
-// shape (flags, --help, version, drain) is exercisable without a live
-// daemon.
-func runDaemon(_ context.Context, _ *Config) error {
+// implementation; Task 8.1's skeleton logs the sentinel via the
+// logger installed by PersistentPreRunE and returns the error so the
+// exit-code classifier maps it to exit 1.
+func runDaemon(ctx context.Context, _ *Config) error {
+	log := loggerFromCtx(ctx)
+	if log == nil {
+		log = slog.Default()
+	}
+
+	log.Error("runDaemon invoked before 8.4 wiring landed",
+		slog.String("err", errRunNotImplemented.Error()))
+
 	return errRunNotImplemented
 }
