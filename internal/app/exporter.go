@@ -30,11 +30,12 @@ type Exporter struct {
 	cfg       exporterLimits
 	acceptLim acceptLimiter
 
-	mu        sync.RWMutex
-	shutdown  bool
-	serving   bool
-	sessions  map[domain.SessionID]*sessionHandle
-	perPeer   map[string]int
+	mu          sync.RWMutex
+	shutdown    bool
+	serving     bool
+	sessions    map[domain.SessionID]*sessionHandle
+	perPeer     map[string]int
+	subscribers []*sessionEventSubscriber
 
 	// wg tracks the ctx-listener-closer goroutine spawned by Serve;
 	// Serve waits on it before returning.
@@ -205,7 +206,14 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 		h.cancel()
 	}
 
-	return e.waitSessionsBounded(ctx)
+	waitErr := e.waitSessionsBounded(ctx)
+
+	// Tear down WatchSessions subscribers last so consumers see every
+	// SessionEnded event published during drain before the channel
+	// closes.
+	e.closeAllSubscribers()
+
+	return waitErr
 }
 
 // startServing transitions the Exporter from idle → serving. Returns

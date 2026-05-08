@@ -31,7 +31,6 @@ func newSessionImportCodec(busID domain.BusID) *ProtocolCodecMock {
 // func that releases ExportOnConn, and the serveDone channel.
 func startExporterImportSession(
 	t *testing.T,
-	extraOpts ...app.ExporterOption,
 ) (*app.Exporter, net.Conn, chan<- struct{}, <-chan error, context.CancelFunc) {
 	t.Helper()
 
@@ -49,12 +48,10 @@ func startExporterImportSession(
 
 	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 7), Port: 9000})
 
-	opts := append([]app.ExporterOption{
+	exp := newExporterForTest(t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterCodec(codec),
-	}, extraOpts...)
-
-	exp := newExporterForTest(t, opts...)
+	)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
