@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 
 	"github.com/abilisoft/usbip-go/internal/adapter/wire"
@@ -185,6 +186,7 @@ func TestDecodeOpRepDevlistInterfaceCountOverRemaining(t *testing.T) {
 
 // TestDecodeOpRepDevlistTrailingBytes: trailing bytes beyond the
 // declared device count are tolerated with a slog.Warn.
+// Parallel-safe via slogDefaultMu in captureSlogAll.
 func TestDecodeOpRepDevlistTrailingBytes(t *testing.T) {
 	t.Parallel()
 
@@ -218,28 +220,40 @@ func TestDecodeOpRepDevlistVersionMismatch(t *testing.T) {
 	require.ErrorIs(t, err, domain.ErrProtocolMismatch)
 }
 
-// captureSlogAll captures all slog messages (any level).
+// captureSlogAll captures all slog messages (any level). Uses
+// slogDefaultMu (declared in main_test.go) to serialize with other
+// slog-default-mutating tests so parallel execution is safe.
 func captureSlogAll(t *testing.T) func() []string {
 	t.Helper()
+
+	slogDefaultMu.Lock()
 
 	prev := slog.Default()
 	h := &captureHandler{}
 	slog.SetDefault(slog.New(h))
 
-	t.Cleanup(func() { slog.SetDefault(prev) })
+	t.Cleanup(func() {
+		slog.SetDefault(prev)
+		slogDefaultMu.Unlock()
+	})
 
 	return func() []string { return h.snapshot() }
 }
 
-// captureHandler records every log message.
+// captureHandler records every log message. Concurrency-safe so tests
+// that run in parallel while the slog default handler is swapped can
+// share the handler without a data race on msgs.
 type captureHandler struct {
+	mu   sync.Mutex
 	msgs []string
 }
 
 func (c *captureHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
 
 func (c *captureHandler) Handle(_ context.Context, r slog.Record) error {
+	c.mu.Lock()
 	c.msgs = append(c.msgs, r.Message)
+	c.mu.Unlock()
 
 	return nil
 }
@@ -249,6 +263,9 @@ func (c *captureHandler) WithAttrs(_ []slog.Attr) slog.Handler { return c }
 func (c *captureHandler) WithGroup(_ string) slog.Handler { return c }
 
 func (c *captureHandler) snapshot() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	out := make([]string, len(c.msgs))
 	copy(out, c.msgs)
 
