@@ -71,6 +71,10 @@ func TestExporter_MaxSessions(t *testing.T) {
 
 			return nil
 		},
+		// Pass-2 RANK 3: Shutdown issues a graceful Disconnect per
+		// active session; a stub keeps the mock from panicking when
+		// the test cleanup Shutdown fires.
+		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
 	}
 
 	codec := &ProtocolCodecMock{
@@ -153,6 +157,10 @@ func TestExporter_MaxSessionsPerPeer(t *testing.T) {
 
 			return nil
 		},
+		// Pass-2 RANK 3: Shutdown fans out Disconnect per active
+		// session; stub keeps the mock from panicking when the
+		// cleanup-time Shutdown runs.
+		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
 	}
 
 	codec := &ProtocolCodecMock{

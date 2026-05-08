@@ -36,6 +36,11 @@ func TestExporterShutdownHonoursConfiguredTimeout(t *testing.T) {
 
 			return io.EOF
 		},
+		// Pass-2 RANK 3: Shutdown now issues a graceful kernel
+		// Disconnect before the bounded drain. The fixture needs a
+		// stub even when the scenario exercises the backstop path
+		// (kernel ignores Disconnect and Shutdown must still bound).
+		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
 	}
 
 	codec := &ProtocolCodecMock{
