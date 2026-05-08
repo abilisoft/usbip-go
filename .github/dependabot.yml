@@ -1,0 +1,57 @@
+version: 2
+
+# Dependabot configuration. Two ecosystems:
+#
+#   * gomod        — go.mod / go.sum direct + indirect deps. Grouped
+#                    by major-version family so a single PR bumps the
+#                    whole tree (avoids opening 30 PRs against tightly
+#                    coupled modules).
+#   * github-actions — reusable actions referenced in workflows under
+#                    .github/workflows. Pinned digests get bumped to
+#                    the latest semver-tagged commit.
+#
+# Schedule is weekly (Monday 04:00 UTC) so PRs land alongside the
+# existing CI weekly mutation-testing run. Reviews are routed to the
+# repository default reviewers via CODEOWNERS — no per-package
+# assignee here so the file stays static across team changes.
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - go
+    commit-message:
+      prefix: deps
+      include: scope
+    groups:
+      go-deps:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      github-actions:
+        patterns:
+          - "*"
