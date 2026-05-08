@@ -1,0 +1,118 @@
+version: '3'
+
+vars:
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+  COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo "none"
+  LDFLAGS: '-s -w -X main.version={{.VERSION}} -X main.commit={{.COMMIT}}'
+  BIN_DIR: './bin'
+
+env:
+  CGO_ENABLED: '0'
+
+tasks:
+  default:
+    desc: List tasks
+    cmds:
+      - task --list
+
+  build:
+    desc: Release-style build (trimmed, stripped, reproducible)
+    sources:
+      - cmd/**/*.go
+      - pkg/**/*.go
+      - go.mod
+      - go.sum
+    generates:
+      - '{{.BIN_DIR}}/usbip'
+      - '{{.BIN_DIR}}/usbipd'
+    cmds:
+      - go build -trimpath -ldflags="{{.LDFLAGS}}" -o {{.BIN_DIR}}/ ./cmd/...
+
+  build:dev:
+    desc: Dev build with full debug info (keeps paths for IDE click-through, disables inlining for delve)
+    cmds:
+      - go build -gcflags="all=-N -l" -o {{.BIN_DIR}}/ ./cmd/...
+
+  test:
+    desc: Unit tests (race)
+    cmds:
+      - go test -race -timeout=60s ./...
+
+  test:integration:
+    desc: Integration tests
+    cmds:
+      - go test -race -tags=integration_linux -timeout=5m ./test/integration/...
+
+  test:conformance:
+    desc: Conformance tests
+    cmds:
+      - go test -tags=conformance_linux -timeout=5m ./test/conformance/...
+
+  test:cover:
+    desc: Coverage report
+    cmds:
+      - go test -race -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out -o coverage.html
+
+  test:mutation:
+    desc: Mutation testing
+    cmds:
+      - gremlins unleash ./pkg/domain/... ./internal/adapter/wire/...
+
+  lint:
+    desc: golangci-lint
+    cmds:
+      - golangci-lint run ./...
+
+  fmt:
+    desc: Format code
+    cmds:
+      - gofumpt -w .
+      - goimports -w .
+
+  tidy:
+    desc: go mod tidy
+    cmds:
+      - go mod tidy
+
+  vuln:
+    desc: govulncheck
+    cmds:
+      - govulncheck ./...
+
+  check:
+    desc: Pre-commit gauntlet
+    cmds:
+      - task: fmt
+      - task: lint
+      - task: vuln
+      - task: test
+
+  clean:
+    desc: Remove build artefacts and cached test results
+    cmds:
+      - rm -rf {{.BIN_DIR}} coverage.out coverage.html dist/
+      - go clean -testcache
+
+  release:snapshot:
+    desc: Snapshot release build via GoReleaser
+    cmds:
+      - goreleaser build --snapshot --clean
+
+  release:
+    desc: Tagged release via GoReleaser
+    cmds:
+      - goreleaser release --clean
+
+  install-tools:
+    desc: Install pinned dev tools into $GOBIN
+    cmds:
+      - go install mvdan.cc/gofumpt@latest
+      - go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+      - go install golang.org/x/vuln/cmd/govulncheck@latest
+      - go install github.com/goreleaser/goreleaser/v2@latest
+      - go install github.com/matryer/moq@latest
+      - go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+      - go install golang.org/x/exp/cmd/apidiff@latest
