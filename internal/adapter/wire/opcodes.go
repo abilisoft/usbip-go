@@ -30,4 +30,3 @@ func isKnownOpCode(op OpCode) bool {
 		return false
 	}
 }
-

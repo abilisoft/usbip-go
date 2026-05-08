@@ -75,7 +75,6 @@ func socketpairConns(t *testing.T) (net.Conn, net.Conn) {
 	return lc, rc
 }
 
-
 // closeCountingConn wraps net.Conn and counts Close() invocations. The
 // count is atomic so the test can inspect it after AttachRemote
 // returns. It delegates SyscallConn through the embedded conn so
@@ -638,13 +637,14 @@ func TestAttachRemote_HappyPath(t *testing.T) {
 	// The fd in the payload is a dup of the conn's fd (different number, same socket).
 	// Verify all fields except the fd value; the fd must be a positive integer.
 	var portVal, fdVal, devIDVal, speedVal uint32
+
 	n, scanErr := fmt.Sscanf(gotWrites[0].Data, "%d %d %d %d", &portVal, &fdVal, &devIDVal, &speedVal)
 	require.NoError(t, scanErr)
 	require.Equal(t, 4, n)
 	require.EqualValues(t, 0, portVal)
 	require.Positive(t, fdVal, "attach payload fd must be positive")
-	require.EqualValues(t, uint32(spec.DevID), devIDVal)
-	require.EqualValues(t, uint32(spec.Speed), speedVal)
+	require.Equal(t, uint32(spec.DevID), devIDVal)
+	require.Equal(t, uint32(spec.Speed), speedVal)
 
 	require.EqualValues(t, 1, wrapped.closes.Load(),
 		"conn must be closed exactly once after successful sysfs write")

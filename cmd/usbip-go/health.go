@@ -166,7 +166,7 @@ func startHealthServer(
 		select {
 		case serveErr = <-serveDone:
 		case <-stopCtx.Done():
-			serveErr = stopCtx.Err()
+			serveErr = fmt.Errorf("health server stop deadline: %w", stopCtx.Err())
 		}
 
 		if shutdownErr != nil {

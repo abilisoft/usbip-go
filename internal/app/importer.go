@@ -64,6 +64,7 @@ func (g *lifecycleWaitGroup) Go(f func()) {
 
 	go func() {
 		defer g.Done()
+
 		f()
 	}()
 }
@@ -358,7 +359,8 @@ func (i *Importer) ListRemote(ctx context.Context, endpoint domain.RemoteEndpoin
 	}
 
 	if deadline, ok := ctx.Deadline(); ok {
-		if err = conn.SetReadDeadline(deadline); err != nil {
+		err = conn.SetReadDeadline(deadline)
+		if err != nil {
 			return nil, fmt.Errorf("set read deadline: %w", err)
 		}
 	}
@@ -820,61 +822,9 @@ func (i *Importer) attachOverDialed(
 		}
 	}()
 
-	i.logger.Debug("attach: sending OP_REQ_IMPORT", "busid", busID)
-
-	err = i.codec.EncodeOpReqImport(conn, busID)
+	dev, err := i.performImportHandshake(ctx, conn, endpoint, busID)
 	if err != nil {
-		i.logAttachFailure("attach encode handshake failed", busID, endpoint, AttachOutcomeProtocolMismatch, err)
-
-		return domain.Port{}, fmt.Errorf("encode OP_REQ_IMPORT for %s: %w", busID, err)
-	}
-
-	i.logger.Debug("attach: awaiting OP_REP_IMPORT")
-
-	if deadline, ok := ctx.Deadline(); ok {
-		if err = conn.SetReadDeadline(deadline); err != nil {
-			i.logAttachFailure("attach set read deadline failed", busID, endpoint, AttachOutcomeProtocolMismatch, err)
-			return domain.Port{}, fmt.Errorf("set read deadline: %w", err)
-		}
-	}
-
-	dev, err := i.codec.DecodeOpRepImport(conn)
-	if err != nil {
-		i.logAttachFailure("attach decode handshake failed", busID, endpoint, classifyDecodeImportErr(err), err)
-
-		return domain.Port{}, fmt.Errorf("decode OP_REP_IMPORT from %s: %w", endpoint.String(), err)
-	}
-
-	// Wire-side BusID acceptance: the remote sends a BusID we hand
-	// straight to the kernel via sysfs paths; a malicious or buggy
-	// peer could embed bytes that escape a sysfs basename. The wire
-	// codec is intentionally permissive (any padded string), so the
-	// app layer applies ValidateWireBusID at the trust boundary.
-	_, wireBusIDErr := domain.ValidateWireBusID(string(dev.BusID))
-	if wireBusIDErr != nil {
-		i.logAttachFailure("attach decode handshake failed",
-			busID, endpoint, AttachOutcomeProtocolMismatch, wireBusIDErr)
-
-		return domain.Port{}, fmt.Errorf("decode OP_REP_IMPORT from %s: %w",
-			endpoint.String(), wireBusIDErr)
-	}
-
-	// BusID match: reject any reply that names a different device than
-	// the one we asked for. Without this check a misbehaving exporter
-	// could attach the wrong USB device under the caller's requested
-	// handle (the kernel would happily wire the returned dev_id to the
-	// vhci port; the caller would then control a device they did not
-	// authorize). v1 contract §6.2: the reply MUST identify the same
-	// busid the request named.
-	if dev.BusID != busID {
-		mismatchErr := fmt.Errorf("%w: requested busid %s but peer replied %s",
-			domain.ErrProtocolError, busID, dev.BusID)
-
-		i.logAttachFailure("attach decode handshake failed",
-			busID, endpoint, AttachOutcomeProtocolMismatch, mismatchErr)
-
-		return domain.Port{}, fmt.Errorf("decode OP_REP_IMPORT from %s: %w",
-			endpoint.String(), mismatchErr)
+		return domain.Port{}, err
 	}
 
 	i.logger.Debug("attach: got OP_REP_IMPORT",
@@ -899,6 +849,80 @@ func (i *Importer) attachOverDialed(
 	handedOff = true
 
 	return i.finishAttach(ctx, portID, busID, endpoint, dev, devID, opts)
+}
+
+// performImportHandshake runs the OP_REQ_IMPORT / OP_REP_IMPORT
+// exchange on conn: send the request, install a read deadline if ctx
+// carries one, decode the reply, and validate both the wire-side
+// BusID encoding and the requested-vs-replied BusID match. Extracted
+// from attachOverDialed to keep that function under the cognitive-
+// complexity cap.
+func (i *Importer) performImportHandshake(
+	ctx context.Context,
+	conn net.Conn,
+	endpoint domain.RemoteEndpoint,
+	busID domain.BusID,
+) (domain.Device, error) {
+	i.logger.Debug("attach: sending OP_REQ_IMPORT", "busid", busID)
+
+	err := i.codec.EncodeOpReqImport(conn, busID)
+	if err != nil {
+		i.logAttachFailure("attach encode handshake failed", busID, endpoint, AttachOutcomeProtocolMismatch, err)
+
+		return domain.Device{}, fmt.Errorf("encode OP_REQ_IMPORT for %s: %w", busID, err)
+	}
+
+	i.logger.Debug("attach: awaiting OP_REP_IMPORT")
+
+	if deadline, ok := ctx.Deadline(); ok {
+		err = conn.SetReadDeadline(deadline)
+		if err != nil {
+			i.logAttachFailure("attach set read deadline failed", busID, endpoint, AttachOutcomeProtocolMismatch, err)
+
+			return domain.Device{}, fmt.Errorf("set read deadline: %w", err)
+		}
+	}
+
+	dev, err := i.codec.DecodeOpRepImport(conn)
+	if err != nil {
+		i.logAttachFailure("attach decode handshake failed", busID, endpoint, classifyDecodeImportErr(err), err)
+
+		return domain.Device{}, fmt.Errorf("decode OP_REP_IMPORT from %s: %w", endpoint.String(), err)
+	}
+
+	// Wire-side BusID acceptance: the remote sends a BusID we hand
+	// straight to the kernel via sysfs paths; a malicious or buggy
+	// peer could embed bytes that escape a sysfs basename. The wire
+	// codec is intentionally permissive (any padded string), so the
+	// app layer applies ValidateWireBusID at the trust boundary.
+	_, wireBusIDErr := domain.ValidateWireBusID(string(dev.BusID))
+	if wireBusIDErr != nil {
+		i.logAttachFailure("attach decode handshake failed",
+			busID, endpoint, AttachOutcomeProtocolMismatch, wireBusIDErr)
+
+		return domain.Device{}, fmt.Errorf("decode OP_REP_IMPORT from %s: %w",
+			endpoint.String(), wireBusIDErr)
+	}
+
+	// BusID match: reject any reply that names a different device than
+	// the one we asked for. Without this check a misbehaving exporter
+	// could attach the wrong USB device under the caller's requested
+	// handle (the kernel would happily wire the returned dev_id to the
+	// vhci port; the caller would then control a device they did not
+	// authorize). v1 contract §6.2: the reply MUST identify the same
+	// busid the request named.
+	if dev.BusID != busID {
+		mismatchErr := fmt.Errorf("%w: requested busid %s but peer replied %s",
+			domain.ErrProtocolError, busID, dev.BusID)
+
+		i.logAttachFailure("attach decode handshake failed",
+			busID, endpoint, AttachOutcomeProtocolMismatch, mismatchErr)
+
+		return domain.Device{}, fmt.Errorf("decode OP_REP_IMPORT from %s: %w",
+			endpoint.String(), mismatchErr)
+	}
+
+	return dev, nil
 }
 
 // logAttachFailure emits the structured "attach failed" record shared

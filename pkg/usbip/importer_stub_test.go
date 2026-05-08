@@ -172,15 +172,15 @@ func (s *stubTransport) Listen(
 // methods write nothing by default so the piped Dial drain goroutine
 // does not loop.
 type stubCodec struct {
-	encodeOpReqDevlistFn      func() []byte
-	encodeOpReqImportFn       func(w io.Writer, busID domain.BusID) error
-	encodeOpRepDevlistFn      func(w io.Writer, devs []domain.Device) error
-	encodeOpRepImportFn       func(w io.Writer, d domain.Device) error
-	encodeOpRepImportErrorFn  func(w io.Writer, status uint32) error
-	decodeHeaderFn            func(r io.Reader) (uint16, wire.OpCode, uint32, error)
-	decodeOpRepDevlistFn      func(r io.Reader) ([]domain.Device, error)
-	decodeOpReqImportFn       func(r io.Reader) (domain.BusID, error)
-	decodeOpRepImportFn       func(r io.Reader) (domain.Device, error)
+	encodeOpReqDevlistFn     func() []byte
+	encodeOpReqImportFn      func(w io.Writer, busID domain.BusID) error
+	encodeOpRepDevlistFn     func(w io.Writer, devs []domain.Device) error
+	encodeOpRepImportFn      func(w io.Writer, d domain.Device) error
+	encodeOpRepImportErrorFn func(w io.Writer, status uint32) error
+	decodeHeaderFn           func(r io.Reader) (uint16, wire.OpCode, uint32, error)
+	decodeOpRepDevlistFn     func(r io.Reader) ([]domain.Device, error)
+	decodeOpReqImportFn      func(r io.Reader) (domain.BusID, error)
+	decodeOpRepImportFn      func(r io.Reader) (domain.Device, error)
 }
 
 // EncodeOpReqDevlist dispatches to the hook or returns an empty slice.

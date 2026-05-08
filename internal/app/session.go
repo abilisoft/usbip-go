@@ -6,6 +6,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -315,7 +316,8 @@ func (e *Exporter) serveImport(
 			status = wire.ImportStatusDevBusy
 		}
 
-		if encErr := e.codec.EncodeOpRepImportError(conn, status); encErr != nil {
+		encErr := e.codec.EncodeOpRepImportError(conn, status)
+		if encErr != nil {
 			e.logger.Debug("exporter encode import error reply",
 				slog.Any("busid", busID),
 				slog.Any("err", encErr))
@@ -336,7 +338,7 @@ func (e *Exporter) serveImport(
 func (e *Exporter) lookupExportedDevice(ctx context.Context, busID domain.BusID) (domain.Device, error) {
 	devs, err := e.kernel.ListExportedDevices(ctx)
 	if err != nil {
-		return domain.Device{}, err
+		return domain.Device{}, fmt.Errorf("list exported devices: %w", err)
 	}
 
 	for i := range devs {
@@ -372,7 +374,8 @@ func (e *Exporter) replyImportError(conn net.Conn, busID domain.BusID, status ui
 		slog.String("outcome", string(OutcomeHandshakeFailed)),
 		slog.Any("err", cause))
 
-	if err := e.codec.EncodeOpRepImportError(conn, status); err != nil {
+	err := e.codec.EncodeOpRepImportError(conn, status)
+	if err != nil {
 		e.logger.Debug("exporter encode import error reply",
 			slog.Any("busid", busID),
 			slog.Any("err", err))
@@ -461,7 +464,8 @@ func (e *Exporter) runRegisteredSession(
 		// (we would park forever after a successful handoff). The
 		// importer side has nothing to read otherwise; emit ST_DEV_ERR
 		// so it surfaces the rejection rather than EOF.
-		if encErr := e.codec.EncodeOpRepImportError(conn, wire.ImportStatusDevErr); encErr != nil {
+		encErr := e.codec.EncodeOpRepImportError(conn, wire.ImportStatusDevErr)
+		if encErr != nil {
 			e.logger.Debug("exporter encode import error reply on subscribe failure",
 				slog.Any("busid", busID),
 				slog.Any("err", encErr))
@@ -474,6 +478,23 @@ func (e *Exporter) runRegisteredSession(
 
 	defer cancelEvents()
 
+	e.runHandoffAndPark(ctx, conn, busID, handle, dev, stopTimeout, events)
+}
+
+// runHandoffAndPark performs the post-subscribe phase of the import
+// session: encode OP_REP_IMPORT (success), disarm the handshake
+// timeout, hand the fd to the kernel under handle.handoffMu, then
+// park on waitForSessionEnd. Extracted from runRegisteredSession to
+// keep that function under the funlen cap.
+func (e *Exporter) runHandoffAndPark(
+	ctx context.Context,
+	conn net.Conn,
+	busID domain.BusID,
+	handle *sessionHandle,
+	dev domain.Device,
+	stopTimeout func(),
+	events <-chan domain.Event,
+) {
 	// Send OP_REP_IMPORT (success, with device body) BEFORE the kernel
 	// sockfd handoff. Per upstream libsrc/usbip_protocol.c the client
 	// reads the reply, then writes its own end of the fd to vhci_attach
