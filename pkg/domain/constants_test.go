@@ -9,6 +9,8 @@ import (
 )
 
 func TestConstants_KnownValues(t *testing.T) {
+	t.Parallel()
+
 	require.Equal(t, uint16(3240), domain.DefaultPort)
 	require.Equal(t, "0.0.0.0:3240", domain.DefaultEndpoint)
 	require.Equal(t, uint16(0x0111), domain.ProtocolVersion)
