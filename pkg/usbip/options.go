@@ -74,15 +74,15 @@ type exporterConfig struct {
 	allowCIDRs         []string
 	maxHandshakeBytes  int
 	handshakeTimeout   time.Duration
-	// shutdownTimeout is stored on the public config and consumed by
-	// the exporter metrics/lifecycle wiring in a later phase. Keeping
-	// the field here now means the public option lands stable from
-	// day one — the implementation follow-up plugs it in without a
-	// breaking-change bump.
+	// shutdownTimeout is stored on the public config but is NOT yet
+	// forwarded into internal/app — setting the field has no runtime
+	// effect today. Phase 9 (metrics + lifecycle wiring) plumbs it
+	// through without a breaking-change bump.
 	shutdownTimeout time.Duration
 	// metricsRegisterer follows the same "public-first, wire-later"
-	// rule as shutdownTimeout. The registerer is stored here and used
-	// by the exporter metrics wiring in Phase 9.
+	// rule as shutdownTimeout: stored here, not yet consumed by the
+	// internal/app layer. Phase 9 registers the §11.5.5 collectors
+	// against this registerer.
 	metricsRegisterer prometheus.Registerer
 }
 
@@ -144,26 +144,43 @@ func WithExporterHandshakeTimeout(d time.Duration) ExporterOption {
 	return func(c *exporterConfig) { c.handshakeTimeout = d }
 }
 
-// WithExporterShutdownTimeout bounds the Exporter.Shutdown drain per
-// spec §5.7. The value is stored on the public config; the exporter
-// metrics/lifecycle wiring consumes it in Phase 9 without a public
-// API change.
+// WithExporterShutdownTimeout records a Shutdown drain bound intended
+// for spec §5.7.
+//
+// CURRENT BEHAVIOUR: the value is stored on the public exporter
+// config and is NOT plumbed into the internal/app layer — no runtime
+// bound is enforced at Shutdown time by this option alone. Callers
+// that need a hard drain deadline must pass a bounded context.Context
+// to Exporter.Shutdown.
+//
+// The option exists today so the public API is stable from v1; the
+// Phase 9 metrics + lifecycle work wires the stored value into the
+// internal Shutdown path without a breaking-change bump.
 func WithExporterShutdownTimeout(d time.Duration) ExporterOption {
 	return func(c *exporterConfig) { c.shutdownTimeout = d }
 }
 
-// WithExporterMetricsRegisterer registers Exporter-side Prometheus
-// collectors into r. The registerer is stored on the public config
-// and consumed by the metrics wiring in Phase 9; declaring the option
-// now keeps the v1 public API stable across the follow-up.
+// WithExporterMetricsRegisterer records a Prometheus registerer for
+// Exporter-side collectors.
+//
+// CURRENT BEHAVIOUR: the registerer is stored on the public exporter
+// config and is NOT consumed by the internal/app layer — no collectors
+// are registered as a result of calling this option today.
+//
+// The option exists today so the public API is stable from v1; the
+// Phase 9 metrics work consumes the stored value when the §11.5.5
+// collector catalog lands, again without a breaking-change bump.
 func WithExporterMetricsRegisterer(r prometheus.Registerer) ExporterOption {
 	return func(c *exporterConfig) { c.metricsRegisterer = r }
 }
 
 // exporterConfigToInternal translates the public-facing exporterConfig
-// into the matching slice of internalapp.ExporterOption values. Fields
-// without an internal counterpart yet (shutdownTimeout, metricsRegisterer)
-// are carried on the public config and wired through in a later phase.
+// into the matching slice of internalapp.ExporterOption values.
+// shutdownTimeout and metricsRegisterer are deliberately dropped here:
+// they have no internal counterpart today and the matching public
+// options are stored-not-plumbed until Phase 9 wires them through.
+// See WithExporterShutdownTimeout and WithExporterMetricsRegisterer
+// for the full CURRENT BEHAVIOUR contract.
 func exporterConfigToInternal(cfg exporterConfig) []internalapp.ExporterOption {
 	out := make([]internalapp.ExporterOption, 0, exporterInternalOptCap)
 
