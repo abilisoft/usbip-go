@@ -950,6 +950,116 @@ func TestImporterReconnectOnReconnectPanicRecovered(t *testing.T) {
 	require.Len(t, kernel.AttachRemoteCalls(), 4, "initial + 3 reconnect attempts")
 }
 
+// TestImporterReconnectSupersededWatcherDropsEvent exercises the
+// "!isCurrentHandle" guard inside isDetachSignal: when a second Attach
+// has replaced the handle map entry for this watcher's portID but the
+// watcher's select reads the event branch before its ctx cancellation
+// propagates, the watcher must drop the event rather than fire a
+// spurious reconnect. The test drives the race by pushing a detach
+// event for port 1 into watcher1's channel and then performing a
+// second Attach for the same slot; the event is buffered before the
+// second Attach lands, so watcher1's select sees both branches ready.
+func TestImporterReconnectSupersededWatcherDropsEvent(t *testing.T) {
+	t.Parallel()
+
+	attachFn := func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+		return domain.PortID(1), nil
+	}
+
+	imp, clk, registry, kernel := newReconnectFixture(t, attachFn)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	// Poll path is disabled so only the uevent branch can fire a
+	// reconnect — isolates the coverage to isDetachSignal.
+	opts := attachOptionsWithBackoff()
+
+	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), opts)
+	require.NoError(t, err)
+	require.Equal(t, domain.PortID(1), port.ID)
+
+	registry.waitFor(t, 1)
+
+	// Buffer a detach event on watcher1's channel BEFORE the second
+	// Attach. The second Attach will replace map[1] with handle2 and
+	// cancel handle1. Watcher1's select now races: it may observe the
+	// buffered event (which must be dropped by isCurrentHandle) or its
+	// ctx-cancelled signal (which exits cleanly). Either branch must
+	// keep AttachRemote count at 2.
+	registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
+
+	_, err = imp.Attach(context.Background(), testRemote(), attachBusID(), opts)
+	require.NoError(t, err)
+
+	registry.waitFor(t, 2)
+
+	// Watcher2 is healthy; advancing the clock does nothing because the
+	// poll is disabled and no event has been pushed to watcher2. The
+	// only way AttachRemote climbs to 3 is if watcher1 processes the
+	// stale event — the generation check must prevent that.
+	require.Never(t, func() bool {
+		clk.Advance(reconnectTestBackoff().Delay)
+
+		return len(kernel.AttachRemoteCalls()) > 2
+	}, 100*time.Millisecond, 5*time.Millisecond,
+		"superseded watcher must not reconnect after its handle is replaced")
+}
+
+// TestImporterReconnectDetachShutdownTimeoutDisabled asserts that a
+// negative ShutdownTimeout opts the Detach wait out of the bound —
+// the wait reverts to the pre-Fix-3 semantics (block on watcherDone
+// indefinitely). The watcher here exits promptly so the unbounded wait
+// completes immediately; the assertion is simply that Detach returns
+// cleanly, proving the branch is live.
+func TestImporterReconnectDetachShutdownTimeoutDisabled(t *testing.T) {
+	t.Parallel()
+
+	attachFn := func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+		return domain.PortID(1), nil
+	}
+
+	imp, _, registry, _ := newReconnectFixture(t, attachFn)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	opts := attachOptionsWithBackoff()
+
+	opts.ShutdownTimeout = -1 // disables the bound — infinite wait.
+
+	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), opts)
+	require.NoError(t, err)
+
+	registry.waitFor(t, 1)
+
+	require.NoError(t, imp.Detach(context.Background(), port.ID),
+		"negative ShutdownTimeout must fall through to the legacy infinite wait")
+}
+
+// TestImporterReconnectCloseShutdownTimeoutDisabled asserts the same
+// negative-ShutdownTimeout branch on Close's wg.Wait bound: when the
+// longest handle opts out of the bound, Close falls back to unbounded
+// i.wg.Wait. The watcher drains fast in this test so the behaviour is
+// indistinguishable from the bounded path in wall-clock terms, but the
+// negative-timeout code path is exercised.
+func TestImporterReconnectCloseShutdownTimeoutDisabled(t *testing.T) {
+	t.Parallel()
+
+	attachFn := func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+		return domain.PortID(1), nil
+	}
+
+	imp, _, registry, _ := newReconnectFixture(t, attachFn)
+
+	opts := attachOptionsWithBackoff()
+
+	opts.ShutdownTimeout = -1
+
+	_, err := imp.Attach(context.Background(), testRemote(), attachBusID(), opts)
+	require.NoError(t, err)
+
+	registry.waitFor(t, 1)
+
+	require.NoError(t, imp.Close(), "Close must drain watchers under the unbounded branch")
+}
+
 // TestImporterReconnectDetachShutdownTimeoutBounded asserts Detach
 // returns within AttachOptions.ShutdownTimeout even when the watcher is
 // wedged (here: the reconnect-path AttachRemote ignores ctx cancellation
