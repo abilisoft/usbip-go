@@ -41,8 +41,22 @@ type Importer struct {
 	closed    bool
 	closeOnce sync.Once
 	handles   map[domain.PortID]*portHandle
-	nextGen   uint64
-	wg        sync.WaitGroup
+	// inFlight dedupes concurrent Attach calls for the same
+	// (remote, busid) pair (RANK 6). Without this guard two callers
+	// would race the dial + handshake + AttachRemote sequence and
+	// import the same device onto two local ports. Guarded by mu.
+	inFlight map[attachKey]struct{}
+	nextGen  uint64
+	wg       sync.WaitGroup
+}
+
+// attachKey is the deduplication key used by Importer.inFlight. Remote
+// normalisation is applied by Attach before the lookup so a caller
+// passing ":3240" vs "peer:3240" resolves to the same key once the
+// endpoint is normalised.
+type attachKey struct {
+	remote domain.RemoteEndpoint
+	busID  domain.BusID
 }
 
 // portHandle is the per-port bookkeeping entry for an active import.
@@ -130,6 +144,7 @@ func NewImporter(opts ...ImporterOption) *Importer {
 		logger:    cfg.logger,
 		metrics:   cfg.metrics,
 		handles:   make(map[domain.PortID]*portHandle),
+		inFlight:  make(map[attachKey]struct{}),
 	}
 }
 
@@ -256,19 +271,16 @@ func (i *Importer) Attach(
 	busID domain.BusID,
 	opts AttachOptions,
 ) (domain.Port, error) {
-	i.mu.RLock()
-
-	closed := i.closed
-
-	i.mu.RUnlock()
-
-	if closed {
-		return domain.Port{}, ErrImporterClosed
-	}
-
 	endpoint = endpoint.NormalizePort()
 
-	err := i.kernel.ModulesAvailable(ctx)
+	release, err := i.acquireAttachSlot(endpoint, busID)
+	if err != nil {
+		return domain.Port{}, err
+	}
+
+	defer release()
+
+	err = i.kernel.ModulesAvailable(ctx)
 	if err != nil {
 		i.metrics.ImporterAttached(AttachOutcomeKernelError)
 
@@ -480,6 +492,39 @@ func longestShutdownTimeout(handles []*portHandle) time.Duration {
 	}
 
 	return longest
+}
+
+// acquireAttachSlot serialises concurrent Attach calls for the same
+// (endpoint, busid) pair (RANK 6). Returns ErrImporterClosed when the
+// importer has already shut down, ErrAttachInProgress when another
+// Attach for this key is still running, or a release func the caller
+// MUST invoke on every return path to free the slot. The check +
+// insert happens under i.mu so the race window between "observe
+// empty" and "insert" vanishes.
+func (i *Importer) acquireAttachSlot(
+	endpoint domain.RemoteEndpoint, busID domain.BusID,
+) (func(), error) {
+	key := attachKey{remote: endpoint, busID: busID}
+
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	if i.closed {
+		return nil, ErrImporterClosed
+	}
+
+	if _, busy := i.inFlight[key]; busy {
+		return nil, fmt.Errorf("%w: %s on %s",
+			ErrAttachInProgress, busID, endpoint.String())
+	}
+
+	i.inFlight[key] = struct{}{}
+
+	return func() {
+		i.mu.Lock()
+		delete(i.inFlight, key)
+		i.mu.Unlock()
+	}, nil
 }
 
 // classifyDecodeImportErr maps a DecodeOpRepImport failure onto the

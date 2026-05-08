@@ -110,14 +110,15 @@ func TestImporterAttachConcurrentSameEndpoint(t *testing.T) {
 	var oks, busies int
 
 	for _, err := range results {
-		switch {
-		case err == nil:
+		if err == nil {
 			oks++
-		default:
-			require.ErrorIs(t, err, app.ErrAttachInProgress)
 
-			busies++
+			continue
 		}
+
+		require.ErrorIs(t, err, app.ErrAttachInProgress)
+
+		busies++
 	}
 
 	require.Equal(t, 1, oks, "exactly one concurrent Attach must succeed")
