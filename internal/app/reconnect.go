@@ -223,6 +223,13 @@ func (i *Importer) waitForDetachTick(
 // The kernel confirmation step re-runs ListPorts because uevents can
 // be reordered or duplicated relative to the actual sysfs state; if the
 // kernel reports the port is still Used, the event is obsolete.
+//
+// When a PortDetachedEvent for our portID is rejected because the
+// handle slot has been superseded OR because the kernel view still
+// shows the port Used, the drop is logged at Debug with both the
+// watcher's own generation AND the generation that now owns the slot
+// (0 when no handle remains). Operators debugging a stale-event storm
+// can correlate by grepping for the staleEventLogMessage.
 func (i *Importer) isDetachSignal(ctx context.Context, ev domain.Event, p reconnectParams) bool {
 	d, ok := ev.(domain.PortDetachedEvent)
 	if !ok {
@@ -234,10 +241,61 @@ func (i *Importer) isDetachSignal(ctx context.Context, ev domain.Event, p reconn
 	}
 
 	if !i.isCurrentHandle(p.portID, p.handle) {
+		i.logStaleEventDrop(d, p, i.currentGeneration(p.portID))
+
 		return false
 	}
 
-	return i.portIsDetached(ctx, p.portID)
+	if !i.portIsDetached(ctx, p.portID) {
+		// Kernel-confirmation says the port is still Used, so this
+		// uevent is stale. The watcher keeps ownership (generation
+		// match) but the event is ignored — log with the watcher's
+		// generation in both slots so operators can distinguish the
+		// "slot superseded" case above from the "kernel view
+		// contradicts event" case here via the two generation
+		// fields (they will be equal here, distinct above).
+		i.logStaleEventDrop(d, p, p.handle.generation)
+
+		return false
+	}
+
+	return true
+}
+
+// staleEventLogMessage is the msg field emitted on every stale-event
+// drop path. Exposed as a constant so operators can grep and tests
+// can lock the wording in (see reconnect_generation_test.go).
+const staleEventLogMessage = "stale event ignored"
+
+// logStaleEventDrop emits the §5.5 stale-event debug line with both
+// generations and the event's port id. Current is the generation that
+// currently owns the port (0 if no live handle); watcher is the
+// generation held by the receiving watcher. Both names are stable
+// across log schema revisions and are relied on by the 10.4b lock-in.
+func (i *Importer) logStaleEventDrop(
+	d domain.PortDetachedEvent, p reconnectParams, currentGen uint64,
+) {
+	i.logger.Debug(staleEventLogMessage,
+		slog.Any("port_id", d.Port.ID),
+		slog.Uint64("watcher_generation", p.handle.generation),
+		slog.Uint64("current_generation", currentGen),
+	)
+}
+
+// currentGeneration returns the generation of whatever handle now
+// owns portID, or 0 when no handle is registered. Used by the stale-
+// event log path so operators can compare "my generation" (the
+// watcher's) vs "slot's current generation" (this return).
+func (i *Importer) currentGeneration(id domain.PortID) uint64 {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	h, ok := i.handles[id]
+	if !ok {
+		return 0
+	}
+
+	return h.generation
 }
 
 // isCurrentHandle returns true when the Importer's handle map still
