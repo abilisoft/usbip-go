@@ -89,4 +89,11 @@ type AttachOptions struct {
 	// to 5 seconds when zero; a negative value disables the poll
 	// entirely.
 	StatusPollInterval time.Duration
+
+	// ShutdownTimeout bounds how long Detach and Close are willing to
+	// wait for the watcher goroutine (and any in-flight Detach-driven
+	// sysfs write) to drain before proceeding anyway. Zero means use
+	// the §5.5 default of 5 seconds; a negative value disables the
+	// bound (wait indefinitely).
+	ShutdownTimeout time.Duration
 }
