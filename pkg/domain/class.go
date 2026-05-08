@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 AbiliSoft
+// SPDX-License-Identifier: Apache-2.0
+
 package domain
 
 // USBClass is a USB device/interface class code (bDeviceClass/bInterfaceClass).

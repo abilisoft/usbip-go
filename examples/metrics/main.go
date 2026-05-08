@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 AbiliSoft
+// SPDX-License-Identifier: Apache-2.0
+
 // Example metrics demonstrates wiring an Exporter's Prometheus
 // metrics (spec §11.5.5) into a custom HTTP server. The process binds
 // a USB/IP listener, registers the metric catalog via
