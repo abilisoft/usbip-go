@@ -108,9 +108,11 @@ KVM gives ~15 s end-to-end, TCG fallback (opt-in via
 `USBIP_GO_VM_ALLOW_TCG=1`) is ~70 s. The default compose path
 unconditionally maps `/dev/kvm` into the dev service; Docker
 Desktop on macOS does not expose `/dev/kvm`, so `task vm:*` is not
-supported there — use a Linux host (including a Linux VM on macOS)
-or wait for CI, which runs the integration tier on a self-hosted
-`kvm`-labelled runner.
+supported there — use a Linux host (including a Linux VM on macOS).
+The integration tier is not run by GitHub Actions: hosted runners
+do not expose `/dev/kvm` and TCG is too slow for CI. Run
+`task vm:test:integration` locally before pushing changes that
+touch the integration paths.
 
 ## TDD discipline
 
@@ -261,8 +263,10 @@ The repo-level `.actrc` pins the runner image to
 
 What does NOT replay locally:
 
-- `integration` (integration.yml) — runs on the self-hosted
-  `kvm`-labelled runner; act cannot match the label.
+- Integration suite — runs the hermetic microVM defined in
+  `flake.nix`. There is no GitHub Actions workflow for it because
+  GitHub-hosted runners do not expose `/dev/kvm` and TCG fallback
+  is too slow for CI; run it locally with `task vm:test:integration`.
 - `release` (release.yml) — tag-triggered, requires GitHub OIDC for
   cosign keyless signing and an authenticated `GITHUB_TOKEN`.
   GoReleaser will fail under act because the secrets do not exist.
