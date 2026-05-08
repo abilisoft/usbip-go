@@ -153,6 +153,50 @@ func attachFS() fstest.MapFS {
 	}
 }
 
+// TestAttachRemote_PortOutOfRangeSentinelIsAdapterLocal pins the
+// Task 4.1 layering invariant: the out-of-range sentinel lives in
+// the kernel adapter package, not on pkg/domain or pkg/usbip. The
+// sentinel is VHCI-specific — no other kernel HCD surfaces it —
+// so exposing it on the domain or public facade would enlarge the
+// semver surface with a kernel implementation detail. White-box
+// tests reach the sentinel via the ErrPortOutOfRangeForTest shim;
+// public consumers see a wrapped fmt.Errorf they can read for
+// context but not programmatically classify (operator error at
+// worst, and the pre-write boundary is unreachable by production
+// callers that go through findFreePort).
+//
+// Pre-fix: only domain.ErrPortOutOfRange and the public re-export
+// satisfy errors.Is; no adapter-local shim exists.
+// Post-fix: kernel.ErrPortOutOfRangeForTest exposes the adapter's
+// internal sentinel, domain + usbip entries are gone, and the
+// attach path wraps the adapter-local sentinel.
+func TestAttachRemote_PortOutOfRangeSentinelIsAdapterLocal(t *testing.T) {
+	t.Parallel()
+
+	left, right := socketpairConns(t)
+
+	defer func() {
+		_ = right.Close()
+		_ = left.Close()
+	}()
+
+	wrapped := &closeCountingConn{Conn: left}
+
+	writer := func(string, string) error { return nil }
+
+	a, err := kernel.NewImporterAdapter(
+		kernel.WithFS(attachFS()),
+		kernel.WithWriteFunc(writer),
+	)
+	require.NoError(t, err)
+
+	spec := app.RemoteDeviceSpec{DevID: 1, Speed: domain.SpeedHigh}
+
+	_, err = kernel.AttachAtPortForTest(context.Background(), a, wrapped, domain.PortID(20), spec)
+	require.ErrorIs(t, err, kernel.ErrPortOutOfRangeForTest,
+		"adapter-local sentinel must be reachable through the white-box shim")
+}
+
 // TestAttachRemote_RejectsOutOfRangePort pins Task 4's defence-in-
 // depth bounds check: a flat port identifier outside the kernel's
 // port space must be refused by the adapter before any sysfs write.
