@@ -63,8 +63,8 @@ archives:
       - LICENSE
       - README.md
       - CONTRIBUTING.md
-      - contrib/systemd/usbipd-go.service
-      - contrib/systemd/usbipd-go.socket
+      - contrib/systemd/usbip.service
+      - contrib/systemd/usbip.socket
       - docs/*.md
 
 nfpms:
@@ -87,10 +87,10 @@ nfpms:
       - rpm
     bindir: /usr/bin
     contents:
-      - src: contrib/systemd/usbipd-go.service
-        dst: /usr/lib/systemd/system/usbipd-go.service
-      - src: contrib/systemd/usbipd-go.socket
-        dst: /usr/lib/systemd/system/usbipd-go.socket
+      - src: contrib/systemd/usbip.service
+        dst: /usr/lib/systemd/system/usbip.service
+      - src: contrib/systemd/usbip.socket
+        dst: /usr/lib/systemd/system/usbip.socket
       - src: README.md
         dst: /usr/share/doc/usbip-go/README.md
       - src: LICENSE

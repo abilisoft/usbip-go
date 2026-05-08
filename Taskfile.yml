@@ -197,7 +197,7 @@ tasks:
   ci:build:
     deps: [_check:tooling]
     sources: [cmd/**/*.go, pkg/**/*.go, go.mod, go.sum]
-    generates: ['{{.BIN_DIR}}/usbip-go', '{{.BIN_DIR}}/usbipd-go']
+    generates: ['{{.BIN_DIR}}/usbip']
     cmds:
       - go build -trimpath -ldflags="{{.LDFLAGS}}" -o {{.BIN_DIR}}/ ./cmd/...
 
