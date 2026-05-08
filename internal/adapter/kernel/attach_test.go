@@ -386,6 +386,60 @@ func (m *mutableStatusFS) Open(name string) (fs.File, error) {
 	return f, nil
 }
 
+// TestFindFreePort_SSMatchesFlatBoundary pins Bug C: the
+// singlePortStatus fixture must classify rows by the kernel's flat HS
+// / SS boundary (HS rows at flat 0..HCPorts-1, SS rows at flat
+// HCPorts..VHCIPorts-1). Pre-fix it emitted "hs" on every row
+// regardless of flat index, so any SS-targeted search found zero
+// matches and returned ErrNoFreePort even when a free SS slot
+// existed in the kernel's actual layout.
+//
+// With nports=8 and one controller the kernel's HCPorts is 4: HS
+// rows occupy flat 0..3 and SS rows occupy flat 4..7. The fixture
+// marks only port 4 free (the first SS slot); findFreePort for
+// SpeedSuper must return 4. Under the broken fixture every row is
+// "hs" so SS finds nothing and errors — that is the RED condition.
+func TestFindFreePort_SSMatchesFlatBoundary(t *testing.T) {
+	t.Parallel()
+
+	const (
+		testNPorts      = 8
+		testHCPorts     = 4 // nports / (nControllers * hubsPerController) = 8 / (1*2)
+		freeSSFlatPort  = testHCPorts
+	)
+
+	state := newSinglePortStatus(testNPorts)
+
+	// Flip the "only free" slot from port 0 (HS) to port 4 (first SS)
+	// so the fixture exercises the SS classifier specifically.
+	state.busy[0] = true
+	state.busy[freeSSFlatPort] = false
+
+	mfs := &mutableStatusFS{
+		inner: fstest.MapFS{
+			"sys/module/usbip_core":                       &fstest.MapFile{Mode: fs.ModeDir},
+			"sys/module/vhci_hcd":                         &fstest.MapFile{Mode: fs.ModeDir},
+			"sys/devices/platform/vhci_hcd.0":             &fstest.MapFile{Mode: fs.ModeDir},
+			"sys/devices/platform/vhci_hcd.0/nports":      &fstest.MapFile{Data: fmt.Appendf(nil, "%d\n", testNPorts)},
+			"sys/devices/platform/vhci_hcd.0/usb1/busnum": &fstest.MapFile{Data: []byte("1\n")},
+			"sys/devices/platform/vhci_hcd.0/usb2/busnum": &fstest.MapFile{Data: []byte("2\n")},
+		},
+		state: state,
+	}
+
+	a, err := kernel.NewImporterAdapter(kernel.WithFS(mfs))
+	require.NoError(t, err)
+
+	got, err := kernel.FindFreePortForTest(a, domain.SpeedSuper)
+	require.NoError(t, err,
+		"fixture must emit an ss-labelled row at flat %d; pre-fix all rows are hs and SS finds nothing",
+		freeSSFlatPort)
+	require.GreaterOrEqual(t, int(got), testHCPorts,
+		"SS free port must sit in the SS range (>= HCPorts)")
+	require.EqualValues(t, freeSSFlatPort, got,
+		"the only free SS slot is at flat %d", freeSSFlatPort)
+}
+
 // TestAttachRemote_SerializedUnderContention exercises spec §3.4:
 // concurrent AttachRemote callers contending for a single free port
 // must produce exactly one success and one ErrNoFreePort. Codex
