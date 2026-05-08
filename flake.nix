@@ -8,8 +8,11 @@
     # Pinned to a specific nixpkgs revision rather than a branch so
     # `nix flake update` is always a deliberate act. Only bump this when
     # `go_1_26` on the target revision matches (or exceeds) the patch level
-    # declared in go.mod. Revisit once nixos-unstable ships >= go 1.26.2.
-    nixpkgs.url = "github:NixOS/nixpkgs/0726a0ecb6d4e08f6adced58726b95db924cef57";
+    # declared in go.mod. The current pin is staging-next tip carrying the
+    # go_1_26 1.26.3 bump (commit 5d2d08ceefa9), which closes GO-2026-4971
+    # and GO-2026-4918 in net + net/http. Revisit once nixos-unstable
+    # absorbs the staging→master cycle.
+    nixpkgs.url = "github:NixOS/nixpkgs/8e58c3dfe4bd7cac174c2496c5dba3a12a1e2688";
   };
 
   outputs = { self, nixpkgs, ... }:
