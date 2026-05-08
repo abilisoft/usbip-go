@@ -330,6 +330,98 @@ func TestExporterShutdown_DeadlineExceededForcesConnClose(t *testing.T) {
 	<-serveDone
 }
 
+// TestExporterShutdown_ReturnsEvenWhenHandlerIgnoresClose locks in
+// the Pass-4 RANK 2 fix: Shutdown's drain must be bounded by the
+// caller ctx deadline even when a handler is truly stuck (ignores
+// conn.Close() and never unwinds). Pre-fix waitSessionsBounded does
+// `<-done` unbounded after forceCloseSessionConns, so a handler that
+// never returns parks Shutdown forever.
+//
+// Post-fix: Shutdown returns within a small grace after the ctx
+// deadline with a ctx.DeadlineExceeded-wrapped error; the truly stuck
+// handler goroutine is accepted as a leak (logged) but does not block
+// the Shutdown return.
+func TestExporterShutdown_ReturnsEvenWhenHandlerIgnoresClose(t *testing.T) {
+	t.Parallel()
+
+	exportStarted := make(chan struct{}, 1)
+	// hang is NEVER closed by the test (only unblocked in t.Cleanup so
+	// the test goroutine itself does not leak past the test run).
+	hang := make(chan struct{})
+	t.Cleanup(func() { close(hang) })
+
+	kernel := &ExporterKernelMock{
+		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
+			select {
+			case exportStarted <- struct{}{}:
+			default:
+			}
+
+			// Handler deliberately ignores conn.Close — it waits only on
+			// an independent channel the test never closes during the
+			// Shutdown window. Returning io.EOF keeps wrapcheck quiet
+			// after the test-cleanup release.
+			<-hang
+
+			return io.EOF
+		},
+		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
+	}
+
+	codec := newSessionImportCodec(domain.BusID("3-1"))
+
+	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 7), Port: 9000})
+
+	exp := newExporterForTest(t,
+		app.WithExporterKernel(kernel),
+		app.WithExporterCodec(codec),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	serveDone := make(chan error, 1)
+
+	go func() { serveDone <- exp.Serve(ctx, lis) }()
+
+	client, err := lis.dial(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	_, err = client.Write(opHeader(wire.OpReqImport))
+	require.NoError(t, err)
+
+	select {
+	case <-exportStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ExportOnConn did not begin blocking within 2s")
+	}
+
+	require.Eventually(t, func() bool {
+		return len(exp.Sessions(context.Background())) == 1
+	}, 2*time.Second, 10*time.Millisecond)
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(
+		context.Background(), 100*time.Millisecond)
+	defer shutdownCancel()
+
+	shutdownDone := make(chan error, 1)
+
+	go func() { shutdownDone <- exp.Shutdown(shutdownCtx) }()
+
+	var shutdownErr error
+
+	select {
+	case shutdownErr = <-shutdownDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Shutdown did not return within 2s despite 100ms ctx; " +
+			"waitSessionsBounded is blocking on `<-done` after force-close")
+	}
+
+	require.Error(t, shutdownErr)
+	require.ErrorIs(t, shutdownErr, context.DeadlineExceeded)
+}
+
 // TestExporterWatchSessions_AfterShutdown asserts WatchSessions after
 // Shutdown returns an empty iter that terminates immediately. Matches
 // the Importer.Watch post-Close contract per spec §3.4.
