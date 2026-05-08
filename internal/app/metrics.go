@@ -493,9 +493,18 @@ func buildExporterCollectors(m *Metrics, r prometheus.Registerer) {
 
 	m.exporterHandshakeDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "usbip_exporter_handshake_duration_seconds",
-			Help:    "Wall time for OP handshake completion.",
-			Buckets: prometheus.DefBuckets,
+			Name: "usbip_exporter_handshake_duration_seconds",
+			Help: "Wall time for OP handshake completion.",
+			// Custom buckets favour sub-second resolution: usbip OP
+			// handshakes complete in single-digit milliseconds on a
+			// healthy LAN, so prometheus.DefBuckets (which starts at
+			// 5ms and tails at 10s) under-samples the 1-10ms range
+			// where the real signal lives. The tail at 10s still
+			// captures stuck handshakes; anything beyond that is a
+			// timeout event (handshake_timeout), not latency.
+			Buckets: []float64{
+				0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10,
+			},
 		},
 		[]string{"op"},
 	)
