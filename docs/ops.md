@@ -137,7 +137,29 @@ Authoritative list in v1 contract §7.7. Full flag set:
 | `--log-format` | `auto` | `json` for log-aggregation pipelines. |
 | `--verbose` / `-v` | `0` | Count flag: `-v` raises log level to `debug`, `-vv` to `trace`. Wins over `--log-level` when set. |
 
-Run `usbipd-go --help` for the up-to-date set.
+Run `usbip serve --help` for the up-to-date set.
+
+## Exit codes
+
+The `usbip` binary uses a stable numeric exit-code catalog (v1
+contract §7.4). Operators / supervisors can grep on these values:
+
+| Code | Symbol | Meaning |
+|---|---|---|
+| `0` | `ExitOK` | Operation succeeded |
+| `1` | `ExitGeneric` | Unclassified error — see stderr / journald |
+| `2` | `ExitUsage` | Bad flag / argument; the cobra-level usage message goes to stderr |
+| `3` | `ExitPermission` | Operation needs CAP_SYS_ADMIN (importer-side commands like `usbip attach`) |
+| `4` | `ExitKernelModule` | Required kernel module not loaded (`vhci_hcd`, `usbip_host`, ...) |
+| `5` | `ExitDeviceNotFound` | Device with the supplied BusID not present |
+| `6` | `ExitDeviceBusy` | Device already bound or port already in use |
+| `7` | `ExitProtocolMismatch` | Peer speaks a different USB/IP version |
+| `8` | `ExitNetwork` | Dial / read / write error against the remote |
+| `9` | `ExitTimeout` | Operation deadline exceeded; also returned by `usbip drain --drain-timeout` overruns |
+| `10` | `ExitNoFreePort` | Importer has no free vhci port |
+| `11` | `ExitProtocolError` | Peer reported a protocol-level error |
+| `12` | `ExitAlreadyRunning` | `usbip serve` could not start because another daemon owns the status UDS |
+| `130` | `ExitInterrupted` | SIGINT / context.Canceled (Unix convention: 128 + signal 2) |
 
 ## Status UDS
 

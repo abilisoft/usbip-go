@@ -104,8 +104,18 @@ func (i *Importer) closeAllImporterSubscribers() {
 //   - yield returns false.
 //
 // On exit the kernel-side cancel is called and the subscriber is
-// removed from the Importer fanout list. Ordering between the two
-// sources is non-deterministic by design (see ADR-0008).
+// removed from the Importer fanout list.
+//
+// Ordering and cancellation semantics:
+//
+// Ordering between the two source channels is non-deterministic by
+// design (see ADR-0008) — Go's select picks pseudo-randomly among
+// ready cases. The same rule means cancellation is cooperative, not
+// instantaneous: if ctx.Done() and an event channel are simultaneously
+// ready, the iterator may yield ONE final event before terminating.
+// Consumers that require strict "no events after cancel" semantics
+// MUST gate downstream effects on their own ctx.Err() check rather
+// than rely on the iterator stopping at the first opportunity.
 func (i *Importer) newImporterMergedSeq(
 	ctx context.Context,
 	kernelCh <-chan domain.Event,
