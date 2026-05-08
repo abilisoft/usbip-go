@@ -503,22 +503,24 @@ func (e *Exporter) runRegisteredSession(
 	// ownership of it.
 	stopTimeout()
 
-	// Atomic handoff transition: tryHandoff returns false if Shutdown
-	// has already cancelled this handle, in which case we MUST NOT
-	// invoke ExportOnConn — the kernel would otherwise gain an
-	// untracked export. tryHandoff + signalCancel (in Shutdown) share
-	// a per-handle mutex so this resolves the race deterministically:
-	// either the handler reaches the kernel first (Shutdown will
-	// schedule Disconnect) or Shutdown reaches cancel first (handler
-	// bails and no kernel state was created).
-	if !handle.tryHandoff() {
+	// runHandoff invokes ExportOnConn UNDER handle.handoffMu so a
+	// concurrent Shutdown's signalCancel waits on the lock — by the
+	// time signalCancel returns, the handoff has either fully completed
+	// (handedOff=true, kernel owns the fd) or never started
+	// (handedOff=false, ExportOnConn was not invoked). This eliminates
+	// the race where Shutdown observes handedOff=true and runs
+	// Disconnect BEFORE ExportOnConn actually wrote the fd, leaving
+	// the kernel with an untracked export.
+	ran, err := handle.runHandoff(func() error {
+		return e.kernel.ExportOnConn(ctx, conn, busID)
+	})
+	if !ran {
 		reason := string(DisconnectReasonShutdown)
 		handle.disconnectReason.Store(&reason)
 
 		return
 	}
 
-	err = e.kernel.ExportOnConn(ctx, conn, busID)
 	if err != nil {
 		reason := string(classifyDisconnectReason(err))
 		handle.disconnectReason.Store(&reason)
