@@ -9,19 +9,51 @@ PR.
 
 ## Prerequisites
 
-- **Go 1.26+**.
+The dev environment is hermetic: every tool (Go, golangci-lint,
+gofumpt, govulncheck, goreleaser, syft, cosign, nfpm, git-cliff, gh,
+moq, gotools) is pinned in [`flake.nix`](flake.nix) and delivered
+via a Nix container. The only host-side dependencies are:
+
+- **Docker Engine 20.10+** (or a compatible daemon exposing the
+  `docker` CLI and `docker compose`). On Linux install via your
+  distro's package manager; on macOS use
+  [Docker Desktop](https://www.docker.com/products/docker-desktop/).
 - **[Task](https://taskfile.dev)** — install with
-  `go install github.com/go-task/task/v3/cmd/task@latest`.
-- **Dev tooling** — run `task install-tools` once. Installs
-  `gofumpt`, `golangci-lint` (v2), `govulncheck`, `goreleaser`, `moq`,
-  `gremlins`, `apidiff`, and `goimports` into `$GOBIN`. Versions are
-  pinned via [`internal/tools/tools.go`](internal/tools/tools.go).
-- **[git-cliff](https://git-cliff.org/)** — changelog generator, Rust
-  binary, not managed by `install-tools`. Install the prebuilt binary
-  from the
-  [releases page](https://github.com/orhun/git-cliff/releases) or
-  `cargo install git-cliff`. Required only when regenerating
-  `CHANGELOG.md` via `task changelog`.
+  `go install github.com/go-task/task/v3/cmd/task@latest`, or via
+  `brew install go-task` on macOS, or any of the options on the
+  Taskfile install page.
+
+That is everything. No host Go, no host golangci-lint, no host
+goreleaser; the flake closure provides all of them.
+
+### Bootstrap
+
+Run `task setup` once per checkout (and again whenever `flake.lock`
+changes). That seeds a `/nix` Docker volume with the full closure
+pulled from `cache.nixos.org` and hands its ownership to your host
+UID/GID so subsequent `task *` invocations can acquire the store
+lock without escalating privileges.
+
+The volume name includes your UID, GID, and a sha256 prefix of the
+absolute workspace path (see `docker volume ls`), so multiple
+checkouts never alias into one store. To share one store across
+workspaces, export `USBIP_GO_NIX_VOLUME=<your-chosen-name>` before
+running any `task` command.
+
+Subsequent commands (`task test`, `task lint`, etc.) reuse the same
+volume, re-entering the hermetic shell automatically. If you ever
+want a REPL inside it, `task shell` drops you into an interactive
+`nix develop` session.
+
+If the store ever ends up in a bad state (interrupted setup, manual
+`docker volume` edit, a flake pin that produced broken derivations),
+reset it:
+
+```
+docker compose down -v      # removes the named volume
+task clean                  # clears build/ caches
+task setup                  # re-seeds from scratch
+```
 
 ## Dev loop
 
@@ -30,20 +62,47 @@ task fmt      # gofumpt + goimports
 task lint     # golangci-lint (must be "0 issues.")
 task vuln     # govulncheck
 task test     # -race unit tests
-task build    # release-style build of usbip + usbipd
+task build    # release-style build of usbip + usbipd → build/bin/
 ```
 
 `task check` runs `fmt`, `lint`, `vuln`, `test` in sequence — the
-minimum bar before pushing.
+minimum bar before pushing. All build artefacts land under
+`./build/` (binaries in `build/bin/`, coverage under
+`build/coverage/`, goreleaser output under `build/dist/`, and every
+cache — Go, golangci-lint, home — under `build/cache/`). `task
+clean` removes everything except the tracked `build/go.mod` marker.
 
 Integration and conformance suites live behind build tags so
 ordinary `task test` stays fast:
 
 ```
-task test:integration   # requires vhci-hcd + usbip-vudc on the host
-task test:conformance   # requires upstream usbip-utils installed
-task test:cover         # HTML coverage report
+task test:conformance   # runs wire/byte comparisons; upstream-binary
+                        # checks inside it skip when `usbip` is not on
+                        # PATH (it is not in the flake closure)
+task test:cover         # HTML coverage report under build/coverage/
 ```
+
+### Integration tests (microVM)
+
+Integration tests need a live Linux kernel with `usbip_core`,
+`vhci_hcd`, `usbip_host`, `usbip_vudc`, and `libcomposite` loaded.
+Rather than demanding those modules on every contributor's host,
+the flake builds a hermetic microVM:
+
+```
+task vm:build               # build the kernel + initrd + runner closure
+task vm:smoke               # boot, assert modules load, power off
+task vm:test:integration    # run ./test/integration/... inside the VM
+```
+
+The microVM needs `/dev/kvm` on the host for acceptable speed —
+KVM gives ~15 s end-to-end, TCG fallback (opt-in via
+`USBIP_GO_VM_ALLOW_TCG=1`) is ~70 s. The default compose path
+unconditionally maps `/dev/kvm` into the dev service; Docker
+Desktop on macOS does not expose `/dev/kvm`, so `task vm:*` is not
+supported there — use a Linux host (including a Linux VM on macOS)
+or wait for CI, which runs the integration tier on a self-hosted
+`kvm`-labelled runner.
 
 ## TDD discipline
 
