@@ -158,11 +158,29 @@ signs:
     output: true
 
 changelog:
-  # Goreleaser's own changelog generation is disabled because the
-  # release workflow generates richer notes via git-cliff at tag time
-  # and passes them through `--release-notes`. See
-  # .github/workflows/release.yml's "Generate release notes" step.
-  disable: true
+  # NOTE: `disable: true` and `--release-notes=<file>` are mutually
+  # exclusive in goreleaser v2 — the entire changelog pipe is skipped
+  # when disabled, including the branch that loads the
+  # `--release-notes` file into the release body. See
+  # https://github.com/goreleaser/goreleaser/blob/v2.15.4/internal/pipe/changelog/changelog.go
+  # `Pipe.Skip` (returns true when Changelog.Disable is set; Run is
+  # then never invoked) versus `Pipe.Run` (loads ReleaseNotesFile into
+  # ctx.ReleaseNotes, returns early, internal generation skipped).
+  #
+  # We want the release body to come from git-cliff (via the workflow
+  # step that writes build/release-notes.md and the env-var that hands
+  # it to goreleaser as --release-notes). To make that work we must
+  # NOT disable the changelog pipe — otherwise the file is loaded but
+  # then dropped, leaving the release body as the bare body-template
+  # newline (a 1-byte body, which is the symptom we hit on every v1.0.0
+  # tag-push prior to this fix).
+  #
+  # Leaving the changelog block effectively unset: the pipe runs, sees
+  # ReleaseNotesFile is set (CI run), loads the file, returns before
+  # invoking the internal git-log generator. Local snapshot runs
+  # (no RELEASE_NOTES env, no --release-notes) fall back to the
+  # default git-log changelog, which is harmless for snapshots.
+  use: github
 
 release:
   # draft:false + mode:replace means goreleaser publishes the release
