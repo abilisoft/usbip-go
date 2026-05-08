@@ -57,6 +57,13 @@ services:
       GOLANGCI_LINT_CACHE: /src/build/cache/golangci-lint
       GOBIN: /src/build/cache/go-bin
       IN_NIX_CONTAINER: "1"
+      # Ambient git safe.directory so nix flake evaluation (and anything
+      # else that calls git) does not fail with "repository path is not
+      # owned by current user" under the UID-mapped container. Env-var
+      # form keeps it ephemeral — nothing is written to ~/.gitconfig.
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: "safe.directory"
+      GIT_CONFIG_VALUE_0: "/src"
       # build-users-group is cleared because the host /etc/group we
       # bind-mounted above does not contain nixbld. `dev` never builds;
       # if it tries, the user should re-run `task setup` instead.
@@ -64,6 +71,17 @@ services:
         experimental-features = nix-command flakes
         build-users-group =
     entrypoint: ["nix", "develop", "--command"]
+    # /dev/kvm is passed through so the integration microVM can boot
+    # with hardware virtualisation. Linux hosts only; Docker Desktop
+    # on macOS does not expose /dev/kvm and `task vm:*` will be a
+    # skip there. Uses `devices` rather than `--privileged` to keep
+    # the blast radius minimal, and adds the host's kvm group GID to
+    # the container's supplementary groups so the UID-mapped user
+    # can open /dev/kvm without being root.
+    devices:
+      - /dev/kvm:/dev/kvm
+    group_add:
+      - "${USBIP_GO_KVM_GID:-993}"
 
 volumes:
   nix-store:
