@@ -1,0 +1,163 @@
+# GoReleaser config for usbip-go per spec §10.3.
+#
+# Produces:
+#   - linux/{amd64,arm64,arm} binaries for cmd/usbip and cmd/usbipd
+#   - tar.gz archives including LICENSE, README, CHANGELOG, systemd units
+#   - deb + rpm packages via nfpms
+#   - SHA-256 checksums file
+#   - SBOM per archive (SPDX) via syft
+#   - Cosign keyless signature on the checksums file (GitHub OIDC)
+#   - Reproducible builds via mod_timestamp: "{{ .CommitTimestamp }}"
+#
+# Invoke locally:  task release:snapshot
+# Invoke in CI:    goreleaser release --clean  (see .github/workflows/release.yml)
+version: 2
+
+project_name: usbip-go
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod download
+
+builds:
+  - id: usbip
+    main: ./cmd/usbip
+    binary: usbip
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "7"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.CommitDate}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: usbipd
+    main: ./cmd/usbipd
+    binary: usbipd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "7"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.CommitDate}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    ids:
+      - usbip
+      - usbipd
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+      - CONTRIBUTING.md
+      - contrib/systemd/usbipd.service
+      - contrib/systemd/usbipd.socket
+      - docs/*.md
+
+nfpms:
+  - id: default
+    ids:
+      - usbip
+      - usbipd
+    package_name: usbip-go
+    vendor: abilisoft
+    homepage: https://github.com/abilisoft/usbip-go
+    maintainer: abilisoft <oss@abilisoft.com>
+    description: |-
+      Pure-Go reimplementation of USB/IP userspace for Linux: library,
+      client CLI (usbip), and daemon (usbipd) with socket activation,
+      Prometheus metrics, and status UDS.
+    license: Apache-2.0
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/bin
+    contents:
+      - src: contrib/systemd/usbipd.service
+        dst: /usr/lib/systemd/system/usbipd.service
+      - src: contrib/systemd/usbipd.socket
+        dst: /usr/lib/systemd/system/usbipd.socket
+      - src: README.md
+        dst: /usr/share/doc/usbip-go/README.md
+      - src: CHANGELOG.md
+        dst: /usr/share/doc/usbip-go/CHANGELOG.md
+      - src: LICENSE
+        dst: /usr/share/doc/usbip-go/LICENSE
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
+
+# SBOM per archive in SPDX JSON. Requires syft on PATH; CI installs it
+# via the anchore/sbom-action step before invoking goreleaser.
+sboms:
+  - id: archive
+    artifacts: archive
+    documents:
+      - "${artifact}.sbom.json"
+
+# Cosign keyless signing of the checksums file. Uses GitHub OIDC; the
+# release workflow grants id-token: write for this to succeed. Signing
+# ONLY the checksums means the per-artifact signatures are implied by
+# the transitive sha256.
+signs:
+  - id: cosign-keyless
+    cmd: cosign
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--yes"
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+    artifacts: checksum
+    output: true
+
+changelog:
+  # The project maintains CHANGELOG.md via git-cliff (task changelog);
+  # goreleaser's own changelog logic is disabled so release notes do
+  # not diverge from the committed file. The release workflow uploads
+  # CHANGELOG.md as-is through the archive contents.
+  disable: true
+
+release:
+  draft: true
+  prerelease: auto
+  mode: keep-existing
+  name_template: "{{ .ProjectName }} {{ .Tag }}"
+  github:
+    owner: abilisoft
+    name: usbip-go
