@@ -341,8 +341,7 @@ func TestSubscribe_FirstSubscriberCancelDoesNotStopOthers(t *testing.T) {
 // (cmd/usbip/events.go, session.go, importer.go) that branch on those
 // event types are live. SUBSYSTEM=usbip_host ACTION=add →
 // DeviceBoundEvent; ACTION=remove → DeviceUnboundEvent; the bus ID is
-// the trailing path segment that matches the domain
-// busid topology pattern.
+// the trailing path segment matching the domain BusID shape.
 func TestSubscribe_UsbipHostEmitsDeviceBindEvents(t *testing.T) {
 	t.Parallel()
 
