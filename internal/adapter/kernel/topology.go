@@ -391,7 +391,13 @@ func collectUSBChildren(fsys fs.FS, ctrlDir string, entries []fs.DirEntry) ([]us
 
 		busnum, err := ReadUint(fsys, busnumPath)
 		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
+			// classifyFSErr maps ENOENT under kindController to
+			// ErrKernelModuleMissing — accept either form so the
+			// "skip transient missing busnum" path holds whether the
+			// underlying error surfaces as fs.ErrNotExist (test
+			// fstest.MapFS) or the domain-classified wrapper (live
+			// sysfs through unix.ENOENT).
+			if errors.Is(err, fs.ErrNotExist) || errors.Is(err, domain.ErrKernelModuleMissing) {
 				continue
 			}
 

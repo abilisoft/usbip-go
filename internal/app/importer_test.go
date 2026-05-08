@@ -1154,19 +1154,27 @@ func TestImporterAttachConcurrentWithCloseNoPanic(t *testing.T) {
 		},
 	}
 	// The importer now rejects an OP_REP_IMPORT whose busid differs from
-	// the request — pair the codec mock so the reply busid mirrors the
-	// request. A buffered channel handles the per-attach pairing under
-	// concurrent dispatch.
-	pendingBusID := make(chan domain.BusID, parallelAttaches)
+	// the request — pair the codec mock per-conn so each attach's reply
+	// echoes its own request. A shared queue would race across the 16
+	// concurrent goroutines and mismatch encode/decode pairs.
+	var pendingMu sync.Mutex
+	pending := make(map[any]domain.BusID, parallelAttaches)
 	codec := &ProtocolCodecMock{
-		EncodeOpReqImportFunc: func(_ io.Writer, b domain.BusID) error {
-			pendingBusID <- b
+		EncodeOpReqImportFunc: func(w io.Writer, b domain.BusID) error {
+			pendingMu.Lock()
+			pending[w] = b
+			pendingMu.Unlock()
 
 			return nil
 		},
-		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) {
+		DecodeOpRepImportFunc: func(r io.Reader) (domain.Device, error) {
+			pendingMu.Lock()
+			b := pending[r]
+			delete(pending, r)
+			pendingMu.Unlock()
+
 			d := attachDevice()
-			d.BusID = <-pendingBusID
+			d.BusID = b
 
 			return d, nil
 		},

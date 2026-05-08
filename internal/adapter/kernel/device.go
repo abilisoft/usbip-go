@@ -150,9 +150,10 @@ func (a *ExporterAdapter) ListExportedDevices(ctx context.Context) ([]domain.Dev
 
 // isExportable reports whether busID is currently bound to usbip-host
 // AND its usbip_status is not SDEV_ST_USED. Read errors on either
-// attribute are treated as "not exportable" — better to hide a
-// device that might be transient than to advertise one we cannot
-// confirm is ready.
+// attribute are treated as "not exportable" — advertising a device
+// whose status we cannot confirm means peers attempt attaches the
+// kernel will reject. Better to hide it briefly during rebind and
+// re-list once the kernel finishes attaching.
 func (a *ExporterAdapter) isExportable(busID domain.BusID) bool {
 	driver, err := a.currentDriver(string(busID))
 	if err != nil || driver != usbipHostDriverName {
@@ -161,10 +162,7 @@ func (a *ExporterAdapter) isExportable(busID domain.BusID) bool {
 
 	status, err := ReadLine(a.fs, path.Join(SysfsUSBDevices, string(busID), SysfsUsbipStatus))
 	if err != nil {
-		// Status absent is unusual but possible during a transient
-		// rebind. Be permissive: treat the device as available so
-		// peers see it once the kernel finishes attaching.
-		return true
+		return false
 	}
 
 	return status != usbipStatusUsed

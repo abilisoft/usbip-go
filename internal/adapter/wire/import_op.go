@@ -109,13 +109,16 @@ func EncodeOpRepImport(w io.Writer, dev domain.Device) error {
 
 // EncodeOpRepImportError writes an error OP_REP_IMPORT reply (status != 0,
 // no device body) per v1 contract §6.2. status MUST be one of the upstream
-// ST_* codes (ST_NA=1, ST_DEV_BUSY=2, ST_DEV_ERR=3, ST_NODEV=4); a zero
-// status here would let the peer decode a body that the wire frame does
-// not carry, so the helper rejects it.
+// ST_* codes (ST_NA=1, ST_DEV_BUSY=2, ST_DEV_ERR=3, ST_NODEV=4). A zero
+// status would let the peer decode a body that the wire frame does not
+// carry; an unknown status would surface as ErrProtocolError on the
+// importer side and obscure the rejection. Both are rejected at encode.
 func EncodeOpRepImportError(w io.Writer, status uint32) error {
-	if status == 0 {
-		return fmt.Errorf("%w: EncodeOpRepImportError requires non-zero status",
-			domain.ErrProtocolError)
+	switch status {
+	case ImportStatusNA, ImportStatusDevBusy, ImportStatusDevErr, ImportStatusNoDev:
+	default:
+		return fmt.Errorf("%w: EncodeOpRepImportError invalid status %d",
+			domain.ErrProtocolError, status)
 	}
 
 	header := EncodeHeader(OpRepImport, status)
