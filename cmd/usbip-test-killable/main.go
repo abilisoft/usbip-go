@@ -143,25 +143,7 @@ func run() int {
 	defer func() { _ = imp.Close() }()
 
 	if target == checkpointAfterDial {
-		// "after_dial" means "the child reached a post-dial state with
-		// an open socket to the server". To produce that observable,
-		// open a raw TCP connection to the parent's fake server first,
-		// THEN announce the checkpoint, THEN park — so the parent sees
-		// a real accepted connection and the post-SIGKILL close that
-		// the test assertPost checks for. A raw Dial is enough: the
-		// test exercises "kernel closes fd on process death before
-		// sysfs handoff", not the usbip protocol itself.
-		probe, dialErr := net.DialTimeout("tcp", server, dialProbeTimeout)
-		if dialErr != nil {
-			_, _ = fmt.Fprintf(checkpointWriter, "FATAL: after_dial probe: %v\n", dialErr)
-
-			return exitAttachFailed
-		}
-
-		_ = probe // keep the socket open; SIGKILL releases it
-
-		announceCheckpoint(checkpointAfterDial)
-		parkForSIGKILL()
+		return runAfterDialScenario(endpoint)
 	}
 
 	// Non-target path: announce so a different scenario running the
@@ -186,6 +168,37 @@ func run() int {
 	if target == checkpointAfterSysfs {
 		parkForSIGKILL()
 	}
+
+	return 0
+}
+
+// runAfterDialScenario produces the "child reached a post-dial state
+// with an open socket to the server" observable. Dial the parent's
+// fake server first so the accept is visible, announce the checkpoint
+// so the parent moves past its stderr scanner, then park so SIGKILL
+// releases the socket — the test's assertPost then sees the kernel-
+// driven close. A raw Dial is enough: the scenario exercises "kernel
+// closes fd on process death before sysfs handoff", not the usbip
+// protocol itself.
+func runAfterDialScenario(endpoint domain.RemoteEndpoint) int {
+	addr := net.JoinHostPort(endpoint.Host, strconv.FormatUint(uint64(endpoint.Port), 10))
+
+	ctx, cancel := context.WithTimeout(context.Background(), dialProbeTimeout)
+	defer cancel()
+
+	var dialer net.Dialer
+
+	probe, dialErr := dialer.DialContext(ctx, "tcp", addr)
+	if dialErr != nil {
+		_, _ = fmt.Fprintf(checkpointWriter, "FATAL: after_dial probe: %v\n", dialErr)
+
+		return exitAttachFailed
+	}
+
+	_ = probe // keep the socket open; SIGKILL releases it
+
+	announceCheckpoint(checkpointAfterDial)
+	parkForSIGKILL()
 
 	return 0
 }
