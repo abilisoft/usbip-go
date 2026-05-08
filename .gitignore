@@ -7,6 +7,10 @@
 .task/
 .test-tmp-*/
 
+# Binaries from `go build ./cmd/*` when run without -o.
+/usbip
+/usbipd
+
 # Sandbox bind-mount shadows of $HOME dotfiles — created by Claude
 # Code when the harness sandbox is enabled; never contain project
 # content.
