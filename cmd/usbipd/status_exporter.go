@@ -20,19 +20,18 @@ import (
 // without restarting the daemon.
 const kernelModuleProbeTTL = 5 * time.Second
 
-// kernelModuleProbeFn is the indirection through which statusExporter
-// queries the tri-state kernel-module map. Production wiring is
-// usbip.ProbeKernelModules; tests replace it to assert call counts and
-// drive the cache TTL deterministically without touching /sys.
-var (
-	kernelModuleProbeFn    = defaultKernelModuleProbe
-	kernelModuleProbeClock = time.Now
-	kernelModuleProbeMu    sync.RWMutex
-)
+// kernelModuleProbeFunc is the signature of the indirection through
+// which statusExporter queries the tri-state kernel-module map.
+// Production wiring is defaultKernelModuleProbe; tests supply a mock
+// via setKernelModuleProbe to assert call counts and drive the cache
+// TTL deterministically without touching /sys.
+type kernelModuleProbeFunc func(context.Context) (map[string]usbip.ModuleState, error)
 
-// defaultKernelModuleProbe wraps usbip.ProbeKernelModules so the
-// package-level hook type stays a named function rather than
-// accidentally pinning the pkg/usbip symbol as a variable initialiser.
+// defaultKernelModuleProbe wraps usbip.ProbeKernelModules. Used as the
+// production default for statusExporter.kernelModuleProbe; extracted so
+// the method value is stable (rather than a fresh closure per instance)
+// and so the wrap adds an error prefix that tests do not have to
+// reproduce.
 func defaultKernelModuleProbe(ctx context.Context) (map[string]usbip.ModuleState, error) {
 	mods, err := usbip.ProbeKernelModules(ctx)
 	if err != nil {
@@ -42,21 +41,20 @@ func defaultKernelModuleProbe(ctx context.Context) (map[string]usbip.ModuleState
 	return mods, nil
 }
 
-// currentKernelModuleProbe returns the active probe + clock pair under
-// a read lock; tests swapping the hooks serialise with the production
-// reader via kernelModuleProbeMu.
-func currentKernelModuleProbe() (func(context.Context) (map[string]usbip.ModuleState, error), func() time.Time) {
-	kernelModuleProbeMu.RLock()
-	defer kernelModuleProbeMu.RUnlock()
-
-	return kernelModuleProbeFn, kernelModuleProbeClock
-}
-
 // statusExporter adapts *usbip.Exporter to the statusSource interface
 // consumed by serveStatus. It owns the listeningState bookkeeping so
 // the status handler can report accepting=true from the moment Serve
 // starts its accept loop and accepting=false the instant Serve
 // returns or Drain fires.
+//
+// Each statusExporter owns its kernel-module probe + clock so tests
+// running in parallel cannot contaminate each other's probe-invocation
+// counts. Previously these were package-level globals swapped under an
+// RWMutex; under -count=N parallel scheduling, multiple test instances
+// raced to swap the globals and observed probe calls belonging to
+// other tests. Per-instance injection eliminates that failure mode
+// entirely — the state is scoped to whichever statusExporter the test
+// constructed.
 type statusExporter struct {
 	exp        *usbip.Exporter
 	listenAddr string
@@ -77,6 +75,17 @@ type statusExporter struct {
 	// can leave it unset without a nil dereference.
 	drain atomic.Pointer[func()]
 
+	// kernelModuleProbe is the tri-state probe invoked from
+	// KernelModules. Defaults to defaultKernelModuleProbe; overridden
+	// per-instance by tests via setKernelModuleProbe.
+	kernelModuleProbe kernelModuleProbeFunc
+
+	// kernelModuleClock supplies "now" for the TTL cache. Defaults to
+	// time.Now; overridden per-instance by tests via
+	// setKernelModuleClock so cache expiry is deterministic without
+	// wall-clock sleeps.
+	kernelModuleClock func() time.Time
+
 	// Kernel-module probe cache (Finding 5). kmMu serialises cache
 	// updates; kmValue/kmExpiry are accessed under the mutex. The
 	// cached map is returned by reference because ModuleState is a
@@ -96,9 +105,11 @@ type statusExporter struct {
 // running".
 func newStatusExporter(exp *usbip.Exporter, lis net.Listener, activation bool) *statusExporter {
 	s := &statusExporter{
-		exp:        exp,
-		listenAddr: listenerAddr(lis),
-		activation: activation,
+		exp:               exp,
+		listenAddr:        listenerAddr(lis),
+		activation:        activation,
+		kernelModuleProbe: defaultKernelModuleProbe,
+		kernelModuleClock: time.Now,
 	}
 
 	if lis != nil && lis.Addr() != nil {
@@ -159,18 +170,21 @@ func (s *statusExporter) Listening() listeningState {
 // A cache hit avoids a sysfs round-trip and the slog warn that EACCES
 // would otherwise log on every poll. Failures from the underlying
 // probe bypass the cache so the next call retries.
+//
+// Probe + clock are read from this statusExporter instance (not a
+// package global), so parallel tests constructing their own
+// statusExporter with setKernelModuleProbe / setKernelModuleClock
+// cannot see each other's invocations.
 func (s *statusExporter) KernelModules(ctx context.Context) (map[string]usbip.ModuleState, error) {
 	s.kmMu.Lock()
 	defer s.kmMu.Unlock()
 
-	probeFn, clockFn := currentKernelModuleProbe()
-
-	now := clockFn()
+	now := s.kernelModuleClock()
 	if s.kmValue != nil && now.Before(s.kmExpiry) {
 		return copyKernelModuleMap(s.kmValue), nil
 	}
 
-	mods, err := probeFn(ctx)
+	mods, err := s.kernelModuleProbe(ctx)
 	if err != nil {
 		return mods, err
 	}
@@ -222,4 +236,19 @@ func (s *statusExporter) markAccepting(v bool) {
 // without wiring a cancel func see a no-op rather than a nil panic.
 func (s *statusExporter) setDrain(fn func()) {
 	s.drain.Store(&fn)
+}
+
+// setKernelModuleProbe injects a test-owned probe in place of the
+// production defaultKernelModuleProbe. Per-instance scoping is what
+// lets parallel tests drive their own call-counters without racing a
+// shared global.
+func (s *statusExporter) setKernelModuleProbe(fn kernelModuleProbeFunc) {
+	s.kernelModuleProbe = fn
+}
+
+// setKernelModuleClock injects a test-owned clock in place of time.Now.
+// Per-instance scoping means an Advance on one test's clock never
+// affects another statusExporter's cache expiry.
+func (s *statusExporter) setKernelModuleClock(fn func() time.Time) {
+	s.kernelModuleClock = fn
 }
