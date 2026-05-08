@@ -363,10 +363,6 @@ func parseUevent(payload []byte) (domain.Event, bool) {
 // the cached VHCI topology so mapEvent can translate a uevent's (usb
 // bus, root port) pair into the flat Port.ID the kernel status file
 // emits and the attach/detach sysfs writes consume.
-//
-// Task 3 introduces the struct with a transitional mapEvent body that
-// still delegates to the legacy string-parse path; the follow-up fix
-// replaces the body with BusMap-driven flat-port math.
 type vhciEventMapper struct {
 	topo Topology
 }
@@ -388,15 +384,77 @@ func (m vhciEventMapper) mapEvent(fields map[string]string) (domain.Event, bool)
 		return nil, false
 	}
 
-	return m.mapUeventToDomain(fields)
+	action := fields["ACTION"]
+
+	devpath, ok := fields["DEVPATH"]
+	if !ok {
+		return nil, false
+	}
+
+	if fields["SUBSYSTEM"] == ueventSubsystemUSBIPHost {
+		return mapUsbipHostEvent(action, devpath)
+	}
+
+	return m.mapVhciEvent(action, devpath)
 }
 
-// mapUeventToDomain is the method counterpart of the free function of
-// the same name. Transitional body delegates to the free function so
-// the RED commit compiles; GREEN replaces the body with BusMap-keyed
-// flat-port math.
-func (m vhciEventMapper) mapUeventToDomain(fields map[string]string) (domain.Event, bool) {
-	return mapUeventToDomain(fields)
+// mapVhciEvent handles the vhci_hcd-shaped devpath using the cached
+// BusMap to translate (usbBus, rootPort1indexed) into a flat
+// domain.PortID. A devpath whose usbN segment references a bus absent
+// from the BusMap is treated as non-VHCI and skipped — the uevent came
+// from a different HCD. A rootPort of zero violates the kernel's
+// 1-indexed root-hub port numbering and is likewise rejected.
+func (m vhciEventMapper) mapVhciEvent(action, devpath string) (domain.Event, bool) {
+	match := vhciDevpathPattern.FindStringSubmatch(devpath)
+	if match == nil {
+		return nil, false
+	}
+
+	usbBus, err := strconv.ParseUint(match[vhciDevpathGroupBus], 10, 32)
+	if err != nil {
+		return nil, false
+	}
+
+	rootPort1, err := strconv.ParseUint(match[vhciDevpathGroupRootPort], 10, 32)
+	if err != nil || rootPort1 < 1 {
+		return nil, false
+	}
+
+	loc, mapped := m.topo.BusMap[uint32(usbBus)]
+	if !mapped {
+		return nil, false
+	}
+
+	portID := m.topo.FlatPort(loc, uint32(rootPort1)-1)
+	busID := domain.BusID(match[vhciDevpathGroupFullBusID])
+
+	return vhciActionToEvent(action, portID, busID)
+}
+
+// vhciActionToEvent maps a uevent ACTION token to the corresponding
+// domain event constructor. Unknown actions produce ok=false.
+func vhciActionToEvent(action string, portID domain.PortID, busID domain.BusID) (domain.Event, bool) {
+	switch action {
+	case ueventActionAdd:
+		return domain.PortAttachedEvent{
+			At:   time.Now(),
+			Port: domain.Port{ID: portID, BusID: busID},
+		}, true
+	case ueventActionRemove:
+		return domain.PortDetachedEvent{
+			At:     time.Now(),
+			Port:   domain.Port{ID: portID, BusID: busID},
+			Reason: "uevent",
+		}, true
+	case ueventActionChange:
+		return domain.PortErroredEvent{
+			At:   time.Now(),
+			Port: domain.Port{ID: portID, BusID: busID},
+			Err:  "usbip_status change",
+		}, true
+	default:
+		return nil, false
+	}
 }
 
 // parseUeventFields splits the NUL-separated payload into a map. The
@@ -446,26 +504,57 @@ func splitNULBytes(payload []byte) []string {
 	return parts
 }
 
+// Uevent SUBSYSTEM tokens the dispatcher cares about. Matched verbatim
+// against the SUBSYSTEM= field of each parsed payload.
+const (
+	ueventSubsystemUSB       = "usb"
+	ueventSubsystemUSBIPHost = "usbip_host"
+	ueventSubsystemUSBHC     = "usb-hc"
+)
+
+// Uevent ACTION tokens emitted by the kernel for vhci_hcd-attached
+// device lifecycle transitions. Other ACTION values are ignored by the
+// mapper.
+const (
+	ueventActionAdd    = "add"
+	ueventActionRemove = "remove"
+	ueventActionChange = "change"
+)
+
 // isInterestingUevent filters for subsystems we care about:
 // SUBSYSTEM=usb and SUBSYSTEM=usbip_host. Everything else is ignored.
 func isInterestingUevent(fields map[string]string) bool {
 	sub := fields["SUBSYSTEM"]
 
-	return sub == "usb" || sub == "usbip_host" || sub == "usb-hc"
+	return sub == ueventSubsystemUSB || sub == ueventSubsystemUSBIPHost || sub == ueventSubsystemUSBHC
 }
 
 // vhciDevpathPattern matches the vhci-managed USB devpath shape:
 //
-//	/devices/platform/vhci_hcd.0/usb<N>/<BusID>
+//	/devices/platform/vhci_hcd.<M>/usb<N>/<BusID>
 //
-// The bus ID follows the Linux USB topology grammar
-// (pkg/domain/busid.go:18): one or more decimal digits, a dash, then
-// a dot-separated sequence of decimal numbers. Hub-attached devices
-// therefore have dotted bus IDs like "1-1.2" or "2-3.4.5"; pre-fix
-// this regex only captured the leading "N-P" pair and silently
-// truncated every hub-attached device's busid. Capturing groups:
-// (bus, bus_id).
-var vhciDevpathPattern = regexp.MustCompile(`/devices/platform/vhci_hcd\.0/usb(\d+)/(\d+-\d+(?:\.\d+)*)`)
+// The controller suffix M may be any decimal — multi-controller
+// kernels emit vhci_hcd.1, vhci_hcd.2, and so on. The bus ID follows
+// the Linux USB topology grammar (pkg/domain/busid.go:18): one or more
+// decimal digits, a dash, then a dot-separated sequence of decimal
+// numbers. Hub-attached devices therefore have dotted bus IDs like
+// "1-1.2" or "2-3.4.5"; the regex captures the full busid verbatim
+// for the emitted event while also decomposing the (bus, rootPort)
+// pair for topology lookup. Capturing groups:
+//
+//	[1] usbBus — the number after "usb" in the path segment.
+//	[2] fullBusID — the entire "<bus>-<port>[.hub...]" suffix.
+//	[3] rootPort1indexed — the integer between the first '-' and the
+//	    first '.' (or end-of-segment for non-hub devices).
+var vhciDevpathPattern = regexp.MustCompile(`/devices/platform/vhci_hcd\.\d+/usb(\d+)/(\d+-(\d+)(?:\.\d+)*)`)
+
+// Regex group indices for vhciDevpathPattern. Named so the extraction
+// code reads without magic numbers.
+const (
+	vhciDevpathGroupBus         = 1
+	vhciDevpathGroupFullBusID   = 2
+	vhciDevpathGroupRootPort    = 3
+)
 
 // usbipHostBusIDPattern captures the trailing bus-id segment of a
 // usbip_host DEVPATH. The upstream kernel emits add/remove uevents on
@@ -490,7 +579,7 @@ func mapUeventToDomain(fields map[string]string) (domain.Event, bool) {
 		return nil, false
 	}
 
-	if fields["SUBSYSTEM"] == "usbip_host" {
+	if fields["SUBSYSTEM"] == ueventSubsystemUSBIPHost {
 		return mapUsbipHostEvent(action, devpath)
 	}
 
@@ -506,30 +595,10 @@ func mapVhciEvent(action, devpath string) (domain.Event, bool) {
 		return nil, false
 	}
 
-	portBusID := match[2]
+	portBusID := match[vhciDevpathGroupFullBusID]
 	port := extractPortFromBusID(portBusID)
 
-	switch action {
-	case "add":
-		return domain.PortAttachedEvent{
-			At:   time.Now(),
-			Port: domain.Port{ID: port, BusID: domain.BusID(portBusID)},
-		}, true
-	case "remove":
-		return domain.PortDetachedEvent{
-			At:     time.Now(),
-			Port:   domain.Port{ID: port, BusID: domain.BusID(portBusID)},
-			Reason: "uevent",
-		}, true
-	case "change":
-		return domain.PortErroredEvent{
-			At:   time.Now(),
-			Port: domain.Port{ID: port, BusID: domain.BusID(portBusID)},
-			Err:  "usbip_status change",
-		}, true
-	default:
-		return nil, false
-	}
+	return vhciActionToEvent(action, port, domain.BusID(portBusID))
 }
 
 // mapUsbipHostEvent handles the usbip_host-shaped devpath (local
@@ -547,12 +616,12 @@ func mapUsbipHostEvent(action, devpath string) (domain.Event, bool) {
 	busID := domain.BusID(match[1])
 
 	switch action {
-	case "add":
+	case ueventActionAdd:
 		return domain.DeviceBoundEvent{
 			At:     time.Now(),
 			Device: domain.Device{BusID: busID, Path: devpath},
 		}, true
-	case "remove":
+	case ueventActionRemove:
 		return domain.DeviceUnboundEvent{
 			At:     time.Now(),
 			Device: domain.Device{BusID: busID, Path: devpath},
