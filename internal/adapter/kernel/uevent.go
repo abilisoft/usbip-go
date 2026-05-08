@@ -506,13 +506,15 @@ func (m *vhciEventMapper) mapEvent(fields map[string]string) (domain.Event, bool
 
 // udcDevpathPattern captures the UDC instance id from a UDC-shaped
 // devpath. Kernel emits UDC events on the platform path
-// `/devices/platform/<udc>/udc/<udc>` (configfs UDC-attribute write,
-// observed for usbip-vudc.N on Linux 6.18) and also on the class path
-// `/class/udc/<udc>` (driver (un)load). The regex matches both shapes
-// by anchoring on `/udc/<name>$`. The busid exposed to
-// DeviceBoundEvent / DeviceUnboundEvent is the UDC name itself — for
-// usbip-vudc.N that matches the kernel's public busid form.
-var udcDevpathPattern = regexp.MustCompile(`/udc/([^/]+)$`)
+// `/devices/platform/usbip-vudc.<N>/udc/usbip-vudc.<N>` (configfs
+// UDC-attribute write, observed on Linux 6.18) and also on the class
+// path `/class/udc/usbip-vudc.<N>` (driver (un)load). The regex is
+// scoped to usbip-vudc instances specifically — other UDC controllers
+// (dwc3, chipidea, dummy_hcd, etc.) are not part of the usbip
+// exporter surface, and emitting DeviceBoundEvent / DeviceUnboundEvent
+// for their lifecycle would inject spurious signal into the reconnect
+// watcher and session consumers.
+var udcDevpathPattern = regexp.MustCompile(`/udc/(usbip-vudc\.\d+)$`)
 
 // mapUDCEvent translates a SUBSYSTEM=udc uevent into a
 // DeviceBoundEvent or DeviceUnboundEvent. The kernel emits KOBJ_CHANGE
