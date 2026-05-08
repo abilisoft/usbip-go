@@ -73,6 +73,13 @@ linters:
         - 'make'
         - 'strconv.FormatInt'
         - 'strconv.FormatUint'
+    tagliatelle:
+      # cmd/usbip emits the public jsonlines schema v1 (spec §7.5) with
+      # snake_case field names. The schema is frozen; camelCase would
+      # silently break operators grep-ing field names.
+      case:
+        rules:
+          json: snake
   exclusions:
     rules:
       - path: cmd/.+/.+\.go

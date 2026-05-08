@@ -117,7 +117,7 @@ func renderAttachResult(cmd *cobra.Command, port usbip.Port) error {
 	out := cmd.OutOrStdout()
 
 	if outputFromCtx(ctx) == outputJSON {
-		err := r.Ack(out, "attach", map[string]any{"port": portMap(port)})
+		err := r.Ack(out, "attach", map[string]any{"port": newPortView(port)})
 		if err != nil {
 			return fmt.Errorf("render ack: %w", err)
 		}

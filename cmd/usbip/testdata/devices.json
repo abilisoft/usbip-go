@@ -1,0 +1,1 @@
+{"devices":[{"bcd_device":"0000","busid":"1-1.2","busnum":1,"class":3,"devnum":2,"path":"","product_id":"1666","protocol":0,"speed":"High-Speed (480Mbps)","subclass":0,"vendor_id":"0951"},{"bcd_device":"0000","busid":"2-1","busnum":2,"class":0,"devnum":3,"path":"","product_id":"5678","protocol":0,"speed":"SuperSpeed (5Gbps)","subclass":0,"vendor_id":"1234"}],"schema":"v1"}

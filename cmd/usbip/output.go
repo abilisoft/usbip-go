@@ -12,7 +12,7 @@ import (
 )
 
 // errUnknownEvent is returned when jsonRenderer.Event receives a
-// concrete type not covered by eventRecord's switch. The sentinel base
+// concrete type not covered by classifyEvent's switch. The sentinel base
 // keeps err113 happy while preserving classifiability.
 var errUnknownEvent = errors.New("render event: unknown concrete type")
 
@@ -74,7 +74,7 @@ func (jsonRenderer) Sessions(w io.Writer, sessions []usbip.Session) error {
 
 // Event emits one jsonlines record tagged with its kind discriminator.
 func (jsonRenderer) Event(w io.Writer, ev usbip.Event) error {
-	rec := eventRecord(ev)
+	rec := classifyEvent(ev)
 	if rec == nil {
 		// Unknown concrete type — never happens for domain events the
 		// library ships, but we refuse to emit a "v1" record without

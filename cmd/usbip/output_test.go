@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -45,8 +44,7 @@ func TestTableRendererMatchesGolden(t *testing.T) {
 	var out bytes.Buffer
 	require.NoError(t, tableRenderer{}.Devices(&out, goldenDevices()))
 
-	golden := filepath.Join("testdata", "devices.txt")
-	want, err := os.ReadFile(golden)
+	want, err := os.ReadFile("testdata/devices.txt")
 	require.NoError(t, err)
 	require.Equal(t, string(want), out.String())
 }
@@ -60,8 +58,7 @@ func TestJSONRendererMatchesGolden(t *testing.T) {
 	var out bytes.Buffer
 	require.NoError(t, jsonRenderer{}.Devices(&out, goldenDevices()))
 
-	golden := filepath.Join("testdata", "devices.json")
-	want, err := os.ReadFile(golden)
+	want, err := os.ReadFile("testdata/devices.json")
 	require.NoError(t, err)
 
 	var got, expect map[string]any
