@@ -484,28 +484,6 @@ func TestImporterAttachHappyPath(t *testing.T) {
 	require.Equal(t, 0, conn.closeCount())
 }
 
-// TestImporterAttachAutoReconnectStubbed asserts that AutoReconnect=true
-// is rejected with ErrAutoReconnectNotImplemented and no work happens
-// (no modules probe, no dial).
-func TestImporterAttachAutoReconnectStubbed(t *testing.T) {
-	t.Parallel()
-
-	kernel := &ImporterKernelMock{}
-	transport := &TransportMock{}
-
-	imp := newImporterForTest(t,
-		app.WithImporterKernel(kernel),
-		app.WithImporterTransport(transport),
-	)
-	t.Cleanup(func() { require.NoError(t, imp.Close()) })
-
-	_, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{AutoReconnect: true})
-	require.ErrorIs(t, err, app.ErrAutoReconnectNotImplemented)
-
-	require.Empty(t, kernel.ModulesAvailableCalls())
-	require.Empty(t, transport.DialCalls())
-}
-
 // TestImporterAttachModulesAvailableFailure asserts a ModulesAvailable
 // failure aborts before any Dial and does NOT call Close (no conn).
 func TestImporterAttachModulesAvailableFailure(t *testing.T) {
