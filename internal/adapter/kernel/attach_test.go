@@ -443,6 +443,41 @@ func TestFormatAttachPayload_FieldOrderingMatchesKernel(t *testing.T) {
 			"sscanf(\"%%u %%u %%u %%u\") order in vhci_sysfs.c::attach_store")
 }
 
+// TestFormatDetachPayload_MatchesKernelContract pins the exact byte-
+// for-byte shape the adapter writes to vhci_hcd's detach sysfs node.
+// Kernel 6.x vhci_sysfs.c::detach_store consumes the write with:
+//
+//	kstrtoint(buf, 10, &port)
+//
+// kstrtoint accepts a bare decimal integer and tolerates a single
+// optional trailing '\n'. Upstream libsrc/vhci_driver.c writes the
+// decimal integer without a newline; this adapter matches that wire
+// shape exactly so any drift toward "5\n" (harmless to the kernel but
+// a deliberate wire change) or "05", " 5 ", "+5", hex, or any other
+// format is caught immediately.
+//
+// Parallel to TestFormatAttachPayload_FieldOrderingMatchesKernel: both
+// tests isolate the payload formatter from the sysfs path + module
+// availability plumbing so a single edit to the byte shape surfaces
+// here, not in a tangled AttachRemote/DetachPort happy-path assertion.
+//
+// This is a RED against future drift: any edit to formatDetachPayload
+// that changes the rendering must update this test deliberately.
+func TestFormatDetachPayload_MatchesKernelContract(t *testing.T) {
+	t.Parallel()
+
+	const (
+		port   = domain.PortID(5)
+		expect = "5"
+	)
+
+	got := kernel.FormatDetachPayloadForTest(port)
+	require.Equal(t, expect, got,
+		"detach payload must render as a bare decimal integer (no newline, "+
+			"no leading zeros, no sign) — kstrtoint(buf, 10, &port) in "+
+			"vhci_sysfs.c::detach_store")
+}
+
 func TestAttachRemote_HappyPath(t *testing.T) {
 	t.Parallel()
 
