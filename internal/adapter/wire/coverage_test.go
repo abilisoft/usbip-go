@@ -250,6 +250,41 @@ func TestDecodeDeviceBusnumOverflow(t *testing.T) {
 	require.Contains(t, err.Error(), "busnum")
 }
 
+// TestDecodeDeviceBusnumAtMaxU16 is a boundary test: 0xFFFF fits in a
+// uint16 (the guard uses strict `>`, so this value must pass). Kills
+// the CONDITIONALS_BOUNDARY mutant for layout.go busnum check.
+func TestDecodeDeviceBusnumAtMaxU16(t *testing.T) {
+	t.Parallel()
+
+	buf := make([]byte, wire.DeviceWireSize)
+
+	buf[288] = 0x00
+	buf[289] = 0x00
+	buf[290] = 0xFF
+	buf[291] = 0xFF
+
+	dev, err := wire.DecodeDevice(bytes.NewReader(buf))
+	require.NoError(t, err)
+	require.Equal(t, uint16(0xFFFF), dev.BusNum)
+}
+
+// TestDecodeDeviceDevnumAtMaxU16 is a boundary test for devnum. Kills
+// the CONDITIONALS_BOUNDARY mutant for layout.go devnum check.
+func TestDecodeDeviceDevnumAtMaxU16(t *testing.T) {
+	t.Parallel()
+
+	buf := make([]byte, wire.DeviceWireSize)
+
+	buf[292] = 0x00
+	buf[293] = 0x00
+	buf[294] = 0xFF
+	buf[295] = 0xFF
+
+	dev, err := wire.DecodeDevice(bytes.NewReader(buf))
+	require.NoError(t, err)
+	require.Equal(t, uint16(0xFFFF), dev.DevNum)
+}
+
 // TestDecodeDeviceDevnumOverflow forces the devnum u32→u16 guard.
 func TestDecodeDeviceDevnumOverflow(t *testing.T) {
 	t.Parallel()
