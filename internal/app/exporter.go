@@ -332,15 +332,22 @@ func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
 
 	defer e.stopServing()
 
+	// signalAcceptExited closes acceptLoopExited exactly once via Once so
+	// a panic inside acceptLoop (or spawnCtxListenerCloser) still unblocks
+	// any concurrent Shutdown waiting on that channel.
+	var acceptExitedOnce sync.Once
+	signalAcceptExited := func() {
+		acceptExitedOnce.Do(func() { close(e.acceptLoopExited) })
+	}
+	defer signalAcceptExited()
+
 	stopWatcher := e.spawnCtxListenerCloser(ctx, listener)
 
 	loopErr := e.acceptLoop(ctx, listener)
 
-	// Signal Shutdown that acceptLoop has exited and no further
-	// sessionsWG.Go calls will occur. This must happen before
-	// stopWatcher/wg.Wait so Shutdown observes the signal before
-	// drainFuture captures sessionsWG's drain channel.
-	close(e.acceptLoopExited)
+	// Signal Shutdown early — acceptLoop has exited, no further
+	// sessionsWG.Go calls will occur. The defer above covers panics.
+	signalAcceptExited()
 
 	// Release the ctx-listener-closer before waiting on wg. When
 	// acceptLoop exits via Shutdown-driven listener close the ctx is

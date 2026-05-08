@@ -428,6 +428,17 @@ func maybeStartStatusServer(
 				slog.String("path", cfg.StatusSocket), slog.Any("err", err))
 		}
 
+		// Remove the socket file if this goroutine successfully bound it.
+		// This ensures cleanup when the caller timed out on the ready
+		// signal and did not register its own unlink defer (bound=false).
+		// In the normal bound=true case, runDaemon's defer also removes
+		// the socket; the double-remove is benign.
+		select {
+		case <-started:
+			_ = os.Remove(cfg.StatusSocket)
+		default:
+		}
+
 		statusErrCh <- err
 	}()
 
