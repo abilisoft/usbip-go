@@ -15,12 +15,29 @@ import (
 // EventsAdapter) embed commonAdapter so their methods can reach the
 // injected fs.FS, WriteFunc, NetlinkDialer, logger, and clock without
 // duplicating option plumbing.
+//
+// topoCache memoises the result of discoverTopology so downstream port
+// arithmetic (Task 2+) pays the sysfs walk at most once per adapter
+// instance. The cache is heap-allocated (pointer embed) so that
+// embedding commonAdapter by value in role-adapter structs remains
+// safe under vet's copylocks check — a sync.Once inside a value-copied
+// struct would fail vet and silently duplicate the memoised state.
 type commonAdapter struct {
-	fs     fs.FS
-	write  WriteFunc
-	nlDial NetlinkDialer
-	logger *slog.Logger
-	clock  app.Clock
+	fs        fs.FS
+	write     WriteFunc
+	nlDial    NetlinkDialer
+	logger    *slog.Logger
+	clock     app.Clock
+	topoCache *topologyCache
+}
+
+// topologyCache memoises a single discoverTopology result. It is kept
+// behind a pointer so copies of commonAdapter share the same underlying
+// cache and vet's copylocks check never trips on commonAdapter values.
+type topologyCache struct {
+	once sync.Once
+	topo Topology
+	err  error
 }
 
 // ImporterAdapter satisfies app.ImporterKernel. It operates against the
@@ -89,14 +106,17 @@ func NewEventsAdapter(opts ...Option) (*EventsAdapter, error) {
 // newCommon applies the default substrate then each option in order.
 // Keeping the defaults here rather than inside each constructor
 // guarantees the three role adapters remain indistinguishable in their
-// baseline configuration.
+// baseline configuration. The topology cache is heap-allocated here so
+// every copy of the returned commonAdapter shares the same memoised
+// snapshot.
 func newCommon(opts ...Option) commonAdapter {
 	c := commonAdapter{
-		fs:     osDirFS(),
-		write:  defaultWriteFunc(),
-		nlDial: defaultNetlinkDialer(),
-		logger: noopLogger(),
-		clock:  app.RealClock{},
+		fs:        osDirFS(),
+		write:     defaultWriteFunc(),
+		nlDial:    defaultNetlinkDialer(),
+		logger:    noopLogger(),
+		clock:     app.RealClock{},
+		topoCache: &topologyCache{},
 	}
 
 	for _, opt := range opts {
