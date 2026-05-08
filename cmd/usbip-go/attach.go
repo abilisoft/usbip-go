@@ -35,7 +35,7 @@ type attachFlags struct {
 	Backoff       string
 }
 
-// newAttachCmd constructs the `usbip attach <host> <busid>` command.
+// newAttachCmd constructs the `usbip-go attach <host> <busid>` command.
 func newAttachCmd() *cobra.Command {
 	af := &attachFlags{}
 
@@ -59,7 +59,7 @@ func newAttachCmd() *cobra.Command {
 	return cmd
 }
 
-// completeAttachArgs is the ValidArgsFunction for `usbip attach`.
+// completeAttachArgs is the ValidArgsFunction for `usbip-go attach`.
 // First arg: history-backed suggestions (silent on I/O error).
 // Second arg: empty list unless USBIP_COMPLETE_NETWORK=1 or
 // --complete-network is set, in which case we dial Importer.ListRemote

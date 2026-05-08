@@ -28,7 +28,7 @@ func TestRenderMainErrorUsesFormatError(t *testing.T) {
 
 	renderMainError(&buf, wrapped)
 
-	require.Contains(t, buf.String(), "usbip: device not found",
+	require.Contains(t, buf.String(), "usbip-go: device not found",
 		"stderr must carry the FormatError template, not the raw wrap chain")
 	require.NotContains(t, buf.String(), "attach: usbip: device not found",
 		"stderr must not prepend the raw wrap prefix")

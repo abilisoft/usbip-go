@@ -3,11 +3,11 @@
 #
 [Unit]
 Description=USB/IP (Go) daemon
-Requires=usbipd.socket
+Requires=usbipd-go.socket
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/usbipd
+ExecStart=/usr/bin/usbipd-go
 Restart=on-failure
 CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
 

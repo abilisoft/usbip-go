@@ -52,27 +52,27 @@ type errorEntry struct {
 func errorRegistry() []errorEntry {
 	return []errorEntry{
 		{usbip.ErrPermission, ExitPermission,
-			"usbip: operation requires elevated privileges (CAP_SYS_ADMIN). Try: sudo usbip"},
+			"usbip-go: operation requires elevated privileges (CAP_SYS_ADMIN). Try: sudo usbip-go"},
 		{usbip.ErrKernelModuleMissing, ExitKernelModule,
-			"usbip: kernel module not loaded. Try: sudo modprobe usbip_core vhci_hcd usbip_host"},
+			"usbip-go: kernel module not loaded. Try: sudo modprobe usbip_core vhci_hcd usbip_host"},
 		{usbip.ErrDeviceNotFound, ExitDeviceNotFound,
-			"usbip: device not found: %s"},
+			"usbip-go: device not found: %s"},
 		{usbip.ErrDeviceAlreadyBound, ExitDeviceBusy,
-			"usbip: device is already bound: %s"},
+			"usbip-go: device is already bound: %s"},
 		{usbip.ErrPortInUse, ExitDeviceBusy,
-			"usbip: port is in use: %s"},
+			"usbip-go: port is in use: %s"},
 		{usbip.ErrDeviceNotBound, ExitDeviceBusy,
-			"usbip: device is not bound: %s"},
+			"usbip-go: device is not bound: %s"},
 		{usbip.ErrProtocolMismatch, ExitProtocolMismatch,
-			"usbip: protocol mismatch: %s"},
+			"usbip-go: protocol mismatch: %s"},
 		{usbip.ErrNoFreePort, ExitNoFreePort,
-			"usbip: no free vhci port available: %s"},
+			"usbip-go: no free vhci port available: %s"},
 		{usbip.ErrProtocolError, ExitProtocolError,
-			"usbip: peer reported an error: %s"},
+			"usbip-go: peer reported an error: %s"},
 		{context.DeadlineExceeded, ExitTimeout,
-			"usbip: operation timed out: %s"},
+			"usbip-go: operation timed out: %s"},
 		{context.Canceled, ExitInterrupted,
-			"usbip: operation interrupted: %s"},
+			"usbip-go: operation interrupted: %s"},
 	}
 }
 
@@ -102,7 +102,7 @@ func MapError(err error) int {
 	return ExitGeneric
 }
 
-// FormatError renders err as the single-line `usbip: ...` stderr message
+// FormatError renders err as the single-line `usbip-go: ...` stderr message
 // prescribed by spec §7.4. The returned string has no trailing newline
 // (callers pick the newline policy) and no embedded newlines either —
 // errors.Join renders its members newline-separated, so any interior
@@ -132,10 +132,10 @@ func FormatError(err error) string {
 
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		return "usbip: network error: " + flattenErrorText(err.Error())
+		return "usbip-go: network error: " + flattenErrorText(err.Error())
 	}
 
-	return "usbip: error: " + flattenErrorText(err.Error())
+	return "usbip-go: error: " + flattenErrorText(err.Error())
 }
 
 // flattenErrorText collapses any embedded newlines in s into "; ". Used

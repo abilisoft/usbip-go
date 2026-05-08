@@ -14,7 +14,7 @@ import (
 const (
 	defaultListen             = "0.0.0.0:3240"
 	defaultStatusSocket       = "/run/usbip-go/status.sock"
-	defaultStatusSocketGroup  = "usbip"
+	defaultStatusSocketGroup  = "usbip-go"
 	defaultMaxSessions        = 128
 	defaultMaxSessionsPerPeer = 8
 	defaultAcceptRateLimit    = 10.0
@@ -31,7 +31,7 @@ const (
 // not be observed after PersistentPreRunE runs.
 type Config struct {
 	// Listen is the TCP bind address. Ignored when systemd passes a
-	// named socket via LISTEN_FDNAMES=usbipd.
+	// named socket via LISTEN_FDNAMES=usbipd-go.
 	Listen string
 	// StatusSocket is the UDS path for the health/status endpoint.
 	// Empty string disables the endpoint entirely.
@@ -71,7 +71,7 @@ func bindFlags(cmd *cobra.Command, cfg *Config) {
 	flags := cmd.PersistentFlags()
 
 	flags.StringVar(&cfg.Listen, "listen", defaultListen,
-		"TCP bind address; ignored when LISTEN_FDS names 'usbipd'")
+		"TCP bind address; ignored when LISTEN_FDS names 'usbipd-go'")
 	flags.StringVar(&cfg.StatusSocket, "status-socket", defaultStatusSocket,
 		"UDS path for health/status; empty disables")
 	flags.StringVar(&cfg.StatusSocketGroup, "status-socket-group", defaultStatusSocketGroup,

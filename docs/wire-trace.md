@@ -156,10 +156,10 @@ For a protocol-path bug report, attach:
 2. Trace-level daemon log from the exporter:
 
    ```
-   sudo usbipd --log-level=trace 2>&1 | tee /tmp/usbipd.log
+   sudo usbipd-go --log-level=trace 2>&1 | tee /tmp/usbipd-go.log
    ```
 
-3. Output of `usbipd version` (or `cat /proc/version`).
+3. Output of `usbipd-go version` (or `cat /proc/version`).
 4. The status-socket snapshot:
 
    ```

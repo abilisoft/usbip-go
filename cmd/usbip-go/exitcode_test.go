@@ -84,18 +84,18 @@ func TestFormatErrorTable(t *testing.T) {
 		prefix string
 	}{
 		{"nil-is-empty", nil, ""},
-		{"permission", usbip.ErrPermission, "usbip: operation requires elevated privileges"},
-		{"kernel-module", usbip.ErrKernelModuleMissing, "usbip: kernel module not loaded"},
-		{"device-not-found", usbip.ErrDeviceNotFound, "usbip: device not found"},
-		{"device-already-bound", usbip.ErrDeviceAlreadyBound, "usbip: device is already bound"},
-		{"port-in-use", usbip.ErrPortInUse, "usbip: port is in use"},
-		{"device-not-bound", usbip.ErrDeviceNotBound, "usbip: device is not bound"},
-		{"protocol-mismatch", usbip.ErrProtocolMismatch, "usbip: protocol mismatch"},
-		{"no-free-port", usbip.ErrNoFreePort, "usbip: no free vhci port"},
-		{"protocol-error", usbip.ErrProtocolError, "usbip: peer reported an error"},
-		{"deadline", context.DeadlineExceeded, "usbip: operation timed out"},
-		{"net-error", fakeNetError{}, "usbip: network error"},
-		{"generic", errSomethingElse, "usbip: error"},
+		{"permission", usbip.ErrPermission, "usbip-go: operation requires elevated privileges"},
+		{"kernel-module", usbip.ErrKernelModuleMissing, "usbip-go: kernel module not loaded"},
+		{"device-not-found", usbip.ErrDeviceNotFound, "usbip-go: device not found"},
+		{"device-already-bound", usbip.ErrDeviceAlreadyBound, "usbip-go: device is already bound"},
+		{"port-in-use", usbip.ErrPortInUse, "usbip-go: port is in use"},
+		{"device-not-bound", usbip.ErrDeviceNotBound, "usbip-go: device is not bound"},
+		{"protocol-mismatch", usbip.ErrProtocolMismatch, "usbip-go: protocol mismatch"},
+		{"no-free-port", usbip.ErrNoFreePort, "usbip-go: no free vhci port"},
+		{"protocol-error", usbip.ErrProtocolError, "usbip-go: peer reported an error"},
+		{"deadline", context.DeadlineExceeded, "usbip-go: operation timed out"},
+		{"net-error", fakeNetError{}, "usbip-go: network error"},
+		{"generic", errSomethingElse, "usbip-go: error"},
 	}
 
 	for _, tc := range cases {

@@ -113,7 +113,7 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 		defer func() { _ = os.Remove(cfg.StatusSocket) }()
 	}
 
-	log.Info("usbipd accepting connections",
+	log.Info("usbipd-go accepting connections",
 		slog.String("addr", listener.Addr().String()),
 		slog.Bool("activation", activated))
 
@@ -127,7 +127,7 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 	src.markAccepting(false)
 
 	// Wind down the status UDS after Serve returns. The server is kept
-	// alive through Serve so `usbipd drain` can poll sessions=[] during
+	// alive through Serve so `usbipd-go drain` can poll sessions=[] during
 	// the drain window; cancelling it here lets completeShutdown
 	// observe statusErrCh without racing the drain.
 	cancelStatus()
