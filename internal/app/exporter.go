@@ -381,31 +381,39 @@ func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
 func (e *Exporter) Shutdown(ctx context.Context) error {
 	e.mu.Lock()
 
-	if !e.shutdown {
-		e.shutdown = true
-	}
+	// One-shot the side-effect work (listener close, handle cancel,
+	// per-session Disconnect spawn). Subsequent Shutdown calls fall
+	// through to wait on the shared drain future — they MUST NOT
+	// re-spawn Disconnect goroutines, re-cancel handles, or close the
+	// listener twice.
+	firstShutdown := !e.shutdown
+	e.shutdown = true
 
-	// Capture and clear the tracked listener under the same lock so
-	// Shutdown closes it exactly once even if called concurrently. The
-	// listener-close drives acceptLoop to return via acceptShouldStop,
-	// which unwinds Serve. Without this listener-close the only
-	// listener-close path would be the ctx-cancel watcher, so a caller
-	// that used Shutdown alone (without cancelling the Serve ctx) would
-	// park Serve on Accept forever and silently break the "Shutdown
-	// stops accepting new connections" contract.
 	listener := e.listener
 	acceptLoopExited := e.acceptLoopExited
 
-	e.listener = nil
+	var handles []*sessionHandle
+	if firstShutdown {
+		// Capture and clear the tracked listener under the same lock so
+		// Shutdown closes it exactly once even if called concurrently.
+		// The listener-close drives acceptLoop to return via
+		// acceptShouldStop, which unwinds Serve. Without this listener-
+		// close the only listener-close path would be the ctx-cancel
+		// watcher, so a caller that used Shutdown alone (without
+		// cancelling the Serve ctx) would park Serve on Accept forever
+		// and silently break the "Shutdown stops accepting new
+		// connections" contract.
+		e.listener = nil
 
-	handles := make([]*sessionHandle, 0, len(e.sessions))
-	for _, h := range e.sessions {
-		handles = append(handles, h)
+		handles = make([]*sessionHandle, 0, len(e.sessions))
+		for _, h := range e.sessions {
+			handles = append(handles, h)
+		}
 	}
 
 	e.mu.Unlock()
 
-	if listener != nil {
+	if firstShutdown && listener != nil {
 		closeErr := listener.Close()
 		if closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
 			e.logger.Debug("exporter shutdown listener close",
@@ -417,6 +425,7 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 	// progress even if a graceful Disconnect wedges. h.cancel() unblocks
 	// waitForSessionEnd's Shutdown branch unconditionally and is cheap
 	// (channel close), so it must precede the synchronous kernel call.
+	// Repeat-Shutdown skips this — handles is empty.
 	for _, h := range handles {
 		h.cancel()
 	}
@@ -432,7 +441,9 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 	// waitSessionsBounded path. Goroutines that never return are
 	// accepted as a leaked-goroutine trade-off (same rationale as the
 	// truly-stuck handler note in waitSessionsBounded) — Shutdown-blocks-
-	// forever is a worse failure mode.
+	// forever is a worse failure mode. firstShutdown gate prevents
+	// repeated Shutdown calls accumulating fresh Disconnect goroutines
+	// on top of any already-wedged from the prior invocation.
 	for _, h := range handles {
 		go func() {
 			err := e.kernel.Disconnect(ctx, h.session.BusID)
