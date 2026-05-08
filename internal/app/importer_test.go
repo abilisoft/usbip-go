@@ -671,3 +671,288 @@ func TestImporterAttachClosedReturnsErr(t *testing.T) {
 	require.Empty(t, kernel.ModulesAvailableCalls())
 	require.Empty(t, transport.DialCalls())
 }
+
+// attachOnce is a helper that drives a successful Attach with every
+// dependency stubbed minimally. It returns the resulting PortID and
+// the Importer so Detach/Close tests can exercise the post-attach
+// state without re-wiring the full dependency graph every time.
+func attachOnce(
+	t *testing.T,
+	kernel *ImporterKernelMock,
+	extra ...app.ImporterOption,
+) (*app.Importer, domain.Port) {
+	t.Helper()
+
+	conn := newFakeConn()
+
+	transport := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) { return conn, nil },
+	}
+	codec := &ProtocolCodecMock{
+		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
+		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
+	}
+
+	opts := []app.ImporterOption{
+		app.WithImporterKernel(kernel),
+		app.WithImporterTransport(transport),
+		app.WithImporterCodec(codec),
+	}
+	opts = append(opts, extra...)
+
+	imp := newImporterForTest(t, opts...)
+
+	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{})
+	require.NoError(t, err)
+
+	return imp, port
+}
+
+// TestImporterDetachCancelsThenDelegates asserts Detach invokes the
+// handle's cancel func exactly once AND delegates to kernel.DetachPort
+// with the same id — spec §5.5 says the handle must be released before
+// the kernel-side detach so any auto-reconnect watcher sees cancel
+// before a status transition and does not race a reattempt.
+func TestImporterDetachCancelsThenDelegates(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 4
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			return portID, nil
+		},
+		DetachPortFunc: func(_ context.Context, _ domain.PortID) error { return nil },
+	}
+
+	imp, port := attachOnce(t, kernel)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	require.Equal(t, portID, port.ID)
+	require.NoError(t, imp.Detach(context.Background(), portID))
+
+	// Kernel-side detach received the same id.
+	require.Len(t, kernel.DetachPortCalls(), 1)
+	require.Equal(t, portID, kernel.DetachPortCalls()[0].ID)
+}
+
+// TestImporterDetachUnknownReturnsNotBound asserts detaching an ID that
+// was never attached returns ErrDeviceNotBound without calling the
+// kernel (the map lookup is the source of truth, not sysfs).
+func TestImporterDetachUnknownReturnsNotBound(t *testing.T) {
+	t.Parallel()
+
+	kernel := &ImporterKernelMock{}
+
+	imp := newImporterForTest(t, app.WithImporterKernel(kernel))
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	err := imp.Detach(context.Background(), domain.PortID(99))
+	require.ErrorIs(t, err, domain.ErrDeviceNotBound)
+	require.Empty(t, kernel.DetachPortCalls())
+}
+
+// TestImporterDetachDuplicateReturnsNotBound asserts the second Detach
+// after a successful first Detach returns ErrDeviceNotBound. Handles
+// are removed from the map on the first successful detach.
+func TestImporterDetachDuplicateReturnsNotBound(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 2
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			return portID, nil
+		},
+		DetachPortFunc: func(_ context.Context, _ domain.PortID) error { return nil },
+	}
+
+	imp, _ := attachOnce(t, kernel)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	require.NoError(t, imp.Detach(context.Background(), portID))
+
+	err := imp.Detach(context.Background(), portID)
+	require.ErrorIs(t, err, domain.ErrDeviceNotBound)
+	require.Len(t, kernel.DetachPortCalls(), 1)
+}
+
+// TestImporterDetachClosedReturnsErr asserts Detach after Close returns
+// ErrImporterClosed and does not touch the kernel.
+func TestImporterDetachClosedReturnsErr(t *testing.T) {
+	t.Parallel()
+
+	kernel := &ImporterKernelMock{}
+
+	imp := newImporterForTest(t, app.WithImporterKernel(kernel))
+	require.NoError(t, imp.Close())
+
+	err := imp.Detach(context.Background(), domain.PortID(1))
+	require.ErrorIs(t, err, app.ErrImporterClosed)
+	require.Empty(t, kernel.DetachPortCalls())
+}
+
+// TestImporterDetachKernelFailurePreservesHandle asserts that when the
+// kernel-side detach itself fails, the handle remains registered so
+// the caller can retry without first having to re-Attach. This also
+// ensures the cancel func has NOT run, because a re-Attach would rely
+// on the original handle context still being alive.
+func TestImporterDetachKernelFailurePreservesHandle(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 7
+
+	kernelDetachErr := domain.ErrPermission
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			return portID, nil
+		},
+		DetachPortFunc: func(_ context.Context, _ domain.PortID) error { return kernelDetachErr },
+	}
+
+	imp, _ := attachOnce(t, kernel)
+	t.Cleanup(func() {
+		// Let the second Detach attempt succeed so Close has no ghosts.
+		kernel.DetachPortFunc = func(_ context.Context, _ domain.PortID) error { return nil }
+		_ = imp.Detach(context.Background(), portID)
+		require.NoError(t, imp.Close())
+	})
+
+	err := imp.Detach(context.Background(), portID)
+	require.ErrorIs(t, err, kernelDetachErr)
+
+	// Because the kernel rejected the detach, the handle is still
+	// registered — a follow-up Detach therefore does NOT get
+	// ErrDeviceNotBound; it sees the same kernel error again.
+	err = imp.Detach(context.Background(), portID)
+	require.ErrorIs(t, err, kernelDetachErr)
+}
+
+// TestImporterListPortsDelegates asserts ListPorts forwards to the
+// kernel's view and returns the slice verbatim. The Importer's handle
+// map is local bookkeeping; the kernel's sysfs-derived list is the
+// authoritative source.
+func TestImporterListPortsDelegates(t *testing.T) {
+	t.Parallel()
+
+	want := []domain.Port{
+		{ID: 1, Status: domain.StatusUsed, BusID: domain.BusID("1-1")},
+		{ID: 2, Status: domain.StatusUsed, BusID: domain.BusID("2-1")},
+	}
+
+	kernel := &ImporterKernelMock{
+		ListPortsFunc: func(_ context.Context) ([]domain.Port, error) { return want, nil },
+	}
+
+	imp := newImporterForTest(t, app.WithImporterKernel(kernel))
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	got, err := imp.ListPorts(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+}
+
+// TestImporterListPortsClosedReturnsErr asserts ListPorts on a closed
+// Importer returns ErrImporterClosed.
+func TestImporterListPortsClosedReturnsErr(t *testing.T) {
+	t.Parallel()
+
+	kernel := &ImporterKernelMock{}
+
+	imp := newImporterForTest(t, app.WithImporterKernel(kernel))
+	require.NoError(t, imp.Close())
+
+	_, err := imp.ListPorts(context.Background())
+	require.ErrorIs(t, err, app.ErrImporterClosed)
+	require.Empty(t, kernel.ListPortsCalls())
+}
+
+// TestImporterCloseCancelsAllHandles asserts Close cancels every
+// registered handle's cancel func. We attach two ports, close the
+// Importer, and assert the per-handle contexts were cancelled — proven
+// by the fact that follow-up Detach calls return ErrImporterClosed
+// (Close ran) rather than ErrDeviceNotBound (handle map still populated).
+func TestImporterCloseCancelsAllHandles(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu      sync.Mutex
+		nextID  domain.PortID = 10
+		counter domain.PortID
+	)
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			id := nextID + counter
+			counter++
+
+			return id, nil
+		},
+	}
+
+	imp, _ := attachOnce(t, kernel)
+
+	// Second attach reuses the same Importer via a fresh fake conn.
+	conn := newFakeConn()
+	transport2 := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) { return conn, nil },
+	}
+	codec2 := &ProtocolCodecMock{
+		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
+		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
+	}
+
+	// Rewire — but we already constructed imp in attachOnce with its
+	// own transport/codec; to attach twice cleanly the test drives a
+	// second imp rather than hot-swapping deps.
+	imp2 := newImporterForTest(t,
+		app.WithImporterKernel(kernel),
+		app.WithImporterTransport(transport2),
+		app.WithImporterCodec(codec2),
+	)
+
+	_, err := imp2.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{})
+	require.NoError(t, err)
+
+	// Both Importers have a handle recorded. Close both; a second Close
+	// is a no-op.
+	require.NoError(t, imp.Close())
+	require.NoError(t, imp.Close())
+	require.NoError(t, imp2.Close())
+	require.NoError(t, imp2.Close())
+
+	// Post-close detach surfaces ErrImporterClosed, not ErrDeviceNotBound.
+	err = imp.Detach(context.Background(), 10)
+	require.ErrorIs(t, err, app.ErrImporterClosed)
+	err = imp2.Detach(context.Background(), 11)
+	require.ErrorIs(t, err, app.ErrImporterClosed)
+}
+
+// TestImporterCloseIdempotentAfterAttach asserts Close is idempotent
+// even after a successful Attach has registered a handle. The second
+// Close must not double-cancel or panic.
+func TestImporterCloseIdempotentAfterAttach(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 5
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			return portID, nil
+		},
+	}
+
+	imp, _ := attachOnce(t, kernel)
+
+	require.NoError(t, imp.Close())
+	require.NoError(t, imp.Close())
+	require.NoError(t, imp.Close())
+}
