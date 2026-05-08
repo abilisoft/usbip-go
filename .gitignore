@@ -21,12 +21,8 @@
 /.zprofile
 /.zshrc
 
-# Claude Code local state (project .claude/settings.json + agents/commands/skills ARE committed)
-.claude/settings.local.json
-.claude/*.local.*
-.claude/session*
-.claude/cache/
-.claude/debug/
+# Claude Code state — local only, never committed.
+.claude/
 
 # Codex (OpenAI Codex companion / plugin state)
 .codex/
