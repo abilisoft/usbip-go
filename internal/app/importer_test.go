@@ -1189,6 +1189,84 @@ func TestImporterAttachConcurrentWithCloseNoPanic(t *testing.T) {
 		"every ErrImporterClosed attach must release its kernel port via DetachPort")
 }
 
+// TestImporterCloseWaitsForInflightDetach is the RED for the
+// "Close drains Detach" contract. Detach currently releases the write
+// lock and calls kernel.DetachPort without incrementing the Importer's
+// waitgroup; Close only waits on that waitgroup, so Close can return
+// while an inflight Detach is still writing to sysfs. The fix is to
+// enrol the Detach kernel call in the waitgroup; this test gates
+// DetachPort on a channel so the race is deterministic.
+func TestImporterCloseWaitsForInflightDetach(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 11
+
+	detachStarted := make(chan struct{})
+	releaseDetach := make(chan struct{})
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			return portID, nil
+		},
+		DetachPortFunc: func(_ context.Context, _ domain.PortID) error {
+			close(detachStarted)
+			<-releaseDetach
+
+			return nil
+		},
+	}
+
+	imp, _ := attachOnce(t, kernel)
+
+	detachDone := make(chan error, 1)
+
+	go func() {
+		detachDone <- imp.Detach(context.Background(), portID)
+	}()
+
+	// Wait until Detach is parked inside kernel.DetachPort. From this
+	// point on the handle map has been looked up but the kernel write
+	// has not completed — exactly the window Close must cover.
+	select {
+	case <-detachStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("DetachPort was not entered in time")
+	}
+
+	closeReturned := make(chan error, 1)
+
+	go func() {
+		closeReturned <- imp.Close()
+	}()
+
+	// Close MUST block while DetachPort is still in-flight. Probe with
+	// a short deadline; if Close returns before the gate opens, the
+	// contract is broken.
+	select {
+	case err := <-closeReturned:
+		t.Fatalf("Close returned before in-flight Detach finished: %v", err)
+	case <-time.After(200 * time.Millisecond):
+		// Expected — Close is blocked on the waitgroup.
+	}
+
+	close(releaseDetach)
+
+	select {
+	case err := <-detachDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Detach did not return after release")
+	}
+
+	select {
+	case err := <-closeReturned:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not return after Detach drained")
+	}
+}
+
 // TestImporterCloseIdempotentAfterAttach asserts Close is idempotent
 // even after a successful Attach has registered a handle. The second
 // Close must not double-cancel or panic.
