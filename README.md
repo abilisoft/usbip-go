@@ -138,7 +138,7 @@ slsa-verifier verify-artifact "${ARCHIVE}" \
 #    inclusion proof in a single file.
 cosign verify-blob \
   --bundle "${BUNDLE}" \
-  --certificate-identity-regexp '^https://github\.com/abilisoft/usbip-go/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$' \
+  --certificate-identity-regexp '^https://github\.com/abilisoft/usbip-go/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   "${CHECKSUMS}"
 

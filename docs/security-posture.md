@@ -131,8 +131,12 @@ jumps without requiring lock-step bumps.
 The Packaging score moves from -1 to a positive value only after
 the first successful run of `release.yml` (Scorecard requires both
 the matched workflow file AND a green run for that file). The
-score therefore lifts on the first v*.*.* tag push that completes
-the release pipeline, not on the file change alone.
+score therefore lifts on the first stable SemVer triple
+(`vMAJOR.MINOR.PATCH`, no pre-release or build-metadata suffix)
+tag push that completes the release pipeline, not on the file
+change alone. The trigger filter in `release.yml` and the
+`tag_pattern` in `cliff.toml` are anchored to that exact shape so
+pre-release / metadata tags do not fire the pipeline.
 
 [scorecard]: https://github.com/ossf/scorecard
 [bp]: https://www.bestpractices.coreinfrastructure.org/
