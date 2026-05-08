@@ -5,11 +5,17 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
 	"github.com/abilisoft/usbip-go/pkg/usbip"
 	"github.com/stretchr/testify/require"
 )
+
+// schemaFirstPrefix is the literal byte prefix every v1 top-level
+// JSON record must start with. Locking it as a constant avoids
+// magic-string drift across the schema-first assertions.
+const schemaFirstPrefix = `{"schema":`
 
 // goldenDevices returns the deterministic device fixture used by both
 // the table and JSON golden files.
@@ -49,9 +55,10 @@ func TestTableRendererMatchesGolden(t *testing.T) {
 	require.Equal(t, string(want), out.String())
 }
 
-// TestJSONRendererMatchesGolden — structural JSON comparison for the
-// JSON renderer. We re-parse both sides into maps so whitespace and
-// field order don't contaminate the assertion.
+// TestJSONRendererMatchesGolden — byte-exact golden-file comparison for
+// the JSON renderer. The byte-level assertion is load-bearing: spec §7.5
+// requires "schema" to be the first field, and only byte-equal testing
+// catches regressions in Go json.Marshal's map-key sort order.
 func TestJSONRendererMatchesGolden(t *testing.T) {
 	t.Parallel()
 
@@ -60,21 +67,61 @@ func TestJSONRendererMatchesGolden(t *testing.T) {
 
 	want, err := os.ReadFile("testdata/devices.json")
 	require.NoError(t, err)
-
-	var got, expect map[string]any
-	require.NoError(t, json.Unmarshal(out.Bytes(), &got))
-	require.NoError(t, json.Unmarshal(want, &expect))
-	require.Equal(t, expect, got)
+	require.Equal(t, string(want), out.String())
 }
 
-// TestJSONRendererSchemaFirst — the top-level envelope has "schema"
-// as the first key (spec §7.5 stability rule).
-func TestJSONRendererSchemaFirst(t *testing.T) {
+// TestJSONRendererDevicesSchemaFirst — Devices emits a top-level record
+// that starts with `{"schema":` byte-for-byte (spec §7.5 stability rule).
+func TestJSONRendererDevicesSchemaFirst(t *testing.T) {
 	t.Parallel()
 
 	var out bytes.Buffer
-	require.NoError(t, jsonRenderer{}.Devices(&out, nil))
-	require.Contains(t, out.String(), `"schema":"v1"`)
+	require.NoError(t, jsonRenderer{}.Devices(&out, goldenDevices()))
+	require.True(
+		t,
+		bytes.HasPrefix(out.Bytes(), []byte(schemaFirstPrefix)),
+		"Devices output must begin with %q, got %s", schemaFirstPrefix, out.String(),
+	)
+}
+
+// TestJSONRendererPortsSchemaFirst — Ports emits a top-level record
+// whose first key is "schema".
+func TestJSONRendererPortsSchemaFirst(t *testing.T) {
+	t.Parallel()
+
+	ports := []usbip.Port{
+		{ID: 1, Status: domain.StatusUsed, Speed: domain.SpeedHigh, BusID: "1-1.2"},
+	}
+
+	var out bytes.Buffer
+	require.NoError(t, jsonRenderer{}.Ports(&out, ports))
+	require.True(
+		t,
+		bytes.HasPrefix(out.Bytes(), []byte(schemaFirstPrefix)),
+		"Ports output must begin with %q, got %s", schemaFirstPrefix, out.String(),
+	)
+}
+
+// TestJSONRendererSessionsSchemaFirst — Sessions emits a top-level record
+// whose first key is "schema".
+func TestJSONRendererSessionsSchemaFirst(t *testing.T) {
+	t.Parallel()
+
+	sessions := []usbip.Session{
+		{
+			ID:        domain.SessionID{},
+			BusID:     "1-1.2",
+			StartedAt: time.Unix(0, 0).UTC(),
+		},
+	}
+
+	var out bytes.Buffer
+	require.NoError(t, jsonRenderer{}.Sessions(&out, sessions))
+	require.True(
+		t,
+		bytes.HasPrefix(out.Bytes(), []byte(schemaFirstPrefix)),
+		"Sessions output must begin with %q, got %s", schemaFirstPrefix, out.String(),
+	)
 }
 
 // TestJSONEventRecord — each concrete event emits a v1 record with the
