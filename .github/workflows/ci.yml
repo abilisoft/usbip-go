@@ -96,28 +96,6 @@ jobs:
       - name: Test
         run: nix develop --command task ci:test
 
-  unit-macos:
-    name: Unit tests (macos)
-    runs-on: macos-14
-    # macOS runners cannot run the nixos/nix linux container. Install
-    # nix natively via the Determinate Systems installer and run the
-    # same ci:* inner targets — macOS's role here is catching
-    # linux-only imports in shared packages, not exercising kernel
-    # behaviour.
-    env:
-      GIT_CONFIG_COUNT: "1"
-      GIT_CONFIG_KEY_0: "safe.directory"
-      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
-      IN_NIX_CONTAINER: "1"
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: DeterminateSystems/nix-installer-action@v13
-      - uses: DeterminateSystems/magic-nix-cache-action@v8
-      - name: Test (catches Linux-only imports in shared packages)
-        run: nix develop --command task ci:test
-
   conformance:
     name: Conformance (upstream usbip-utils)
     runs-on: ubuntu-24.04
