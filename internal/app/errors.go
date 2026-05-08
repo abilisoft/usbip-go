@@ -27,4 +27,15 @@ var (
 	// succeeded but the port was subsequently torn down. Wrapped by
 	// the watcher with the port id and detection source context.
 	ErrPortDetached = errors.New("port detached")
+
+	// ErrAlreadyShutdown indicates Serve was called after Shutdown
+	// completed. Shutdown is terminal: callers must construct a new
+	// Exporter to serve again.
+	ErrAlreadyShutdown = errors.New("exporter already shut down")
+
+	// ErrServeAlreadyRunning indicates Serve was called while another
+	// Serve is still active on the same Exporter. Overlapping accept
+	// loops would fight over the shared session bookkeeping, so the
+	// second call is rejected.
+	ErrServeAlreadyRunning = errors.New("exporter: Serve already running")
 )

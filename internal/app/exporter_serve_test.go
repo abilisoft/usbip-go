@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"sync/atomic"
@@ -36,28 +37,6 @@ func newPipeListener() *pipeListener {
 	}
 }
 
-// dial creates a net.Pipe and pushes the server end onto the accept
-// channel; returns the client end so the test can drive the session.
-// Returns an error when the listener has been closed.
-func (l *pipeListener) dial(ctx context.Context) (net.Conn, error) {
-	client, server := net.Pipe()
-
-	select {
-	case l.accept <- server:
-		return client, nil
-	case <-l.closed:
-		_ = client.Close()
-		_ = server.Close()
-
-		return nil, net.ErrClosed
-	case <-ctx.Done():
-		_ = client.Close()
-		_ = server.Close()
-
-		return nil, ctx.Err()
-	}
-}
-
 // Accept blocks until dial pushes a server conn or the listener is
 // closed.
 func (l *pipeListener) Accept() (net.Conn, error) {
@@ -83,6 +62,28 @@ func (l *pipeListener) Close() error {
 // must wrap with a conn that reports a plausible TCPAddr instead.
 func (*pipeListener) Addr() net.Addr { return fakeAddr{} }
 
+// dial creates a net.Pipe and pushes the server end onto the accept
+// channel; returns the client end so the test can drive the session.
+// Returns an error when the listener has been closed.
+func (l *pipeListener) dial(ctx context.Context) (net.Conn, error) {
+	client, server := net.Pipe()
+
+	select {
+	case l.accept <- server:
+		return client, nil
+	case <-l.closed:
+		_ = client.Close()
+		_ = server.Close()
+
+		return nil, net.ErrClosed
+	case <-ctx.Done():
+		_ = client.Close()
+		_ = server.Close()
+
+		return nil, fmt.Errorf("pipe dial: %w", ctx.Err())
+	}
+}
+
 // opHeader assembles an 8-byte USBIP OP header with the given opcode
 // so tests can inject wire-level requests without depending on the
 // wire package's Encode helpers (keeps the codec mock swap clean).
@@ -94,13 +95,6 @@ func opHeader(op wire.OpCode) []byte {
 	return buf
 }
 
-// serveServerAddr returns a *net.TCPAddr that would plausibly appear on
-// a real accepted TCP socket so ACL tests can distinguish peers. Kept
-// here so multiple test files can share the shape.
-func serveServerAddr(host string, port int) *net.TCPAddr {
-	return &net.TCPAddr{IP: net.ParseIP(host), Port: port}
-}
-
 // drainN reads exactly n bytes from r, returning io.ErrUnexpectedEOF on
 // short read. Tests use it to consume the Exporter's reply body.
 func drainN(r io.Reader, n int) ([]byte, error) {
@@ -108,7 +102,7 @@ func drainN(r io.Reader, n int) ([]byte, error) {
 
 	_, err := io.ReadFull(r, buf)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("drainN: %w", err)
 	}
 
 	return buf, nil
@@ -137,9 +131,13 @@ func TestExporterServe_DevlistRequest(t *testing.T) {
 		DecodeHeaderFunc: wire.NewCodec().DecodeHeader,
 		EncodeOpRepDevlistFunc: func(w io.Writer, devs []domain.Device) error {
 			_, err := w.Write(replyBody)
+			if err != nil {
+				return fmt.Errorf("write reply: %w", err)
+			}
+
 			replyWritten <- devs
 
-			return err
+			return nil
 		},
 	}
 
@@ -198,7 +196,11 @@ func TestExporterServe_ImportHappyPath(t *testing.T) {
 	kernel := &ExporterKernelMock{
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, id domain.BusID) error {
 			require.Equal(t, importedBusID, id)
-			exported <- struct{}{}
+
+			select {
+			case exported <- struct{}{}:
+			default:
+			}
 
 			<-releaseExport
 
@@ -240,8 +242,8 @@ func TestExporterServe_ImportHappyPath(t *testing.T) {
 
 	// Simulate session end: release the gate so ExportOnConn returns.
 	close(releaseExport)
-
 	cancel()
+
 	_ = client.Close()
 
 	require.NoError(t, <-serveDone)
