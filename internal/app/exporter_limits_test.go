@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"sync/atomic"
@@ -422,23 +423,23 @@ func TestExporter_HandshakeTimeoutCoversBodyDecode(t *testing.T) {
 	// force-close the conn even though DecodeHeader already returned.
 	clk.Advance(handshakeTimeout + 10*time.Millisecond)
 
-	// Read with a short deadline: the handshake timeout must close the
-	// conn within a small window after the advance. Pre-fix, the
-	// watcher stops at DecodeHeader and the conn stays open — Read
-	// blocks until the test's own deadline, which we detect by timing.
-	readStart := time.Now()
-
-	_ = client.SetReadDeadline(readStart.Add(500 * time.Millisecond))
+	// Read with a generous deadline: the handshake timeout must close
+	// the conn so Read returns EOF (or similar server-closed error),
+	// NOT a client-side deadline-exceeded. Pre-fix, the watcher stops
+	// at DecodeHeader and the conn stays open — Read blocks until the
+	// client-side deadline, surfacing as a *net.OpError with
+	// Timeout()==true. Discriminating by error kind is more robust
+	// than wall-clock timing under concurrent-test load.
+	_ = client.SetReadDeadline(time.Now().Add(2 * time.Second))
 
 	_, err = client.Read(make([]byte, 1))
-
-	readElapsed := time.Since(readStart)
-
 	require.Error(t, err, "body-decode stall must be closed by handshake timeout")
-	require.Less(t, readElapsed, 300*time.Millisecond,
-		"handshake timeout should close the conn quickly; "+
-			"Read returning near the test's own deadline means the "+
-			"server-side timeout never fired")
+
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		t.Fatalf("Read hit client-side deadline (%v) — server-side "+
+			"handshake timeout never fired; conn still open", err)
+	}
 }
 
 // TestExporter_HandshakeTimeout asserts that a connection which

@@ -176,7 +176,7 @@ func TestReconnectGenerationMismatchDropsStaleEvent(t *testing.T) {
 	}, 100*time.Millisecond, 5*time.Millisecond,
 		"stale same-slot event must not drive a third reconnect")
 
-	require.Len(t, kernel.DetachPortCalls(), 0,
+	require.Empty(t, kernel.DetachPortCalls(),
 		"stale event must not issue a kernel-side detach")
 }
 
@@ -231,7 +231,7 @@ func containsLower(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		match := true
 
-		for j := 0; j < len(sub); j++ {
+		for j := range len(sub) {
 			a := s[i+j]
 
 			if a >= 'A' && a <= 'Z' {
