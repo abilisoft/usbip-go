@@ -317,20 +317,31 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 }
 
 // applyShutdownBackstop derives the ctx the drain actually waits on.
-// If the caller's ctx already has a deadline — or the backstop was
-// never configured — the caller's ctx is returned unchanged with a
-// no-op cancel. Otherwise a WithTimeout child caps the drain at
-// shutdownTimeout (RANK 9). The returned cancel is always non-nil.
+// When no backstop is configured (shutdownTimeout <= 0) the caller's
+// ctx is returned unchanged with a no-op cancel. Otherwise the drain
+// deadline is min(caller ctx deadline, now + shutdownTimeout) — the
+// tighter of the two wins per the spec's "tighter wins" rule
+// (pass-2 RANK 7). Pre-fix any caller deadline disabled the backstop
+// entirely, so a caller with a generous ctx deadline waited the
+// caller-budget even when the configured timeout was orders of
+// magnitude tighter.
+//
+// The returned cancel is always non-nil; when no new ctx is derived
+// it is a no-op.
 func (e *Exporter) applyShutdownBackstop(ctx context.Context) (context.Context, context.CancelFunc) {
 	if e.shutdownTimeout <= 0 {
 		return ctx, func() {}
 	}
 
-	if _, ok := ctx.Deadline(); ok {
+	backstopDeadline := e.clock.Now().Add(e.shutdownTimeout)
+
+	if callerDeadline, ok := ctx.Deadline(); ok && callerDeadline.Before(backstopDeadline) {
+		// Caller's deadline is already tighter than the backstop.
+		// Return ctx unchanged so the caller's semantics apply.
 		return ctx, func() {}
 	}
 
-	return context.WithTimeout(ctx, e.shutdownTimeout)
+	return context.WithDeadline(ctx, backstopDeadline)
 }
 
 // startServing transitions the Exporter from idle → serving. Returns
