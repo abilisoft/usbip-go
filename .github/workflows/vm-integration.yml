@@ -48,6 +48,11 @@ jobs:
     name: VM smoke (kernel modules load)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: read
+      # id-token: write — required by DeterminateSystems/flakehub-cache-action
+      # (v3.19.0+) to exchange the runner's OIDC token for cache auth.
+      id-token: write
     steps:
       - name: Verify nested KVM availability
         run: |
@@ -70,6 +75,11 @@ jobs:
     runs-on: ubuntu-24.04
     needs: vm-smoke
     timeout-minutes: 30
+    permissions:
+      contents: read
+      # id-token: write — required by DeterminateSystems/flakehub-cache-action
+      # (v3.19.0+) to exchange the runner's OIDC token for cache auth.
+      id-token: write
     steps:
       - name: Verify nested KVM availability
         run: |
