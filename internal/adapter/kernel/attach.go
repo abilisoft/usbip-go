@@ -124,6 +124,10 @@ func (a *ImporterAdapter) attachAtPort(
 		return 0, err
 	}
 
+	// fd is a dup'd descriptor — close it after the kernel sysfs write
+	// on all exit paths (kernel obtains its own socket ref via sockfd_lookup).
+	defer func() { _ = syscall.Close(int(fd)) }()
+
 	payload := formatAttachPayload(portID, fd, spec.DevID, spec.Speed)
 
 	err = a.writeClassified(path.Join(SysfsVHCIHCD, SysfsVHCIAttach), payload)
@@ -192,10 +196,12 @@ func validatePortInRange(topo StatusTopology, port domain.PortID) error {
 }
 
 // extractFD walks the conn → syscall.Conn → syscall.RawConn chain to
-// obtain the underlying OS file descriptor. Errors surface with enough
-// context for operator diagnosis; no domain sentinel applies because
-// this is a programmer contract (caller supplied a conn that does not
-// expose a syscall fd — e.g. net.Pipe).
+// obtain a dup'd OS file descriptor. The dup happens inside the Control
+// callback while the Go runtime holds a reference on the underlying fd,
+// preventing a concurrent conn.Close from releasing the original fd
+// before the kernel sysfs write completes. Callers MUST close the
+// returned fd with syscall.Close after the write (kernel takes its own
+// reference via sockfd_lookup and does not depend on ours remaining open).
 func extractFD(conn net.Conn) (uintptr, error) {
 	sc, ok := conn.(syscall.Conn)
 	if !ok {
@@ -208,10 +214,21 @@ func extractFD(conn net.Conn) (uintptr, error) {
 	}
 
 	var fd uintptr
+	var dupErr error
 
-	cerr := raw.Control(func(f uintptr) { fd = f })
+	cerr := raw.Control(func(f uintptr) {
+		duped, e := syscall.Dup(int(f))
+		if e != nil {
+			dupErr = fmt.Errorf("dup fd: %w", e)
+			return
+		}
+		fd = uintptr(duped)
+	})
 	if cerr != nil {
 		return 0, fmt.Errorf("attach: Control: %w", cerr)
+	}
+	if dupErr != nil {
+		return 0, fmt.Errorf("attach: %w", dupErr)
 	}
 
 	return fd, nil

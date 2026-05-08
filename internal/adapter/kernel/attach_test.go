@@ -75,25 +75,6 @@ func socketpairConns(t *testing.T) (net.Conn, net.Conn) {
 	return lc, rc
 }
 
-// fdOf extracts the OS file descriptor underlying conn. The test uses
-// this to know the exact fd number AttachRemote should format into its
-// sysfs payload.
-func fdOf(t *testing.T, conn net.Conn) uintptr {
-	t.Helper()
-
-	sc, ok := conn.(syscall.Conn)
-	require.True(t, ok, "conn must satisfy syscall.Conn")
-
-	raw, err := sc.SyscallConn()
-	require.NoError(t, err)
-
-	var fd uintptr
-
-	cerr := raw.Control(func(f uintptr) { fd = f })
-	require.NoError(t, cerr)
-
-	return fd
-}
 
 // closeCountingConn wraps net.Conn and counts Close() invocations. The
 // count is atomic so the test can inspect it after AttachRemote
@@ -628,7 +609,6 @@ func TestAttachRemote_HappyPath(t *testing.T) {
 	defer func() { _ = right.Close() }() // peer side stays open; adapter closes left.
 
 	wrapped := &closeCountingConn{Conn: left}
-	fd := fdOf(t, left)
 
 	var gotWrites []writeCall
 
@@ -655,10 +635,16 @@ func TestAttachRemote_HappyPath(t *testing.T) {
 
 	require.Len(t, gotWrites, 1)
 	require.Equal(t, "/sys/devices/platform/vhci_hcd.0/attach", gotWrites[0].Path)
-	require.Equal(t,
-		fmt.Sprintf("%d %d %d %d", 0, fd, uint32(spec.DevID), uint32(spec.Speed)),
-		gotWrites[0].Data,
-	)
+	// The fd in the payload is a dup of the conn's fd (different number, same socket).
+	// Verify all fields except the fd value; the fd must be a positive integer.
+	var portVal, fdVal, devIDVal, speedVal uint32
+	n, scanErr := fmt.Sscanf(gotWrites[0].Data, "%d %d %d %d", &portVal, &fdVal, &devIDVal, &speedVal)
+	require.NoError(t, scanErr)
+	require.Equal(t, 4, n)
+	require.EqualValues(t, 0, portVal)
+	require.Positive(t, fdVal, "attach payload fd must be positive")
+	require.EqualValues(t, uint32(spec.DevID), devIDVal)
+	require.EqualValues(t, uint32(spec.Speed), speedVal)
 
 	require.EqualValues(t, 1, wrapped.closes.Load(),
 		"conn must be closed exactly once after successful sysfs write")

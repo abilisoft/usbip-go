@@ -10,6 +10,7 @@ import (
 	"net"
 	"path"
 	"strconv"
+	"syscall"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
@@ -30,6 +31,10 @@ func (a *ExporterAdapter) ExportOnConn(ctx context.Context, conn net.Conn, busID
 	if err != nil {
 		return err
 	}
+
+	// fd is a dup'd descriptor — close it after the kernel sysfs write
+	// on all exit paths (kernel obtains its own socket ref via sockfd_lookup).
+	defer func() { _ = syscall.Close(int(fd)) }()
 
 	return a.writeClassified(
 		path.Join(SysfsUSBDevices, string(busID), SysfsUsbipSockfd),
