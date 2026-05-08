@@ -305,25 +305,37 @@ const portStatusInUse = 3
 // the kernel's StatusNull → StatusUsed transition, so the second
 // concurrent attach finds zero free ports and must return
 // ErrNoFreePort.
+//
+// hcPorts is the per-hub port count (VHCI_HC_PORTS from the kernel's
+// perspective). The kernel splits the flat port space into a HS block
+// at flat 0..hcPorts-1 and a SS block at flat hcPorts..nports-1; the
+// fixture must reproduce that split so SS-targeted tests find ss-
+// labelled rows in the upper half (Bug C).
 type singlePortStatus struct {
-	mu     sync.Mutex
-	nports int
+	mu      sync.Mutex
+	nports  int
+	hcPorts int
 	// busy[i]==true means port i is already in use.
 	busy []bool
 }
 
 // newSinglePortStatus builds a table of size n where only port 0 is
-// free.
+// free. n must be a positive multiple of two on one controller so the
+// HS/SS split is well-defined (hcPorts = n/2); callers that want a
+// different controller count must extend the fixture.
 func newSinglePortStatus(n int) *singlePortStatus {
 	busy := make([]bool, n)
 	for i := 1; i < n; i++ {
 		busy[i] = true
 	}
 
-	return &singlePortStatus{nports: n, busy: busy}
+	// One controller => two hubs (HS + SS) => hcPorts = n / 2.
+	return &singlePortStatus{nports: n, hcPorts: n / 2, busy: busy}
 }
 
-// statusText returns the current status-file bytes.
+// statusText returns the current status-file bytes. Hub tokens are
+// derived from the flat index: [0, hcPorts) → "hs", [hcPorts, nports)
+// → "ss", matching the kernel's status_show_vhci layout.
 func (s *singlePortStatus) statusText() []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -338,7 +350,12 @@ func (s *singlePortStatus) statusText() []byte {
 			sta = portStatusInUse
 		}
 
-		lines = append(lines, fmt.Sprintf("hs  %04d %03d 000 00000000 000000 0-0", i, sta))
+		hub := "hs"
+		if i >= s.hcPorts {
+			hub = "ss"
+		}
+
+		lines = append(lines, fmt.Sprintf("%s  %04d %03d 000 00000000 000000 0-0", hub, i, sta))
 	}
 
 	return []byte(strings.Join(lines, "\n") + "\n")
