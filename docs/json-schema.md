@@ -175,7 +175,7 @@ exit code and a message on stderr, never as `{"ok": false}`.
 
 ## Watch events (jsonlines)
 
-`usbip watch --output=json` emits one record per line. Every record
+`usbip-go watch --output=json` emits one record per line. Every record
 carries the schema envelope plus a `kind` discriminator. `kind`
 comes from a closed set matching `pkg/domain.EventKind.String()`:
 
@@ -264,7 +264,7 @@ ADR-0009.
 
 Served on `GET /` via the UDS configured with `--status-socket`.
 Shape is `statusResponse` in
-[`cmd/usbip/status.go`](../cmd/usbip/status.go).
+[`cmd/usbip-go/status.go`](../cmd/usbip-go/status.go).
 
 ```json
 {
@@ -338,15 +338,15 @@ approximate, misleading numbers. Operators who need byte-level
 visibility read kernel socket stats via `ss -tn`.
 
 Build provenance (`version`, `commit`, `build_date`, `go_version`)
-appears as fields on the `"usbipd-go starting"` slog record at daemon
-startup. Operators query for it via `journalctl --output=json | jq
-'select(.MESSAGE == "usbipd-go starting")'`.
+appears as fields on the `"usbip-go serve starting"` slog record at
+daemon startup. Operators query for it via `journalctl --output=json |
+jq 'select(.MESSAGE == "usbip-go serve starting")'`.
 
 ## Forward compatibility
 
 All consumers MUST treat unknown fields as opaque and pass them
 through or ignore them silently. The `output_forward_compat_test.go`
-suite in `cmd/usbip` asserts that renderers emit fields not present
+suite in `cmd/usbip-go` asserts that renderers emit fields not present
 in older fixtures without breaking older parsers that ignore them.
 
 When a breaking change is required, the library bumps the schema

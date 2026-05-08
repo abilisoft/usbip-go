@@ -155,10 +155,12 @@ func validateShell(name string) (string, error) {
 }
 
 // completionPath returns the XDG-appropriate install path for shell.
-// Bash lands in ~/.local/share/bash-completion/completions/usbip.
+// Bash lands in ~/.local/share/bash-completion/completions/usbip-go.
 // Zsh lands in ~/.local/share/zsh/site-functions/_usbip-go so users can
 // prepend the directory to fpath. Other shells emit a conservative
-// default in the same share tree.
+// default in the same share tree. The basename matches the binary
+// name so shell completion drivers (bash-completion, zsh's compdef)
+// look it up under the command operators actually type.
 func completionPath(shell string) (string, error) {
 	data, err := xdgDataHome()
 	if err != nil {
@@ -167,13 +169,13 @@ func completionPath(shell string) (string, error) {
 
 	switch shell {
 	case shellBash:
-		return filepath.Join(data, "bash-completion", "completions", "usbip"), nil
+		return filepath.Join(data, "bash-completion", "completions", "usbip-go"), nil
 	case shellZsh:
-		return filepath.Join(data, "zsh", "site-functions", "_usbip"), nil
+		return filepath.Join(data, "zsh", "site-functions", "_usbip-go"), nil
 	case shellFish:
-		return filepath.Join(data, "fish", "vendor_completions.d", "usbip.fish"), nil
+		return filepath.Join(data, "fish", "vendor_completions.d", "usbip-go.fish"), nil
 	case shellPwsh, shellPowershell:
-		return filepath.Join(data, "powershell", "Modules", "usbip.ps1"), nil
+		return filepath.Join(data, "powershell", "Modules", "usbip-go.ps1"), nil
 	default:
 		return "", fmt.Errorf("%w: %q", errShellUnknown, shell)
 	}

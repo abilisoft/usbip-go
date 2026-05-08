@@ -223,15 +223,6 @@ func TestClassifyDisconnectReason_ContextCanceled(t *testing.T) {
 	require.Equal(t, DisconnectReasonShutdown, got)
 }
 
-// TestClassifyDisconnectReason_Nil pins the nil branch: no error means
-// the session ended gracefully.
-func TestClassifyDisconnectReason_Nil(t *testing.T) {
-	t.Parallel()
-
-	got := classifyDisconnectReason(nil)
-	require.Equal(t, DisconnectReasonGraceful, got)
-}
-
 // TestClassifyDisconnectReason_OtherError pins the fallthrough branch:
 // an unrecognised error maps to KernelError.
 func TestClassifyDisconnectReason_OtherError(t *testing.T) {

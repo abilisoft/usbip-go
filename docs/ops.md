@@ -1,8 +1,8 @@
-# Operating the `usbip` daemon
+# Operating the `usbip-go` daemon
 
 This document covers installation, systemd integration, the status
 UDS, and health/readiness endpoints for production deployments of
-`usbip serve` (the daemon subcommand of the unified `usbip` binary;
+`usbip-go serve` (the daemon subcommand of the unified `usbip-go` binary;
 see ADR-0011).
 
 ## Installation
@@ -15,8 +15,8 @@ Three supported install paths:
    curl -LO https://github.com/abilisoft/usbip-go/releases/download/vX.Y.Z/usbip-go_vX.Y.Z_linux_amd64.tar.gz
    tar xzf usbip-go_vX.Y.Z_linux_amd64.tar.gz
    sudo install -m 0755 usbip /usr/bin/
-   sudo install -Dm 0644 contrib/systemd/usbip.service /etc/systemd/system/usbip.service
-   sudo install -Dm 0644 contrib/systemd/usbip.socket  /etc/systemd/system/usbip.socket
+   sudo install -Dm 0644 contrib/systemd/usbip-go.service /etc/systemd/system/usbip-go.service
+   sudo install -Dm 0644 contrib/systemd/usbip-go.socket  /etc/systemd/system/usbip-go.socket
    ```
 
 2. **Debian / RPM package** from the release assets. Install via
@@ -34,8 +34,7 @@ Three supported install paths:
 3. **Source build** for development:
 
    ```
-   go install github.com/abilisoft/usbip-go/cmd/usbip@latest
-   go install github.com/abilisoft/usbip-go/cmd/usbip@latest
+   go install github.com/abilisoft/usbip-go/cmd/usbip-go@latest
    ```
 
 Kernel modules must be loadable on the target host:
@@ -53,7 +52,7 @@ The project ships two unit files under
 [`contrib/systemd/`](../contrib/systemd/). Both are intentionally
 minimal — operators are expected to copy and customise.
 
-### `usbip.socket`
+### `usbip-go.socket`
 
 ```ini
 [Unit]
@@ -75,16 +74,16 @@ races with a previous daemon over port 3240 during upgrades. The
 `activation.ListenersWithNames` helper disambiguate if multiple
 sockets are ever passed to the same unit.
 
-### `usbip.service`
+### `usbip-go.service`
 
 ```ini
 [Unit]
 Description=USB/IP (Go) daemon
-Requires=usbip.socket
+Requires=usbip-go.socket
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/usbip serve
+ExecStart=/usr/bin/usbip-go serve
 Restart=on-failure
 CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
 
@@ -98,9 +97,9 @@ Copy, then customise:
   your network (see [`security.md`](security.md)).
 - Add `--health-addr=127.0.0.1:9240` to expose `/healthz` and
   `/readyz` on localhost for orchestrator probes.
-- Add `--status-socket-group=usbip` (the daemon's default) or any
+- Add `--status-socket-group=usbip-go` (the daemon's default) or any
   group of your choice; create that group and add the operators who
-  need `usbip drain` to it.
+  need `usbip-go drain` to it.
 - Pin additional hardening directives:
   `NoNewPrivileges=yes`, `ProtectSystem=strict`,
   `ProtectHome=true`, `PrivateTmp=yes`, `RestrictSUIDSGID=yes`,
@@ -110,12 +109,12 @@ Enable:
 
 ```
 sudo systemctl daemon-reload
-sudo systemctl enable --now usbip.socket
+sudo systemctl enable --now usbip-go.socket
 ```
 
 Socket activation means the daemon starts on the first inbound
-connection, not at boot. `systemctl status usbip` reports the
-daemon's state; `systemctl status usbip.socket` reports the
+connection, not at boot. `systemctl status usbip-go` reports the
+daemon's state; `systemctl status usbip-go.socket` reports the
 listener.
 
 ## Daemon flags
@@ -133,17 +132,17 @@ Authoritative list in v1 contract §7.7. Full flag set:
 | `--handshake-timeout` | `10s` | Slowloris defence; drop a peer that stalls mid-handshake. |
 | `--shutdown-timeout` | `30s` | Graceful drain budget before force-close. |
 | `--status-socket` | `/run/usbip-go/status.sock` | Change to an alternate runtime dir or `""` to disable. |
-| `--status-socket-group` | `usbip` | Match your operator group. |
+| `--status-socket-group` | `usbip-go` | Match your operator group. |
 | `--health-addr` | `""` | Set to `127.0.0.1:9240` (or similar) to expose `/healthz` and `/readyz` for orchestrator probes. |
 | `--log-level` | `info` | `debug` or `trace` during incident response. |
 | `--log-format` | `auto` | `json` for log-aggregation pipelines. |
 | `--verbose` / `-v` | `0` | Count flag: `-v` raises log level to `debug`, `-vv` to `trace`. Wins over `--log-level` when set. |
 
-Run `usbip serve --help` for the up-to-date set.
+Run `usbip-go serve --help` for the up-to-date set.
 
 ## Exit codes
 
-The `usbip` binary uses a stable numeric exit-code catalog (v1
+The `usbip-go` binary uses a stable numeric exit-code catalog (v1
 contract §7.4). Operators / supervisors can grep on these values:
 
 | Code | Symbol | Meaning |
@@ -151,16 +150,16 @@ contract §7.4). Operators / supervisors can grep on these values:
 | `0` | `ExitOK` | Operation succeeded |
 | `1` | `ExitGeneric` | Unclassified error — see stderr / journald |
 | `2` | `ExitUsage` | Bad flag / argument; the cobra-level usage message goes to stderr |
-| `3` | `ExitPermission` | Operation needs CAP_SYS_ADMIN (importer-side commands like `usbip attach`) |
+| `3` | `ExitPermission` | Operation needs CAP_SYS_ADMIN (importer-side commands like `usbip-go attach`) |
 | `4` | `ExitKernelModule` | Required kernel module not loaded (`vhci_hcd`, `usbip_host`, ...) |
 | `5` | `ExitDeviceNotFound` | Device with the supplied BusID not present |
 | `6` | `ExitDeviceBusy` | Device already bound or port already in use |
 | `7` | `ExitProtocolMismatch` | Peer speaks a different USB/IP version |
 | `8` | `ExitNetwork` | Dial / read / write error against the remote |
-| `9` | `ExitTimeout` | Operation deadline exceeded; also returned by `usbip drain --drain-timeout` overruns |
+| `9` | `ExitTimeout` | Operation deadline exceeded; also returned by `usbip-go drain --drain-timeout` overruns |
 | `10` | `ExitNoFreePort` | Importer has no free vhci port |
 | `11` | `ExitProtocolError` | Peer reported a protocol-level error |
-| `12` | `ExitAlreadyRunning` | `usbip serve` could not start because another daemon owns the status UDS |
+| `12` | `ExitAlreadyRunning` | `usbip-go serve` could not start because another daemon owns the status UDS |
 | `130` | `ExitInterrupted` | SIGINT / context.Canceled (Unix convention: 128 + signal 2) |
 
 ## Status UDS
@@ -186,11 +185,11 @@ Output includes:
 The status socket is also the channel for the drain command:
 
 ```
-sudo usbip drain --status-socket /run/usbip-go/status.sock
+sudo usbip-go drain --status-socket /run/usbip-go/status.sock
 ```
 
 Drain instructs the running daemon to refuse new accepts, wait for
-in-flight sessions to end, and exit cleanly. `systemctl restart usbip`
+in-flight sessions to end, and exit cleanly. `systemctl restart usbip-go`
 then starts the new version against the same socket-activated
 listener without a connect-refused window. See ADR-0012 for the
 mechanism (HTTP-over-UDS) and the rejected alternatives (signals,
@@ -202,8 +201,8 @@ Two timeouts coexist:
 
 | Flag | Side | Default | What it bounds |
 |---|---|---|---|
-| `--shutdown-timeout` | `usbip serve` (server) | `30s` | Actual in-flight session drain. AUTHORITATIVE — daemon refuses to wait beyond this. |
-| `--drain-timeout` | `usbip drain` (client) | `60s` | UI-only bound on how long the client polls `GET /` waiting for `sessions == []`. |
+| `--shutdown-timeout` | `usbip-go serve` (server) | `30s` | Actual in-flight session drain. AUTHORITATIVE — daemon refuses to wait beyond this. |
+| `--drain-timeout` | `usbip-go drain` (client) | `60s` | UI-only bound on how long the client polls `GET /` waiting for `sessions == []`. |
 
 Recommended: keep `--drain-timeout > --shutdown-timeout` so the
 operator-visible result reflects the daemon's actual behavior. When
@@ -214,7 +213,7 @@ reports failure but the daemon keeps draining and exits when its own
 timeout fires — operator sees a misleading "drain timed out" but
 the daemon completes correctly.
 
-Concurrent / repeated `usbip drain` calls are idempotent: only the
+Concurrent / repeated `usbip-go drain` calls are idempotent: only the
 first POST spawns the drain goroutine; subsequent POSTs return 200
 immediately without re-triggering shutdown.
 
@@ -223,7 +222,7 @@ immediately without re-triggering shutdown.
 Enable with `--health-addr`:
 
 ```
-usbipd-go --health-addr 127.0.0.1:9240
+usbip-go serve --health-addr 127.0.0.1:9240
 ```
 
 The endpoint exposes two paths, served by `net/http` from the standard
@@ -247,16 +246,16 @@ Recommended journald signal queries:
 
 ```
 # Bind / unbind failures by outcome
-journalctl -u usbip --output=json \
+journalctl -u usbip-go --output=json \
   | jq 'select(.MESSAGE | startswith("exporter bind failed"))
         | {time: .__REALTIME_TIMESTAMP, busid, outcome, err}'
 
 # Reconnect storms (watcher backoff churn)
-journalctl -u usbip --output=json \
+journalctl -u usbip-go --output=json \
   | jq 'select(.outcome == "backoff")'
 
 # Sessions rejected by ACL or rate limit
-journalctl -u usbip --output=json \
+journalctl -u usbip-go --output=json \
   | jq 'select(.outcome == "rejected_acl" or .outcome == "rejected_rate")'
 ```
 
@@ -270,9 +269,9 @@ adapter.
 For seamless upgrades:
 
 ```
-sudo usbip drain --status-socket /run/usbip-go/status.sock
+sudo usbip-go drain --status-socket /run/usbip-go/status.sock
 sudo install -m 0755 /tmp/new-usbip /usr/bin/usbip
-sudo systemctl start usbip
+sudo systemctl start usbip-go
 ```
 
 Kernel-owned sessions survive the daemon restart because the kernel
@@ -295,11 +294,11 @@ need accounting continuity should drain before upgrading.
 - **Something else** — include the output of:
 
   ```
-  usbip version
-  sudo usbip serve --log-level=trace --status-socket=/run/usbip-go/status.sock
+  usbip-go version
+  sudo usbip-go serve --log-level=trace --status-socket=/run/usbip-go/status.sock
   sudo curl --unix-socket /run/usbip-go/status.sock http://unused/ | jq .
   curl -s http://127.0.0.1:9240/readyz
-  journalctl -u usbip --output=json --since '-15min'
+  journalctl -u usbip-go --output=json --since '-15min'
   ```
 
   in any issue you file.

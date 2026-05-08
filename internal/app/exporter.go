@@ -180,12 +180,30 @@ func requireExporterDeps(cfg *exporterConfig) {
 	}
 }
 
-// Bind delegates to kernel.Bind per v1 contract §5.3. Errors are wrapped with
-// the busid so callers that bind many devices can identify which failed.
-// Every terminal branch logs a structured slog record with an outcome
-// field so journald queries can filter by outcome without parsing
-// free-form messages.
+// Bind delegates to kernel.Bind per v1 contract §5.3. Errors are
+// wrapped with the busid so callers that bind many devices can
+// identify which failed. Every terminal branch logs a structured slog
+// record with an outcome field so journald queries can filter by
+// outcome without parsing free-form messages.
+//
+// The boundary guard rejects malformed BusID values BEFORE any
+// kernel-adapter call. Callers that construct a BusID by raw string
+// conversion (bypassing ParseBusID) cannot smuggle a path-traversal
+// sequence into the sysfs writes the kernel adapter performs. The
+// CLI re-validates earlier, but library embedders enter through this
+// surface and must hit the same gate.
 func (e *Exporter) Bind(ctx context.Context, busID domain.BusID) error {
+	if !busID.IsValid() {
+		err := fmt.Errorf("bind %q: %w", busID, domain.ErrBusIDInvalid)
+
+		e.logger.Warn("exporter bind rejected",
+			slog.Any("busid", busID),
+			slog.String("outcome", string(BindOutcomeError)),
+			slog.Any("err", err))
+
+		return err
+	}
+
 	err := e.kernel.Bind(ctx, busID)
 	if err != nil {
 		e.logger.Warn("exporter bind failed",
@@ -203,9 +221,22 @@ func (e *Exporter) Bind(ctx context.Context, busID domain.BusID) error {
 	return nil
 }
 
-// Unbind delegates to kernel.Unbind per v1 contract §5.3. Errors are wrapped
-// with the busid. Outcome is logged structurally per Bind's contract.
+// Unbind delegates to kernel.Unbind per v1 contract §5.3. Errors are
+// wrapped with the busid. Outcome is logged structurally per Bind's
+// contract. The same BusID validity gate as Bind applies — see Bind
+// for the boundary rationale.
 func (e *Exporter) Unbind(ctx context.Context, busID domain.BusID) error {
+	if !busID.IsValid() {
+		err := fmt.Errorf("unbind %q: %w", busID, domain.ErrBusIDInvalid)
+
+		e.logger.Warn("exporter unbind rejected",
+			slog.Any("busid", busID),
+			slog.String("outcome", string(UnbindOutcomeError)),
+			slog.Any("err", err))
+
+		return err
+	}
+
 	err := e.kernel.Unbind(ctx, busID)
 	if err != nil {
 		e.logger.Warn("exporter unbind failed",

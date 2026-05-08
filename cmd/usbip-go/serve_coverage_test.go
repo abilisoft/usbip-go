@@ -158,7 +158,7 @@ func TestFirstSingletonListenerReturnsExpected(t *testing.T) {
 	defer func() { _ = ln.Close() }()
 
 	got := firstSingletonListener(map[string][]net.Listener{
-		"usbip.socket": {ln},
+		"usbip-go.socket": {ln},
 	})
 	require.Same(t, ln, got)
 }
@@ -291,7 +291,7 @@ func TestLogServeStartupCarriesBuildProvenance(t *testing.T) {
 
 	err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &rec)
 	require.NoError(t, err, "startup log must be a JSON record; got %s", buf.String())
-	require.Equal(t, "usbip serve starting", rec["msg"])
+	require.Equal(t, "usbip-go serve starting", rec["msg"])
 
 	for _, key := range []string{"version", "commit", "build_date", "go_version"} {
 		_, ok := rec[key]

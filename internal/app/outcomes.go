@@ -56,9 +56,13 @@ const (
 // DisconnectReason classifies why a Session ended.
 type DisconnectReason string
 
-// DisconnectReason values.
+// DisconnectReason values. ClientGone covers the graceful path —
+// the kernel publishes PortDetached / DeviceUnbound when the importer
+// peer detaches its port or the operator runs `usbip-go unbind`
+// (equivalently upstream `usbip unbind`). There is no separate
+// "graceful" reason: a session that ends without an error always
+// ends because the kernel signalled one of those two events.
 const (
-	DisconnectReasonGraceful    DisconnectReason = "graceful"
 	DisconnectReasonClientGone  DisconnectReason = "client_gone"
 	DisconnectReasonKernelError DisconnectReason = "kernel_error"
 	DisconnectReasonShutdown    DisconnectReason = "shutdown"

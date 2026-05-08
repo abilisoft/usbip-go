@@ -67,34 +67,43 @@ func (e *Exporter) Sessions(_ context.Context) []domain.Session {
 }
 
 // WatchSessions returns an iter.Seq that yields every future
-// SessionStartedEvent and SessionEndedEvent while ctx is live. The
-// subscription is registered on call; canceling ctx (or yield
-// returning false) removes the subscriber. Post-Shutdown the iter
-// terminates immediately with no events — matches Importer.Watch's
+// SessionStartedEvent and SessionEndedEvent while ctx is live.
+// Subscriber registration is deferred until the consumer ranges over
+// the returned iter so a caller that constructs the iter and drops it
+// does not occupy a fanout slot until Shutdown. On the first iteration
+// the subscriber is registered; subsequent ctx cancel, sub.done from
+// closeAllSubscribers, or yield-false removes it. Post-Shutdown the
+// iter terminates immediately with no events — matches Importer.Watch's
 // post-Close semantics per v1 contract §3.4.
 func (e *Exporter) WatchSessions(ctx context.Context) iter.Seq[domain.Event] {
-	e.mu.Lock()
+	e.mu.RLock()
 
-	if e.shutdown {
-		e.mu.Unlock()
+	shutdown := e.shutdown
 
+	e.mu.RUnlock()
+
+	if shutdown {
 		return emptyEventSeq
 	}
 
-	sub := &sessionEventSubscriber{
-		ch:   make(chan domain.Event, sessionEventBufSize),
-		done: make(chan struct{}),
+	return func(yield func(domain.Event) bool) {
+		e.mu.Lock()
+		if e.shutdown {
+			e.mu.Unlock()
+
+			return
+		}
+
+		sub := &sessionEventSubscriber{
+			ch:   make(chan domain.Event, sessionEventBufSize),
+			done: make(chan struct{}),
+		}
+
+		e.subscribers = append(e.subscribers, sub)
+		e.mu.Unlock()
+
+		runSessionEventSeq(ctx, sub, func() { e.removeSubscriber(sub) }, yield)
 	}
-
-	e.subscribers = append(e.subscribers, sub)
-
-	e.mu.Unlock()
-
-	remove := func() {
-		e.removeSubscriber(sub)
-	}
-
-	return newSessionEventSeq(ctx, sub, remove)
 }
 
 // removeSubscriber drops sub from the subscriber list and signals the
@@ -164,30 +173,29 @@ func (e *Exporter) closeAllSubscribers() {
 	}
 }
 
-// newSessionEventSeq returns an iter.Seq that yields events from sub.ch
-// until ctx is cancelled, sub.done fires, or yield returns false. The
-// remove callback is invoked on exit so the subscriber is dropped from
-// the Exporter's list. This variant terminates on sub.done rather than
-// on channel close — the publish path never closes sub.ch to avoid the
+// runSessionEventSeq yields events from sub.ch to yield until ctx is
+// cancelled, sub.done fires, or yield returns false. The remove
+// callback is invoked on exit so the subscriber is dropped from the
+// Exporter's list. This variant terminates on sub.done rather than on
+// channel close — the publish path never closes sub.ch to avoid the
 // send-on-closed race.
-func newSessionEventSeq(
+func runSessionEventSeq(
 	ctx context.Context,
 	sub *sessionEventSubscriber,
 	remove func(),
-) iter.Seq[domain.Event] {
-	return func(yield func(domain.Event) bool) {
-		defer remove()
+	yield func(domain.Event) bool,
+) {
+	defer remove()
 
-		for {
-			select {
-			case <-ctx.Done():
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-sub.done:
+			return
+		case ev := <-sub.ch:
+			if !yield(ev) {
 				return
-			case <-sub.done:
-				return
-			case ev := <-sub.ch:
-				if !yield(ev) {
-					return
-				}
 			}
 		}
 	}

@@ -132,5 +132,5 @@ func TestVersionSubcommand(t *testing.T) {
 
 	err := cmd.Execute()
 	require.NoError(t, err)
-	require.Contains(t, buf.String(), "usbip version")
+	require.Contains(t, buf.String(), "usbip-go version")
 }

@@ -6,7 +6,7 @@ contributors.
 ## Layers
 
 ```
-+-------------------------+  cmd/usbip, cmd/usbip, examples/*
++-------------------------+  cmd/usbip-go, examples/*
 |   Command entrypoints   |
 +-----------+-------------+
             |
@@ -123,11 +123,13 @@ The seam exists so tests can inject a fake transport without going
 through the Linux kernel stack. `TCP_NODELAY` is enabled on every
 accepted connection to minimise handshake latency.
 
-### `cmd/usbip` and `cmd/usbip`
+### `cmd/usbip-go`
 
-Cobra-based CLI entrypoints. They consume `pkg/usbip` only; neither
-binary imports `internal/*` directly. `cmd/usbip` is the production
-daemon; `cmd/usbip` is the client/operator CLI.
+Cobra-based single-binary CLI entrypoint with flat top-level verbs
+(see ADR-0011). The binary consumes `pkg/usbip` only; it does not
+import `internal/*` directly. `usbip-go serve` runs the production
+daemon; `usbip-go {list,attach,detach,bind,unbind,watch,drain,
+version,completion}` cover the client and operator commands.
 
 ### `examples/`
 

@@ -85,19 +85,19 @@ linters:
         - 'github.com/abilisoft/usbip-go/internal/app\.BackoffStrategy'
         - 'github.com/abilisoft/usbip-go/pkg/usbip\.BackoffStrategy'
         - 'github.com/prometheus/client_golang/prometheus\.Registerer'
-        # cmd/usbip exposes the Importer/Exporter/Renderer interfaces as
+        # cmd/usbip-go exposes the Importer/Exporter/Renderer interfaces as
         # the substitution seams tested via mocks; factories and
         # pickers return the interface by design.
-        - 'github.com/abilisoft/usbip-go/cmd/usbip\.Importer'
-        - 'github.com/abilisoft/usbip-go/cmd/usbip\.Exporter'
-        - 'github.com/abilisoft/usbip-go/cmd/usbip\.Renderer'
+        - 'github.com/abilisoft/usbip-go/cmd/usbip-go\.Importer'
+        - 'github.com/abilisoft/usbip-go/cmd/usbip-go\.Exporter'
+        - 'github.com/abilisoft/usbip-go/cmd/usbip-go\.Renderer'
     mnd:
       ignored-functions:
         - 'make'
         - 'strconv.FormatInt'
         - 'strconv.FormatUint'
     tagliatelle:
-      # cmd/usbip emits the public jsonlines schema v1 (spec §7.5) with
+      # cmd/usbip-go emits the public jsonlines schema v1 (spec §7.5) with
       # snake_case field names. The schema is frozen; camelCase would
       # silently break operators grep-ing field names.
       case:
@@ -119,12 +119,12 @@ linters:
         # simulation without chmod (which gosec G302 false-flags on
         # directory traversal bits). Swapped only in export_test.go.
         linters: [gochecknoglobals]
-      - path: cmd/usbip/main\.go
+      - path: cmd/usbip-go/main\.go
         # runWithContext threads ctx into cobra via cmd.SetContext +
         # cmd.Execute; contextcheck insists ctx flow through newRootCmd
         # as a parameter but cobra's PersistentPreRunE / RunE signatures
-        # are fixed. cmd/usbip works around this by not having a ctx
-        # parameter in run(); usbipd-go needs one because signal.NotifyContext
+        # are fixed. cmd/usbip-go works around this by not having a ctx
+        # parameter in run(); usbip-go serve needs one because signal.NotifyContext
         # wraps the parent in main. The exclusion is scoped to this one
         # file so no other context-propagation smells escape review.
         linters: [contextcheck]
@@ -157,7 +157,7 @@ linters:
         # security primitives.
         text: 'G404:'
         linters: [gosec]
-      - path: cmd/usbip/history\.go
+      - path: cmd/usbip-go/history\.go
         # The attach-history file lives under $XDG_STATE_HOME/usbip-go
         # (or $HOME/.local/state/usbip-go), a user-scoped path not
         # derived from untrusted input. G304 flags every non-constant
@@ -196,7 +196,7 @@ linters:
         # would pollute the public API surface; whitebox access is the
         # correct approach here.
         linters: [testpackage]
-      - path: cmd/usbip/coverage_extra_test\.go
+      - path: cmd/usbip-go/coverage_extra_test\.go
         # TestCompletionPathPerShell, TestCompletionPathUnknownShellRejected,
         # TestXDGDataHomeUsesEnvWhenSet, TestXDGDataHomeFallsBackToHomeDir
         # mutate process-wide environment via t.Setenv; t.Parallel +
@@ -204,19 +204,19 @@ linters:
         # tparallel rules push for parallel execution by default; the
         # exclusion is scoped to this single file.
         linters: [paralleltest, tparallel]
-      - path: cmd/usbip/no_color_help_test\.go
+      - path: cmd/usbip-go/no_color_help_test\.go
         # TestRunCtx_NoColorAppliedBeforeHelp / NoColorEqualsFormAlsoApplied
         # mutate the process-wide NO_COLOR env to verify that runCtx
         # propagates --no-color before fang renders help. Same
         # rationale as coverage_extra_test.go: t.Setenv pattern is
         # incompatible with t.Parallel.
         linters: [paralleltest, tparallel]
-      - path: cmd/usbip/root_no_color_env_test\.go
+      - path: cmd/usbip-go/root_no_color_env_test\.go
         # TestPersistentPreRunE_NoColorSetsEnv mutates the process-wide
         # NO_COLOR env via os.Setenv (not t.Setenv — we need Cleanup
         # control). t.Parallel + direct os.Setenv is unsafe across tests.
         linters: [paralleltest, tparallel]
-      - path: cmd/usbip/style_no_color_test\.go
+      - path: cmd/usbip-go/style_no_color_test\.go
         # TestStyleWriter_NoColorEnvAppendsNormalized uses t.Setenv to
         # set NO_COLOR; t.Setenv is incompatible with t.Parallel.
         linters: [paralleltest, tparallel]
@@ -249,12 +249,12 @@ linters:
         # as speed.go: no const-array primitive, function rebuild
         # wastes allocation per Bind call.
         linters: [gochecknoglobals]
-      - path: cmd/usbip/activation\.go
+      - path: cmd/usbip-go/activation\.go
         # listenersWithNames is a test-injection seam for the
         # activation.ListenersWithNames call; the var is set once at
         # package init and swapped only in activation_test.go.
         linters: [gochecknoglobals]
-      - path: cmd/usbip/activation_test\.go
+      - path: cmd/usbip-go/activation_test\.go
         # TestListenOrActivation_ErrorPath swaps the listenersWithNames
         # package-level seam; t.Parallel + package-level mutation is
         # unsafe across tests. errActivationInjected is a package-level

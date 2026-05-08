@@ -154,7 +154,7 @@ func WithExporterLogger(l *slog.Logger) ExporterOption {
 //
 // IMPORTANT (PR 1a scope): the option is stored but currently inert
 // at runtime. Exporter.Serve consumes a caller-supplied net.Listener
-// (the daemon path in cmd/usbip builds its own listener via
+// (the daemon path in cmd/usbip-go builds its own listener via
 // systemd activation or net.ListenConfig and hands it in directly),
 // so options set via this function do not reach accepted connections
 // today. PR 1b adds an Exporter-owned listener path that honors these

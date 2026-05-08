@@ -428,6 +428,27 @@ func TestExporterShutdown_ReturnsEvenWhenHandlerIgnoresClose(t *testing.T) {
 	require.ErrorIs(t, shutdownErr, context.DeadlineExceeded)
 }
 
+// TestExporterWatchSessions_DoesNotRegisterUntilIterated pins the
+// lazy-registration contract for WatchSessions: constructing the
+// returned iter MUST NOT occupy a slot in the Exporter's fanout list
+// until the consumer ranges over it. A caller that discards the iter
+// would otherwise leak a buffered channel and a slice slot until
+// Shutdown's closeAllSubscribers fires. Mirrors the same audit
+// finding fixed for Importer.Watch.
+func TestExporterWatchSessions_DoesNotRegisterUntilIterated(t *testing.T) {
+	t.Parallel()
+
+	exp := newExporterForTest(t)
+	t.Cleanup(func() { _ = exp.Shutdown(context.Background()) })
+
+	require.Zero(t, app.SessionSubscribersLenForTest(exp))
+
+	_ = exp.WatchSessions(context.Background())
+
+	require.Zero(t, app.SessionSubscribersLenForTest(exp),
+		"WatchSessions must defer subscriber registration until the iter is ranged over")
+}
+
 // TestExporterWatchSessions_AfterShutdown asserts WatchSessions after
 // Shutdown returns an empty iter that terminates immediately. Matches
 // the Importer.Watch post-Close contract per v1 contract §3.4.

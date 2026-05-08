@@ -45,7 +45,7 @@ const (
 
 // errAlreadyRunning is returned by serveStatus when another daemon
 // instance owns the configured --status-socket. Bound to ExitAlreadyRunning.
-var errAlreadyRunning = errors.New("usbip: another daemon instance is running")
+var errAlreadyRunning = errors.New("usbip-go: another daemon instance is running")
 
 // errDrainTimeout signals that `usbip drain` exceeded --drain-timeout.
 // Bound to ExitTimeout.
@@ -118,11 +118,11 @@ func errorRegistry() []errorEntry {
 		},
 		{
 			errAlreadyRunning, ExitAlreadyRunning,
-			"usbip: another daemon instance is running",
+			"usbip-go: another daemon instance is running",
 		},
 		{
 			errDrainTimeout, ExitTimeout,
-			"usbip: drain timed out: %s",
+			"usbip-go: drain timed out: %s",
 		},
 		{
 			errStatusSocketDisabled, ExitUsage,

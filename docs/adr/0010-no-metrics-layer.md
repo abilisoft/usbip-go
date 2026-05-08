@@ -13,17 +13,17 @@ inventorying what each metric actually told an operator that journald
 and sysfs did not already tell them, only two — handshake-latency
 histogram and aggregated reconnect-failure rate — were genuinely
 Prometheus-only. The other ten duplicated information already visible
-through `usbip list`, `/sys/devices/.../vhci_hcd*/status`, `lsmod`, and
+through `usbip-go list`, `/sys/devices/.../vhci_hcd*/status`, `lsmod`, and
 the structured slog calls that wrap every emission site.
 
 For a USB forwarder running on a host (not a 10k-rps service), the
 realistic operator toolchain is:
 
-- `systemctl status usbipd` — service liveness, restart count, last
+- `systemctl status usbip-go` — service liveness, restart count, last
   failure
-- `journalctl -u usbipd` — structured slog records with outcome,
+- `journalctl -u usbip-go` — structured slog records with outcome,
   busid, port id, error fields
-- `usbip list -e` / sysfs — active sessions, ports, kernel module
+- `usbip-go list -e` / sysfs — active sessions, ports, kernel module
   state
 - `ss -tlnp` — listening on 3240
 - node_exporter — host-level CPU, memory, fd, socket metrics
@@ -39,10 +39,15 @@ loaded, listener bound). No prometheus dep.
 
 Kept in the codebase: the typed outcome enums (`AttachOutcome`,
 `ReconnectOutcome`, `BindOutcome`, `UnbindOutcome`, `DetachOutcome`,
-`SessionOutcome`, `DisconnectReason`, `HandshakeOp`, `SysfsWritePath`,
-`SysfsErrno`, `KernelModule`). They are domain language used as
-`slog.String("outcome", string(outcome))` fields so journald queries
-stay structured.
+`SessionOutcome`, `DisconnectReason`, `HandshakeOp`, `KernelModule`).
+They are domain language used as `slog.String("outcome",
+string(outcome))` fields so journald queries stay structured.
+
+`SysfsWritePath` and `SysfsErrno` were inventoried alongside the
+above during the metrics removal and removed as dead — no slog call
+site referenced them. The kernel-adapter classifies sysfs-write
+failures inline (e.g. `classifyKernelAttachErr`) at the boundary
+where the errno surfaces, so a separate enum carried no benefit.
 
 If a downstream operator genuinely needs Prometheus metrics, the
 recommended path is a sidecar that parses `journalctl --output=json`

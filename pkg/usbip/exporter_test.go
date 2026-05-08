@@ -147,6 +147,64 @@ func TestExporterBindUnbindForwards(t *testing.T) {
 	require.Equal(t, usbip.BusID("2-1"), unboundBus)
 }
 
+// TestExporterBindRejectsInvalidBusID pins the public-API trust
+// boundary: a caller that constructs a BusID directly (bypassing
+// ParseBusID) MUST NOT reach the kernel adapter. Without the guard,
+// `BusID("../etc/passwd")` would be concatenated into the sysfs path
+// inside ExporterAdapter.Bind. The library validates at its own
+// boundary so downstream embedders cannot accidentally elevate a raw
+// string into a privileged sysfs write.
+func TestExporterBindRejectsInvalidBusID(t *testing.T) {
+	t.Parallel()
+
+	s := newInternalExporterForTest(t)
+
+	var kernelCalled bool
+
+	s.kernel.bindFn = func(_ context.Context, _ domain.BusID) error {
+		kernelCalled = true
+
+		return nil
+	}
+
+	exp := usbip.NewExporterFromInternalForTest(s.inner)
+
+	t.Cleanup(shutdownCleanup(t, exp))
+
+	err := exp.Bind(t.Context(), usbip.BusID("../etc/passwd"))
+	require.Error(t, err)
+	require.ErrorIs(t, err, usbip.ErrBusIDInvalid,
+		"library boundary must reject malformed BusID with ErrBusIDInvalid")
+	require.False(t, kernelCalled,
+		"kernel adapter must not be invoked when the busid is malformed")
+}
+
+// TestExporterUnbindRejectsInvalidBusID mirrors the Bind guard for
+// the unbind path so both privileged sysfs writes are gated behind
+// the same boundary check.
+func TestExporterUnbindRejectsInvalidBusID(t *testing.T) {
+	t.Parallel()
+
+	s := newInternalExporterForTest(t)
+
+	var kernelCalled bool
+
+	s.kernel.unbindFn = func(_ context.Context, _ domain.BusID) error {
+		kernelCalled = true
+
+		return nil
+	}
+
+	exp := usbip.NewExporterFromInternalForTest(s.inner)
+
+	t.Cleanup(shutdownCleanup(t, exp))
+
+	err := exp.Unbind(t.Context(), usbip.BusID("/abs/path"))
+	require.Error(t, err)
+	require.ErrorIs(t, err, usbip.ErrBusIDInvalid)
+	require.False(t, kernelCalled)
+}
+
 // TestExporterSessionsForwards exercises Sessions() returning an empty
 // slice — the stubbed exporter has no live sessions so the returned
 // slice is empty-but-non-nil.

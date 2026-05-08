@@ -1,6 +1,6 @@
 # Drain mechanism: HTTP-over-UDS with polling completion
 
-The `usbip drain` operator command talks to a running `usbip serve`
+The `usbip-go drain` operator command talks to a running `usbip-go serve`
 daemon over a Unix-domain socket carrying HTTP. The client posts to
 `/drain`, the server cancels its accept loop, and the client polls
 `GET /` until the `sessions` array drains to empty (or its own
@@ -43,16 +43,16 @@ breaking partial decoders, and HTTP method/path/status-code
 semantics carry per-operation success/error without layering work.
 
 Operator inspectability is a first-class win: anyone with the
-`usbip` group (configurable via `--status-socket-group`) can
+`usbip-go` group (configurable via `--status-socket-group`) can
 `curl --unix-socket /run/usbip-go/status.sock http://x/` to read
-state during an incident, without needing the `usbip` binary
+state during an incident, without needing the `usbip-go` binary
 itself. The same path supports k8s and systemd-style readiness
 probes through the standard `curl --unix-socket` idiom.
 
-The current implementation lives in `cmd/usbip/status.go` (HTTP
+The current implementation lives in `cmd/usbip-go/status.go` (HTTP
 server + bind / chmod / chown / unlink-stale dance),
-`cmd/usbip/status_exporter.go` (status snapshot + drain registration),
-and `cmd/usbip/drain.go` (client subcommand).
+`cmd/usbip-go/status_exporter.go` (status snapshot + drain registration),
+and `cmd/usbip-go/drain.go` (client subcommand).
 
 ## Polling vs server-push
 
@@ -72,7 +72,7 @@ Two timeouts coexist:
   in-flight session drain. AUTHORITATIVE: the daemon refuses to wait
   beyond this even if more sessions are still active.
 - **Client `--drain-timeout`** (default 60s). Bounds how long
-  `usbip drain` waits for the polling loop to detect idle. UI-only;
+  `usbip-go drain` waits for the polling loop to detect idle. UI-only;
   the daemon ignores it.
 
 When the two disagree:
@@ -118,32 +118,46 @@ two layers were already idempotent through pre-existing design.
 
 ## What happens to active USB traffic during drain
 
-Drain does NOT cut active URB traffic. The kernel owns the URB path
-on both sides of the USB/IP link (see ADR-0001 + the `URB traffic`
-glossary entry in CONTEXT.md). The daemon's job is:
+Drain actively releases each in-flight session at the kernel boundary
+rather than waiting for the importer peer to detach. The daemon's
+sequence is:
 
 1. Refuse new accepts (`accepting` flag flips false; the listener
    stays bound so `systemctl restart usbip` does not see
    `connect-refused`).
-2. Wait for in-flight Sessions (the exporter-side accounting unit)
-   to end naturally as the kernel signals `port_detached` or
-   `device_unbound` events.
-3. After `--shutdown-timeout` elapses, force-close any sessions
-   still tracked by the daemon. The KERNEL still holds its dup of
-   each session's fd, so URB traffic continues until the IMPORTER
-   peer detaches its port — the daemon's exit only stops the daemon
-   from accounting the session, not the data path.
+2. For every accounted session, write `-1` to the device's
+   `usbip_sockfd` via `kernel.Disconnect`. That sysfs write triggers
+   `SDEV_EVENT_DOWN` on the exporter stub: the per-session rx/tx
+   kthreads exit and the bus device emits a `remove` uevent. Each
+   handler has a pre-opened KernelEvents subscription opened BEFORE
+   `ExportOnConn` (see `internal/app/session.go`); the resulting
+   `PortDetachedEvent` / `DeviceUnboundEvent` unwinds the handler
+   gracefully via `waitForSessionEnd`. As a belt-and-braces measure
+   `handle.cancel()` also closes `done`, so a kernel that silently
+   accepts Disconnect without emitting the uevent (e.g. the unit-
+   test mocks) still terminates the parked handler via the Shutdown
+   branch of the same select.
+3. Wait for `sessionsWG` to drain bounded by `--shutdown-timeout`.
+4. After the timeout elapses, force-close any session conns still
+   tracked. The kernel session is already gone from step 2 in the
+   common case; force-close exists for the rare path where the
+   sysfs write failed (logged at Warn) and the handler is parked on
+   conn I/O rather than the kernel events channel.
 
-Operators upgrading via drain-and-replace see in-flight USB
-transfers continue across the daemon swap because the KERNEL state
-survives `usbip` process exit (per v1 contract §5.4 item 7). The
-new daemon process does NOT inherit the OLD process's app-layer
-session accounting — its `Sessions()` snapshot starts empty, and
-pre-existing kernel-tracked sessions appear in `usbip list -e`
-(via sysfs) but not in `Watch` / `WatchSessions` events from the
-new process. Operators who need accounting continuity must drain
-fully before upgrading rather than mid-flight. See `docs/ops.md`
-"Drain-and-upgrade" for the operational consequence.
+This deliberately cuts URB traffic on draining sessions: a clean
+shutdown is preferred over a half-state where the importer continues
+to direct URBs at a daemon that no longer accounts the session.
+Importer peers see the port go offline as if the operator had run
+`usbip-go detach` against them.
+
+Operators upgrading via drain-and-replace therefore observe in-flight
+USB transfers terminate at the moment of drain. The new daemon
+process binds the activated socket, but pre-existing kernel-tracked
+sessions are gone — `usbip-go list -e` reflects only what the new daemon
+starts. Use a brief drain window (or hot-restart with systemd socket
+activation) when transfer continuity matters; otherwise drain-and-
+replace is the correct primitive for breaking-change upgrades. See
+`docs/ops.md` "Drain-and-upgrade" for the operational consequence.
 
 ## Failure modes and operator escape hatches
 
@@ -152,7 +166,7 @@ fully before upgrading rather than mid-flight. See `docs/ops.md`
 | `src.Drain` returns non-nil (rare; means `Exporter.Shutdown` errored on a wedged session) | The drain goroutine logs at error level; the `drainStarted` gate stays set. Subsequent `POST /drain` returns `200 OK` no-op. The daemon STILL exits when its own ctx cancels (deferred `drainExporter` in `runDaemon` re-enters `Exporter.Shutdown`; the second call finds the listener already cleared and the sessions map drained, so it returns quickly). | Wait for the daemon to exit on its own; check journald for the error. If drain was caused by a pending upgrade, the new process binds the activated socket regardless. |
 | Daemon ctx cancels mid-drain (operator Ctrl-C after triggering drain) | The drain goroutine receives the cancellation through the daemon ctx and aborts its wait. The deferred `drainExporter` in `runDaemon` re-enters `Exporter.Shutdown`; the second call finds the listener already cleared and the sessions map drained, so it returns quickly via the same flag-and-clear path. | Intentional: operator-visible Ctrl-C wins; in-flight sessions force-close. |
 | Drain hangs past `--shutdown-timeout` | `Exporter.Shutdown` returns; lingering sessions are force-closed; daemon exits. Client polling sees ECONNREFUSED on the next `GET /` and treats it as drain success. | None — this is the well-behaved path. |
-| Kernel module hung (rare; sysfs writes stall) | Drain blocks inside the per-session `kernel.DetachPort` call. `--shutdown-timeout` fires; daemon force-exits; supervising systemd may issue SIGKILL after `TimeoutStopSec`. | Last-resort `systemctl kill -s SIGKILL usbip` if supervisor doesn't escalate. Investigate the wedged kernel module separately. |
+| Kernel module hung (rare; sysfs writes stall) | Drain blocks inside the per-session `kernel.Disconnect` write to `usbip_sockfd`. `--shutdown-timeout` fires; daemon force-closes its conn refs and exits; supervising systemd may issue SIGKILL after `TimeoutStopSec`. | Last-resort `systemctl kill -s SIGKILL usbip-go` if supervisor doesn't escalate. Investigate the wedged kernel module separately. |
 
 The drain gate does NOT reset on `src.Drain` failure: the design
 treats the first drain attempt as final because the daemon will
@@ -163,7 +177,7 @@ reloadable flag) by killing it and restarting with a higher value.
 ## Permissions
 
 UDS file mode `0660`, owned by the configured
-`--status-socket-group` (default `usbip`). Operators added to
+`--status-socket-group` (default `usbip-go`). Operators added to
 that group can drain the daemon without root. The status endpoint
 exposes only the daemon's own state — no kernel writes flow through
 the UDS.

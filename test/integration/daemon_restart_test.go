@@ -33,9 +33,9 @@ const daemonRestartDeadline = 30 * time.Second
 // daemonStartSignal is the substring the daemon logs when its
 // accept-path listener is bound — used as a synchronisation point so
 // the importer's Attach dials only after the daemon is ready. Matches
-// the log line emitted by cmd/usbip/run.go's "usbipd-go accepting
-// connections" info log.
-const daemonStartSignal = "usbipd-go accepting connections"
+// the log line emitted by cmd/usbip-go/serve.go's "usbip-go serve
+// accepting connections" info log.
+const daemonStartSignal = "usbip-go serve accepting connections"
 
 // TestDaemonRestartSessionsSurvive pins v1 contract §5.4 item 7's operator
 // recovery sequence: once the daemon dies, the kernel still holds
@@ -46,7 +46,7 @@ const daemonStartSignal = "usbipd-go accepting connections"
 //
 // Test flow:
 //  1. Harness vudc + env-supplied usbip-host busid.
-//  2. Start our usbipd-go subprocess on 127.0.0.1:0 with the busid
+//  2. Start our usbip-go serve subprocess on 127.0.0.1:0 with the busid
 //     already bound (Bind happens from the parent before spawning).
 //  3. Parent (as importer) attaches the device via TCP.
 //  4. Kill the daemon (SIGKILL).
@@ -71,7 +71,7 @@ func TestDaemonRestartSessionsSurvive(t *testing.T) {
 	defer cancel()
 
 	// Build the daemon once per test-run into t.TempDir so there is
-	// no dependency on bin/usbipd-go being up-to-date.
+	// no dependency on bin/usbip-go being up-to-date.
 	daemonBinary := buildDaemonBinary(t)
 
 	// Pre-bind the device via a short-lived Exporter. The daemon
@@ -165,7 +165,7 @@ func TestDaemonRestartSessionsSurvive(t *testing.T) {
 
 	// Daemon #2 does NOT see the in-memory session (empty table).
 	// That observation requires the status-socket endpoint which
-	// cmd/usbip exposes when --status is passed; our subprocess
+	// cmd/usbip-go exposes when --status is passed; our subprocess
 	// helper does not wire it by default so we rely on the
 	// negative assertion via the Importer's own ListPorts instead:
 	// the importer-side port MUST still be present (kernel ref),
@@ -211,7 +211,7 @@ type daemonSubprocess struct {
 	stop sync.Once
 }
 
-// startDaemonSubprocess spawns cmd/usbip at binary with --listen
+// startDaemonSubprocess spawns cmd/usbip-go at binary with --listen
 // pointing at addr and waits for the daemon's "accepting connections"
 // log before returning so callers can dial without racing the accept
 // loop startup. addr of "127.0.0.1:0" asks the daemon to pick a port;
@@ -223,7 +223,7 @@ func startDaemonSubprocess(
 
 	ctx := context.Background()
 
-	cmd := exec.CommandContext(ctx, binary, "--listen", addr)
+	cmd := exec.CommandContext(ctx, binary, "serve", "--listen", addr)
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 
 	stderr, err := cmd.StderrPipe()
@@ -288,7 +288,7 @@ func waitForDaemonReady(r pipeReader, signal string) (domain.RemoteEndpoint, err
 }
 
 // parseAddrFromReadyLog extracts the addr=<host:port> token emitted
-// by cmd/usbip/run.go and converts it into a RemoteEndpoint. Lets
+// by cmd/usbip-go/serve.go and converts it into a RemoteEndpoint. Lets
 // callers dial the kernel-picked port without scraping the port out
 // of the log themselves.
 func parseAddrFromReadyLog(line string) (domain.RemoteEndpoint, error) {
@@ -333,25 +333,25 @@ func splitHostPortLog(s string) (string, string, error) {
 	return "", "", fmt.Errorf("no colon in %q", s)
 }
 
-// buildDaemonBinary compiles cmd/usbip into t.TempDir so daemon
+// buildDaemonBinary compiles cmd/usbip-go into t.TempDir so daemon
 // subprocesses run the exact source under test. Shares the
 // findModuleRoot helper defined in process_death_test.go.
 func buildDaemonBinary(t *testing.T) string {
 	t.Helper()
 
-	out := filepath.Join(t.TempDir(), "usbipd-go")
+	out := filepath.Join(t.TempDir(), "usbip-go")
 	repoRoot := findModuleRoot(t)
 
 	// -buildvcs=false: see process_death_test.go buildKillHelper for
 	// rationale — the helper runs where `go build`'s VCS stamp cannot
 	// reach .git under the test UID, and version info is not surfaced
 	// anywhere that would notice its absence.
-	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", out, "./cmd/usbip/")
+	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", out, "./cmd/usbip-go/")
 	cmd.Dir = repoRoot
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 
 	output, err := cmd.CombinedOutput()
-	require.NoError(t, err, "build usbipd-go: %s", output)
+	require.NoError(t, err, "build usbip-go: %s", output)
 
 	return out
 }

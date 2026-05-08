@@ -14,7 +14,7 @@ import (
 const (
 	defaultListen             = "0.0.0.0:3240"
 	defaultStatusSocket       = "/run/usbip-go/status.sock"
-	defaultStatusSocketGroup  = "usbip"
+	defaultStatusSocketGroup  = "usbip-go"
 	defaultMaxSessions        = 128
 	defaultMaxSessionsPerPeer = 8
 	defaultAcceptRateLimit    = 10.0
@@ -26,12 +26,13 @@ const (
 	defaultLogFormat          = "auto"
 )
 
-// ServeConfig is the parsed command-line configuration for usbipd. Every
-// field is populated by cobra during flag parsing; zero values should
-// not be observed after PersistentPreRunE runs.
+// ServeConfig is the parsed command-line configuration for the
+// `usbip-go serve` subcommand. Every field is populated by cobra
+// during flag parsing; zero values should not be observed after
+// PersistentPreRunE runs.
 type ServeConfig struct {
 	// Listen is the TCP bind address. Ignored when systemd passes a
-	// named socket via LISTEN_FDNAMES=usbip.
+	// named socket via LISTEN_FDNAMES=usbip-go.
 	Listen string
 	// StatusSocket is the UDS path for the health/status endpoint.
 	// Empty string disables the endpoint entirely.
@@ -58,14 +59,14 @@ type ServeConfig struct {
 	ShutdownTimeout time.Duration
 }
 
-// bindServeFlags registers every usbipd root-command flag on cmd and wires
-// the parsed values into cfg. Defaults come from the v1 contract §7.7 table;
-// any change there must land here first.
+// bindServeFlags registers every `usbip-go serve` flag on cmd and
+// wires the parsed values into cfg. Defaults come from the v1 contract
+// §7.7 table; any change there must land here first.
 func bindServeFlags(cmd *cobra.Command, cfg *ServeConfig) {
 	flags := cmd.PersistentFlags()
 
 	flags.StringVar(&cfg.Listen, "listen", defaultListen,
-		"TCP bind address; ignored when LISTEN_FDS names 'usbipd-go'")
+		"TCP bind address; ignored when LISTEN_FDS names 'usbip-go'")
 	flags.StringVar(&cfg.StatusSocket, "status-socket", defaultStatusSocket,
 		"UDS path for health/status; empty disables")
 	flags.StringVar(&cfg.StatusSocketGroup, "status-socket-group", defaultStatusSocketGroup,

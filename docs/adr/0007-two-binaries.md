@@ -1,10 +1,10 @@
-# Single binary: usbip
+# Single binary: usbip-go
 
-Status: supersedes the two-binary design (usbip-go + usbipd-go).
+Status: supersedes the two-binary design (usbip-go + usbip-go (serve)).
 
-We ship one binary (`usbip`) with subcommands for all roles. Daemon
-mode is `usbip serve`; client operations are `usbip attach`, `usbip
-detach`, `usbip list`, etc.
+We ship one binary (`usbip-go`) with subcommands for all roles. Daemon
+mode is `usbip-go serve`; client operations are `usbip-go attach`,
+`usbip-go detach`, `usbip-go list`, etc.
 
 The upstream reference (`usbip` + `usbipd`) split binaries to match
 its C Makefile structure and CAP_SYS_ADMIN requirements. Neither

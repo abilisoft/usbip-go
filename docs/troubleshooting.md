@@ -23,7 +23,7 @@ START: usbip-go attach HOST BUSID fails.
   |     +-- YES -> Are you running as root or with CAP_SYS_ADMIN+CAP_DAC_OVERRIDE?
   |     |           |
   |     |           +-- NO  -> sudo the client OR setcap the binary:
-  |     |           |          sudo setcap 'cap_sys_admin,cap_dac_override=+ep' /usr/bin/usbip-go
+  |     |           |          sudo setcap 'cap_sys_admin,cap_dac_override=+ep' /usr/bin/usbip
   |     |           |
   |     |           +-- YES -> Is SELinux / AppArmor enforcing on /sys/devices/platform/vhci_hcd.0?
   |     |                      Check dmesg + auditd. Adjust policy or set permissive
@@ -63,7 +63,7 @@ START: usbip-go attach HOST BUSID fails.
   |     |
   |     +-- YES -> curl -v telnet://HOST:3240 (or `nc HOST 3240`) from the client.
   |     |          Succeeds? Daemon is running but rejecting you -> check --allow-cidr on server.
-  |     |          Refused? Daemon is down -> systemctl status usbip on server.
+  |     |          Refused? Daemon is down -> systemctl status usbip-go on server.
   |     |          Timeout? Firewall or network path -> check iptables/nftables and route.
   |     |
   |     +-- NO  -> continue.
@@ -147,11 +147,11 @@ This is the last-resort path; prefer `usbip-go detach` when it works.
 ## Daemon not accepting connections
 
 ```
-$ sudo systemctl status usbip usbip.socket
-$ sudo journalctl -u usbipd-go -f
+$ sudo systemctl status usbip-go usbip-go.socket
+$ sudo journalctl -u usbip -f
 ```
 
-Socket-activation quirk: `systemctl status usbip` may show
+Socket-activation quirk: `systemctl status usbip-go` may show
 "inactive (dead)" between clients. That is normal — the socket unit
 accepts inbound TCP and wakes the daemon on demand.
 
@@ -166,7 +166,7 @@ If the listener is absent, the socket unit failed. Check its
 logs:
 
 ```
-$ sudo journalctl -u usbip.socket -f
+$ sudo journalctl -u usbip-go.socket -f
 ```
 
 ## When to capture a wire trace

@@ -339,6 +339,15 @@ func (i *Importer) Attach(
 		return domain.Port{}, fmt.Errorf("attach: %w", err)
 	}
 
+	if !busID.IsValid() {
+		// Mirror the boundary guard on the exporter side
+		// (Exporter.Bind/Unbind): library callers that bypass
+		// ParseBusID by raw string conversion must not be allowed
+		// to drive a malformed busid into the OP_REQ_IMPORT body
+		// or the kernel attach sysfs writes that follow.
+		return domain.Port{}, fmt.Errorf("attach %q: %w", busID, domain.ErrBusIDInvalid)
+	}
+
 	if opts.MaxAttempts < 0 {
 		return domain.Port{}, fmt.Errorf("%w: MaxAttempts %d must be non-negative (0 means infinite)",
 			ErrAttachOptionsInvalid, opts.MaxAttempts)
@@ -490,34 +499,50 @@ func (i *Importer) ListPorts(ctx context.Context) ([]domain.Port, error) {
 // Post-Close Watch returns an iter that yields nothing and terminates
 // immediately — the handle map is already torn down and there is no
 // upstream to bind to.
+//
+// Subscriber registration and the upstream KernelEvents.Subscribe call
+// are deferred until the consumer ranges over the returned iter so a
+// caller that constructs the iter and then drops it does not leak a
+// kernel subscription handle or a fanout slot. The closed-Importer
+// fast path stays eager because there is no resource to defer in that
+// case.
 func (i *Importer) Watch(ctx context.Context) iter.Seq[domain.Event] {
-	i.mu.Lock()
+	i.mu.RLock()
 
-	if i.closed {
+	closed := i.closed
+
+	i.mu.RUnlock()
+
+	if closed {
+		return emptyEventSeq
+	}
+
+	return func(yield func(domain.Event) bool) {
+		i.mu.Lock()
+		if i.closed {
+			i.mu.Unlock()
+
+			return
+		}
+
+		sub := &importerEventSubscriber{
+			ch:   make(chan domain.Event, importerEventBufSize),
+			done: make(chan struct{}),
+		}
+
+		i.subscribers = append(i.subscribers, sub)
 		i.mu.Unlock()
 
-		return emptyEventSeq
+		ch, cancel, err := i.events.Subscribe(ctx)
+		if err != nil {
+			i.logger.Warn("watch subscribe failed", slog.Any("err", err))
+			i.removeImporterSubscriber(sub)
+
+			return
+		}
+
+		i.runImporterMergedSeq(ctx, ch, cancel, sub, yield)
 	}
-
-	sub := &importerEventSubscriber{
-		ch:   make(chan domain.Event, importerEventBufSize),
-		done: make(chan struct{}),
-	}
-
-	i.subscribers = append(i.subscribers, sub)
-
-	i.mu.Unlock()
-
-	ch, cancel, err := i.events.Subscribe(ctx)
-	if err != nil {
-		i.logger.Warn("watch subscribe failed", slog.Any("err", err))
-
-		i.removeImporterSubscriber(sub)
-
-		return emptyEventSeq
-	}
-
-	return i.newImporterMergedSeq(ctx, ch, cancel, sub)
 }
 
 // waitWatcherBounded blocks on h.watcherDone up to h.shutdownTimeout,
@@ -726,6 +751,20 @@ func (i *Importer) attachOverDialed(
 		i.logAttachFailure("attach decode handshake failed", busID, endpoint, classifyDecodeImportErr(err), err)
 
 		return domain.Port{}, fmt.Errorf("decode OP_REP_IMPORT from %s: %w", endpoint.String(), err)
+	}
+
+	// Wire-side BusID acceptance: the remote sends a BusID we hand
+	// straight to the kernel via sysfs paths; a malicious or buggy
+	// peer could embed bytes that escape a sysfs basename. The wire
+	// codec is intentionally permissive (any padded string), so the
+	// app layer applies ValidateWireBusID at the trust boundary.
+	_, wireBusIDErr := domain.ValidateWireBusID(string(dev.BusID))
+	if wireBusIDErr != nil {
+		i.logAttachFailure("attach decode handshake failed",
+			busID, endpoint, AttachOutcomeProtocolMismatch, wireBusIDErr)
+
+		return domain.Port{}, fmt.Errorf("decode OP_REP_IMPORT from %s: %w",
+			endpoint.String(), wireBusIDErr)
 	}
 
 	i.logger.Debug("attach: got OP_REP_IMPORT",

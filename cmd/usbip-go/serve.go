@@ -32,14 +32,14 @@ const statusReadyTimeout = 3 * time.Second
 // listener; an ldflags-stripped build that loses build_date would
 // otherwise silently regress observability.
 func logServeStartup(log *slog.Logger) {
-	log.Info("usbip serve starting",
+	log.Info("usbip-go serve starting",
 		slog.String("version", version),
 		slog.String("commit", commit),
 		slog.String("build_date", buildDate),
 		slog.String("go_version", runtime.Version()))
 }
 
-// newServeCmd returns the `usbip serve` subcommand. The flags bound
+// newServeCmd returns the `usbip-go serve` subcommand. The flags bound
 // here mirror the §7.7 daemon catalog; runDaemon is the body. The
 // PersistentPreRunE on the root command does not build a slog.Logger
 // for serve mode (the importer side uses globalFlags); instead this
@@ -154,7 +154,7 @@ func runDaemon(ctx context.Context, cfg *ServeConfig) error {
 		defer func() { _ = os.Remove(cfg.StatusSocket) }()
 	}
 
-	log.Info("usbip serve accepting connections",
+	log.Info("usbip-go serve accepting connections",
 		slog.String("addr", listener.Addr().String()),
 		slog.Bool("activation", activated))
 
@@ -406,6 +406,17 @@ func maybeStartStatusServer(
 		return nil, false, nil
 	}
 
+	// Relative paths are accepted as-is: the daemon never chdir's
+	// after this point, so bindStatusSocket's open/remove/chmod and
+	// the deferred unlink all see the same path the operator passed.
+	// We deliberately do NOT call filepath.Abs here because Linux
+	// caps Unix-domain socket paths at sun_path's 108 bytes — long
+	// absolute paths (notably Go's test TempDir under busy CI runs)
+	// would exceed the limit and bind would fail with EINVAL. The
+	// production default `/run/usbip-go/status.sock` is well below
+	// the cap; operators who change it must keep their override
+	// short, the same constraint upstream usbipd faces.
+
 	started := make(chan struct{})
 	statusErrCh := make(chan error, 1)
 	fn := currentServeStatusFn()
@@ -488,12 +499,12 @@ func logShutdownCause(parentCtx, serveCtx context.Context, log *slog.Logger) {
 	}
 
 	if cause == nil || errors.Is(cause, context.Canceled) {
-		log.Info("usbip serve shutdown complete")
+		log.Info("usbip-go serve shutdown complete")
 
 		return
 	}
 
-	log.Info("usbip serve shutdown complete", slog.String("cause", cause.Error()))
+	log.Info("usbip-go serve shutdown complete", slog.String("cause", cause.Error()))
 }
 
 // isExpectedServeExit reports whether the Serve return value is a
