@@ -432,6 +432,22 @@ func (i *Importer) finishReconnectSuccess(
 
 	i.metrics.ImporterReconnectAttempt(ReconnectOutcomeOK)
 	i.removeHandle(p.portID, p.handle)
+
+	// Per spec §5.5 / BackoffStrategy contract (internal/app/backoff.go:20
+	// and pkg/usbip/backoff.go:19): "Reset is called after a successful
+	// reconnect so the next failure starts from the smallest delay
+	// again." Pre pass-3 RANK 4 this call was missing — a stateful
+	// backoff stayed escalated across outages and the next failure
+	// paid the last-attempt delay instead of the configured floor.
+	// Reset is NOT invoked on the rollback-superseded branch above:
+	// that path is not a user-visible success (the kernel port is
+	// about to be detached). The Backoff field is typed as an
+	// interface with nil-zero; guard before the call so a caller that
+	// passes nil does not crash.
+	if p.opts.Backoff != nil {
+		p.opts.Backoff.Reset()
+	}
+
 	i.logger.Info("reconnect succeeded",
 		slog.Any("old_port_id", p.portID),
 		slog.Any("new_port_id", newPort.ID),
