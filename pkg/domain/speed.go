@@ -17,6 +17,21 @@ const (
 	SpeedSuperPlus Speed = 6 // 10 Gbit/s
 )
 
+// IsKnown reports whether s falls inside the finite enum declared
+// above. Wire decoders call IsKnown after reading the 4-byte field
+// so a peer emitting a value the kernel does not define cannot
+// round-trip as a mystery domain.Speed that downstream consumers
+// (metrics, CLI rendering, event delivery) would silently carry.
+func (s Speed) IsKnown() bool {
+	switch s {
+	case SpeedUnknown, SpeedLow, SpeedFull, SpeedHigh,
+		SpeedWireless, SpeedSuper, SpeedSuperPlus:
+		return true
+	default:
+		return false
+	}
+}
+
 // String returns a human-readable description of the speed.
 // Unknown values return "speed(N)" with N in decimal.
 func (s Speed) String() string {
