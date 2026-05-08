@@ -421,10 +421,21 @@ func isInterestingUevent(fields map[string]string) bool {
 // (bus, bus_id).
 var vhciDevpathPattern = regexp.MustCompile(`/devices/platform/vhci_hcd\.0/usb(\d+)/(\d+-\d+(?:\.\d+)*)`)
 
+// usbipHostBusIDPattern captures the trailing bus-id segment of a
+// usbip_host DEVPATH. The upstream kernel emits add/remove uevents on
+// the bound device's sysfs node when the usbip_host driver binds or
+// releases it; the bus id is the final path segment and follows the
+// domain busid grammar (pkg/domain/busid.go:18). Unlike the vhci
+// devpath, there is no vhci_hcd prefix — the device sits at its
+// native sysfs location.
+var usbipHostBusIDPattern = regexp.MustCompile(`/(\d+-\d+(?:\.\d+)*)$`)
+
 // mapUeventToDomain maps a parsed uevent fields map into a domain
 // event. Missing ACTION or non-USB paths return ok=false so the caller
 // skips. Time is set from the wall clock — the adapter does not carry
-// a clock for netlink events.
+// a clock for netlink events. SUBSYSTEM=usbip_host produces
+// DeviceBound/DeviceUnbound events (pass-3 RANK 3); other subsystems
+// fall through to the vhci_hcd devpath classifier.
 func mapUeventToDomain(fields map[string]string) (domain.Event, bool) {
 	action := fields["ACTION"]
 
@@ -433,6 +444,17 @@ func mapUeventToDomain(fields map[string]string) (domain.Event, bool) {
 		return nil, false
 	}
 
+	if fields["SUBSYSTEM"] == "usbip_host" {
+		return mapUsbipHostEvent(action, devpath)
+	}
+
+	return mapVhciEvent(action, devpath)
+}
+
+// mapVhciEvent handles the vhci_hcd-shaped devpath (remote device
+// attached to the importer side). add/remove/change actions produce
+// PortAttached/PortDetached/PortErrored respectively.
+func mapVhciEvent(action, devpath string) (domain.Event, bool) {
 	match := vhciDevpathPattern.FindStringSubmatch(devpath)
 	if match == nil {
 		return nil, false
@@ -458,6 +480,36 @@ func mapUeventToDomain(fields map[string]string) (domain.Event, bool) {
 			At:   time.Now(),
 			Port: domain.Port{ID: port, BusID: domain.BusID(portBusID)},
 			Err:  "usbip_status change",
+		}, true
+	default:
+		return nil, false
+	}
+}
+
+// mapUsbipHostEvent handles the usbip_host-shaped devpath (local
+// exporter side bind/unbind). add → DeviceBoundEvent (device became
+// exportable); remove → DeviceUnboundEvent (device returned to its
+// original driver). Pre pass-3 RANK 3, this classifier did not exist
+// and every session.go / importer.go / cmd/usbip branch that acted
+// on these event types was unreachable.
+func mapUsbipHostEvent(action, devpath string) (domain.Event, bool) {
+	match := usbipHostBusIDPattern.FindStringSubmatch(devpath)
+	if match == nil {
+		return nil, false
+	}
+
+	busID := domain.BusID(match[1])
+
+	switch action {
+	case "add":
+		return domain.DeviceBoundEvent{
+			At:     time.Now(),
+			Device: domain.Device{BusID: busID, Path: devpath},
+		}, true
+	case "remove":
+		return domain.DeviceUnboundEvent{
+			At:     time.Now(),
+			Device: domain.Device{BusID: busID, Path: devpath},
 		}, true
 	default:
 		return nil, false
