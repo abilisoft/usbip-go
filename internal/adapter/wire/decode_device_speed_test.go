@@ -35,7 +35,7 @@ func TestDecodeDeviceRejectsUnknownSpeed(t *testing.T) {
 	copy(buf[256:288], []byte("1-1"))
 	binary.BigEndian.PutUint32(buf[offDevSpeed:], 0xDEADBEEF)
 
-	_, err := wire.DecodeDevice(bytes.NewReader(buf))
+	_, _, err := wire.DecodeDevice(bytes.NewReader(buf))
 	require.Error(t, err,
 		"decoder must reject a device whose Speed is outside the domain enum")
 	require.ErrorIs(t, err, domain.ErrProtocolError,

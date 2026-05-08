@@ -97,50 +97,70 @@ func encodeDeviceTail(buf []byte, d domain.Device) {
 	buf[offDevNumIntfs-deviceTailStart] = d.NumInterfaces
 }
 
-// DecodeDevice reads 312 bytes from r and returns the decoded Device.
-// Short reads are surfaced as io.ErrUnexpectedEOF wrapped with field
-// context. Oversized busnum/devnum u32 fields (> uint16 max) are
-// rejected with ErrProtocolError.
-func DecodeDevice(r io.Reader) (domain.Device, error) {
+// DecodeDevice reads 312 bytes from r and returns the decoded Device
+// plus the advisory DecodeFlags that record any padded-string
+// truncation the §6.2 permissive-read rule keeps out of the error
+// channel. Short reads surface as io.ErrUnexpectedEOF wrapped with
+// field context. Oversized busnum/devnum u32 fields (> uint16 max)
+// and unknown Speed values surface as ErrProtocolError.
+func DecodeDevice(r io.Reader) (domain.Device, DecodeFlags, error) {
 	buf := make([]byte, DeviceWireSize)
 
 	_, err := io.ReadFull(r, buf)
 	if err != nil {
 		if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
-			return domain.Device{}, fmt.Errorf("read device descriptor: %w", io.ErrUnexpectedEOF)
+			return domain.Device{}, DecodeFlags{},
+				fmt.Errorf("read device descriptor: %w", io.ErrUnexpectedEOF)
 		}
 
-		return domain.Device{}, fmt.Errorf("read device descriptor: %w", err)
+		return domain.Device{}, DecodeFlags{},
+			fmt.Errorf("read device descriptor: %w", err)
 	}
 
 	return decodeDeviceBuf(buf)
 }
 
-// decodeDeviceBuf interprets a 312-byte slice as a device descriptor.
-// The truncated flags from paddedStringFromBytes are intentionally
-// dropped: per-field NUL-termination drift is advisory and not
-// surfaced at the Device level. Higher-level Codec methods (which
-// have an injected *slog.Logger) are responsible for any logging.
-func decodeDeviceBuf(buf []byte) (domain.Device, error) {
-	path, _ := paddedStringFromBytes(buf[offDevPath:offDevBusID])
-	busidStr, _ := paddedStringFromBytes(buf[offDevBusID:offDevBusNum])
+// decodeDeviceBuf interprets a 312-byte slice as a device descriptor
+// and returns (Device, DecodeFlags, error). The flags capture every
+// padded-string field whose bytes reached the end without NUL; the
+// §6.2 rule keeps that condition non-erroring, so the Codec layer
+// reads the flags and emits slog.Warn records. DeviceIndex defaults
+// to 0; devlist callers overwrite it with the in-slice position.
+func decodeDeviceBuf(buf []byte) (domain.Device, DecodeFlags, error) {
+	path, pathTruncated := paddedStringFromBytes(buf[offDevPath:offDevBusID])
+	busidStr, busidTruncated := paddedStringFromBytes(buf[offDevBusID:offDevBusNum])
 
 	busnum32 := binary.BigEndian.Uint32(buf[offDevBusNum:])
 	devnum32 := binary.BigEndian.Uint32(buf[offDevDevNum:])
 	speed := binary.BigEndian.Uint32(buf[offDevSpeed:])
 
 	if busnum32 > uint32(^uint16(0)) {
-		return domain.Device{}, fmt.Errorf("%w: busnum=%d", errDeviceFieldTooLarge, busnum32)
+		return domain.Device{}, DecodeFlags{},
+			fmt.Errorf("%w: busnum=%d", errDeviceFieldTooLarge, busnum32)
 	}
 
 	if devnum32 > uint32(^uint16(0)) {
-		return domain.Device{}, fmt.Errorf("%w: devnum=%d", errDeviceFieldTooLarge, devnum32)
+		return domain.Device{}, DecodeFlags{},
+			fmt.Errorf("%w: devnum=%d", errDeviceFieldTooLarge, devnum32)
 	}
 
 	speedValue := domain.Speed(speed)
 	if !speedValue.IsKnown() {
-		return domain.Device{}, fmt.Errorf("%w: speed %d not in kernel enum_device_speed",
-			domain.ErrProtocolError, speed)
+		return domain.Device{}, DecodeFlags{},
+			fmt.Errorf("%w: speed %d not in kernel enum_device_speed",
+				domain.ErrProtocolError, speed)
+	}
+
+	var flags DecodeFlags
+
+	if pathTruncated {
+		flags.TruncatedPaddedStrings = append(flags.TruncatedPaddedStrings,
+			PaddedStringTruncation{Field: "device.path"})
+	}
+
+	if busidTruncated {
+		flags.TruncatedPaddedStrings = append(flags.TruncatedPaddedStrings,
+			PaddedStringTruncation{Field: "device.busid"})
 	}
 
 	return domain.Device{
@@ -158,5 +178,5 @@ func decodeDeviceBuf(buf []byte) (domain.Device, error) {
 		ConfigValue:   buf[offDevConfigValue],
 		NumConfigs:    buf[offDevNumConfigs],
 		NumInterfaces: buf[offDevNumIntfs],
-	}, nil
+	}, flags, nil
 }

@@ -67,7 +67,7 @@ func TestReadPaddedStringNonEOFReaderError(t *testing.T) {
 func TestDecodeDeviceNonEOFReaderError(t *testing.T) {
 	t.Parallel()
 
-	_, err := wire.DecodeDevice(&shortReader{err: errCoverageInjected})
+	_, _, err := wire.DecodeDevice(&shortReader{err: errCoverageInjected})
 	require.ErrorIs(t, err, errCoverageInjected)
 }
 
@@ -169,7 +169,7 @@ func TestDecodeOpRepImportOpcodeMismatch(t *testing.T) {
 	// OP_REP_DEVLIST is a valid opcode that isn't OP_REP_IMPORT.
 	buf := bytes.NewBuffer(wire.EncodeHeader(wire.OpRepDevlist, 0))
 
-	_, err := wire.DecodeOpRepImport(buf)
+	_, _, err := wire.DecodeOpRepImport(buf)
 	require.ErrorIs(t, err, domain.ErrProtocolMismatch)
 }
 
@@ -245,7 +245,7 @@ func TestDecodeDeviceBusnumOverflow(t *testing.T) {
 	buf[290] = 0x00
 	buf[291] = 0x00
 
-	_, err := wire.DecodeDevice(bytes.NewReader(buf))
+	_, _, err := wire.DecodeDevice(bytes.NewReader(buf))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "busnum")
 }
@@ -263,7 +263,7 @@ func TestDecodeDeviceBusnumAtMaxU16(t *testing.T) {
 	buf[290] = 0xFF
 	buf[291] = 0xFF
 
-	dev, err := wire.DecodeDevice(bytes.NewReader(buf))
+	dev, _, err := wire.DecodeDevice(bytes.NewReader(buf))
 	require.NoError(t, err)
 	require.Equal(t, uint16(0xFFFF), dev.BusNum)
 }
@@ -280,7 +280,7 @@ func TestDecodeDeviceDevnumAtMaxU16(t *testing.T) {
 	buf[294] = 0xFF
 	buf[295] = 0xFF
 
-	dev, err := wire.DecodeDevice(bytes.NewReader(buf))
+	dev, _, err := wire.DecodeDevice(bytes.NewReader(buf))
 	require.NoError(t, err)
 	require.Equal(t, uint16(0xFFFF), dev.DevNum)
 }
@@ -296,7 +296,7 @@ func TestDecodeDeviceDevnumOverflow(t *testing.T) {
 	buf[294] = 0x00
 	buf[295] = 0x00
 
-	_, err := wire.DecodeDevice(bytes.NewReader(buf))
+	_, _, err := wire.DecodeDevice(bytes.NewReader(buf))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "devnum")
 }

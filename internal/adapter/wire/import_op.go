@@ -98,26 +98,28 @@ func EncodeOpRepImport(w io.Writer, dev domain.Device) error {
 // the internal decodeHeaderAllowStatus helper directly — DecodeHeader
 // would convert a non-zero status into ErrProtocolError and hide the
 // rejection behind a misleading classification.
-func DecodeOpRepImport(r io.Reader) (domain.Device, error) {
+func DecodeOpRepImport(r io.Reader) (domain.Device, DecodeFlags, error) {
 	_, op, status, err := decodeHeaderAllowStatus(r)
 	if err != nil {
-		return domain.Device{}, err
+		return domain.Device{}, DecodeFlags{}, err
 	}
 
 	if op != OpRepImport {
-		return domain.Device{}, fmt.Errorf("%w: expected OP_REP_IMPORT got 0x%04x",
-			domain.ErrProtocolMismatch, uint16(op))
+		return domain.Device{}, DecodeFlags{},
+			fmt.Errorf("%w: expected OP_REP_IMPORT got 0x%04x",
+				domain.ErrProtocolMismatch, uint16(op))
 	}
 
 	if status != 0 {
-		return domain.Device{}, fmt.Errorf("%w: OP_REP_IMPORT status=%d",
-			domain.ErrDeviceNotFound, status)
+		return domain.Device{}, DecodeFlags{},
+			fmt.Errorf("%w: OP_REP_IMPORT status=%d",
+				domain.ErrDeviceNotFound, status)
 	}
 
-	dev, err := DecodeDevice(r)
+	dev, flags, err := DecodeDevice(r)
 	if err != nil {
-		return domain.Device{}, err
+		return domain.Device{}, DecodeFlags{}, err
 	}
 
-	return dev, nil
+	return dev, flags, nil
 }

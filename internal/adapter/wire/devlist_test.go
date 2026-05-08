@@ -32,7 +32,7 @@ func TestDecodeOpRepDevlistZeroDevices(t *testing.T) {
 	got, trailing, err := wire.DecodeOpRepDevlist(&buf)
 	require.NoError(t, err)
 	require.Nil(t, got)
-	require.False(t, trailing)
+	require.False(t, trailing.TrailingBytes)
 }
 
 // TestDecodeOpRepDevlistOneDeviceZeroInterfaces checks a single device
@@ -60,7 +60,7 @@ func TestDecodeOpRepDevlistOneDeviceZeroInterfaces(t *testing.T) {
 	got, trailing, err := wire.DecodeOpRepDevlist(&buf)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
-	require.False(t, trailing)
+	require.False(t, trailing.TrailingBytes)
 	require.Equal(t, "/sys/d", got[0].Path)
 	require.Equal(t, domain.BusID("1-1"), got[0].BusID)
 	require.Empty(t, got[0].Interfaces)
@@ -99,7 +99,7 @@ func TestDecodeOpRepDevlistTwoDevicesWithInterfaces(t *testing.T) {
 	got, trailing, err := wire.DecodeOpRepDevlist(&buf)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
-	require.False(t, trailing)
+	require.False(t, trailing.TrailingBytes)
 	require.Equal(t, d1.BusID, got[0].BusID)
 	require.Len(t, got[0].Interfaces, 2)
 	require.Equal(t, domain.USBClass(0x03), got[0].Interfaces[0].Class)
@@ -200,7 +200,7 @@ func TestDecodeOpRepDevlistTrailingBytes(t *testing.T) {
 	got, trailing, err := wire.DecodeOpRepDevlist(&buf)
 	require.NoError(t, err)
 	require.Nil(t, got)
-	require.True(t, trailing, "trailing bytes must surface via return flag")
+	require.True(t, trailing.TrailingBytes, "trailing bytes must surface via return flag")
 }
 
 // TestDecodeOpRepDevlistVersionMismatch: wrong version in header surfaces

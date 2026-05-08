@@ -54,7 +54,7 @@ func TestOpRepImportRoundTrip(t *testing.T) {
 
 	require.NoError(t, wire.EncodeOpRepImport(&buf, dev))
 
-	got, err := wire.DecodeOpRepImport(&buf)
+	got, _, err := wire.DecodeOpRepImport(&buf)
 	require.NoError(t, err)
 	require.Equal(t, dev.Path, got.Path)
 	require.Equal(t, dev.BusID, got.BusID)
@@ -75,6 +75,6 @@ func TestOpRepImportStatusError(t *testing.T) {
 	// Build a header with status=1 (OP_REP_IMPORT failure).
 	buf := []byte{0x01, 0x11, 0x00, 0x03, 0, 0, 0, 1}
 
-	_, err := wire.DecodeOpRepImport(bytes.NewReader(buf))
+	_, _, err := wire.DecodeOpRepImport(bytes.NewReader(buf))
 	require.ErrorIs(t, err, domain.ErrDeviceNotFound)
 }

@@ -97,7 +97,7 @@ func TestCodecDecodeOpRepDevlistLogsTruncatedFields(t *testing.T) {
 	t.Parallel()
 
 	header := []byte{
-		0, 0x11, // version
+		0x01, 0x11, // version 0x0111
 		0, 0x05, // OP_REP_DEVLIST
 		0, 0, 0, 0, // status
 		0, 0, 0, 1, // count
@@ -144,8 +144,8 @@ func TestCodecDecodeOpRepImportLogsTruncatedFields(t *testing.T) {
 	t.Parallel()
 
 	header := []byte{
-		0, 0x11,
-		0, 0x03, // OP_REP_IMPORT
+		0x01, 0x11,
+		0x00, 0x03, // OP_REP_IMPORT
 		0, 0, 0, 0,
 	}
 
@@ -201,13 +201,6 @@ func newSlogSink() *slogSink {
 	return &slogSink{}
 }
 
-func (s *slogSink) records() []slogRecord {
-	out := make([]slogRecord, len(s.rs))
-	copy(out, s.rs)
-
-	return out
-}
-
 func (*slogSink) Enabled(_ context.Context, _ slog.Level) bool { return true }
 func (s *slogSink) Handle(_ context.Context, r slog.Record) error {
 	attrs := make(map[string]any, r.NumAttrs())
@@ -225,4 +218,11 @@ func (s *slogSink) Handle(_ context.Context, r slog.Record) error {
 
 func (s *slogSink) WithAttrs(_ []slog.Attr) slog.Handler { return s }
 func (s *slogSink) WithGroup(_ string) slog.Handler      { return s }
+
+func (s *slogSink) records() []slogRecord {
+	out := make([]slogRecord, len(s.rs))
+	copy(out, s.rs)
+
+	return out
+}
 
