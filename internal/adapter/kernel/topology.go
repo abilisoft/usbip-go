@@ -155,12 +155,20 @@ func discoverTopology(fsys fs.FS) (Topology, error) {
 // probeControllerCount walks vhci_hcd.0's status / status.N files until
 // the first missing index. The kernel emits status for controller 0 and
 // status.<i> for controllers 1..N-1, all rooted at vhci_hcd.0's sysfs
-// group. A zero count indicates vhci_hcd is not loaded.
+// group. A zero count indicates vhci_hcd is not loaded; any non-ENOENT
+// open failure (EACCES, EIO, transient kernel error) propagates
+// immediately — silently folding those into "present" would mask the
+// real failure.
 func probeControllerCount(fsys fs.FS) (uint32, error) {
 	var count uint32
 
 	for i := range uint32(maxControllerProbe) {
-		if !statusFileExists(fsys, i) {
+		exists, err := statusFileState(fsys, i)
+		if err != nil {
+			return 0, err
+		}
+
+		if !exists {
 			break
 		}
 
@@ -174,21 +182,27 @@ func probeControllerCount(fsys fs.FS) (uint32, error) {
 	return count, nil
 }
 
-// statusFileExists reports whether the per-controller status file for
-// index i is present in fsys. Only fs.ErrNotExist is treated as
-// "absent"; any other open error propagates as "present" so we surface
-// the underlying failure later during row parsing.
-func statusFileExists(fsys fs.FS, i uint32) bool {
+// statusFileState probes whether the per-controller status file for
+// index i is present in fsys. The second return value is non-nil only
+// when Open fails with an error that is *not* fs.ErrNotExist (e.g.
+// permission denied, I/O error) — those must be surfaced verbatim so
+// the caller sees a correctly-shaped failure instead of a silently
+// truncated topology.
+func statusFileState(fsys fs.FS, i uint32) (bool, error) {
 	p := path.Join(SysfsVHCIHCD, statusFileName(i))
 
 	f, err := fsys.Open(fsPathFromAbs(p))
 	if err == nil {
 		_ = f.Close()
 
-		return true
+		return true, nil
 	}
 
-	return !errors.Is(err, fs.ErrNotExist)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+
+	return false, classifyFSErr("open", p, err)
 }
 
 // deriveHCPorts enforces the sysfs invariant nports = nControllers *
