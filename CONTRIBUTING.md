@@ -119,22 +119,28 @@ alongside the `BREAKING:`-prefixed change.
 Every PR is validated against the 12 compliance gates defined in the
 plan header. The CI workflow
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) enforces
-gates 1-6, 8, and 12 mechanically:
+gates 1-6, 8, and 12 mechanically; the remainder are code-review
+items per the plan's progressive-enforcement policy (Task 0.7 Step 8):
 
-| Gate | What | Job |
+| Gate | What | Enforcement |
 |---|---|---|
-| 1 | Lint clean | `lint-and-vet` |
-| 2 | Vuln scan clean | `lint-and-vet` |
-| 3 | RED→GREEN commit chain | `test-tdd-discipline` |
-| 4 | Coverage thresholds | `coverage` |
-| 5 | DDD layering (`pkg/` ↛ `internal/`; `internal/app` ↛ `internal/adapter`) | `ddd-boundary` |
-| 6 | API-surface baselines | `api-surface` |
-| 8 | No cgo | `no-cgo` |
-| 12 | Cross-compile linux/{amd64,arm64,arm} | `cross-compile` |
+| 1 | `task lint` clean (gofumpt, wsl_v5, mnd, goconst, nolintlint, complexity ≤ 10, etc.) | CI: `lint-and-vet` job runs `task lint`. |
+| 2 | `task test` clean with `-race` on linux + macos | CI: `unit-linux` + `unit-macos` jobs run `task test`. A dedicated `conformance` job additionally runs `task test:conformance` against upstream usbip-utils. |
+| 3 | RED→GREEN commit chain (every `*_test.go`-adding commit is followed by implementation or a `refactor:` commit) | CI: `test-tdd-discipline` job on pull requests. |
+| 4 | Coverage thresholds per §8.7 (domain 95, app 90, wire 95, kernel 70, transport 80, cmd 60) | CI: `coverage` job runs `task test:cover` + `vladopajic/go-test-coverage` against `.testcoverage.yaml`. |
+| 5 | DDD layering: `pkg/` ↛ `internal/`; `internal/app` ↛ `internal/adapter/` | CI: `ddd-boundary` job greps both directions. |
+| 6 | Public API stability for `pkg/usbip` + `pkg/domain`; breaking changes require a `BREAKING:` commit prefix | CI: `api-surface` job diffs against `api/pkg_usbip.json` + `api/pkg_domain.json` via `apidiff`. |
+| 7 | No magic values (named constants only) | Code review (enforced indirectly by `mnd` + `goconst` in `task lint`, so rides Gate 1). |
+| 8 | No cgo anywhere in the tree | CI: `no-cgo` job uses `go list -deps` + source greps for `import "C"`. |
+| 9 | Structured logging: `slog.DebugContext` + `oops.With(...)`, stable attr keys per §11.5.5 | Code review (enforced indirectly by `sloglint` in `task lint`, so rides Gate 1). |
+| 10 | Metrics registration: new app side-effects register a §11.5.5 catalog entry in the same PR | Code review. |
+| 11 | Error mapping: new sysfs/wire paths map to the spec §6.2 + §6.4 sentinels in the same PR | Code review. |
+| 12 | Cross-compile for `linux/{amd64,arm64,arm}` | CI: `cross-compile` job (Phase 0 minimal builds; switches to `goreleaser build --snapshot` when release wiring lands). |
 
-The remaining gates (metrics catalog completeness, error-mapping
-matrix, etc.) are code-review checklist items until a later phase
-introduces the required infrastructure.
+Two additional CI jobs run outside the numbered-gate table:
+`lint-and-vet` also runs `task vuln` (govulncheck) on every PR, and
+`changelog-check` verifies `CHANGELOG.md` matches `git-cliff` output
+on release tags.
 
 ## Code-review checklist
 
