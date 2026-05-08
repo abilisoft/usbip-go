@@ -476,13 +476,25 @@ func (e *Exporter) acceptLoop(ctx context.Context, listener net.Listener) error 
 	}
 }
 
+// shutdownResidualGrace is the extra wall-clock budget
+// waitSessionsBounded allows after force-closing session conns before
+// giving up and returning — long enough for a cooperative handler to
+// unwind on the net.ErrClosed read, short enough to keep Shutdown's
+// total deadline contract honest (pass-4 RANK 2).
+const shutdownResidualGrace = 100 * time.Millisecond
+
 // waitSessionsBounded blocks until sessionsWG drains or ctx deadline
 // expires. Returns a ctx-wrapped error on deadline expiry so callers
-// distinguish graceful drain from forced cutoff. On deadline expiry
-// the function force-closes every tracked session conn and waits
-// unbounded for the background Wait goroutine so it never leaks —
-// the alternative is a parked handler stuck in kernel.ExportOnConn
-// with no observation path for handle.done.
+// distinguish graceful drain from forced cutoff.
+//
+// On deadline expiry the function force-closes every tracked session
+// conn and allows a short residual grace for cooperative handlers to
+// unwind on the resulting net.ErrClosed read. If the grace also
+// expires the residual handler count is logged at Warn and the call
+// returns the wrapped ctx error anyway — a truly stuck handler
+// (one that ignores conn.Close) is accepted as a leaked goroutine
+// tradeoff because Shutdown-blocks-forever is a worse failure mode
+// than a bounded goroutine leak. See pass-4 RANK 2.
 func (e *Exporter) waitSessionsBounded(ctx context.Context) error {
 	done := make(chan struct{})
 
@@ -495,11 +507,40 @@ func (e *Exporter) waitSessionsBounded(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-ctx.Done():
-		e.forceCloseSessionConns()
-		<-done
+	}
+
+	e.forceCloseSessionConns()
+
+	// Residual grace uses wall-clock time directly — the Clock
+	// abstraction exists for long-lived timers (backoffs, polls) that
+	// tests drive with FakeClock. A 100ms post-force-close drain
+	// window is too short to mock meaningfully, and every Clock
+	// concrete in the project (RealClock, FakeClock) is already used
+	// in tests that need Shutdown to return under a real ctx deadline.
+	grace := time.NewTimer(shutdownResidualGrace)
+	defer grace.Stop()
+
+	select {
+	case <-done:
+		return fmt.Errorf("exporter shutdown: %w", ctx.Err())
+	case <-grace.C:
+		e.logger.Warn("exporter shutdown residual handlers did not drain",
+			slog.Int("residual_sessions", e.countSessions()),
+			slog.Duration("residual_grace", shutdownResidualGrace),
+		)
 
 		return fmt.Errorf("exporter shutdown: %w", ctx.Err())
 	}
+}
+
+// countSessions returns the current session bookkeeping count under
+// the read lock. Used by waitSessionsBounded's residual-grace warning
+// to report how many handlers refused to unwind after force-close.
+func (e *Exporter) countSessions() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	return len(e.sessions)
 }
 
 // forceCloseSessionConns closes every tracked session conn so handlers
