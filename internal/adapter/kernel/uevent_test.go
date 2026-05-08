@@ -509,14 +509,22 @@ func TestSubscribe_DottedBusIDProducesEvent(t *testing.T) {
 	}
 }
 
-// TestSubscribe_FailsWhenTopologyUnavailable pins the Task-3 wiring
-// contract: Subscribe must load the VHCI topology before accepting
-// subscribers so every downstream event already knows its flat
-// Port.ID. A host where vhci_hcd is not loaded (or sysfs is missing)
-// yields an errTopologyNoControllers / missing-nports failure that
-// Subscribe must surface — proceeding with an empty BusMap would
-// silently drop every vhci event as "non-VHCI bus".
-func TestSubscribe_FailsWhenTopologyUnavailable(t *testing.T) {
+// TestEventsAdapter_SubscribeSucceedsWithoutVHCI pins the Pass-3
+// Task-3.1 BUG-1 contract: exporter-only deployments (hosts running
+// usbip_host with no vhci_hcd module loaded) MUST be able to open a
+// Subscribe and receive DeviceBoundEvent / DeviceUnboundEvent from
+// the usbip_host subsystem. VHCI is an importer concern — forcing
+// Subscribe to fail when the VHCI topology is absent strands every
+// exporter-only server.
+//
+// Fixture: an fs.FS with ONLY the usbip_host sysfs skeleton and no
+// vhci_hcd.0/nports attribute. Subscribe must succeed. A synthesised
+// SUBSYSTEM=usbip_host ACTION=add uevent must surface as a
+// DeviceBoundEvent. A synthesised SUBSYSTEM=usb ACTION=remove uevent
+// on a VHCI-shaped devpath must be dropped silently (no event on the
+// channel) — the topology loader fires and fails, the VHCI branch
+// degrades, usbip_host is unaffected.
+func TestEventsAdapter_SubscribeSucceedsWithoutVHCI(t *testing.T) {
 	t.Parallel()
 
 	sock := newFakeSocket()
@@ -525,17 +533,61 @@ func TestSubscribe_FailsWhenTopologyUnavailable(t *testing.T) {
 
 	dialer := func() (kernel.NetlinkSocket, error) { return sock, nil }
 
-	// Empty MapFS — no vhci_hcd.0/nports, so discoverTopology fails at
-	// the first sysfs read.
+	// MapFS with no vhci_hcd.0 directory at all — exporter-only host.
+	// usbip_host uevents do not require any sysfs structure to parse,
+	// so the fixture can be empty.
 	a, err := kernel.NewEventsAdapter(
 		kernel.WithFS(topoFS(nil)),
 		kernel.WithNetlinkDialer(dialer),
 	)
 	require.NoError(t, err)
 
-	_, _, err = a.Subscribe(t.Context())
-	require.Error(t, err,
-		"Subscribe must fail when the VHCI topology cannot be loaded")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	ch, unsub, err := a.Subscribe(ctx)
+	require.NoError(t, err,
+		"Subscribe must succeed on an exporter-only host — VHCI is an "+
+			"importer concern and must not gate the netlink listener")
+
+	defer unsub()
+
+	// Inject a usbip_host event: it must reach the consumer unchanged
+	// as a DeviceBoundEvent, because the usbip_host classifier is
+	// orthogonal to the VHCI topology.
+	sock.feed(uevent(map[string]string{
+		"ACTION":    "add",
+		"SUBSYSTEM": "usbip_host",
+		"DEVPATH":   "/devices/pci0000:00/0000:00:14.0/usb1/1-1",
+	}))
+
+	select {
+	case ev := <-ch:
+		require.NotNil(t, ev)
+
+		bound, isBound := ev.(domain.DeviceBoundEvent)
+		require.True(t, isBound, "expected DeviceBoundEvent, got %T", ev)
+		require.Equal(t, domain.BusID("1-1"), bound.Device.BusID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for usbip_host event without VHCI")
+	}
+
+	// Inject a VHCI-shaped event: the topology loader will fire, fail
+	// (no nports file), and the event must be dropped. Nothing should
+	// arrive on the channel within the polling window.
+	sock.feed(uevent(map[string]string{
+		"ACTION":    "remove",
+		"SUBSYSTEM": "usb",
+		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb1/1-1",
+	}))
+
+	select {
+	case ev := <-ch:
+		t.Fatalf("VHCI event must be dropped when the topology is "+
+			"unavailable, but got %T: %+v", ev, ev)
+	case <-time.After(200 * time.Millisecond):
+		// Expected: no event delivered.
+	}
 }
 
 // TestSubscribe_EmitsFlatPortIDForVhciEvent is the end-to-end contract
