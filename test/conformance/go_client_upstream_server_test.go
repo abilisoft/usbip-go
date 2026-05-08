@@ -198,6 +198,17 @@ func TestConformanceGoClientOpRepImport(t *testing.T) {
 
 	require.Equal(t, wantRaw, buf.Bytes(),
 		"Go encoder must reproduce the fixture OP_REP_IMPORT bytes exactly")
+
+	// Close the upstream so the handler goroutine returns and the
+	// captured BusID is safe to read, then assert the client actually
+	// transmitted the fixture's BusID (not some silently-substituted
+	// value). Without this assertion the server would reply to any
+	// BusID with the fixture device and the round-trip would pass.
+	_ = conn.Close()
+	_ = upstream.Close()
+
+	require.Equal(t, upstreamVudcDevice().BusID, upstream.ReceivedBusID(),
+		"upstream must observe the exact fixture BusID from the inbound OP_REQ_IMPORT")
 }
 
 // TestConformanceSyntheticUpstreamCapturesBusID pins the server's

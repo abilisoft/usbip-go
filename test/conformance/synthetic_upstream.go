@@ -48,6 +48,11 @@ type SyntheticUpstream struct {
 	mu     sync.Mutex
 	err    error
 	closed bool
+	// receivedBusID captures the BusID the handler read off an inbound
+	// OP_REQ_IMPORT so tests can assert the client transmitted the
+	// expected fixture value. Accessor-guarded by mu for the same
+	// reason err is: handler goroutine writes, test reads.
+	receivedBusID domain.BusID
 }
 
 // StartSyntheticUpstream binds a fresh 127.0.0.1:0 listener and
@@ -157,10 +162,16 @@ func (s *SyntheticUpstream) serveOne(conn net.Conn) error {
 		// does not race the client's next write. DecodeHeader
 		// already consumed the 8-byte header above; ReadPaddedString
 		// is the exact "body without header" helper.
-		_, _, err = wire.ReadPaddedString(conn, domain.BusIDSize)
-		if err != nil {
-			return fmt.Errorf("read OP_REQ_IMPORT busid: %w", err)
+		busid, _, readErr := wire.ReadPaddedString(conn, domain.BusIDSize)
+		if readErr != nil {
+			return fmt.Errorf("read OP_REQ_IMPORT busid: %w", readErr)
 		}
+
+		// Capture the inbound BusID so tests can assert the client
+		// transmitted the expected fixture value. Without this the
+		// handler replied with s.DeviceReply regardless of request,
+		// silently masking client-side BusID mismatches.
+		s.setReceivedBusID(domain.BusID(busid))
 
 		if s.ImportStatus != 0 {
 			_, err = conn.Write(wire.EncodeHeader(wire.OpRepImport, s.ImportStatus))
@@ -191,6 +202,27 @@ func (s *SyntheticUpstream) setErr(err error) {
 	if s.err == nil {
 		s.err = err
 	}
+}
+
+// setReceivedBusID stores the BusID parsed out of the inbound
+// OP_REQ_IMPORT body under s.mu so ReceivedBusID can read it safely
+// after the handler goroutine returns.
+func (s *SyntheticUpstream) setReceivedBusID(busID domain.BusID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.receivedBusID = busID
+}
+
+// ReceivedBusID returns the BusID the handler captured from the
+// inbound OP_REQ_IMPORT, or the zero value if no OP_REQ_IMPORT has
+// been served. Call after Close() returns so the handler has
+// finished writing to s.receivedBusID.
+func (s *SyntheticUpstream) ReceivedBusID() domain.BusID {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.receivedBusID
 }
 
 // Err returns the error the handler goroutine observed, if any. Call
