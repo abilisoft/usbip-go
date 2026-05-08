@@ -3,7 +3,9 @@ package wire_test
 import (
 	"bytes"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/abilisoft/usbip-go/internal/adapter/wire"
@@ -11,12 +13,64 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-//go:embed testdata/*.bin testdata/*.json
+//go:embed testdata/*.json
 var deviceFixtureFS embed.FS
 
+// Synthetic device-descriptor fixtures (spec §6.2 byte layout). Inlined
+// as hex so the repo never carries binary blobs; mustDecodeHex strips
+// whitespace so the strings can be reformatted freely.
+const (
+	deviceHSKingstonHex = `
+		2f7379732f646576696365732f706369303030303a30302f303030303a30303a
+		31342e302f757362312f312d3100000000000000000000000000000000000000
+		0000000000000000000000000000000000000000000000000000000000000000
+		0000000000000000000000000000000000000000000000000000000000000000
+		0000000000000000000000000000000000000000000000000000000000000000
+		0000000000000000000000000000000000000000000000000000000000000000
+		0000000000000000000000000000000000000000000000000000000000000000
+		0000000000000000000000000000000000000000000000000000000000000000
+		312d310000000000000000000000000000000000000000000000000000000000
+		000000010000000200000003095116660110000000010101
+	`
+
+	deviceSSSampleHex = `
+		2f7379732f646576696365732f706369303030303a30302f303030303a30303a
+		31342e302f757362322f322d3100000000000000000000000000000000000000
+		0000000000000000000000000000000000000000000000000000000000000000
+		0000000000000000000000000000000000000000000000000000000000000000
+		0000000000000000000000000000000000000000000000000000000000000000
+		0000000000000000000000000000000000000000000000000000000000000000
+		0000000000000000000000000000000000000000000000000000000000000000
+		0000000000000000000000000000000000000000000000000000000000000000
+		322d310000000000000000000000000000000000000000000000000000000000
+		000000020000000300000005095116660110000000010101
+	`
+)
+
+func syntheticDeviceBytes(t *testing.T, name string) []byte {
+	t.Helper()
+
+	var hx string
+
+	switch name {
+	case "device_hs_kingston":
+		hx = deviceHSKingstonHex
+	case "device_ss_sample":
+		hx = deviceSSSampleHex
+	default:
+		t.Fatalf("unknown synthetic device fixture %q", name)
+	}
+
+	b, err := hex.DecodeString(strings.Join(strings.Fields(hx), ""))
+	require.NoError(t, err)
+
+	return b
+}
+
 // deviceFixture mirrors the JSON sidecar format for a device fixture.
-// Byte-for-byte round-trip: decode(*.bin) must equal the values in the
-// *.json sidecar; re-encode(decoded) must equal the original *.bin.
+// Byte-for-byte round-trip: decode(hex-inlined bytes) must equal the
+// values in the *.json sidecar; re-encode(decoded) must equal the
+// original bytes.
 type deviceFixture struct {
 	Path          string             `json:"path"`
 	BusID         string             `json:"busId"`
@@ -49,13 +103,12 @@ func TestDecodeDeviceSSFixture(t *testing.T) {
 	assertDeviceFixture(t, "device_ss_sample")
 }
 
-// assertDeviceFixture loads a device_*.bin + device_*.json pair and
-// validates decode + re-encode byte-for-byte.
+// assertDeviceFixture loads a synthetic device fixture (inline hex) +
+// its JSON sidecar and validates decode + re-encode byte-for-byte.
 func assertDeviceFixture(t *testing.T, name string) {
 	t.Helper()
 
-	binBytes, err := deviceFixtureFS.ReadFile("testdata/" + name + ".bin")
-	require.NoError(t, err)
+	binBytes := syntheticDeviceBytes(t, name)
 	require.Len(t, binBytes, wire.DeviceWireSize)
 
 	jsonBytes, err := deviceFixtureFS.ReadFile("testdata/" + name + ".json")
