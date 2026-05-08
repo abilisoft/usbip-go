@@ -18,10 +18,9 @@ const (
 	EventPortAttached EventKind = iota
 	EventPortDetached
 	EventPortErrored
+	EventPortReconnectExhausted
 	EventDeviceBound
 	EventDeviceUnbound
-	EventRemoteDeviceAdded
-	EventRemoteDeviceRemoved
 	EventSessionStarted
 	EventSessionEnded
 )
@@ -34,10 +33,9 @@ func eventKindNames() []string {
 		"port_attached",
 		"port_detached",
 		"port_errored",
+		"port_reconnect_exhausted",
 		"device_bound",
 		"device_unbound",
-		"remote_device_added",
-		"remote_device_removed",
 		"session_started",
 		"session_ended",
 	}
@@ -91,6 +89,24 @@ type PortErroredEvent struct {
 // EventKind implements Event.
 func (PortErroredEvent) EventKind() EventKind { return EventPortErrored }
 
+// PortReconnectExhaustedEvent is emitted by the importer's reconnect
+// watcher when MaxAttempts has been reached without a successful reattach.
+// Port is a snapshot of the last successful Attach (the kernel slot is
+// already gone at emission time, so this captures what was true while the
+// port was viable). Attempts is the number of reconnect attempts actually
+// made (not MaxAttempts). LastError is the stringified final attempt
+// error; the domain layer does not carry Go error values across the
+// JSON boundary.
+type PortReconnectExhaustedEvent struct {
+	At        time.Time
+	Port      Port
+	Attempts  int
+	LastError string
+}
+
+// EventKind implements Event.
+func (PortReconnectExhaustedEvent) EventKind() EventKind { return EventPortReconnectExhausted }
+
 // DeviceBoundEvent is emitted when a local device becomes exportable
 // (bound to usbip-host).
 type DeviceBoundEvent struct {
@@ -110,29 +126,6 @@ type DeviceUnboundEvent struct {
 
 // EventKind implements Event.
 func (DeviceUnboundEvent) EventKind() EventKind { return EventDeviceUnbound }
-
-// RemoteDeviceAddedEvent is emitted when a new device appears on a
-// monitored remote peer.
-type RemoteDeviceAddedEvent struct {
-	At     time.Time
-	Remote RemoteEndpoint
-	Device Device
-}
-
-// EventKind implements Event.
-func (RemoteDeviceAddedEvent) EventKind() EventKind { return EventRemoteDeviceAdded }
-
-// RemoteDeviceRemovedEvent is emitted when a previously-seen device
-// disappears from a monitored remote peer. Only BusID is known
-// because the device is no longer enumerable.
-type RemoteDeviceRemovedEvent struct {
-	At     time.Time
-	Remote RemoteEndpoint
-	BusID  BusID
-}
-
-// EventKind implements Event.
-func (RemoteDeviceRemovedEvent) EventKind() EventKind { return EventRemoteDeviceRemoved }
 
 // SessionStartedEvent is emitted when a client completes the USBIP
 // handshake and is assigned a Session.

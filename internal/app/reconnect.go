@@ -426,13 +426,22 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 	// fails (attempt > MaxAttempts), the final attempted-and-failed
 	// iteration is attempt-1. MaxAttempts==0 (infinite) is unreachable
 	// here because the loop only exits on success return.
+	attempts := attempt - 1
+
 	i.logger.Warn("reconnect giving up after max attempts",
 		slog.Any("port_id", p.portID),
-		slog.Int("attempt", attempt-1),
+		slog.Int("attempt", attempts),
 		slog.String("source", source),
 		slog.Int("max_attempts", p.opts.MaxAttempts),
 		slog.Any("last_err", lastErr),
 	)
+
+	i.publishImporterEvent(domain.PortReconnectExhaustedEvent{
+		At:        i.clock.Now(),
+		Port:      p.handle.lastKnownPort,
+		Attempts:  attempts,
+		LastError: lastErr.Error(),
+	})
 }
 
 // finishReconnectSuccess handles the post-Attach success branch of the

@@ -1204,3 +1204,78 @@ func TestReconnect_RegistersBackoffDeadlineBeforeOnReconnect(t *testing.T) {
 	require.GreaterOrEqual(t, pendingAtCallback.Load(), int64(1),
 		"FakeClock must have the backoff deadline registered BEFORE OnReconnect fires")
 }
+
+// TestImporterReconnectExhaustedEmitsEvent asserts that exhausting
+// MaxAttempts publishes a PortReconnectExhaustedEvent through Watch().
+// The event carries a snapshot of the last successful Port, the actual
+// number of attempts made, and the stringified final error.
+func TestImporterReconnectExhaustedEmitsEvent(t *testing.T) {
+	t.Parallel()
+
+	var attachCount atomic.Int32
+
+	attachFn := func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+		n := attachCount.Add(1)
+		if n == 1 {
+			return domain.PortID(7), nil
+		}
+
+		return 0, errBoom
+	}
+
+	imp, clk, registry, _ := newReconnectFixture(t, attachFn)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	opts := attachOptionsWithBackoff()
+
+	opts.MaxAttempts = 2
+
+	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), opts)
+	require.NoError(t, err)
+	require.Equal(t, domain.PortID(7), port.ID)
+
+	registry.waitFor(t, 1)
+
+	// Subscribe to Watch BEFORE triggering exhaustion. Watch's own
+	// kernel-event subscription registers as channel index 1; we send
+	// the detach on the watcher's channel (index 0) so the reconnect
+	// loop runs to exhaustion.
+	watchCtx, watchCancel := context.WithCancel(context.Background())
+	t.Cleanup(watchCancel)
+
+	exhausted := make(chan domain.PortReconnectExhaustedEvent, 1)
+
+	go func() {
+		for ev := range imp.Watch(watchCtx) {
+			if ex, ok := ev.(domain.PortReconnectExhaustedEvent); ok {
+				exhausted <- ex
+
+				return
+			}
+		}
+	}()
+
+	registry.waitFor(t, 2)
+
+	registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
+
+	for i := range 2 {
+		want := int32(i + 2)
+		require.Eventually(t, func() bool {
+			clk.Advance(reconnectTestBackoff().Delay)
+
+			return attachCount.Load() >= want
+		}, reconnectTestSettleBudget, 10*time.Millisecond,
+			"AttachRemote should reach %d after attempt %d", want, i+1)
+	}
+
+	select {
+	case ev := <-exhausted:
+		require.Equal(t, port.ID, ev.Port.ID)
+		require.Equal(t, port.BusID, ev.Port.BusID)
+		require.Equal(t, 2, ev.Attempts)
+		require.NotEmpty(t, ev.LastError)
+	case <-time.After(reconnectTestSettleBudget):
+		t.Fatalf("PortReconnectExhaustedEvent was not delivered through Watch()")
+	}
+}

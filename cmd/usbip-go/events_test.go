@@ -49,7 +49,6 @@ func TestClassifyEventCoversEveryKind(t *testing.T) {
 		BusID:  "1-1",
 	}
 	dev := domain.Device{BusID: "1-1", VendorID: 0x0951, ProductID: 0x1666}
-	remote := domain.RemoteEndpoint{Host: "10.0.0.5", Port: 3240}
 
 	sid, err := domain.NewSessionID()
 	require.NoError(t, err)
@@ -69,18 +68,18 @@ func TestClassifyEventCoversEveryKind(t *testing.T) {
 		{"port-attached", domain.PortAttachedEvent{At: at, Port: port}, "port_attached"},
 		{"port-detached", domain.PortDetachedEvent{At: at, Port: port, Reason: "drop"}, "port_detached"},
 		{"port-errored", domain.PortErroredEvent{At: at, Port: port, Err: "io"}, "port_errored"},
+		{
+			name: "port-reconnect-exhausted",
+			ev: domain.PortReconnectExhaustedEvent{
+				At:        at,
+				Port:      port,
+				Attempts:  3,
+				LastError: "io: dial timeout",
+			},
+			kind: "port_reconnect_exhausted",
+		},
 		{"device-bound", domain.DeviceBoundEvent{At: at, Device: dev}, "device_bound"},
 		{"device-unbound", domain.DeviceUnboundEvent{At: at, Device: dev}, "device_unbound"},
-		{
-			name: "remote-device-added",
-			ev:   domain.RemoteDeviceAddedEvent{At: at, Remote: remote, Device: dev},
-			kind: "remote_device_added",
-		},
-		{
-			name: "remote-device-removed",
-			ev:   domain.RemoteDeviceRemovedEvent{At: at, Remote: remote, BusID: "1-1"},
-			kind: "remote_device_removed",
-		},
 		{"session-started", domain.SessionStartedEvent{At: at, Session: sess}, "session_started"},
 		{"session-ended", domain.SessionEndedEvent{At: at, Session: sess, Reason: "drain"}, "session_ended"},
 	}
@@ -128,10 +127,9 @@ func TestAdaptersRejectMismatchedDynamicType(t *testing.T) {
 
 	require.Nil(t, adaptPortDetached(wrong))
 	require.Nil(t, adaptPortErrored(wrong))
+	require.Nil(t, adaptPortReconnectExhausted(wrong))
 	require.Nil(t, adaptDeviceBound(wrong))
 	require.Nil(t, adaptDeviceUnbound(wrong))
-	require.Nil(t, adaptRemoteDeviceAdded(wrong))
-	require.Nil(t, adaptRemoteDeviceRemoved(wrong))
 	require.Nil(t, adaptSessionStarted(wrong))
 	require.Nil(t, adaptSessionEnded(wrong))
 }

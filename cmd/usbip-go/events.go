@@ -118,6 +118,14 @@ type portErroredRecord struct {
 	Err  string   `json:"err"`
 }
 
+type portReconnectExhaustedRecord struct {
+	eventBase
+
+	Port      portView `json:"port"`
+	Attempts  int      `json:"attempts"`
+	LastError string   `json:"last_error"`
+}
+
 type deviceBoundRecord struct {
 	eventBase
 
@@ -128,20 +136,6 @@ type deviceUnboundRecord struct {
 	eventBase
 
 	Device deviceView `json:"device"`
-}
-
-type remoteDeviceAddedRecord struct {
-	eventBase
-
-	Remote string     `json:"remote"`
-	Device deviceView `json:"device"`
-}
-
-type remoteDeviceRemovedRecord struct {
-	eventBase
-
-	Remote string `json:"remote"`
-	BusID  string `json:"busid"`
 }
 
 type sessionStartedRecord struct {
@@ -166,15 +160,14 @@ type eventRecorder func(usbip.Event) any
 // under the cyclop cap of 10.
 func eventRecorders() map[domain.EventKind]eventRecorder {
 	return map[domain.EventKind]eventRecorder{
-		domain.EventPortAttached:        adaptPortAttached,
-		domain.EventPortDetached:        adaptPortDetached,
-		domain.EventPortErrored:         adaptPortErrored,
-		domain.EventDeviceBound:         adaptDeviceBound,
-		domain.EventDeviceUnbound:       adaptDeviceUnbound,
-		domain.EventRemoteDeviceAdded:   adaptRemoteDeviceAdded,
-		domain.EventRemoteDeviceRemoved: adaptRemoteDeviceRemoved,
-		domain.EventSessionStarted:      adaptSessionStarted,
-		domain.EventSessionEnded:        adaptSessionEnded,
+		domain.EventPortAttached:           adaptPortAttached,
+		domain.EventPortDetached:           adaptPortDetached,
+		domain.EventPortErrored:            adaptPortErrored,
+		domain.EventPortReconnectExhausted: adaptPortReconnectExhausted,
+		domain.EventDeviceBound:            adaptDeviceBound,
+		domain.EventDeviceUnbound:          adaptDeviceUnbound,
+		domain.EventSessionStarted:         adaptSessionStarted,
+		domain.EventSessionEnded:           adaptSessionEnded,
 	}
 }
 
@@ -204,13 +197,11 @@ func eventHeader(rec any) (string, string, bool) {
 		return r.Kind, r.At, true
 	case portErroredRecord:
 		return r.Kind, r.At, true
+	case portReconnectExhaustedRecord:
+		return r.Kind, r.At, true
 	case deviceBoundRecord:
 		return r.Kind, r.At, true
 	case deviceUnboundRecord:
-		return r.Kind, r.At, true
-	case remoteDeviceAddedRecord:
-		return r.Kind, r.At, true
-	case remoteDeviceRemovedRecord:
 		return r.Kind, r.At, true
 	case sessionStartedRecord:
 		return r.Kind, r.At, true
@@ -267,6 +258,20 @@ func adaptPortErrored(ev usbip.Event) any {
 	}
 }
 
+func adaptPortReconnectExhausted(ev usbip.Event) any {
+	e, ok := ev.(domain.PortReconnectExhaustedEvent)
+	if !ok {
+		return nil
+	}
+
+	return portReconnectExhaustedRecord{
+		eventBase: newEventBase(e.EventKind(), e.At),
+		Port:      newPortView(e.Port),
+		Attempts:  e.Attempts,
+		LastError: e.LastError,
+	}
+}
+
 func adaptDeviceBound(ev usbip.Event) any {
 	e, ok := ev.(domain.DeviceBoundEvent)
 	if !ok {
@@ -288,32 +293,6 @@ func adaptDeviceUnbound(ev usbip.Event) any {
 	return deviceUnboundRecord{
 		eventBase: newEventBase(e.EventKind(), e.At),
 		Device:    newDeviceView(e.Device),
-	}
-}
-
-func adaptRemoteDeviceAdded(ev usbip.Event) any {
-	e, ok := ev.(domain.RemoteDeviceAddedEvent)
-	if !ok {
-		return nil
-	}
-
-	return remoteDeviceAddedRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Remote:    e.Remote.String(),
-		Device:    newDeviceView(e.Device),
-	}
-}
-
-func adaptRemoteDeviceRemoved(ev usbip.Event) any {
-	e, ok := ev.(domain.RemoteDeviceRemovedEvent)
-	if !ok {
-		return nil
-	}
-
-	return remoteDeviceRemovedRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Remote:    e.Remote.String(),
-		BusID:     string(e.BusID),
 	}
 }
 
