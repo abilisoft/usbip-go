@@ -14,12 +14,11 @@ on:
 
 permissions:
   contents: read
-  # id-token: write is required by DeterminateSystems/flakehub-cache-action
-  # so it can mint a workflow-scoped OIDC token to authenticate against
-  # FlakeHub Cache. The token never leaves the runner; it is exchanged
-  # for a short-lived cache-service credential. Granted at workflow scope
-  # so every job that runs the cache action inherits it.
-  id-token: write
+# id-token:write is granted at job scope (not workflow root) for every
+# job that uses DeterminateSystems/flakehub-cache-action. Scorecard's
+# Token-Permissions check flags any non-read permission granted at
+# workflow root, so this file keeps the root clamped to contents:read
+# and each cache-using job adds its own permissions block.
 
 # Pattern: install Nix on a plain ubuntu-24.04 runner via the
 # Determinate Systems action, let Magic Nix Cache handle the store
@@ -43,6 +42,9 @@ jobs:
   lint-and-vet:
     name: Lint & vuln
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -57,6 +59,9 @@ jobs:
   unit-linux:
     name: Unit tests (linux)
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -69,6 +74,9 @@ jobs:
   conformance:
     name: Conformance (wire bytes + optional upstream usbip)
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -118,6 +126,9 @@ jobs:
   api-surface:
     name: API surface (Compliance Gate 6)
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -132,7 +143,10 @@ jobs:
             # under the hermetic cache tree before `go install`.
             export GOBIN="$PWD/build/cache/go-bin"
             mkdir -p "$GOBIN"
-            go install golang.org/x/exp/cmd/apidiff
+            # Pin to the exact golang.org/x/exp pseudo-version recorded
+            # in go.mod so this `go install` is reproducible and
+            # OpenSSF Scorecard Pinned-Dependencies passes.
+            go install golang.org/x/exp/cmd/apidiff@v0.0.0-20260410095643-746e56fc9e2f
             for pkg in github.com/abilisoft/usbip-go/pkg/usbip github.com/abilisoft/usbip-go/pkg/domain; do
               short="${pkg##*/}"
               baseline="api/pkg_${short}.json"
@@ -183,6 +197,9 @@ jobs:
   no-cgo:
     name: No cgo (Compliance Gate 8)
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
@@ -225,6 +242,9 @@ jobs:
   coverage:
     name: Coverage (Compliance Gate 4)
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -242,6 +262,9 @@ jobs:
   cross-compile:
     name: Cross-compile (Compliance Gate 12)
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
@@ -263,6 +286,9 @@ jobs:
     name: Mutation testing
     runs-on: ubuntu-24.04
     if: github.event_name == 'schedule'
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

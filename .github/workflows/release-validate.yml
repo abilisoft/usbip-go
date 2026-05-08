@@ -16,9 +16,8 @@ on:
 
 permissions:
   contents: read
-  # id-token: write — required by DeterminateSystems/flakehub-cache-action
-  # to mint a workflow-scoped OIDC token for FlakeHub Cache auth.
-  id-token: write
+# id-token:write is granted at job scope. Scorecard's Token-Permissions
+# check flags non-read permissions at workflow root.
 
 defaults:
   run:
@@ -28,6 +27,9 @@ jobs:
   changelog-check:
     name: Changelog check (git-cliff) — release tags only
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
