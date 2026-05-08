@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 AbiliSoft
+// SPDX-License-Identifier: Apache-2.0
+
 // Example server demonstrates embedding pkg/usbip.Exporter in a
 // custom process: listen on TCP, bind a local device for export, then
 // serve the USB/IP accept loop until SIGINT/SIGTERM.

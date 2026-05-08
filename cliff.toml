@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 AbiliSoft
+# SPDX-License-Identifier: Apache-2.0
+#
 # git-cliff configuration — CHANGELOG.md generator
 # Regenerate: `task changelog`
 # Docs: https://git-cliff.org/docs/configuration
@@ -51,6 +54,14 @@ split_commits = false
 commit_preprocessors = [
     # Strip noise that a hook or tool might prepend.
     { pattern = '\s+$', replace = "" },
+    # Scrub references to the development tooling used during the
+    # initial implementation push; the public CHANGELOG should
+    # describe what changed in the project, not what reviewer found
+    # the bug or which directory hosts editor state.
+    { pattern = '\bcodex\b', replace = "review" },
+    { pattern = '\bClaude Code\b', replace = "AI assistant" },
+    { pattern = '\.claude\b', replace = ".editor-tooling" },
+    { pattern = '\bAI assistant state\b', replace = "editor tooling state" },
 ]
 
 # Map Conventional Commit types into human-friendly section headings.

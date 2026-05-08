@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 AbiliSoft
+// SPDX-License-Identifier: Apache-2.0
+
 package main
 
 import (
@@ -10,11 +13,12 @@ import (
 )
 
 // TestMain redirects the test-scoped tmpdir to a project-local
-// directory. The default $TMPDIR (/tmp under the Claude Code sandbox)
-// refuses AF_UNIX socket creation — the seccomp filter blocks unix
-// bind(2) outside the project root, even though /tmp is in allowWrite.
-// Pointing t.TempDir() at ./.test-tmp-* keeps every UDS bind inside the
-// project directory that the sandbox does permit. Removed after m.Run.
+// directory. Some sandboxed CI environments refuse AF_UNIX socket
+// creation under /tmp via seccomp filters that block unix bind(2)
+// outside the project root, even though /tmp is otherwise writable.
+// Pointing t.TempDir() at ./.test-tmp-* keeps every UDS bind inside
+// the project directory that such sandboxes do permit. Removed
+// after m.Run.
 func TestMain(m *testing.M) {
 	tmp, err := os.MkdirTemp(".", ".test-tmp-")
 	if err != nil {
