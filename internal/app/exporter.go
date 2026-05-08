@@ -512,6 +512,14 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 // cancelled at entry: Go's select picks randomly among ready cases,
 // so without the re-check a Shutdown(already-cancelled-ctx) call with
 // an empty wg could surface a spurious wrapped-ctx error.
+//
+// The wg.Wait() helper goroutine below is uncancellable: it remains
+// parked until every Disconnect goroutine returns. A truly-wedged
+// Disconnect therefore leaks both the Disconnect goroutine itself
+// AND this helper. The leak is bounded (one helper per Shutdown
+// invocation, firstShutdown gate prevents repeats) and is the same
+// accepted trade-off documented in the wedged-handler note in
+// waitSessionsBounded.
 func (e *Exporter) waitDisconnectBounded(drainCtx context.Context, wg *sync.WaitGroup) error {
 	done := make(chan struct{})
 

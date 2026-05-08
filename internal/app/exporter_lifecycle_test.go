@@ -43,13 +43,19 @@ func newSessionImportCodec(busID domain.BusID) *ProtocolCodecMock {
 
 // startExporterImportSession helps tests bring up a single long-lived
 // import session. Returns the running exporter, the client conn, a
-// func that releases ExportOnConn, and the serveDone channel.
+// func that releases ExportOnConn, the serveDone channel, and the
+// Serve-cancel func. Waits synchronously for ExportOnConn to start so
+// callers know the handler is past the runRegisteredSession pre-handoff
+// cancel check (without that wait the handler can still race a
+// Shutdown firing between registerSession and ExportOnConn, which
+// the new check intentionally short-circuits).
 func startExporterImportSession(
 	t *testing.T,
 ) (*app.Exporter, net.Conn, chan<- struct{}, <-chan error, context.CancelFunc) {
 	t.Helper()
 
 	releaseExport := make(chan struct{})
+	exportStarted := make(chan struct{}, 1)
 
 	kernel := &ExporterKernelMock{
 		// serveImport now looks the requested device up in the
@@ -59,6 +65,11 @@ func startExporterImportSession(
 			return []domain.Device{{BusID: domain.BusID("3-1")}}, nil
 		},
 		ExportOnConnFunc: func(_ context.Context, c net.Conn, _ domain.BusID) error {
+			select {
+			case exportStarted <- struct{}{}:
+			default:
+			}
+
 			// Watch both the test-driven release AND the conn itself so a
 			// Shutdown force-close on drain-exceed unwedges the handler
 			// instead of deadlocking on releaseExport.
@@ -105,6 +116,13 @@ func startExporterImportSession(
 
 	_, err = client.Write(opHeader(wire.OpReqImport))
 	require.NoError(t, err)
+
+	select {
+	case <-exportStarted:
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("ExportOnConn never started")
+	}
 
 	return exp, client, releaseExport, serveDone, cancel
 }
