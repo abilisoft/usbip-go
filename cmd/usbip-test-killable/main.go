@@ -27,8 +27,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
 	"github.com/abilisoft/usbip-go/pkg/usbip"
@@ -71,6 +73,13 @@ const (
 	exitInvalidEnv   = 2
 	exitAttachFailed = 3
 )
+
+// dialProbeTimeout bounds the raw TCP dial the after_dial checkpoint
+// performs before parking. A deliberately generous budget: the parent
+// binds a loopback listener on a kernel-picked port, so the dial is
+// effectively non-blocking on a healthy box. Three seconds is a loud
+// failure if the listener never came up.
+const dialProbeTimeout = 3 * time.Second
 
 // errAddressMissingColon is the static sentinel for parseEndpoint when
 // the input lacks a host:port separator. err113 requires named errors
@@ -133,16 +142,31 @@ func run() int {
 
 	defer func() { _ = imp.Close() }()
 
-	// AT=after_dial fires BEFORE imp.Attach so a dial-time failure
-	// (e.g. ECONNREFUSED) still surfaces the checkpoint to the parent.
-	announceCheckpoint(checkpointAfterDial)
-
 	if target == checkpointAfterDial {
-		// Park here so the parent SIGKILLs the child BEFORE Attach's
-		// dial touches the server. Semantically this is "reached the
-		// after_dial sync point without proceeding to AttachRemote".
+		// "after_dial" means "the child reached a post-dial state with
+		// an open socket to the server". To produce that observable,
+		// open a raw TCP connection to the parent's fake server first,
+		// THEN announce the checkpoint, THEN park — so the parent sees
+		// a real accepted connection and the post-SIGKILL close that
+		// the test assertPost checks for. A raw Dial is enough: the
+		// test exercises "kernel closes fd on process death before
+		// sysfs handoff", not the usbip protocol itself.
+		probe, dialErr := net.DialTimeout("tcp", server, dialProbeTimeout)
+		if dialErr != nil {
+			_, _ = fmt.Fprintf(checkpointWriter, "FATAL: after_dial probe: %v\n", dialErr)
+
+			return exitAttachFailed
+		}
+
+		_ = probe // keep the socket open; SIGKILL releases it
+
+		announceCheckpoint(checkpointAfterDial)
 		parkForSIGKILL()
 	}
+
+	// Non-target path: announce so a different scenario running the
+	// whole sequence sees the line.
+	announceCheckpoint(checkpointAfterDial)
 
 	// AT=after_sysfs fires BEFORE imp.Attach so Attach failure on the
 	// non-sysfs path (dial refused, protocol error, kernel handoff

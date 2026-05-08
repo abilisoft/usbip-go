@@ -58,7 +58,12 @@ func TestEventsDeviceBoundUnbound(t *testing.T) {
 
 	// Unbind to synthesise the second event. This both exercises
 	// the unbound path AND re-emits the bound event at re-bind.
-	err = os.WriteFile("/sys/kernel/config/usb_gadget/"+dev.Name+"/UDC", []byte(""), 0o644)
+	// configfs rejects a zero-byte write with -EFAULT; writing a lone
+	// newline is the canonical way to unbind a UDC — the kernel's
+	// gadget_dev_desc_UDC_store strips the trailing \n and the empty
+	// result triggers unregister_gadget. Same pattern as the harness
+	// cleanup path in harness.go's runGadgetCleanup.
+	err = os.WriteFile("/sys/kernel/config/usb_gadget/"+dev.Name+"/UDC", []byte("\n"), 0o644)
 	require.NoError(t, err, "unbind UDC must succeed")
 
 	got, ok := awaitDeviceEvent(ctx, ch, busID)
