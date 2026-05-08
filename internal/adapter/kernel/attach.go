@@ -81,12 +81,32 @@ func (a *ImporterAdapter) AttachRemote(
 // The fd-lifecycle invariants documented on AttachRemote (spec §5.4
 // write-first-close-second, caller owns conn on error) apply here
 // verbatim because this helper owns the sysfs write.
+//
+// Defence-in-depth: the flat port is validated against the cached
+// topology before any sysfs write. vhci_sysfs.c::attach_store
+// returns -EINVAL when port >= nports, but surfacing that bare
+// errno gives operators no context; the pre-write check returns
+// domain.ErrPortOutOfRange wrapping port + nports so a stale-cache
+// race or a bypassed findFreePort path produces a diagnosable
+// failure instead of a silent EINVAL. The check is cheap (one map
+// lookup + two uint32 comparisons) and runs ahead of the expensive
+// sysfs write regardless of caller.
 func (a *ImporterAdapter) attachAtPort(
 	_ context.Context,
 	conn net.Conn,
 	portID domain.PortID,
 	spec app.RemoteDeviceSpec,
 ) (domain.PortID, error) {
+	topo, err := a.loadTopology()
+	if err != nil {
+		return 0, err
+	}
+
+	err = validateAttachPort(topo, portID)
+	if err != nil {
+		return 0, err
+	}
+
 	fd, err := extractFD(conn)
 	if err != nil {
 		return 0, err
@@ -104,6 +124,36 @@ func (a *ImporterAdapter) attachAtPort(
 	_ = conn.Close()
 
 	return portID, nil
+}
+
+// validateAttachPort checks that port is inside the kernel's flat
+// port space [0, NControllers*VHCIPorts). vhci_sysfs.c::attach_store
+// derives (pdev_nr, rhport) from the flat id and returns -EINVAL
+// when pdev_nr >= VHCI_NR_HCS (our NControllers); the adapter
+// surfaces that pre-write as domain.ErrPortOutOfRange wrapping port
+// + nports so a stale-cache race or bypassed findFreePort path
+// produces a diagnosable failure rather than a bare EINVAL.
+//
+// VHCIPorts is guaranteed nonzero by discoverStatusTopology's nports
+// validation, which loadTopology routes through before returning a
+// Topology — so the multiplication below cannot overflow to zero.
+//
+// The decomposition guard is folded into the single range check:
+// port < NControllers*VHCIPorts is equivalent to (controllerIdx =
+// port/VHCIPorts) < NControllers, and the rhport computed as (port
+// % VHCIPorts) is by construction bounded by VHCIPorts = 2*HCPorts,
+// so rhport%HCPorts < HCPorts holds automatically. An explicit
+// rhport>=HCPorts branch would be dead code (unreachable under the
+// VHCIPorts = HCPorts*hubsPerController invariant enforced by
+// deriveHCPorts); adding one would only obscure the single
+// boundary actually being policed.
+func validateAttachPort(topo Topology, port domain.PortID) error {
+	nports := topo.NControllers * topo.VHCIPorts
+	if uint32(port) >= nports {
+		return fmt.Errorf("%w: port=%d nports=%d", domain.ErrPortOutOfRange, uint32(port), nports)
+	}
+
+	return nil
 }
 
 // extractFD walks the conn → syscall.Conn → syscall.RawConn chain to
