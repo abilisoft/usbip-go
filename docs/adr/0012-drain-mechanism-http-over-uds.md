@@ -43,10 +43,11 @@ breaking partial decoders, and HTTP method/path/status-code
 semantics carry per-operation success/error without layering work.
 
 Operator inspectability is a first-class win: anyone with the
-`usbip-go` group can `curl --unix-socket /run/usbip-go/status.sock
-http://x/` to read state during an incident, without needing the
-`usbip` binary itself. The same path supports k8s and systemd-style
-readiness probes through the standard `curl --unix-socket` idiom.
+`usbip` group (configurable via `--status-socket-group`) can
+`curl --unix-socket /run/usbip-go/status.sock http://x/` to read
+state during an incident, without needing the `usbip` binary
+itself. The same path supports k8s and systemd-style readiness
+probes through the standard `curl --unix-socket` idiom.
 
 The current implementation lives in `cmd/usbip/status.go` (HTTP
 server + bind / chmod / chown / unlink-stale dance),
@@ -55,7 +56,7 @@ and `cmd/usbip/drain.go` (client subcommand).
 
 ## Polling vs server-push
 
-The client polls `GET /` every 500ms until `sessions == []`. SSE or a
+The client polls `GET /` every 200ms until `sessions == []`. SSE or a
 streaming `/drain/wait` would eliminate the round-trip waste, but
 adds connection state for marginal benefit on an operation whose
 total wall-time is bounded by `--shutdown-timeout` (default 30s).
@@ -144,7 +145,7 @@ item 7).
 | Failure | Effect | Operator action |
 |---|---|---|
 | `src.Drain` returns non-nil (rare; means `Exporter.Shutdown` errored on a wedged session) | The drain goroutine logs at error level; the `drainStarted` gate stays set. Subsequent `POST /drain` returns `200 OK` no-op. The daemon STILL exits when its own ctx cancels (deferred `drainExporter` in `runDaemon` re-enters `Exporter.Shutdown`; the second call finds the listener already cleared and the sessions map drained, so it returns quickly). | Wait for the daemon to exit on its own; check journald for the error. If drain was caused by a pending upgrade, the new process binds the activated socket regardless. |
-| Daemon ctx cancels mid-drain (operator Ctrl-C after triggering drain) | The drain goroutine receives the cancellation through the daemon ctx and aborts its wait. The deferred `drainExporter` in `runDaemon` runs the same `Exporter.Shutdown` sync.Once — second invocation returns immediately. | Intentional: operator-visible Ctrl-C wins; in-flight sessions force-close. |
+| Daemon ctx cancels mid-drain (operator Ctrl-C after triggering drain) | The drain goroutine receives the cancellation through the daemon ctx and aborts its wait. The deferred `drainExporter` in `runDaemon` re-enters `Exporter.Shutdown`; the second call finds the listener already cleared and the sessions map drained, so it returns quickly via the same flag-and-clear path. | Intentional: operator-visible Ctrl-C wins; in-flight sessions force-close. |
 | Drain hangs past `--shutdown-timeout` | `Exporter.Shutdown` returns; lingering sessions are force-closed; daemon exits. Client polling sees ECONNREFUSED on the next `GET /` and treats it as drain success. | None — this is the well-behaved path. |
 | Kernel module hung (rare; sysfs writes stall) | Drain blocks inside the per-session `kernel.DetachPort` call. `--shutdown-timeout` fires; daemon force-exits; supervising systemd may issue SIGKILL after `TimeoutStopSec`. | Last-resort `systemctl kill -s SIGKILL usbip` if supervisor doesn't escalate. Investigate the wedged kernel module separately. |
 
@@ -157,7 +158,7 @@ reloadable flag) by killing it and restarting with a higher value.
 ## Permissions
 
 UDS file mode `0660`, owned by the configured
-`--status-socket-group` (default `usbip-go`). Operators added to
+`--status-socket-group` (default `usbip`). Operators added to
 that group can drain the daemon without root. The status endpoint
 exposes only the daemon's own state — no kernel writes flow through
 the UDS.
