@@ -60,4 +60,13 @@ var (
 	// ErrHandshakeTimeout indicates the client failed to complete its
 	// OP request within HandshakeTimeout (§11.5.3).
 	ErrHandshakeTimeout = errors.New("handshake timed out")
+
+	// ErrACLRejected indicates the accepted peer's remote IP is not
+	// covered by any configured CIDR in the allow-list (§11.5.2).
+	ErrACLRejected = errors.New("peer rejected by ACL")
+
+	// ErrACLInvalid indicates one of the WithExporterACL CIDR strings
+	// failed to parse. Surfaced at NewExporterWithError time — a Serve-
+	// time failure would be a silent security regression.
+	ErrACLInvalid = errors.New("invalid ACL CIDR")
 )
