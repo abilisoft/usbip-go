@@ -3,6 +3,7 @@ module github.com/abilisoft/usbip-go
 go 1.26.2
 
 require (
+	github.com/coreos/go-systemd/v22 v22.7.0
 	github.com/go-gremlins/gremlins v0.6.0
 	github.com/golangci/golangci-lint/v2 v2.11.4
 	github.com/google/uuid v1.6.0
@@ -174,7 +175,6 @@ require (
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/stargz-snapshotter/estargz v0.18.2 // indirect
 	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
-	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
 	github.com/curioswitch/go-reassign v0.3.0 // indirect
 	github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467 // indirect
 	github.com/cyphar/filepath-securejoin v0.5.1 // indirect
