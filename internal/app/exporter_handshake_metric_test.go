@@ -16,18 +16,16 @@ import (
 )
 
 // TestExporter_HandshakeDurationMetricStopsBeforeSessionRuntime pins
-// down the pass-3 RANK 5 contract: usbip_exporter_handshake_duration_seconds
-// must measure the HANDSHAKE only (header decode + body decode + kernel
-// handoff), not the full session lifetime. Pre-fix, handleConn
-// observed the metric AFTER serveImport returned; serveImport only
-// returns when waitForSessionEnd unwinds (which is the session's
-// actual runtime), so the histogram's import-label samples recorded
-// the whole session duration — hundreds of milliseconds to hours in
-// production instead of the intended sub-ms handshake cost.
+// the histogram-scope contract: usbip_exporter_handshake_duration_seconds
+// must measure the HANDSHAKE only (header decode + body decode +
+// kernel handoff), not the full session lifetime. Observing the
+// metric AFTER serveImport returns would fold in waitForSessionEnd's
+// runtime — the whole session duration (hundreds of milliseconds to
+// hours in production) instead of the intended sub-ms handshake cost.
 //
-// The test injects a FakeClock and stretches the post-handoff
-// session duration by 5 seconds of fake-clock time. The handshake
-// itself (pre-ExportOnConn) takes zero fake-clock time, so a correct
+// The test injects a FakeClock and stretches the post-handoff session
+// duration by 5 seconds of fake-clock time. The handshake itself
+// (pre-ExportOnConn) takes zero fake-clock time, so a correct
 // implementation records ~0 seconds on the histogram. A buggy
 // implementation records ~5 seconds.
 func TestExporter_HandshakeDurationMetricStopsBeforeSessionRuntime(t *testing.T) {
@@ -41,12 +39,11 @@ func TestExporter_HandshakeDurationMetricStopsBeforeSessionRuntime(t *testing.T)
 
 	// ExportOnConn returns nil immediately, mirroring the real sysfs
 	// write semantics. The test advances the fake clock AFTER the
-	// session is registered; on the post-fix code path the handler
-	// already observed its handshake metric sample at the
-	// ExportOnConn-return boundary (delta ≈ 0 fake-clock seconds),
-	// while on the pre-fix code path the observation is deferred
-	// until after waitForSessionEnd unwinds, so the 5-second clock
-	// advance gets rolled into the sample.
+	// session is registered; the handler must observe its handshake
+	// metric sample at the ExportOnConn-return boundary (delta ≈ 0
+	// fake-clock seconds). If the observation were deferred until
+	// after waitForSessionEnd unwinds the 5-second clock advance
+	// would be rolled into the sample.
 	kernel := &ExporterKernelMock{
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, id domain.BusID) error {
 			require.Equal(t, sessionBusID, id)

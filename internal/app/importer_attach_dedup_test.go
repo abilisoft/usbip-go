@@ -14,12 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestImporterAttachConcurrentSameEndpoint proves the RANK 6 contract:
-// two goroutines calling Attach with the same (remote, busid) must
-// serialise — exactly ONE completes the kernel handoff and the other
-// returns ErrAttachInProgress. Pre-RANK-6 both Attach calls would
-// race the dial + handshake + AttachRemote sequence and import the
-// same device onto TWO local ports, corrupting the handle map.
+// TestImporterAttachConcurrentSameEndpoint pins the Attach dedup
+// contract: two goroutines calling Attach with the same (remote,
+// busid) must serialise — exactly ONE completes the kernel handoff and
+// the other returns ErrAttachInProgress. Without the guard both
+// Attach calls would race the dial + handshake + AttachRemote sequence
+// and import the same device onto TWO local ports, corrupting the
+// handle map.
 func TestImporterAttachConcurrentSameEndpoint(t *testing.T) {
 	t.Parallel()
 

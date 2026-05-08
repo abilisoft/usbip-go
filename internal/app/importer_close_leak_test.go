@@ -17,10 +17,10 @@ import (
 
 // newLeakProbeFixture builds a reconnect-enabled Importer whose
 // OnReconnect callback blocks on a release channel. After a reconnect
-// fires, the callback goroutine parks and — pre-fix — leaks past any
-// Close call whose timeout expires before the callback returns (RANK
-// 11). The returned releaseCallback lets a test unblock the callback
-// once it has observed the leak assertion.
+// fires, the callback goroutine parks; Close must still exit within
+// shutdownTimeout without leaking the callback goroutine. The returned
+// releaseCallback lets a test unblock the callback once it has observed
+// the leak assertion.
 func newLeakProbeFixture(t *testing.T) (
 	*app.Importer,
 	*testutil.FakeClock,
@@ -42,14 +42,13 @@ func newLeakProbeFixture(t *testing.T) (
 	return imp, clk, registry, releaseCallback
 }
 
-// TestImporterOnReconnectCallbackTrackedByWG proves the RANK 11 fix:
-// OnReconnect's goroutine must be tracked by i.wg so Close blocks on
-// it (bounded by shutdownTimeout). Pre-fix the goroutine is spawned
-// with raw `go`, is NOT in the wg, and can outlive Close indefinitely.
-// Using the test's releaseCallback gate we wedge the callback AND
-// hold its goroutine — Close must still return within shutdownTimeout
-// budget, AND once we release the callback the goroutine must exit
-// promptly (no stranded work).
+// TestImporterOnReconnectCallbackTrackedByWG pins the contract that
+// OnReconnect's goroutine is tracked by i.wg so Close blocks on it
+// (bounded by shutdownTimeout) and it cannot outlive Close. Using the
+// test's releaseCallback gate we wedge the callback AND hold its
+// goroutine — Close must still return within shutdownTimeout budget,
+// AND once we release the callback the goroutine must exit promptly
+// (no stranded work).
 func TestImporterOnReconnectCallbackTrackedByWG(t *testing.T) {
 	t.Parallel()
 
@@ -80,10 +79,10 @@ func TestImporterOnReconnectCallbackTrackedByWG(t *testing.T) {
 		return callbackEntered.Load() >= 1
 	}, reconnectTestSettleBudget, 5*time.Millisecond)
 
-	// Close within shutdownTimeout budget. Post-fix the callback goroutine
-	// is tracked by the wg so Close's bounded wait properly observes it
-	// (the inner wait goroutine itself must exit promptly when the budget
-	// lapses or the callback completes).
+	// Close within shutdownTimeout budget. The callback goroutine is
+	// tracked by the wg so Close's bounded wait properly observes it
+	// (the inner wait goroutine itself must exit promptly when the
+	// budget lapses or the callback completes).
 	baselineGoroutines := runtime.NumGoroutine()
 
 	closeDone := make(chan error, 1)
@@ -108,8 +107,7 @@ func TestImporterOnReconnectCallbackTrackedByWG(t *testing.T) {
 
 	require.NoError(t, closeErr)
 
-	// Release the callback; its goroutine must exit promptly — RANK
-	// 11 pre-fix would park forever.
+	// Release the callback; its goroutine must exit promptly.
 	close(releaseCallback)
 
 	// Give the runtime a moment to schedule the goroutine exit. If the
@@ -122,17 +120,16 @@ func TestImporterOnReconnectCallbackTrackedByWG(t *testing.T) {
 		"OnReconnect goroutine must exit after the callback unblocks")
 }
 
-// TestImporterOnReconnectCallbackGoroutine_ObservedByWG is the
-// strengthened RANK 11 assertion: it observes, via Close's bounded
-// wait, that the OnReconnect callback goroutine IS enrolled in i.wg.
-// The original RANK 11 test asserts post-release cleanup but cannot
-// distinguish "callback was tracked, wait timed out, callback finished"
-// from "callback was not tracked, Close returned on empty wg". This
-// test pins the wg-tracking contract directly: Close with a 50ms
-// ShutdownTimeout on a wedged OnReconnect must observe at least
+// TestImporterOnReconnectCallbackGoroutine_ObservedByWG observes, via
+// Close's bounded wait, that the OnReconnect callback goroutine IS
+// enrolled in i.wg. A post-release cleanup test alone cannot
+// distinguish "callback was tracked, wait timed out, callback
+// finished" from "callback was not tracked, Close returned on empty
+// wg". This test pins the wg-tracking contract directly: Close with a
+// 50ms ShutdownTimeout on a wedged OnReconnect must observe at least
 // ~40ms of wall-clock wait, because the tracked goroutine blocks
-// wg.Wait(). Pre-RANK 11 fix, Close returned in microseconds — the
-// wg was empty and the callback was running under a raw `go`.
+// wg.Wait(). If the callback ran under a raw `go` the wg would be
+// empty and Close would return in microseconds.
 func TestImporterOnReconnectCallbackGoroutine_ObservedByWG(t *testing.T) {
 	t.Parallel()
 
@@ -223,22 +220,20 @@ func TestImporterOnReconnectCallbackGoroutine_ObservedByWG(t *testing.T) {
 
 	elapsed := time.Since(start)
 
-	// Post-fix: Close's bounded wait observes the tracked goroutine and
-	// waits ~ShutdownTimeout (50ms) before the bounded timer fires.
-	// Pre-fix: wg is empty so Close returns essentially immediately.
-	// The 30ms lower bound allows for scheduling jitter but catches
-	// any regression where the callback goroutine leaves i.wg.
+	// Close's bounded wait observes the tracked goroutine and waits
+	// ~ShutdownTimeout (50ms) before the bounded timer fires. If the
+	// callback goroutine left i.wg the wg would be empty and Close
+	// would return essentially immediately. The 30ms lower bound allows
+	// for scheduling jitter but catches that regression.
 	require.GreaterOrEqual(t, elapsed, 30*time.Millisecond,
-		"Close must wait on wg for the wg-tracked OnReconnect callback (RANK 11)")
+		"Close must wait on wg for the wg-tracked OnReconnect callback")
 }
 
-// TestImporterCloseTimeoutBoundedWaiterDoesNotLeak proves the RANK 10
-// fix. Repeated Close-with-timeout calls against an importer with a
+// TestImporterCloseTimeoutBoundedWaiterDoesNotLeak pins the contract
+// that repeated Close-with-timeout calls against an importer with a
 // blocking callback must NOT accumulate leaked waitgroup-waiter
-// goroutines. Pre-fix each timed-out Close spawns an `i.wg.Wait`
-// goroutine that strands on the wg forever; 100 Close calls leak 100
-// goroutines. Post-fix the waiter observes the timeout signal and
-// returns promptly.
+// goroutines. The bounded-waiter implementation observes the timeout
+// signal and returns promptly rather than stranding on the wg.
 func TestImporterCloseTimeoutBoundedWaiterDoesNotLeak(t *testing.T) {
 	t.Parallel()
 
@@ -318,19 +313,19 @@ func TestImporterCloseTimeoutBoundedWaiterDoesNotLeak(t *testing.T) {
 	baseline := runtime.NumGoroutine()
 
 	// Close is idempotent — calling twice must not spawn a second
-	// waiter goroutine. Post-fix even the first timeout-bounded Close
-	// must not leak a waiter. Release the callback BEFORE the final
-	// assertion so the package's goleak harness is happy.
+	// waiter goroutine. Even the first timeout-bounded Close must not
+	// leak a waiter. Release the callback BEFORE the final assertion so
+	// the package's goleak harness is happy.
 	closeDone := make(chan error, 1)
 
 	go func() {
 		closeDone <- imp.Close()
 	}()
 
-	// Close now has a wg-tracked OnReconnect goroutine (RANK 11 fix);
-	// the FakeClock-driven timeout must fire for the bounded wait to
-	// return. Advance past the 10ms shutdownTimeout on a retry loop
-	// until Close actually returns.
+	// Close has a wg-tracked OnReconnect goroutine; the FakeClock-
+	// driven timeout must fire for the bounded wait to return. Advance
+	// past the 10ms shutdownTimeout on a retry loop until Close
+	// actually returns.
 	require.Eventually(t, func() bool {
 		clk.Advance(opts.ShutdownTimeout)
 
@@ -346,9 +341,9 @@ func TestImporterCloseTimeoutBoundedWaiterDoesNotLeak(t *testing.T) {
 		"Close must return after ShutdownTimeout fires")
 
 	// Eventually the post-Close goroutine count must settle within a
-	// fixed bound above baseline even though Close timed out. Pre-fix
-	// the wg-waiter leak would push numGoroutines past baseline for
-	// the remainder of the test run.
+	// fixed bound above baseline even though Close timed out. Any
+	// wg-waiter leak would push numGoroutines past baseline for the
+	// remainder of the test run.
 	close(release)
 
 	require.Eventually(t, func() bool {

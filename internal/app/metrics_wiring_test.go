@@ -14,12 +14,10 @@ import (
 )
 
 // TestWithExporterBuildInfoStampsMetricAtConstruction proves the
-// build-info option (Finding 7) wires through to SetBuildInfo at
-// Exporter construction, landing a sample on the metrics bundle
-// before any workload runs. The pre-Finding 7 daemon pattern called
-// SetBuildInfo from main, forcing a second MustNewMetrics call
-// against the same registry — this test locks in the single-shot
-// registration path that replaced it.
+// build-info option wires through to SetBuildInfo at Exporter
+// construction, landing a sample on the metrics bundle before any
+// workload runs. Locks in the single-shot registration path so callers
+// do not need a second MustNewMetrics call against the same registry.
 func TestWithExporterBuildInfoStampsMetricAtConstruction(t *testing.T) {
 	t.Parallel()
 
@@ -60,7 +58,7 @@ func TestWithExporterBuildInfoStampsMetricAtConstruction(t *testing.T) {
 
 // TestImporterAttachIncrementsAttachCounter proves a successful Attach
 // increments usbip_importer_attaches_total{outcome="ok"} and sets the
-// ports_active gauge. Before Phase 9.2 wiring the counter stays zero.
+// ports_active gauge.
 func TestImporterAttachIncrementsAttachCounter(t *testing.T) {
 	t.Parallel()
 

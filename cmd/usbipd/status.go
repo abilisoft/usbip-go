@@ -27,7 +27,7 @@ import (
 // BoundDevices returns (devices, nil) on success and (nil, err) when
 // the underlying ListAvailable fails. The handler surfaces the err
 // via the bound_devices_error JSON field rather than silently serving
-// an empty bound_devices array (RANK 12).
+// an empty bound_devices array.
 type statusSource interface {
 	BoundDevices(ctx context.Context) ([]usbip.Device, error)
 	Sessions(ctx context.Context) []usbip.Session
@@ -173,9 +173,9 @@ func serveStatus(
 	// Listener close is the status-goroutine's responsibility; unlink
 	// of the UDS file is NOT — runDaemon's own cleanup path owns that
 	// so the socket is removed even when completeShutdown's
-	// ShutdownTimeout fires with the status goroutine still wedged
-	// (Finding 4). A forced os.Exit skips goroutine defers but still
-	// runs runDaemon's function-scoped defers before returning to main.
+	// ShutdownTimeout fires with the status goroutine still wedged. A
+	// forced os.Exit skips goroutine defers but still runs runDaemon's
+	// function-scoped defers before returning to main.
 	defer func() { _ = lis.Close() }()
 
 	// drainCtx detaches from the HTTP request context so drain can
@@ -351,8 +351,8 @@ func handleStatusGet(w http.ResponseWriter, r *http.Request, src statusSource) {
 	if bdErr != nil {
 		// ListAvailable failure (typically /sys inaccessible). Surface
 		// via bound_devices_error rather than pretending the export
-		// list is empty (RANK 12). Operators polling / can distinguish
-		// "no exports" from "sysfs unreachable".
+		// list is empty. Operators polling / can distinguish "no
+		// exports" from "sysfs unreachable".
 		bdErrStr = bdErr.Error()
 		slog.Default().Warn("status: list bound devices failed",
 			slog.Any("err", bdErr))

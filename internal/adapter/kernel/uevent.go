@@ -129,8 +129,8 @@ type slogRef = struct {
 // subscriber set.
 func (a *EventsAdapter) Subscribe(ctx context.Context) (<-chan domain.Event, func(), error) {
 	// NewEventsAdapter eagerly allocates dispMu so concurrent first-
-	// Subscribers cannot race the pointer write (RANK 4). Lock the
-	// shared mutex directly.
+	// Subscribers cannot race the pointer write. Lock the shared
+	// mutex directly.
 	a.dispMu.Lock()
 	defer a.dispMu.Unlock()
 
@@ -659,9 +659,9 @@ var usbipHostBusIDPattern = regexp.MustCompile(`/(\d+-\d+(?:\.\d+)*)$`)
 // mapUsbipHostEvent handles the usbip_host-shaped devpath (local
 // exporter side bind/unbind). add → DeviceBoundEvent (device became
 // exportable); remove → DeviceUnboundEvent (device returned to its
-// original driver). Pre pass-3 RANK 3, this classifier did not exist
-// and every session.go / importer.go / cmd/usbip branch that acted
-// on these event types was unreachable.
+// original driver). Without this classifier every session.go /
+// importer.go / cmd/usbip branch that acts on these event types
+// would be unreachable.
 func mapUsbipHostEvent(action, devpath string) (domain.Event, bool) {
 	match := usbipHostBusIDPattern.FindStringSubmatch(devpath)
 	if match == nil {

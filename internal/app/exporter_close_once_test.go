@@ -110,11 +110,11 @@ func (l *countingListener) snapshot() []*countingConn {
 }
 
 // TestExporter_HandshakeTimeoutClosesConnExactlyOnce asserts the
-// close-once contract on the handshake-timeout path. Pre-fix: the
-// timeout watcher closes the conn, then the handler's deferred cleanup
-// (handedOff=false on the decode-error path) closes it again → two
-// Close() calls. Post-fix: the close is guarded by a sync.Once on the
-// session handle so the second Close is a no-op.
+// close-once contract on the handshake-timeout path. The timeout
+// watcher closes the conn and the handler's deferred cleanup
+// (handedOff=false on the decode-error path) would close it again.
+// The close is guarded by a sync.Once on the session handle so the
+// second Close is a no-op.
 func TestExporter_HandshakeTimeoutClosesConnExactlyOnce(t *testing.T) {
 	t.Parallel()
 

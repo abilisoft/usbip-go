@@ -43,9 +43,9 @@ type Importer struct {
 	closeOnce sync.Once
 	handles   map[domain.PortID]*portHandle
 	// inFlight dedupes concurrent Attach calls for the same
-	// (remote, busid) pair (RANK 6). Without this guard two callers
-	// would race the dial + handshake + AttachRemote sequence and
-	// import the same device onto two local ports. Guarded by mu.
+	// (remote, busid) pair. Without this guard two callers would race
+	// the dial + handshake + AttachRemote sequence and import the same
+	// device onto two local ports. Guarded by mu.
 	inFlight map[attachKey]struct{}
 	nextGen  uint64
 	wg       sync.WaitGroup
@@ -87,9 +87,9 @@ type attachKey struct {
 // detaching is set by Detach BEFORE cancel so a reconnect watcher still
 // parked inside kernel.AttachRemote past the bounded wait cannot
 // silently register a fresh handle for the device the user asked to
-// release (RANK 3). The watcher checks this flag AFTER Attach returns
-// success and rolls back the kernel handoff when it finds the flag set.
-// Using atomic.Bool sidesteps the "watcher holds mu" deadlock risk: the
+// release. The watcher checks this flag AFTER Attach returns success
+// and rolls back the kernel handoff when it finds the flag set. Using
+// atomic.Bool sidesteps the "watcher holds mu" deadlock risk: the
 // watcher reads via Load without touching the Importer mutex.
 type portHandle struct {
 	done            chan struct{}
@@ -167,12 +167,12 @@ func NewImporter(opts ...ImporterOption) *Importer {
 // fire, Close returns even if the waitgroup has not drained. This is
 // a WALL-CLOCK bound only. Any in-flight wg-tracked goroutines —
 // reconnect watchers stuck inside kernel.AttachRemote, blocking
-// OnReconnect callbacks (RANK 11), or detach goroutines waiting on
+// OnReconnect callbacks, or detach goroutines waiting on
 // kernel.DetachPort — may continue running past Close's return and
 // will be cleaned up when they naturally unwind. Callers who require
 // synchronous shutdown must either (a) use a negative shutdownTimeout
 // to request an unbounded wait, or (b) ensure their workloads honour
-// ctx cancellation (RANK 10).
+// ctx cancellation.
 //
 // The internal waiter goroutine spawned by waitGroupBounded does not
 // observe the bound itself: it parks on sync.WaitGroup.Wait and exits
@@ -345,9 +345,9 @@ func (i *Importer) Attach(
 //
 // Detach sets handle.detaching BEFORE cancel so a reconnect watcher
 // wedged inside kernel.AttachRemote past the bounded wait cannot
-// silently register a fresh handle after Detach returns (RANK 3). The
-// watcher observes the flag on its post-Attach check and rolls back the
-// kernel handoff instead of taking ownership of the replacement port.
+// silently register a fresh handle after Detach returns. The watcher
+// observes the flag on its post-Attach check and rolls back the kernel
+// handoff instead of taking ownership of the replacement port.
 func (i *Importer) Detach(ctx context.Context, id domain.PortID) error {
 	i.mu.Lock()
 
@@ -376,9 +376,9 @@ func (i *Importer) Detach(ctx context.Context, id domain.PortID) error {
 
 	// Mark the handle as detaching BEFORE releasing the lock so a
 	// concurrent watcher reading the flag cannot observe it unset after
-	// the post-Attach check (RANK 3). Pairing the store with the mu-
-	// protected lookup makes the happens-before explicit: any watcher
-	// holding the RLock later will see the flag set.
+	// the post-Attach check. Pairing the store with the mu-protected
+	// lookup makes the happens-before explicit: any watcher holding
+	// the RLock later will see the flag set.
 	h.detaching.Store(true)
 
 	i.mu.Unlock()
@@ -546,7 +546,7 @@ func longestShutdownTimeout(handles []*portHandle) time.Duration {
 }
 
 // acquireAttachSlot serialises concurrent Attach calls for the same
-// (endpoint, busid) pair (RANK 6). Returns ErrImporterClosed when the
+// (endpoint, busid) pair. Returns ErrImporterClosed when the
 // importer has already shut down, ErrAttachInProgress when another
 // Attach for this key is still running, or a release func the caller
 // MUST invoke on every return path to free the slot. The check +
@@ -580,8 +580,8 @@ func (i *Importer) acquireAttachSlot(
 
 // classifyDecodeImportErr maps a DecodeOpRepImport failure onto the
 // closest §11.5.5 AttachOutcome label. A non-zero OP_REP_IMPORT status
-// surfaces as domain.ErrDeviceNotFound (RANK 5) — a domain-level
-// rejection, not a wire framing fault; any other decode error is a
+// surfaces as domain.ErrDeviceNotFound — a domain-level rejection,
+// not a wire framing fault; any other decode error is a
 // genuine protocol mismatch. The closed-set outcome label for "peer
 // rejected the import" stays kernel_error because the spec §11.5.5
 // outcome enum does not yet split "rejected" from "kernel_error"; the

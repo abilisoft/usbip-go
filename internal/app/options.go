@@ -92,8 +92,8 @@ type exporterConfig struct {
 	maxHandshakeBytes  int
 	handshakeTimeout   time.Duration
 	// shutdownTimeout is the internal backstop applied by Exporter.Shutdown
-	// when the caller's ctx carries no deadline (RANK 9). Zero means
-	// "no backstop" — Shutdown respects only the caller's ctx.
+	// when the caller's ctx carries no deadline. Zero means "no backstop"
+	// — Shutdown respects only the caller's ctx.
 	shutdownTimeout time.Duration
 
 	aclCIDRs []string
@@ -166,9 +166,8 @@ func WithExporterMetrics(m *Metrics) ExporterOption {
 // This option replaces the previous pattern of calling
 // Metrics.SetBuildInfo from the daemon bootstrap path, which forced
 // the caller to reach MustNewMetrics a SECOND time against the same
-// registry — panicking on duplicate registration (Finding 7). Wiring
-// the stamp through the exporter's own bundle keeps registration
-// exactly-once.
+// registry — panicking on duplicate registration. Wiring the stamp
+// through the exporter's own bundle keeps registration exactly-once.
 func WithExporterBuildInfo(version, commit, goVersion string) ExporterOption {
 	return func(c *exporterConfig) {
 		c.buildInfo = buildInfo{
@@ -220,10 +219,10 @@ func WithExporterHandshakeTimeout(d time.Duration) ExporterOption {
 }
 
 // WithExporterShutdownTimeout is the backstop deadline applied by
-// Exporter.Shutdown when the caller's ctx carries no deadline (RANK
-// 9). A zero value disables the backstop; a positive value caps the
-// drain regardless of the caller's ctx. Always overridden by a
-// tighter caller-supplied deadline.
+// Exporter.Shutdown when the caller's ctx carries no deadline. A zero
+// value disables the backstop; a positive value caps the drain
+// regardless of the caller's ctx. Always overridden by a tighter
+// caller-supplied deadline.
 func WithExporterShutdownTimeout(d time.Duration) ExporterOption {
 	return func(c *exporterConfig) { c.shutdownTimeout = d }
 }

@@ -109,12 +109,12 @@ func TestDecodeHeaderUnknownOpcode(t *testing.T) {
 
 // TestDecodeHeaderReplyStatusNonZero: a reply header with status != 0
 // surfaces as ErrProtocolError at the generic DecodeHeader layer. The
-// exception is OP_REP_IMPORT (RANK 5) — its non-zero status encodes a
+// exception is OP_REP_IMPORT — its non-zero status encodes a
 // domain-level rejection and is handled inside DecodeOpRepImport via
 // decodeHeaderAllowStatus; this test uses OP_REP_DEVLIST (0x0005) to
-// exercise the generic-reply path WITHOUT colliding with the RANK 5
-// carve-out. TestOpRepImportStatusError covers the opcode-specific
-// ErrDeviceNotFound classification.
+// exercise the generic-reply path WITHOUT colliding with that
+// OP_REP_IMPORT carve-out. TestOpRepImportStatusError covers the
+// opcode-specific ErrDeviceNotFound classification.
 func TestDecodeHeaderReplyStatusNonZero(t *testing.T) {
 	t.Parallel()
 

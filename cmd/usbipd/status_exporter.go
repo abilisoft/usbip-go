@@ -15,9 +15,9 @@ import (
 // kernelModuleProbeTTL is the age beyond which statusExporter.KernelModules
 // re-invokes the underlying probe. Five seconds is a conservative
 // ceiling: long enough that a GET-flooded status endpoint doesn't
-// hammer /sys/module on every request (Finding 5), short enough that
-// an operator running `modprobe usbip_core` observes the change
-// without restarting the daemon.
+// hammer /sys/module on every request, short enough that an operator
+// running `modprobe usbip_core` observes the change without
+// restarting the daemon.
 const kernelModuleProbeTTL = 5 * time.Second
 
 // kernelModuleProbeFunc is the signature of the indirection through
@@ -62,10 +62,10 @@ type statusExporter struct {
 	accepting  atomic.Bool
 
 	// listenerBound is the §11.5.5 /readyz input that separates
-	// "bind succeeded" from "accept loop processing connections"
-	// (Finding 5). It flips true as soon as listener.Addr() confirms
-	// a non-nil bind and stays true until the daemon exits; accepting
-	// flips true only after the first successful Accept.
+	// "bind succeeded" from "accept loop processing connections". It
+	// flips true as soon as listener.Addr() confirms a non-nil bind
+	// and stays true until the daemon exits; accepting flips true
+	// only after the first successful Accept.
 	listenerBound atomic.Bool
 
 	// drain is the runDaemon-provided callback that cancels the
@@ -86,8 +86,8 @@ type statusExporter struct {
 	// wall-clock sleeps.
 	kernelModuleClock func() time.Time
 
-	// Kernel-module probe cache (Finding 5). kmMu serialises cache
-	// updates; kmValue/kmExpiry are accessed under the mutex. The
+	// Kernel-module probe cache. kmMu serialises cache updates;
+	// kmValue/kmExpiry are accessed under the mutex. The
 	// cached map is returned by reference because ModuleState is a
 	// value type — operators reading the status JSON cannot mutate
 	// through the handle.
@@ -137,10 +137,9 @@ func listenerAddr(lis net.Listener) string {
 
 // BoundDevices reports the current export list. The stable one-shot
 // ListAvailable snapshot is what status consumers want; streaming
-// changes is a Phase 9 addition. A ListAvailable failure propagates to
+// changes is a future addition. A ListAvailable failure propagates to
 // the handler so GET / can render a bound_devices_error field rather
-// than masquerading the failure as an empty bound_devices array (RANK
-// 12).
+// than masquerading the failure as an empty bound_devices array.
 func (s *statusExporter) BoundDevices(ctx context.Context) ([]usbip.Device, error) {
 	devs, err := s.exp.ListAvailable(ctx)
 	if err != nil {
@@ -166,10 +165,10 @@ func (s *statusExporter) Listening() listeningState {
 }
 
 // KernelModules reports the §11.5.4 triple via usbip.ProbeKernelModules
-// with a kernelModuleProbeTTL cache in front of the probe (Finding 5).
-// A cache hit avoids a sysfs round-trip and the slog warn that EACCES
-// would otherwise log on every poll. Failures from the underlying
-// probe bypass the cache so the next call retries.
+// with a kernelModuleProbeTTL cache in front of the probe. A cache
+// hit avoids a sysfs round-trip and the slog warn that EACCES would
+// otherwise log on every poll. Failures from the underlying probe
+// bypass the cache so the next call retries.
 //
 // Probe + clock are read from this statusExporter instance (not a
 // package global), so parallel tests constructing their own

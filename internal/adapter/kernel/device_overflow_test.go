@@ -11,13 +11,13 @@ import (
 	"github.com/abilisoft/usbip-go/internal/adapter/kernel"
 )
 
-// TestListLocalDevices_BusnumOverflowFailsClosed proves the RANK 8
-// fix. Sysfs busnum / devnum fields are u16 on wire; a value past
-// 0xFFFF is either a kernel bug or a maliciously-injected sysfs entry.
-// Pre-fix the reader silently masked the high bits (uint16(v & 0xFFFF))
-// and reported a nonsense BusNum; post-fix ReadDevice fails the whole
-// device read so ListLocalDevices skips the entry and the caller sees
-// only well-formed devices.
+// TestListLocalDevices_BusnumOverflowFailsClosed pins the overflow
+// fail-closed contract. Sysfs busnum / devnum fields are u16 on wire;
+// a value past 0xFFFF is either a kernel bug or a maliciously-injected
+// sysfs entry. ReadDevice fails the whole device read so
+// ListLocalDevices skips the entry and the caller sees only well-
+// formed devices, rather than silently masking the high bits
+// (uint16(v & 0xFFFF)) and reporting a nonsense BusNum.
 func TestListLocalDevices_BusnumOverflowFailsClosed(t *testing.T) {
 	t.Parallel()
 
@@ -38,7 +38,7 @@ func TestListLocalDevices_BusnumOverflowFailsClosed(t *testing.T) {
 }
 
 // TestListLocalDevices_DevnumOverflowFailsClosed covers the matching
-// devnum field per RANK 8.
+// devnum field.
 func TestListLocalDevices_DevnumOverflowFailsClosed(t *testing.T) {
 	t.Parallel()
 
@@ -59,7 +59,7 @@ func TestListLocalDevices_DevnumOverflowFailsClosed(t *testing.T) {
 }
 
 // TestListLocalDevices_ConfigValueOverflowFailsClosed covers the u8
-// sysfs fields per RANK 8 (readByteAttr used to silently mask).
+// sysfs fields (readByteAttr must not silently mask).
 func TestListLocalDevices_ConfigValueOverflowFailsClosed(t *testing.T) {
 	t.Parallel()
 
@@ -79,20 +79,15 @@ func TestListLocalDevices_ConfigValueOverflowFailsClosed(t *testing.T) {
 		"sysfs byte-width field past u8 max must not silently truncate")
 }
 
-// TestListLocalDevices_InterfaceOverflowFailsClosed proves the pass-2
-// RANK 8 fix. readInterface validates each byte-width interface
-// descriptor field (bInterfaceClass, bInterfaceSubClass,
-// bInterfaceProtocol, bAlternateSetting) and returns
-// errSysfsValueOutOfRange on overflow. Pre-fix readInterfaces treated
-// every non-missing error as "log-and-continue", so an out-of-range
-// interface class was swallowed and the device landed in the result
-// slice with a truncated Interfaces slice — the caller thinks the
-// device is well-formed when in fact sysfs surfaced malformed data.
-//
-// Fix: overflow errors are fatal for the device read; the whole entry
-// is skipped rather than surfaced with a silently-partial Interfaces
-// slice. Only genuine "file does not exist" errors (ENOENT on
-// optional attrs) are still tolerated.
+// TestListLocalDevices_InterfaceOverflowFailsClosed pins the
+// interface-overflow fail-closed contract. readInterface validates
+// each byte-width interface descriptor field (bInterfaceClass,
+// bInterfaceSubClass, bInterfaceProtocol, bAlternateSetting) and
+// returns errSysfsValueOutOfRange on overflow. Overflow errors are
+// fatal for the device read; the whole entry is skipped rather than
+// surfaced with a silently-partial Interfaces slice (which would hide
+// malformed sysfs data). Only genuine "file does not exist" errors
+// (ENOENT on optional attrs) are still tolerated.
 func TestListLocalDevices_InterfaceOverflowFailsClosed(t *testing.T) {
 	t.Parallel()
 

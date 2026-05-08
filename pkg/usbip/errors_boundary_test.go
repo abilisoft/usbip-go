@@ -125,12 +125,12 @@ func TestTranslateInternalErrCovers(t *testing.T) {
 	)
 }
 
-// TestFacadeAttachInProgressIsPublicallyMatchable proves the pass-2
-// RANK 6 fix. The internal acquireAttachSlot rejects concurrent
-// Attach calls for the same (remote, busid) with ErrAttachInProgress;
-// the public facade MUST expose an errors.Is-compatible sentinel so
-// callers can classify the rejection without reaching into
-// internal/app.
+// TestFacadeAttachInProgressIsPublicallyMatchable pins the public
+// sentinel contract. The internal acquireAttachSlot rejects
+// concurrent Attach calls for the same (remote, busid) with
+// ErrAttachInProgress; the public facade MUST expose an
+// errors.Is-compatible sentinel so callers can classify the rejection
+// without reaching into internal/app.
 func TestFacadeAttachInProgressIsPublicallyMatchable(t *testing.T) {
 	t.Parallel()
 

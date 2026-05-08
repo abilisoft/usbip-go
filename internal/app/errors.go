@@ -13,8 +13,7 @@ var (
 	// ErrAttachInProgress indicates Attach is already running on the
 	// same busid/remote pair. Concurrent Attach calls would race the
 	// fd-passing handoff and corrupt the handle map. Aliased to
-	// pkg/domain so the public facade re-exports the same identity
-	// (pass-2 RANK 6).
+	// pkg/domain so the public facade re-exports the same identity.
 	ErrAttachInProgress = domain.ErrAttachInProgress
 
 	// ErrHandleNotFound indicates Detach or ListPorts was called with

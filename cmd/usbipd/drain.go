@@ -242,8 +242,8 @@ type statusProbe struct {
 }
 
 // isDaemonGoneError reports whether err from an HTTP Do call looks
-// like the daemon exiting between polls. Narrowed by Phase 8 review
-// Finding 3 to exactly three "drained" signals:
+// like the daemon exiting between polls. Narrowed to exactly three
+// "drained" signals:
 //
 //   - net.ErrClosed: the listener shut while a pooled connection was
 //     in flight

@@ -190,7 +190,7 @@ func TestBind_ModuleMissingShortCircuits(t *testing.T) {
 // interface dir exists but neither driver_name nor the driver
 // symlink is present. Bind's currentDriver lookup must surface
 // ErrDeviceNotBound, not ErrDeviceNotFound (which means the device
-// itself is missing). Codex Phase 4 review finding 4.
+// itself is missing).
 func TestBind_UnboundInterfaceReturnsErrDeviceNotBound(t *testing.T) {
 	t.Parallel()
 

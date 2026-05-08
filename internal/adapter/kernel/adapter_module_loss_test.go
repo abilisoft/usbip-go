@@ -235,18 +235,17 @@ func makeModuleLossPair(t *testing.T) (net.Conn, net.Conn) {
 	return lc, rc
 }
 
-// TestModuleLoss_NetlinkCouplesToVHCITopology pins the corrected
-// orthogonality contract installed by Pass-3 Task-3.1 BUG-1: netlink
-// Subscribe is decoupled from vhci_hcd. The dispatcher starts with no
-// topology loaded; only VHCI-shaped events consult the topology, and
-// only lazily (on first VHCI event). Exporter-only deployments (no
-// vhci_hcd module) must be able to Subscribe and observe usbip_host
-// bind/unbind events unchanged; VHCI-shaped events arriving on such
-// hosts (they cannot, in practice, but the test pins the guard) are
-// dropped cleanly.
+// TestModuleLoss_NetlinkCouplesToVHCITopology pins the netlink/VHCI
+// orthogonality contract: netlink Subscribe is decoupled from
+// vhci_hcd. The dispatcher starts with no topology loaded; only
+// VHCI-shaped events consult the topology, and only lazily (on first
+// VHCI event). Exporter-only deployments (no vhci_hcd module) must be
+// able to Subscribe and observe usbip_host bind/unbind events
+// unchanged; VHCI-shaped events arriving on such hosts (they cannot,
+// in practice, but the test pins the guard) are dropped cleanly.
 //
-// Prior contract (reverted): Subscribe hard-failed when vhci_hcd was
-// absent. That stranded every exporter-only server because VHCI is
+// An older behaviour where Subscribe hard-failed when vhci_hcd was
+// absent would strand every exporter-only server because VHCI is
 // strictly an importer-side concern.
 func TestModuleLoss_NetlinkCouplesToVHCITopology(t *testing.T) {
 	t.Parallel()

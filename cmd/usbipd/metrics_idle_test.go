@@ -27,9 +27,9 @@ func newBlockingListener() *blockingListener {
 	return &blockingListener{done: make(chan struct{})}
 }
 
-// Accept blocks until Close fires. Increment-on-entry lets the RANK 7
-// assertion observe that the accept loop has entered Accept — the
-// signal /readyz requires before reporting 200.
+// Accept blocks until Close fires. Increment-on-entry lets tests
+// observe that the accept loop has entered Accept — the signal
+// /readyz requires before reporting 200.
 func (l *blockingListener) Accept() (net.Conn, error) {
 	l.accepts.Add(1)
 
@@ -53,10 +53,10 @@ func (*blockingListener) Addr() net.Addr {
 	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}
 }
 
-// TestWrapListenerFirstAcceptFiresOnAcceptEntry proves the RANK 7
-// contract: the accept-ready hook must fire as soon as the accept
-// loop enters its first Accept call, not only after that call returns
-// a successful net.Conn. An idle daemon whose first Accept blocks
+// TestWrapListenerFirstAcceptFiresOnAcceptEntry pins the accept-ready
+// hook contract: the hook must fire as soon as the accept loop enters
+// its first Accept call, not only after that call returns a
+// successful net.Conn. An idle daemon whose first Accept blocks
 // forever MUST still report /readyz=200 — the readiness semantic is
 // "I will accept if something connects", not "I have accepted ≥1".
 func TestWrapListenerFirstAcceptFiresOnAcceptEntry(t *testing.T) {
@@ -77,9 +77,9 @@ func TestWrapListenerFirstAcceptFiresOnAcceptEntry(t *testing.T) {
 	}()
 
 	// The hook MUST fire within a tight budget — the only signal the
-	// test waits on is "Accept was entered". Pre-fix the hook fired
-	// only on first successful Accept return, so an idle daemon stayed
-	// /readyz=503 forever.
+	// test waits on is "Accept was entered". A hook that fires only
+	// on first successful Accept return would leave an idle daemon
+	// stuck at /readyz=503 forever.
 	require.Eventually(t, func() bool {
 		return hookFired.Load() >= 1
 	}, 2*time.Second, 5*time.Millisecond,

@@ -150,8 +150,8 @@ func TestWithExporterShutdownTimeoutStores(t *testing.T) {
 
 // TestWithExporterMetricsRegistererStores proves the registerer option
 // stores the supplied prometheus.Registerer on the public config. The
-// registerer is consumed by the exporter metrics wiring in Phase 9;
-// the public surface is stable across that change.
+// registerer is consumed by the exporter metrics wiring; the public
+// surface is stable across that change.
 func TestWithExporterMetricsRegistererStores(t *testing.T) {
 	t.Parallel()
 
@@ -165,8 +165,8 @@ func TestWithExporterMetricsRegistererStores(t *testing.T) {
 // TestWithExporterBuildInfoStores proves the build-info option stores
 // the version / commit / goVersion triple on the public config. The
 // downstream consumer is internal/app Exporter construction, which
-// stamps the usbip_build_info gauge at that point (Finding 7); the
-// public field is stable across that wiring.
+// stamps the usbip_build_info gauge at that point; the public field
+// is stable across that wiring.
 func TestWithExporterBuildInfoStores(t *testing.T) {
 	t.Parallel()
 

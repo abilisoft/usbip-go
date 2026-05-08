@@ -89,15 +89,12 @@ type exporterConfig struct {
 	allowCIDRs         []string
 	maxHandshakeBytes  int
 	handshakeTimeout   time.Duration
-	// shutdownTimeout is stored on the public config but is NOT yet
-	// forwarded into internal/app — setting the field has no runtime
-	// effect today. Phase 9 (metrics + lifecycle wiring) plumbs it
-	// through without a breaking-change bump.
+	// shutdownTimeout is forwarded into internal/app's
+	// WithExporterShutdownTimeout by exporterConfigToInternal.
 	shutdownTimeout time.Duration
-	// metricsRegisterer follows the same "public-first, wire-later"
-	// rule as shutdownTimeout: stored here, not yet consumed by the
-	// internal/app layer. Phase 9 registers the §11.5.5 collectors
-	// against this registerer.
+	// metricsRegisterer is forwarded into internal/app's
+	// WithExporterMetrics by exporterConfigToInternal, which registers
+	// the §11.5.5 collectors against this registerer.
 	metricsRegisterer prometheus.Registerer
 	// buildInfo labels the usbip_build_info gauge at construction time.
 	// Zero value means "do not stamp"; exporterConfigToInternal skips
@@ -175,7 +172,7 @@ func WithExporterHandshakeTimeout(d time.Duration) ExporterOption {
 // Exporter.Shutdown(ctx) when the caller passes a ctx without its own
 // deadline. A positive value caps the drain; zero disables the
 // backstop; a caller-supplied ctx deadline always wins when tighter.
-// Spec §5.7 (RANK 9).
+// Spec §5.7.
 func WithExporterShutdownTimeout(d time.Duration) ExporterOption {
 	return func(c *exporterConfig) { c.shutdownTimeout = d }
 }
@@ -202,7 +199,7 @@ func WithExporterMetricsRegisterer(r prometheus.Registerer) ExporterOption {
 // metric-collector registration exactly-once per registerer. Callers
 // MUST NOT additionally invoke app.MustNewMetrics or SetBuildInfo on
 // the same registerer — doing so duplicate-registers the §11.5.5
-// catalog and panics at startup (pre-Finding 7 regression).
+// catalog and panics at startup.
 func WithExporterBuildInfo(version, commit, goVersion string) ExporterOption {
 	return func(c *exporterConfig) {
 		c.buildInfo = exporterBuildInfo{
@@ -216,7 +213,7 @@ func WithExporterBuildInfo(version, commit, goVersion string) ExporterOption {
 // exporterConfigToInternal translates the public-facing exporterConfig
 // into the matching slice of internalapp.ExporterOption values. Every
 // non-zero field forwards to the internal option space; shutdownTimeout
-// is plumbed via internalapp.WithExporterShutdownTimeout (RANK 9).
+// is plumbed via internalapp.WithExporterShutdownTimeout.
 // metricsRegisterer is plumbed via internalapp.WithExporterMetrics
 // (MustNewMetrics(registerer)).
 func exporterConfigToInternal(cfg exporterConfig) []internalapp.ExporterOption {
@@ -307,6 +304,6 @@ func (bi exporterBuildInfo) isZero() bool {
 
 // exporterInternalOptCap is the ceiling used to preallocate the slice
 // returned by exporterConfigToInternal. It matches the number of
-// option branches inside that function (10 now including shutdown
-// timeout plumbing wired by RANK 9).
+// option branches inside that function (10 including the shutdown-
+// timeout plumbing).
 const exporterInternalOptCap = 10

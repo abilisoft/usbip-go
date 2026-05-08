@@ -15,18 +15,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestReconnect_PortsGaugeStaysAccurateAcrossReconnect locks in the
-// Pass-4 RANK 3 fix: when a reconnect watcher successfully reattaches
-// and the kernel lands the replacement on a different PortID than the
-// original slot, the old-port handle is removed from the map but the
-// usbip_importer_ports_active gauge must be refreshed so operators
-// see the true live-port count.
+// TestReconnect_PortsGaugeStaysAccurateAcrossReconnect pins the
+// gauge-accuracy contract: when a reconnect watcher successfully
+// reattaches and the kernel lands the replacement on a different
+// PortID than the original slot, the old-port handle is removed from
+// the map AND the usbip_importer_ports_active gauge is refreshed so
+// operators see the true live-port count.
 //
-// Pre-fix: the successful-reconnect path in finishReconnectSuccess
-// calls removeHandle(oldPortID) but never re-runs
-// updateImporterPortsGauge, so the gauge observed value drifts upward
-// by one on every cross-slot reconnect and only gets corrected on the
-// next gauge-updating event (another Attach/Detach/rollback/Close).
+// If finishReconnectSuccess called removeHandle(oldPortID) without
+// re-running updateImporterPortsGauge, the gauge observed value would
+// drift upward by one on every cross-slot reconnect and only get
+// corrected on the next gauge-updating event (another
+// Attach/Detach/rollback/Close).
 //
 // This test drives a first Attach (gauge=1), fires a detach uevent,
 // advances the fake clock past the backoff so the watcher reattaches
@@ -99,9 +99,9 @@ func TestReconnect_PortsGaugeStaysAccurateAcrossReconnect(t *testing.T) {
 	// (removeHandle for the old slot) is guaranteed to have run.
 	events.waitFor(t, 2)
 
-	// Post-fix invariant: the gauge must reflect the true live-port
-	// count (1 — the replacement port). Pre-fix this reads 2 because
-	// removeHandle was invoked but updateImporterPortsGauge was not.
+	// The gauge must reflect the true live-port count (1 — the
+	// replacement port). A regression that removed the old handle but
+	// skipped updateImporterPortsGauge would leave the gauge at 2.
 	require.Eventually(t, func() bool {
 		return readPortsGauge() == 1.0
 	}, reconnectTestSettleBudget, 5*time.Millisecond,
