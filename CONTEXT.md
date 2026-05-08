@@ -6,12 +6,20 @@ consume those devices as if they were locally attached.
 
 ## Operator vocabulary
 
-One binary — `usbip` — handles all roles via subcommands:
+One binary — `usbip` — exposes flat top-level verbs for every role
+(see ADR-0011). The verb encodes the role; there is no `usbip device …`
+or `usbip server …` group.
 
-| Subcommand group | Role |
-|---|---|
-| `usbip serve` | Runs the Exporter daemon |
-| `usbip attach`, `usbip detach`, `usbip list` | Importer client operations |
+| Subcommand | Role | Notes |
+|---|---|---|
+| `usbip list` | Importer | `-l` lists local; `-r <host>` lists a remote peer |
+| `usbip attach` | Importer | `-r <host> -b <busid>` |
+| `usbip detach` | Importer | `-p <port>` |
+| `usbip bind` | Exporter | `-b <busid>` |
+| `usbip unbind` | Exporter | `-b <busid>` |
+| `usbip serve` | Exporter | runs the daemon (replaces upstream `usbipd`) |
+| `usbip drain` | Operator | tells a running daemon to refuse new sessions and exit |
+| `usbip version` | — | build provenance |
 
 Kernel module names (`vhci_hcd`, `usbip_host`) are fixed external vocabulary;
 this project does not try to rename them in prose.
