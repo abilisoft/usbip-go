@@ -12,8 +12,7 @@
 Pure-Go reimplementation of USB/IP userspace for Linux. Ships two
 artefacts from a single code base:
 
-- `pkg/usbip` — embeddable library for importers (client) and
-  exporters (server).
+- `pkg/usbip` — embeddable library for importers and exporters.
 - `usbip-go` — single binary with flat subcommands for all roles:
   importer CLI, exporter CLI, and daemon (`usbip-go serve`).
 

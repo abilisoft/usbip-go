@@ -124,12 +124,9 @@ tasks:
       - act push -j {{.JOB}}
 
   clean:
-    desc: Remove build artefacts (preserves tracked build/go.mod marker)
+    desc: Remove build artefacts
     cmds:
-      # build/go.mod is the nested-module escape hatch; deleting it lets
-      # `go test ./...` descend into the regenerated module cache and
-      # break in a non-obvious way. Keep it.
-      - find build -mindepth 1 -maxdepth 1 ! -name go.mod -exec rm -rf {} +
+      - find build -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
   # ----------------------------------------------------------------------------
   # Host → container dispatcher. `${IN_NIX_CONTAINER}` is baked into the
@@ -210,7 +207,7 @@ tasks:
     deps: [_check:tooling]
     env: { CGO_ENABLED: '1' }
     cmds:
-      - go test -race -timeout=180s ./...
+      - go test -race -timeout=180s ./cmd/... ./pkg/... ./internal/... ./test/...
 
   ci:test:integration:
     deps: [_check:tooling]
@@ -228,7 +225,7 @@ tasks:
     env: { CGO_ENABLED: '1' }
     cmds:
       - mkdir -p {{.COVERAGE_DIR}}
-      - go test -race -coverprofile={{.COVERAGE_DIR}}/coverage.out ./...
+      - go test -race -coverprofile={{.COVERAGE_DIR}}/coverage.out ./cmd/... ./pkg/... ./internal/... ./test/...
       - go tool cover -html={{.COVERAGE_DIR}}/coverage.out -o {{.COVERAGE_DIR}}/coverage.html
 
   ci:test:mutation:

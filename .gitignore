@@ -2,11 +2,7 @@
 # Build artifacts
 # ---------------------------------------------------------------------------
 # All build output consolidates under /build/ (bin, dist, vm, coverage, cache).
-# /build/go.mod is tracked: it is a nested-module marker that stops Go's
-# `./...` expansion from descending into GOMODCACHE and compiling the
-# vendored test files of pre-modules dependencies.
-/build/*
-!/build/go.mod
+/build/
 
 # Legacy output paths produced by the current Taskfile before the /build/
 # migration lands. Safe to drop once every task writes into /build/.
