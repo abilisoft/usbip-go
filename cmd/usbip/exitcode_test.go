@@ -54,7 +54,7 @@ func TestMapErrorTable(t *testing.T) {
 		{"no-free-port", usbip.ErrNoFreePort, ExitNoFreePort},
 		{"protocol-error", usbip.ErrProtocolError, ExitProtocolError},
 		{"deadline", context.DeadlineExceeded, ExitTimeout},
-		{"canceled", context.Canceled, ExitTimeout},
+		{"canceled", context.Canceled, ExitInterrupted},
 		{"net-error", fakeNetError{}, ExitNetwork},
 		{"usage-error", &usageError{msg: "bad usage"}, ExitUsage},
 		{"cobra-usage-style", errUnknownFlagBogus, ExitUsage},
