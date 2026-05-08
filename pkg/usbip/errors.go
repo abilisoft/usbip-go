@@ -61,13 +61,6 @@ var (
 	// caller. Aliased to pkg/domain so errors.Is matches against
 	// either form (pass-2 RANK 6).
 	ErrAttachInProgress = domain.ErrAttachInProgress
-
-	// ErrPortOutOfRange indicates the adapter refused an attach
-	// request because the selected vhci port is outside the kernel's
-	// flat port space. Surfaced as a pre-write defence-in-depth guard
-	// so operators see port + nports context instead of a bare
-	// EINVAL (Task 4 bounds check).
-	ErrPortOutOfRange = domain.ErrPortOutOfRange
 )
 
 // Public lifecycle sentinels. ErrImporterClosed and

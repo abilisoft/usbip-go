@@ -31,7 +31,6 @@ func TestSentinelsReExportedFromDomain(t *testing.T) {
 		{"ErrPermission", usbip.ErrPermission, domain.ErrPermission},
 		{"ErrKernelModuleMissing", usbip.ErrKernelModuleMissing, domain.ErrKernelModuleMissing},
 		{"ErrAlreadyRunning", usbip.ErrAlreadyRunning, domain.ErrAlreadyRunning},
-		{"ErrPortOutOfRange", usbip.ErrPortOutOfRange, domain.ErrPortOutOfRange},
 	}
 
 	for _, tc := range cases {
