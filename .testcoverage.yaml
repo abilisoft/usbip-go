@@ -39,8 +39,15 @@ local-prefix: github.com/abilisoft/usbip-go
 # punishing the cmd/ tail.
 threshold:
   file: 0
-  package: 75
-  total: 80
+  # Per-package floor at 80%. Total is the headline metric (90% below).
+  # Per-package 80 is a regression alarm: most packages clear 90%
+  # comfortably. Cobra-Action-heavy cmd packages and the kernel
+  # adapter's errno tail fall in the 80-90 band where lifting further
+  # requires test-only production seams (e.g. faking process exit,
+  # synthesising EFAULT mid-bind). The total stays at 90% so the
+  # headline number reflects coverage operators read.
+  package: 80
+  total: 90
 
 # Skip paths that have no meaningful coverage surface.
 exclude:
@@ -63,3 +70,28 @@ exclude:
     # that would require gomock-style indirection just to cover
     # them — production code changes for the sake of testing.
     - ^examples/
+    # main.go in both cmd/* binaries is a 5-line wrapper around
+    # cobra Execute + os.Exit; covering it would force runtime
+    # exit-code interception that the run-loop tests already cover
+    # via mainBody / runDaemon. Excluded so the per-package floor
+    # reflects real testable surface.
+    - ^cmd/usbip-go/main\.go$
+    - ^cmd/usbipd-go/main\.go$
+    # Real syscall paths in the kernel adapter cannot be synthesised
+    # under the hermetic dev container; exercised by the integration
+    # suite. See refactor commit isolating these to dedicated files.
+    - ^internal/adapter/kernel/sysfs_real_linux\.go$
+    - ^internal/adapter/kernel/netlink_real_linux\.go$
+    # cmd/usbipd-go statusExporter methods that pass through to the
+    # concrete *usbip.Exporter (BoundDevices / Sessions / Drain) plus
+    # defaultKernelModuleProbe; integration suite owns end-to-end
+    # exercise. See refactor commit isolating these to a dedicated
+    # file.
+    - ^cmd/usbipd-go/status_exporter_concrete\.go$
+    # Whole integration test tree only compiles under
+    # `integration_linux` build tag; default `go test ./...` skips it
+    # so it always reports 0% via the unit-test gate.
+    - ^test/integration/
+    # moq-generated mock files exist solely as test fakes; defensive
+    # exclusion in case future moq output lands on a non-test file.
+    - _mock_test\.go$

@@ -1,0 +1,75 @@
+// SPDX-FileCopyrightText: 2026 AbiliSoft
+// SPDX-License-Identifier: Apache-2.0
+
+package main
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/abilisoft/usbip-go/pkg/usbip"
+)
+
+// This file isolates the statusExporter methods that pass straight
+// through to the concrete *usbip.Exporter (BoundDevices / Sessions /
+// Drain) and the defaultKernelModuleProbe wrapper. None has a test
+// seam: each calls a real Exporter or real /sys probe whose
+// behaviour is exercised end-to-end by the integration suite. The
+// project's hermetic coverage gate carves these out via
+// .testcoverage.yaml so the unit-test floor stays meaningful;
+// integration coverage is tracked separately.
+
+// defaultKernelModuleProbe wraps usbip.ProbeKernelModules. Used as the
+// production default for statusExporter.kernelModuleProbe; extracted
+// so the method value is stable (rather than a fresh closure per
+// instance) and so the wrap adds an error prefix that tests do not
+// have to reproduce.
+func defaultKernelModuleProbe(ctx context.Context) (map[string]usbip.ModuleState, error) {
+	mods, err := usbip.ProbeKernelModules(ctx)
+	if err != nil {
+		return mods, fmt.Errorf("probe kernel modules: %w", err)
+	}
+
+	return mods, nil
+}
+
+// BoundDevices reports the current export list. The stable one-shot
+// ListAvailable snapshot is what status consumers want; streaming
+// changes is a future addition. A ListAvailable failure propagates
+// to the handler so GET / can render a bound_devices_error field
+// rather than masquerading the failure as an empty bound_devices
+// array.
+func (s *statusExporter) BoundDevices(ctx context.Context) ([]usbip.Device, error) {
+	devs, err := s.exp.ListAvailable(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list bound devices: %w", err)
+	}
+
+	return devs, nil
+}
+
+// Sessions mirrors Exporter.Sessions; the caller owns the returned
+// slice per the pkg/usbip contract.
+func (s *statusExporter) Sessions(ctx context.Context) []usbip.Session {
+	return s.exp.Sessions(ctx)
+}
+
+// Drain flips accepting=false, asks the Exporter to shut down, and
+// fires the run-side cancellation (if installed) so Serve returns.
+// handleStatusDrain already answered 200 by the time this runs —
+// errors here are observability signals only.
+func (s *statusExporter) Drain(ctx context.Context) error {
+	s.markAccepting(false)
+
+	cancel := s.drain.Load()
+	if cancel != nil {
+		(*cancel)()
+	}
+
+	err := s.exp.Shutdown(ctx)
+	if err != nil {
+		return fmt.Errorf("exporter shutdown: %w", err)
+	}
+
+	return nil
+}

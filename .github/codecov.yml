@@ -1,0 +1,75 @@
+# SPDX-FileCopyrightText: 2026 AbiliSoft
+# SPDX-License-Identifier: Apache-2.0
+#
+# Codecov configuration. Mirrors `.testcoverage.yaml` exclude paths so
+# the README badge percentage matches the gate-enforced number rather
+# than showing a deflated headline pulled down by demo examples and
+# the test-only kill-helper subprocess. The gate file remains the
+# source of truth for ENFORCEMENT (per-package threshold);
+# this file's role is purely display alignment.
+
+ignore:
+  # Internal scaffolding never reached by `go test ./...`.
+  - "internal/tools/**"
+  - "internal/testutil/**"
+
+  # Documentation-grade demo programs whose main() functions never run
+  # in unit tests. Smoke-test files under examples/*/main_test.go pin
+  # arg-validation; the main() wrappers are 4-line cobra/exit-handling
+  # boilerplate that would require gomock-style indirection just to
+  # cover them — production code changes for the sake of testing.
+  - "examples/**"
+
+  # Test-only kill-helper subprocess built and invoked by the
+  # integration-test harness; never reached by `go test -race ./...`
+  # so it produces 0% coverage and would always deflate any total.
+  - "test/integration/killable/**"
+
+  # Skip whole-tree integration paths from the headline; they only
+  # compile under the integration_linux build tag.
+  - "test/integration/**"
+
+  # main.go in both cmd binaries: 5-line cobra Execute + os.Exit
+  # wrapper; covered end-to-end via integration tests rather than
+  # the unit suite. Mirrors the .testcoverage.yaml carve-out.
+  - "cmd/usbip-go/main.go"
+  - "cmd/usbipd-go/main.go"
+
+  # Real syscall paths in the kernel adapter — sysfs writes and
+  # AF_NETLINK socket operations whose error branches cannot be
+  # synthesised hermetically. Exercised by the integration suite
+  # under the microVM. Mirrors the .testcoverage.yaml carve-out.
+  - "internal/adapter/kernel/sysfs_real_linux.go"
+  - "internal/adapter/kernel/netlink_real_linux.go"
+
+  # cmd/usbipd-go statusExporter methods that pass through to the
+  # concrete *usbip.Exporter; covered by the integration suite.
+  - "cmd/usbipd-go/status_exporter_concrete.go"
+
+  # Auto-generated mocks — moq-emitted *_mock_test.go files live
+  # alongside production code but exist solely as test fakes; they
+  # would not appear in coverage anyway because they live under
+  # _test.go but listing them here is defensive against future moq
+  # output landing on production paths.
+  - "**/*_mock_test.go"
+
+  # Documentation-only Go files; doc.go bodies are package comments,
+  # never executed.
+  - "**/doc.go"
+
+coverage:
+  status:
+    project:
+      default:
+        # Hard floor matches `.testcoverage.yaml` total. PR builds
+        # fail this check if total coverage drops below the floor.
+        target: 90%
+        # Codecov tolerates a small per-PR delta to absorb noise
+        # from line shuffling without a real coverage drop.
+        threshold: 1%
+    patch:
+      default:
+        # New code in a PR must clear the same floor; prevents
+        # ratcheting down via "nobody is testing the new lines".
+        target: 90%
+        threshold: 1%
