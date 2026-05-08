@@ -475,24 +475,44 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 
 	// Bound the graceful Disconnect goroutines by drainCtx so they do
 	// not silently outlive Shutdown. A wedged kernel sysfs write still
-	// leaks the offending goroutine, but Shutdown surfaces the
-	// diagnostic instead of returning success while N background
-	// goroutines remain pending.
-	e.waitDisconnectBounded(drainCtx, &disconnectWG)
+	// leaks the offending goroutine. The error returned here surfaces
+	// only when waitSessionsBounded returned nil (the drain itself
+	// succeeded) but Disconnect remained pending — without this
+	// promotion Shutdown would return nil while goroutines lingered
+	// past the call. Skip the wait entirely when no goroutines were
+	// spawned (firstShutdown=false path or zero handles): there is
+	// nothing to wait on, and racing an already-cancelled drainCtx
+	// against a never-incremented WaitGroup would surface a spurious
+	// wrapped-ctx error.
+	var disconnectErr error
+	if len(handles) > 0 {
+		disconnectErr = e.waitDisconnectBounded(drainCtx, &disconnectWG)
+	}
 
 	// Tear down WatchSessions subscribers last so consumers see every
 	// SessionEnded event published during drain before the channel
 	// closes.
 	e.closeAllSubscribers()
 
-	return waitErr
+	if waitErr != nil {
+		return waitErr
+	}
+
+	return disconnectErr
 }
 
 // waitDisconnectBounded waits on the per-session Disconnect goroutines
-// up to drainCtx. If drainCtx fires first, the residual count is logged
-// at Warn — those goroutines leak, but the leak is bounded by the
-// session count and surfaces in observability.
-func (e *Exporter) waitDisconnectBounded(drainCtx context.Context, wg *sync.WaitGroup) {
+// up to drainCtx. Returns nil on clean drain. If drainCtx fires first
+// the residual goroutines leak but the function returns a wrapped
+// drainCtx error so Shutdown can surface the incomplete-graceful path
+// when the session drain itself succeeded.
+//
+// The non-blocking re-check after the select guards against the
+// select-race where wg already finished AND drainCtx is already
+// cancelled at entry: Go's select picks randomly among ready cases,
+// so without the re-check a Shutdown(already-cancelled-ctx) call with
+// an empty wg could surface a spurious wrapped-ctx error.
+func (e *Exporter) waitDisconnectBounded(drainCtx context.Context, wg *sync.WaitGroup) error {
 	done := make(chan struct{})
 
 	go func() {
@@ -502,10 +522,20 @@ func (e *Exporter) waitDisconnectBounded(drainCtx context.Context, wg *sync.Wait
 
 	select {
 	case <-done:
+		return nil
 	case <-drainCtx.Done():
-		e.logger.Warn("shutdown: graceful kernel disconnect goroutines did not complete in drain window",
-			slog.Any("err", drainCtx.Err()))
 	}
+
+	select {
+	case <-done:
+		return nil
+	default:
+	}
+
+	e.logger.Warn("shutdown: graceful kernel disconnect goroutines did not complete in drain window",
+		slog.Any("err", drainCtx.Err()))
+
+	return fmt.Errorf("shutdown graceful disconnect: %w", drainCtx.Err())
 }
 
 // applyShutdownBackstop derives the ctx the drain actually waits on.
