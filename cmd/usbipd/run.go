@@ -51,15 +51,6 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 		_ = listener.Close()
 	}()
 
-	// Owned cleanup for the status UDS file (Finding 4). Owned HERE
-	// rather than in the status goroutine's defer because that defer
-	// is skipped when completeShutdown times out with the goroutine
-	// still serving; if this function returns, the socket file MUST
-	// be unlinked regardless of goroutine state.
-	if cfg.StatusSocket != "" {
-		defer func() { _ = os.Remove(cfg.StatusSocket) }()
-	}
-
 	// Build the Prometheus registry before constructing the exporter so
 	// the metric bundle is wired into the Serve/Shutdown path on the
 	// first session. The registry stays nil-safe when --metrics-addr is
@@ -106,7 +97,18 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 		cancelServe(errDrainRequested)
 	})
 
-	statusErrCh := maybeStartStatusServer(statusCtx, cfg, log, src)
+	statusErrCh, statusBound, statusStartErr := maybeStartStatusServer(statusCtx, cfg, log, src)
+	if statusStartErr != nil {
+		return statusStartErr
+	}
+
+	// The unlink defer registers only after the status goroutine
+	// confirms a successful bind. A daemon that loses the bind race
+	// (errAlreadyRunning) has no ownership of the on-disk UDS file and
+	// must leave it in place for the incumbent peer.
+	if statusBound {
+		defer func() { _ = os.Remove(cfg.StatusSocket) }()
+	}
 
 	log.Info("usbipd accepting connections",
 		slog.String("addr", listener.Addr().String()),
@@ -376,17 +378,29 @@ func currentServeStatusFn() func(
 }
 
 // maybeStartStatusServer spins the §7.7 status UDS in a goroutine when
-// cfg.StatusSocket is non-empty. Returns a receive-only error channel
-// the caller monitors during shutdown; nil when the endpoint is
-// disabled.
+// cfg.StatusSocket is non-empty and returns:
+//
+//   - statusErrCh: receive-only error channel the caller monitors
+//     during shutdown; nil when the endpoint is disabled.
+//   - bound: true when the status goroutine successfully bound the
+//     UDS; false when the endpoint is disabled or when bind failed
+//     (e.g. errAlreadyRunning against a live peer).
+//   - startErr: a terminal bind error that must abort runDaemon
+//     before it registers ownership-sensitive cleanup such as
+//     unlinking the UDS file.
+//
+// The function synchronises on the goroutine's start signal so the
+// caller can decide, before any Serve work begins, whether this
+// process legitimately owns the UDS path. A late-bound daemon that
+// loses the flock race must not unlink the incumbent peer's file.
 func maybeStartStatusServer(
 	ctx context.Context,
 	cfg *Config,
 	log *slog.Logger,
 	src *statusExporter,
-) <-chan error {
+) (<-chan error, bool, error) {
 	if cfg.StatusSocket == "" {
-		return nil
+		return nil, false, nil
 	}
 
 	started := make(chan struct{})
@@ -405,13 +419,22 @@ func maybeStartStatusServer(
 
 	select {
 	case <-started:
+		return statusErrCh, true, nil
+	case err := <-statusErrCh:
+		// The goroutine exited before reporting ready. Any bind-phase
+		// failure — errAlreadyRunning most importantly — lands here.
+		// Forward a sentinel-preserving copy so the caller can branch
+		// on errors.Is(err, errAlreadyRunning) if it needs to emit a
+		// dedicated exit code; otherwise the caller returns err and
+		// runDaemon's own exit-code mapping handles it.
+		return nil, false, err
 	case <-time.After(statusReadyTimeout):
 		log.Warn("status server did not signal ready within budget",
 			slog.String("path", cfg.StatusSocket),
 			slog.Duration("budget", statusReadyTimeout))
-	}
 
-	return statusErrCh
+		return statusErrCh, true, nil
+	}
 }
 
 // completeShutdown waits for the status server goroutine (if any) to
