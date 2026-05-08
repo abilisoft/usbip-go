@@ -576,21 +576,24 @@ func TestExporterShutdown_ReusesSessionsWaitGoroutine(t *testing.T) {
 }
 
 // TestExporterShutdown_RecoversFromSpuriousDeadlineRace locks in the
-// Pass-5 RANK B fix: when sessionsWG has drained and the caller ctx
-// is already cancelled, waitSessionsBounded's first select can still
-// pick the ctx.Done branch because Go's select is randomised among
-// ready cases. Without a non-blocking re-check of `done` after ctx
-// cancellation is observed, Shutdown returns a spurious
-// context.Canceled / DeadlineExceeded wrap even though the drain
-// completed.
+// Pass-5 RANK B fix: when the shared drain future is ALREADY closed
+// and the caller ctx is already cancelled, waitSessionsBounded's
+// first select has two ready cases. Go's select picks randomly among
+// ready cases, so without a non-blocking re-check of `done` after
+// ctx.Done is observed, Shutdown returns a spurious context.Canceled
+// wrap roughly 50% of the time even though the drain completed.
 //
-// Trigger: construct a fresh Exporter with no sessions. Cancel the
-// ctx BEFORE calling Shutdown. sessionsWG.Wait() returns essentially
-// immediately (there are zero tasks) so `done` is ready; ctx.Done is
-// also ready. Pre-fix at least some iterations out of 100 observe
-// the wrong branch. Post-fix all 100 return nil deterministically.
+// Trigger: on each iteration, construct an Exporter, call Shutdown
+// once to prime the drain future, then call Shutdown a SECOND time
+// with an already-cancelled ctx. By the second call the drain future
+// (pass-5 RANK A: shared sync.Once channel) is already closed from
+// the first Shutdown; the ctx is also already cancelled. Both select
+// cases are ready simultaneously. Pre-fix a substantial fraction of
+// iterations out of 100 surface the spurious error; post-fix the
+// non-blocking re-check deterministically returns nil.
 //
-// Pre-fix empirical: first iteration already fails with
+// Pre-fix empirical: the first iteration that hits the unlucky
+// random select branch fails with
 //
 //	"exporter shutdown: context canceled"
 //
@@ -602,6 +605,14 @@ func TestExporterShutdown_RecoversFromSpuriousDeadlineRace(t *testing.T) {
 
 	for i := range iterations {
 		exp := newExporterForTest(t)
+
+		// Prime the shared drain future so `done` is closed by the
+		// time the racing Shutdown runs. With zero sessions the
+		// spawned waiter's sessionsWG.Wait() returns immediately and
+		// closes sessionsDrained; the first Shutdown then blocks until
+		// observing that close via `<-done`.
+		require.NoError(t, exp.Shutdown(context.Background()),
+			"priming Shutdown must complete cleanly")
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
