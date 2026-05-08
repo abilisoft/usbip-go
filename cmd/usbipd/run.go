@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/abilisoft/usbip-go/pkg/usbip"
@@ -115,6 +116,30 @@ func buildExporter(cfg *Config, log *slog.Logger) (*usbip.Exporter, error) {
 	return exp, nil
 }
 
+// serveStatusFn is the indirection through which runDaemon launches
+// the status UDS server. Production wiring is serveStatus itself; unit
+// tests override this variable to inject a fake that deliberately
+// SKIPS the listener/unlink cleanup so the Finding 4 invariant ("run()
+// owns the unlink") can be RED-tested. Protected by serveStatusFnMu
+// so parallel tests replacing the hook are race-free.
+var (
+	serveStatusFn   = serveStatus
+	serveStatusFnMu sync.RWMutex
+)
+
+// currentServeStatusFn returns the active status-server implementation
+// under a read lock so tests swapping serveStatusFn don't race the
+// production path's reads.
+func currentServeStatusFn() func(
+	ctx context.Context, path, group string,
+	src statusSource, started chan<- struct{},
+) error {
+	serveStatusFnMu.RLock()
+	defer serveStatusFnMu.RUnlock()
+
+	return serveStatusFn
+}
+
 // maybeStartStatusServer spins the §7.7 status UDS in a goroutine when
 // cfg.StatusSocket is non-empty. Returns a receive-only error channel
 // the caller monitors during shutdown; nil when the endpoint is
@@ -131,9 +156,10 @@ func maybeStartStatusServer(
 
 	started := make(chan struct{})
 	statusErrCh := make(chan error, 1)
+	fn := currentServeStatusFn()
 
 	go func() {
-		err := serveStatus(ctx, cfg.StatusSocket, cfg.StatusSocketGroup, src, started)
+		err := fn(ctx, cfg.StatusSocket, cfg.StatusSocketGroup, src, started)
 		if err != nil {
 			log.Error("status server exited",
 				slog.String("path", cfg.StatusSocket), slog.Any("err", err))
