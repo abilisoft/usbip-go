@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"path"
+	"strconv"
 	"syscall"
 
 	"github.com/abilisoft/usbip-go/internal/app"
@@ -107,4 +108,19 @@ func extractFD(conn net.Conn) (uintptr, error) {
 // interop. Verbatim from spec §6.1.
 func formatAttachPayload(portID domain.PortID, fd uintptr, devID domain.DeviceID, speed domain.Speed) string {
 	return fmt.Sprintf("%d %d %d %d", uint32(portID), fd, uint32(devID), uint32(speed))
+}
+
+// DetachPort writes the decimal port ID to vhci_hcd.0/detach. Format
+// per spec §6.1: kstrtoint, single decimal integer, no trailing
+// newline.
+func (a *ImporterAdapter) DetachPort(ctx context.Context, id domain.PortID) error {
+	err := a.ModulesAvailable(ctx)
+	if err != nil {
+		return err
+	}
+
+	return a.writeClassified(
+		path.Join(SysfsVHCIHCD, SysfsVHCIDetach),
+		strconv.FormatUint(uint64(id), 10),
+	)
 }
