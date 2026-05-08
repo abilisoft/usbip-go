@@ -47,6 +47,15 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 		_ = listener.Close()
 	}()
 
+	// Owned cleanup for the status UDS file (Finding 4). Owned HERE
+	// rather than in the status goroutine's defer because that defer
+	// is skipped when completeShutdown times out with the goroutine
+	// still serving; if this function returns, the socket file MUST
+	// be unlinked regardless of goroutine state.
+	if cfg.StatusSocket != "" {
+		defer func() { _ = os.Remove(cfg.StatusSocket) }()
+	}
+
 	exp, err := buildExporter(cfg, log)
 	if err != nil {
 		return err
