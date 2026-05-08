@@ -7,14 +7,109 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/usbip"
 )
 
-// eventRecorder converts a specific domain event concrete type to its
-// v1 jsonlines representation. Registered per kind via the map-based
-// dispatch in eventRecord.
-type eventRecorder func(usbip.Event) map[string]any
+// Event-record structs are the v1 jsonlines shape. json tags lock the
+// wire field names; omitting a field from the struct removes it from
+// the emitted record, so every current v1 field is present explicitly.
+
+type eventBase struct {
+	Schema string `json:"schema"`
+	Kind   string `json:"kind"`
+	At     string `json:"at"`
+}
+
+type deviceView struct {
+	BusID     string `json:"busid"`
+	BusNum    uint16 `json:"busnum"`
+	DevNum    uint16 `json:"devnum"`
+	Speed     string `json:"speed"`
+	VendorID  string `json:"vendor_id"`
+	ProductID string `json:"product_id"`
+}
+
+type portView struct {
+	ID         uint32 `json:"id"`
+	Status     string `json:"status"`
+	Speed      string `json:"speed"`
+	Remote     string `json:"remote"`
+	BusID      string `json:"busid"`
+	LocalBusID string `json:"local_busid"`
+}
+
+type sessionView struct {
+	ID        string `json:"id"`
+	Remote    string `json:"remote"`
+	BusID     string `json:"busid"`
+	StartedAt string `json:"started_at"`
+	BytesIn   uint64 `json:"bytes_in"`
+	BytesOut  uint64 `json:"bytes_out"`
+}
+
+type portAttachedRecord struct {
+	eventBase
+
+	Port portView `json:"port"`
+}
+
+type portDetachedRecord struct {
+	eventBase
+
+	Port   portView `json:"port"`
+	Reason string   `json:"reason"`
+}
+
+type portErroredRecord struct {
+	eventBase
+
+	Port portView `json:"port"`
+	Err  string   `json:"err"`
+}
+
+type deviceBoundRecord struct {
+	eventBase
+
+	Device deviceView `json:"device"`
+}
+
+type deviceUnboundRecord struct {
+	eventBase
+
+	Device deviceView `json:"device"`
+}
+
+type remoteDeviceAddedRecord struct {
+	eventBase
+
+	Remote string     `json:"remote"`
+	Device deviceView `json:"device"`
+}
+
+type remoteDeviceRemovedRecord struct {
+	eventBase
+
+	Remote string `json:"remote"`
+	BusID  string `json:"busid"`
+}
+
+type sessionStartedRecord struct {
+	eventBase
+
+	Session sessionView `json:"session"`
+}
+
+type sessionEndedRecord struct {
+	eventBase
+
+	Session sessionView `json:"session"`
+	Reason  string      `json:"reason"`
+}
+
+// eventRecorder converts a domain event into its v1-schema record struct.
+// Returns nil when ev's concrete type does not match the expected kind.
+type eventRecorder func(usbip.Event) any
 
 // eventRecorders is the closed dispatch table from EventKind to the
-// concrete-type-aware recorder. Using a map instead of a switch keeps
-// eventRecord under the cyclop cap of 10.
+// concrete-type-aware recorder. Map-over-switch keeps classifyEvent
+// under the cyclop cap of 10.
 func eventRecorders() map[domain.EventKind]eventRecorder {
 	return map[domain.EventKind]eventRecorder{
 		domain.EventPortAttached:        adaptPortAttached,
@@ -29,10 +124,10 @@ func eventRecorders() map[domain.EventKind]eventRecorder {
 	}
 }
 
-// eventRecord converts a domain event into the v1 jsonlines map used by
-// jsonRenderer.Event. nil is returned for unknown concrete types so the
-// caller can surface the classification failure.
-func eventRecord(ev usbip.Event) map[string]any {
+// classifyEvent converts a domain event into its v1-schema record
+// struct. nil is returned for unknown concrete types so the caller can
+// surface the classification failure.
+func classifyEvent(ev usbip.Event) any {
 	rec, ok := eventRecorders()[ev.EventKind()]
 	if !ok {
 		return nil
@@ -41,134 +136,155 @@ func eventRecord(ev usbip.Event) map[string]any {
 	return rec(ev)
 }
 
-func adaptPortAttached(ev usbip.Event) map[string]any {
+// eventHeader extracts the Kind and At from a record returned by
+// classifyEvent. All event records embed eventBase, so a type
+// assertion to that embedded struct would be noise; returning via a
+// small helper keeps callers out of reflection and stringly-typed
+// lookups. The boolean is false only when rec is of an unknown type
+// (classifyEvent returned nil).
+func eventHeader(rec any) (string, string, bool) {
+	switch r := rec.(type) {
+	case portAttachedRecord:
+		return r.Kind, r.At, true
+	case portDetachedRecord:
+		return r.Kind, r.At, true
+	case portErroredRecord:
+		return r.Kind, r.At, true
+	case deviceBoundRecord:
+		return r.Kind, r.At, true
+	case deviceUnboundRecord:
+		return r.Kind, r.At, true
+	case remoteDeviceAddedRecord:
+		return r.Kind, r.At, true
+	case remoteDeviceRemovedRecord:
+		return r.Kind, r.At, true
+	case sessionStartedRecord:
+		return r.Kind, r.At, true
+	case sessionEndedRecord:
+		return r.Kind, r.At, true
+	}
+
+	return "", "", false
+}
+
+func newEventBase(k domain.EventKind, at time.Time) eventBase {
+	return eventBase{
+		Schema: schemaVersion,
+		Kind:   k.String(),
+		At:     formatTime(at),
+	}
+}
+
+func adaptPortAttached(ev usbip.Event) any {
 	e, ok := ev.(domain.PortAttachedEvent)
 	if !ok {
 		return nil
 	}
 
-	return map[string]any{
-		"schema": schemaVersion,
-		"kind":   e.EventKind().String(),
-		"at":     formatTime(e.At),
-		"port":   portMap(e.Port),
+	return portAttachedRecord{
+		eventBase: newEventBase(e.EventKind(), e.At),
+		Port:      newPortView(e.Port),
 	}
 }
 
-func adaptPortDetached(ev usbip.Event) map[string]any {
+func adaptPortDetached(ev usbip.Event) any {
 	e, ok := ev.(domain.PortDetachedEvent)
 	if !ok {
 		return nil
 	}
 
-	return map[string]any{
-		"schema": schemaVersion,
-		"kind":   e.EventKind().String(),
-		"at":     formatTime(e.At),
-		"port":   portMap(e.Port),
-		"reason": e.Reason,
+	return portDetachedRecord{
+		eventBase: newEventBase(e.EventKind(), e.At),
+		Port:      newPortView(e.Port),
+		Reason:    e.Reason,
 	}
 }
 
-func adaptPortErrored(ev usbip.Event) map[string]any {
+func adaptPortErrored(ev usbip.Event) any {
 	e, ok := ev.(domain.PortErroredEvent)
 	if !ok {
 		return nil
 	}
 
-	return map[string]any{
-		"schema": schemaVersion,
-		"kind":   e.EventKind().String(),
-		"at":     formatTime(e.At),
-		"port":   portMap(e.Port),
-		"err":    e.Err,
+	return portErroredRecord{
+		eventBase: newEventBase(e.EventKind(), e.At),
+		Port:      newPortView(e.Port),
+		Err:       e.Err,
 	}
 }
 
-func adaptDeviceBound(ev usbip.Event) map[string]any {
+func adaptDeviceBound(ev usbip.Event) any {
 	e, ok := ev.(domain.DeviceBoundEvent)
 	if !ok {
 		return nil
 	}
 
-	return map[string]any{
-		"schema": schemaVersion,
-		"kind":   e.EventKind().String(),
-		"at":     formatTime(e.At),
-		"device": deviceMap(e.Device),
+	return deviceBoundRecord{
+		eventBase: newEventBase(e.EventKind(), e.At),
+		Device:    newDeviceView(e.Device),
 	}
 }
 
-func adaptDeviceUnbound(ev usbip.Event) map[string]any {
+func adaptDeviceUnbound(ev usbip.Event) any {
 	e, ok := ev.(domain.DeviceUnboundEvent)
 	if !ok {
 		return nil
 	}
 
-	return map[string]any{
-		"schema": schemaVersion,
-		"kind":   e.EventKind().String(),
-		"at":     formatTime(e.At),
-		"device": deviceMap(e.Device),
+	return deviceUnboundRecord{
+		eventBase: newEventBase(e.EventKind(), e.At),
+		Device:    newDeviceView(e.Device),
 	}
 }
 
-func adaptRemoteDeviceAdded(ev usbip.Event) map[string]any {
+func adaptRemoteDeviceAdded(ev usbip.Event) any {
 	e, ok := ev.(domain.RemoteDeviceAddedEvent)
 	if !ok {
 		return nil
 	}
 
-	return map[string]any{
-		"schema": schemaVersion,
-		"kind":   e.EventKind().String(),
-		"at":     formatTime(e.At),
-		"remote": e.Remote.String(),
-		"device": deviceMap(e.Device),
+	return remoteDeviceAddedRecord{
+		eventBase: newEventBase(e.EventKind(), e.At),
+		Remote:    e.Remote.String(),
+		Device:    newDeviceView(e.Device),
 	}
 }
 
-func adaptRemoteDeviceRemoved(ev usbip.Event) map[string]any {
+func adaptRemoteDeviceRemoved(ev usbip.Event) any {
 	e, ok := ev.(domain.RemoteDeviceRemovedEvent)
 	if !ok {
 		return nil
 	}
 
-	return map[string]any{
-		"schema": schemaVersion,
-		"kind":   e.EventKind().String(),
-		"at":     formatTime(e.At),
-		"remote": e.Remote.String(),
-		"busid":  string(e.BusID),
+	return remoteDeviceRemovedRecord{
+		eventBase: newEventBase(e.EventKind(), e.At),
+		Remote:    e.Remote.String(),
+		BusID:     string(e.BusID),
 	}
 }
 
-func adaptSessionStarted(ev usbip.Event) map[string]any {
+func adaptSessionStarted(ev usbip.Event) any {
 	e, ok := ev.(domain.SessionStartedEvent)
 	if !ok {
 		return nil
 	}
 
-	return map[string]any{
-		"schema":  schemaVersion,
-		"kind":    e.EventKind().String(),
-		"at":      formatTime(e.At),
-		"session": sessionMap(e.Session),
+	return sessionStartedRecord{
+		eventBase: newEventBase(e.EventKind(), e.At),
+		Session:   newSessionView(e.Session),
 	}
 }
 
-func adaptSessionEnded(ev usbip.Event) map[string]any {
+func adaptSessionEnded(ev usbip.Event) any {
 	e, ok := ev.(domain.SessionEndedEvent)
 	if !ok {
 		return nil
 	}
 
-	return map[string]any{
-		"schema":  schemaVersion,
-		"kind":    e.EventKind().String(),
-		"at":      formatTime(e.At),
-		"session": sessionMap(e.Session),
-		"reason":  e.Reason,
+	return sessionEndedRecord{
+		eventBase: newEventBase(e.EventKind(), e.At),
+		Session:   newSessionView(e.Session),
+		Reason:    e.Reason,
 	}
 }
 
@@ -178,39 +294,35 @@ func formatTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339Nano)
 }
 
-// deviceMap is the single-device v1 representation; used as a shared
-// field inside multiple event records.
-func deviceMap(d usbip.Device) map[string]any {
-	return map[string]any{
-		"busid":      string(d.BusID),
-		"busnum":     d.BusNum,
-		"devnum":     d.DevNum,
-		"speed":      d.Speed.String(),
-		"vendor_id":  formatHex16(d.VendorID),
-		"product_id": formatHex16(d.ProductID),
+func newDeviceView(d usbip.Device) deviceView {
+	return deviceView{
+		BusID:     string(d.BusID),
+		BusNum:    d.BusNum,
+		DevNum:    d.DevNum,
+		Speed:     d.Speed.String(),
+		VendorID:  formatHex16(d.VendorID),
+		ProductID: formatHex16(d.ProductID),
 	}
 }
 
-// portMap is the single-port v1 representation.
-func portMap(p usbip.Port) map[string]any {
-	return map[string]any{
-		"id":          uint32(p.ID),
-		"status":      p.Status.String(),
-		"speed":       p.Speed.String(),
-		"remote":      p.Remote.String(),
-		"busid":       string(p.BusID),
-		"local_busid": string(p.LocalBusID),
+func newPortView(p usbip.Port) portView {
+	return portView{
+		ID:         uint32(p.ID),
+		Status:     p.Status.String(),
+		Speed:      p.Speed.String(),
+		Remote:     p.Remote.String(),
+		BusID:      string(p.BusID),
+		LocalBusID: string(p.LocalBusID),
 	}
 }
 
-// sessionMap is the single-session v1 representation.
-func sessionMap(s usbip.Session) map[string]any {
-	return map[string]any{
-		"id":         s.ID.String(),
-		"remote":     s.RemoteAddr.String(),
-		"busid":      string(s.BusID),
-		"started_at": formatTime(s.StartedAt),
-		"bytes_in":   s.BytesIn,
-		"bytes_out":  s.BytesOut,
+func newSessionView(s usbip.Session) sessionView {
+	return sessionView{
+		ID:        s.ID.String(),
+		Remote:    s.RemoteAddr.String(),
+		BusID:     string(s.BusID),
+		StartedAt: formatTime(s.StartedAt),
+		BytesIn:   s.BytesIn,
+		BytesOut:  s.BytesOut,
 	}
 }
