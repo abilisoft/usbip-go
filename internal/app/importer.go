@@ -659,6 +659,23 @@ func classifyDecodeImportErr(err error) AttachOutcome {
 	return AttachOutcomeProtocolMismatch
 }
 
+// classifyKernelAttachErr maps an AttachRemote (kernel handoff) error
+// onto the closed AttachOutcome set. ErrPermission surfaces when
+// sysfs writes to /sys/bus/usb/.../usbip_sockfd or attach require
+// CAP_SYS_ADMIN; ErrNoFreePort surfaces when every vhci slot is
+// taken. Anything else falls through to kernel_error so the
+// closed-set contract is preserved without a catch-all.
+func classifyKernelAttachErr(err error) AttachOutcome {
+	switch {
+	case errors.Is(err, domain.ErrPermission):
+		return AttachOutcomePermission
+	case errors.Is(err, domain.ErrNoFreePort):
+		return AttachOutcomeNoFreePort
+	}
+
+	return AttachOutcomeKernelError
+}
+
 // attachOverDialed factors out the dial-through-handoff portion of
 // Attach. Splitting it keeps Attach under the project's cyclomatic cap
 // and isolates the fd-passing deferred cleanup per v1 contract §5.4. opts is
@@ -725,7 +742,7 @@ func (i *Importer) attachOverDialed(
 
 	portID, err := i.kernel.AttachRemote(ctx, conn, spec)
 	if err != nil {
-		i.logAttachFailure("attach kernel handoff failed", busID, endpoint, AttachOutcomeKernelError, err)
+		i.logAttachFailure("attach kernel handoff failed", busID, endpoint, classifyKernelAttachErr(err), err)
 
 		return domain.Port{}, fmt.Errorf("attach %s on %s: %w", busID, endpoint.String(), err)
 	}

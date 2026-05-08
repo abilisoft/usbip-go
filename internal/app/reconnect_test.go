@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1277,5 +1278,83 @@ func TestImporterReconnectExhaustedEmitsEvent(t *testing.T) {
 		require.NotEmpty(t, ev.LastError)
 	case <-time.After(reconnectTestSettleBudget):
 		t.Fatalf("PortReconnectExhaustedEvent was not delivered through Watch()")
+	}
+}
+
+// TestImporterReconnectExhaustedAttemptsTable parametrises the
+// off-by-one Attempts assertion across multiple MaxAttempts values
+// so a future regression cannot satisfy the N=2 case while breaking
+// every other N. attempt-1 is the post-exit value of the loop
+// counter; the published Attempts field MUST equal MaxAttempts for
+// every finite cap.
+func TestImporterReconnectExhaustedAttemptsTable(t *testing.T) {
+	t.Parallel()
+
+	for _, maxAttempts := range []int{1, 3, 5} {
+		t.Run(strconv.Itoa(maxAttempts), func(t *testing.T) {
+			t.Parallel()
+
+			var attachCount atomic.Int32
+
+			attachFn := func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+				n := attachCount.Add(1)
+				if n == 1 {
+					return domain.PortID(7), nil
+				}
+
+				return 0, errBoom
+			}
+
+			imp, clk, registry, _ := newReconnectFixture(t, attachFn)
+			t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+			opts := attachOptionsWithBackoff()
+
+			opts.MaxAttempts = maxAttempts
+
+			port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), opts)
+			require.NoError(t, err)
+
+			registry.waitFor(t, 1)
+
+			watchCtx, watchCancel := context.WithCancel(context.Background())
+			t.Cleanup(watchCancel)
+
+			exhausted := make(chan domain.PortReconnectExhaustedEvent, 1)
+
+			go func() {
+				for ev := range imp.Watch(watchCtx) {
+					if ex, ok := ev.(domain.PortReconnectExhaustedEvent); ok {
+						exhausted <- ex
+
+						return
+					}
+				}
+			}()
+
+			registry.waitFor(t, 2)
+
+			registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
+
+			for i := range maxAttempts {
+				want := int32(i + 2)
+				require.Eventually(t, func() bool {
+					clk.Advance(reconnectTestBackoff().Delay)
+
+					return attachCount.Load() >= want
+				}, reconnectTestSettleBudget, 10*time.Millisecond,
+					"AttachRemote should reach %d after attempt %d (MaxAttempts=%d)",
+					want, i+1, maxAttempts)
+			}
+
+			select {
+			case ev := <-exhausted:
+				require.Equal(t, maxAttempts, ev.Attempts,
+					"Attempts must equal MaxAttempts (off-by-one regression check)")
+			case <-time.After(reconnectTestSettleBudget):
+				t.Fatalf("PortReconnectExhaustedEvent not delivered for MaxAttempts=%d",
+					maxAttempts)
+			}
+		})
 	}
 }

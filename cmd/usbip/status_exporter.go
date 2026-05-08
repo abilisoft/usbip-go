@@ -144,26 +144,42 @@ func (s *statusExporter) Listening() listeningState {
 // otherwise log on every poll. Failures from the underlying probe
 // bypass the cache so the next call retries.
 //
+// The mutex is released BEFORE the probe runs so a slow sysfs syscall
+// cannot serialise concurrent /readyz callers behind it. Concurrent
+// cache-miss callers may all run the probe in parallel; the cache
+// write is racy by design (last writer wins) — every probe returns
+// the same map for the same kernel state, so the last-writer race
+// produces an equivalent result. This trades a tiny amount of
+// duplicate work during cache miss for predictable per-caller
+// latency under k8s-style sub-second readiness probes.
+//
 // Probe + clock are read from this statusExporter instance (not a
 // package global), so parallel tests constructing their own
 // statusExporter with setKernelModuleProbe / setKernelModuleClock
 // cannot see each other's invocations.
 func (s *statusExporter) KernelModules(ctx context.Context) (map[string]usbip.ModuleState, error) {
 	s.kmMu.Lock()
-	defer s.kmMu.Unlock()
-
 	now := s.kernelModuleClock()
+
 	if s.kmValue != nil && now.Before(s.kmExpiry) {
-		return copyKernelModuleMap(s.kmValue), nil
+		out := copyKernelModuleMap(s.kmValue)
+
+		s.kmMu.Unlock()
+
+		return out, nil
 	}
+
+	s.kmMu.Unlock()
 
 	mods, err := s.kernelModuleProbe(ctx)
 	if err != nil {
 		return mods, err
 	}
 
+	s.kmMu.Lock()
 	s.kmValue = mods
-	s.kmExpiry = now.Add(kernelModuleProbeTTL)
+	s.kmExpiry = s.kernelModuleClock().Add(kernelModuleProbeTTL)
+	s.kmMu.Unlock()
 
 	return copyKernelModuleMap(mods), nil
 }
