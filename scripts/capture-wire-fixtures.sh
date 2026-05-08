@@ -4,12 +4,8 @@
 #
 # capture-wire-fixtures.sh — capture real upstream USBIP wire frames for
 # the internal/adapter/wire fixture set. Replaces the hand-synthesised
-# fixtures from Phase 2 with ground-truth bytes emitted by upstream
-# usbip-utils + a usbip-vudc virtual device.
-#
-# Closes the "synthetic fixtures" deferred item documented in
-# docs/superpowers/plans/2026-04-18-usbip-go-plan.md Phase 2 Task 2.3
-# and acknowledged in commit 707a292's commit message.
+# fixtures from the initial codec phase with ground-truth bytes
+# emitted by upstream usbip-utils + a usbip-vudc virtual device.
 #
 # Requires sudo for:
 #   - modprobe (load usbip_core / usbip_host / vhci_hcd / usbip_vudc)
