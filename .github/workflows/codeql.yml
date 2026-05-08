@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: 2026 AbiliSoft
+# SPDX-License-Identifier: Apache-2.0
+#
+# CodeQL static analysis. Complements golangci-lint (lint-rule
+# enforcement) and govulncheck (known-CVE scan) with deeper
+# data-flow analysis tuned for security smells. SARIF results land
+# in the GitHub Security tab.
+#
+# https://github.com/github/codeql-action
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly Wednesday 04:00 UTC — non-overlapping with mutation
+    # (Mon 04:00) or scorecard (Tue 06:00).
+    - cron: '0 4 * * 3'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (Go)
+    runs-on: ubuntu-24.04
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: DeterminateSystems/nix-installer-action@ab6bcb2d5af0e904d04aea750e2089e9dc4cbfdd # v13
+      - uses: DeterminateSystems/magic-nix-cache-action@87b14cf437d03d37989d87f0fa5ce4f5dc1a330b # v8
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a # v3
+        with:
+          languages: go
+          # security-and-quality is the strictest pack; it includes
+          # the security-extended pack plus code-quality smells. Use
+          # `security-extended` if false-positive volume becomes a
+          # problem.
+          queries: security-and-quality
+
+      # CodeQL needs a real Go toolchain to autobuild; the flake
+      # devShell pins the same Go that go.mod requires. `go build
+      # ./...` is enough — CodeQL traces calls from there.
+      - name: Build Go module
+        run: nix develop --command go build ./...
+
+      - name: Perform analysis
+        uses: github/codeql-action/analyze@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a # v3
+        with:
+          category: "/language:go"
