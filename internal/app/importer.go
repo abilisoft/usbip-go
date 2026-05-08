@@ -235,6 +235,11 @@ func (i *Importer) ListRemote(ctx context.Context, endpoint domain.RemoteEndpoin
 		return nil, ErrImporterClosed
 	}
 
+	err := endpoint.Validate()
+	if err != nil {
+		return nil, fmt.Errorf("list remote: %w", err)
+	}
+
 	endpoint = endpoint.NormalizePort()
 
 	conn, err := i.transport.Dial(ctx, endpoint)
@@ -299,6 +304,11 @@ func (i *Importer) Attach(
 	busID domain.BusID,
 	opts AttachOptions,
 ) (domain.Port, error) {
+	err := endpoint.Validate()
+	if err != nil {
+		return domain.Port{}, fmt.Errorf("attach: %w", err)
+	}
+
 	endpoint = endpoint.NormalizePort()
 
 	release, err := i.acquireAttachSlot(endpoint, busID)
