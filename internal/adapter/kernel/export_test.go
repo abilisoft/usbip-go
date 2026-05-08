@@ -115,15 +115,6 @@ type ParsedPortForTest struct {
 	BusID  domain.BusID
 }
 
-// ExtractPortFromBusIDForTest exposes the unexported extractPortFromBusID
-// helper so uevent tests can lock in the parsing table (Pass-4 RANK 1).
-// The function has no dependencies on adapter state — passing it by
-// name through a thin white-box trampoline keeps the production API
-// surface closed.
-func ExtractPortFromBusIDForTest(busID string) domain.PortID {
-	return extractPortFromBusID(busID)
-}
-
 // VHCIEventMapperForTest is the test-side façade over the internal
 // vhciEventMapper. It carries the full Topology the mapper uses so
 // unit tests can drive MapEventForTest against a field map without

@@ -35,7 +35,10 @@ func TestSubscribe_ConcurrentInitOpensOneSocket(t *testing.T) {
 		return newFakeSocket(), nil
 	}
 
-	a, err := kernel.NewEventsAdapter(kernel.WithNetlinkDialer(dialer))
+	a, err := kernel.NewEventsAdapter(
+		kernel.WithFS(singleControllerTopoFS()),
+		kernel.WithNetlinkDialer(dialer),
+	)
 	require.NoError(t, err)
 
 	ctx, cancel := t.Context(), func() {}
