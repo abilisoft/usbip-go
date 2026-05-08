@@ -108,20 +108,36 @@ func TestDaemonRestartSessionsSurvive(t *testing.T) {
 	}
 
 	// The kernel-side ref survives the daemon's death. Importer.ListPorts
-	// still sees the attachment.
+	// still sees the attachment. This verifies kernel-held session
+	// persists across daemon restart via sysfs status; full URB round-
+	// trip is out of scope (requires a real-device gadget, not the
+	// vudc+mass_storage harness which does not answer bulk URBs).
 	ports, err := imp.ListPorts(ctx)
 	require.NoError(t, err)
 
-	var survivorID domain.PortID
+	var survivor domain.Port
 
 	for _, p := range ports {
 		if p.ID == port.ID {
-			survivorID = p.ID
+			survivor = p
+
+			break
 		}
 	}
 
-	require.Equal(t, port.ID, survivorID,
+	require.Equal(t, port.ID, survivor.ID,
 		"kernel-owned session must survive daemon death")
+
+	// Status probe: the vhci port must remain StatusUsed, not
+	// StatusNull/StatusNotAssigned, to prove the kernel-side session
+	// is still live after the daemon process was killed. StatusNull
+	// would mean the kernel tore the port down on daemon death —
+	// that would contradict spec §5.4 item 7. This is the sysfs-level
+	// analogue of a URB round-trip; without a real gadget we can't
+	// push bytes through the attached device but the port flag alone
+	// is sufficient evidence the session is still owned by the kernel.
+	require.Equal(t, domain.StatusUsed, survivor.Status,
+		"post-SIGKILL vhci port status must remain StatusUsed (kernel-held session)")
 
 	// Start daemon #2 reusing the same port. bindReplacementExporter
 	// was our in-test loopback reuse helper; the equivalent for the
