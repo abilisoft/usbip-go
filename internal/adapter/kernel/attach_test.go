@@ -153,6 +153,39 @@ func attachFS() fstest.MapFS {
 	}
 }
 
+// TestFormatAttachPayload_FieldOrderingMatchesKernel pins the exact
+// byte-for-byte shape the adapter writes to vhci_hcd's attach sysfs
+// node. Kernel 7.0's vhci_sysfs.c::attach_store consumes the write
+// with:
+//
+//	sscanf(buf, "%u %u %u %u", &port, &sockfd, &devid, &speed)
+//
+// Any reordering of those four fields — or any insertion/removal of
+// separators — would compile fine but silently attach the wrong
+// device at the wrong port. sscanf tolerates (but does not require) a
+// trailing newline; upstream userspace (libsrc/vhci_driver.c) does
+// not append one and this adapter matches that wire shape exactly.
+//
+// This is a RED against future drift: any edit to formatAttachPayload
+// that reorders, renames, or re-separates fields must update this
+// test deliberately.
+func TestFormatAttachPayload_FieldOrderingMatchesKernel(t *testing.T) {
+	t.Parallel()
+
+	const (
+		port   = domain.PortID(5)
+		fd     = uintptr(42)
+		devID  = domain.DeviceID(0x01020304)
+		speed  = domain.SpeedHigh
+		expect = "5 42 16909060 3"
+	)
+
+	got := kernel.FormatAttachPayloadForTest(port, fd, devID, speed)
+	require.Equal(t, expect, got,
+		"attach payload must render as '<port> <sockfd> <devid> <speed>' — "+
+			"sscanf(\"%%u %%u %%u %%u\") order in vhci_sysfs.c::attach_store")
+}
+
 func TestAttachRemote_HappyPath(t *testing.T) {
 	t.Parallel()
 

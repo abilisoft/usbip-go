@@ -75,6 +75,18 @@ func FindFreePortForTest(a *ImporterAdapter, speed domain.Speed) (domain.PortID,
 	return a.findFreePort(speed)
 }
 
+// FormatAttachPayloadForTest exposes the unexported formatAttachPayload
+// so tests can pin the exact byte-for-byte shape the adapter writes to
+// the vhci_hcd attach sysfs node. The payload is the single source of
+// truth for interop with vhci_sysfs.c::attach_store(); a lock-in test
+// consuming this helper guards against silent reordering or format
+// drift that a compile-only type check would miss.
+func FormatAttachPayloadForTest(
+	portID domain.PortID, fd uintptr, devID domain.DeviceID, speed domain.Speed,
+) string {
+	return formatAttachPayload(portID, fd, devID, speed)
+}
+
 // ParseStatusFileForTest exposes the unexported parseStatusFile so
 // ports-level tests can pin contract edges (e.g. defensive guards
 // against vhciPorts=0) without synthesising a full adapter + sysfs
