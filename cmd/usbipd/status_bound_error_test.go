@@ -20,9 +20,9 @@ var errBoundDevicesInjected = errors.New("injected bound-devices failure")
 
 // erroringStatusSource is a fakeStatusSource-compatible stub whose
 // BoundDevices returns a populated error; every other method returns
-// empty/nil. Used by the RANK 12 RED to assert the status handler
-// surfaces the bound-devices failure rather than silently rendering
-// an empty bound_devices array.
+// empty/nil. Used to assert the status handler surfaces the bound-
+// devices failure rather than silently rendering an empty
+// bound_devices array.
 type erroringStatusSource struct{}
 
 func (*erroringStatusSource) BoundDevices(_ context.Context) ([]usbip.Device, error) {
@@ -43,12 +43,13 @@ func (*erroringStatusSource) KernelModules(_ context.Context) (map[string]usbip.
 
 func (*erroringStatusSource) Drain(_ context.Context) error { return nil }
 
-// TestStatusBoundDevicesErrorSurfaced proves the RANK 12 contract:
-// when ListAvailable fails, the status handler must surface the
-// failure via the bound_devices_error JSON field rather than quietly
-// handing the client an empty bound_devices array. An operator
-// polling / would otherwise see bound_devices=[] and assume the
-// daemon has no exports, when the truth is that /sys is inaccessible.
+// TestStatusBoundDevicesErrorSurfaced pins the bound-devices error
+// surfacing contract: when ListAvailable fails, the status handler
+// must surface the failure via the bound_devices_error JSON field
+// rather than quietly handing the client an empty bound_devices
+// array. An operator polling / would otherwise see bound_devices=[]
+// and assume the daemon has no exports, when the truth is that /sys
+// is inaccessible.
 func TestStatusBoundDevicesErrorSurfaced(t *testing.T) {
 	t.Parallel()
 

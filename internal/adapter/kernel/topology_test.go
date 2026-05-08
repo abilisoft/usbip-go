@@ -234,7 +234,8 @@ func TestTopology_FlatPort(t *testing.T) {
 		topo.FlatPort(kernel.VHCILocation{ControllerIdx: 1, Hub: kernel.HubTypeSS}, 1))
 }
 
-// TestDiscoverTopology_StatusFilePermissionErrorSurfaces pins BUG 2:
+// TestDiscoverTopology_StatusFilePermissionErrorSurfaces pins the
+// status-file permission contract:
 // the controller probe must propagate any non-ENOENT failure opening a
 // status.N file instead of silently treating the file as present and
 // continuing. A permission-denied read would otherwise either terminate
@@ -269,8 +270,9 @@ func TestDiscoverTopology_StatusFilePermissionErrorSurfaces(t *testing.T) {
 		"the wrapped error must chain back to fs.ErrPermission")
 }
 
-// TestDiscoverTopology_SupportsManyControllers pins BUG 4: the probe
-// loop must not cap at a hardcoded controller count. The natural stop
+// TestDiscoverTopology_SupportsManyControllers pins the
+// unbounded-controller-count contract: the probe loop must not cap at
+// a hardcoded controller count. The natural stop
 // signal is the first ENOENT on status.<i>; any arbitrary cap silently
 // truncates large deployments. The fixture here installs 20
 // controllers (nports = 20 * 2 * 8 = 320) with the expected two usb
@@ -313,7 +315,8 @@ func TestDiscoverTopology_SupportsManyControllers(t *testing.T) {
 	require.Len(t, topo.BusMap, totalBusmaps)
 }
 
-// TestDiscoverTopology_IncompleteControllerErrors pins BUG 3: the
+// TestDiscoverTopology_IncompleteControllerErrors pins the
+// BusMap-completeness contract: the
 // post-condition len(BusMap) == NControllers * hubsPerController must
 // hold — a controller that exposes only one usb child (the other is
 // mid-probe, the sysfs is partially populated, or the kernel is in an
@@ -358,14 +361,14 @@ func TestDiscoverTopology_IncompleteControllerErrors(t *testing.T) {
 	})
 }
 
-// TestDiscoverTopology_ClassifyHubBySiblingOrder pins BUG 1: when the
-// speed attribute is absent or empty, classification must fall back to
-// sibling order (lower busnum = HS, higher busnum = SS) because
-// vhci_hcd_probe registers the HS root hub before the SS root hub for
-// every controller. The pre-fix implementation returned HubTypeHS
-// unconditionally in the missing-speed path, which silently collapsed
-// both hubs to HS and would corrupt every downstream flat-port
-// calculation.
+// TestDiscoverTopology_ClassifyHubBySiblingOrder pins the
+// sibling-order hub classification contract: when the speed attribute
+// is absent or empty, classification must fall back to sibling order
+// (lower busnum = HS, higher busnum = SS) because vhci_hcd_probe
+// registers the HS root hub before the SS root hub for every
+// controller. Returning HubTypeHS unconditionally in the missing-speed
+// path would silently collapse both hubs to HS and corrupt every
+// downstream flat-port calculation.
 func TestDiscoverTopology_ClassifyHubBySiblingOrder(t *testing.T) {
 	t.Parallel()
 
@@ -438,9 +441,9 @@ func TestDiscoverTopology_Realistic_MultiController_MissingSpeed(t *testing.T) {
 }
 
 // countingFS wraps an fs.FS and increments a counter every time Open
-// is called on a name matching the requested path. Used to pin BUG 5:
-// loadTopology must run discoverTopology at most once per adapter
-// instance.
+// is called on a name matching the requested path. Used to pin the
+// topology-cache contract: loadTopology must run discoverTopology at
+// most once per adapter instance.
 type countingFS struct {
 	inner   fs.FS
 	watch   string
@@ -463,8 +466,9 @@ func (c countingFS) Open(name string) (fs.File, error) {
 	return f, nil
 }
 
-// TestCommonAdapter_TopologyCached pins BUG 5: calling loadTopology N
-// times on the same adapter must read the sysfs nports attribute once,
+// TestCommonAdapter_TopologyCached pins the topology-cache contract:
+// calling loadTopology N times on the same adapter must read the
+// sysfs nports attribute once,
 // not N times. Re-reading on every call races a live kernel's topology
 // and, more importantly, makes Task 2+ consumers (attach/detach,
 // status renumbering) pay a full sysfs walk for every port operation.
@@ -532,8 +536,9 @@ func topologiesEqual(a, b kernel.Topology) bool {
 	return true
 }
 
-// TestDiscoverTopology_RejectsZeroNports pins Bug A: an nports value of
-// zero divided by 2*nControllers yields HCPorts=0 and VHCIPorts=0. A
+// TestDiscoverTopology_RejectsZeroNports pins the zero-nports
+// fail-closed contract: an nports value of zero divided by
+// 2*nControllers yields HCPorts=0 and VHCIPorts=0. A
 // Topology with VHCIPorts=0 poisons every downstream status-row parser
 // that uses `port / VHCIPorts` to locate a controller block — the
 // division panics. discoverTopology must refuse the snapshot outright
@@ -593,10 +598,10 @@ func (f flakyFS) Open(name string) (fs.File, error) {
 // every subsequent call retries the underlying load and, once the
 // transient fault clears, returns a valid Topology without error.
 //
-// Pre-fix behaviour: the sync.Once wrapper memoised both success and
-// error, so the first failure wedged the cache permanently and a
-// daemon that survived a vhci_hcd module reload could never recover
-// its BusMap-consuming paths (uevent mapping, findFreePort).
+// A sync.Once wrapper that memoised both success and error would
+// wedge the cache permanently on the first failure so a daemon that
+// survived a vhci_hcd module reload could never recover its BusMap-
+// consuming paths (uevent mapping, findFreePort).
 func TestCommonAdapter_TopologyRetriesAfterTransientFailure(t *testing.T) {
 	t.Parallel()
 

@@ -59,7 +59,7 @@ var (
 	// ErrAttachInProgress indicates Attach is already running for the
 	// same (remote, busid) pair and the dedupe gate rejected a second
 	// caller. Aliased to pkg/domain so errors.Is matches against
-	// either form (pass-2 RANK 6).
+	// either form.
 	ErrAttachInProgress = domain.ErrAttachInProgress
 )
 

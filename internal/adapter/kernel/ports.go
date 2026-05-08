@@ -68,7 +68,7 @@ type parsedPort struct {
 // that omits BusMap. Status-row parsing never consumes usb*/busnum;
 // insisting on a complete BusMap here would hard-fail ListPorts /
 // findFreePort during live-host mid-probe races the parser is
-// otherwise equipped to handle (Bug B). BusMap consumers (uevent
+// otherwise equipped to handle. BusMap consumers (uevent
 // mapping, future port-to-bus translation) route through loadTopology
 // separately.
 //

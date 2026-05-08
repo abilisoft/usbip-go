@@ -200,8 +200,8 @@ func (a *ExporterAdapter) readDeviceNumbers(base string) (deviceNumbers, error) 
 
 // readU16Attr reads a decimal sysfs attribute and validates the value
 // fits in uint16. Returns errSysfsValueOutOfRange wrapped on overflow
-// so readDevice fails the whole device rather than silently truncating
-// (RANK 8).
+// so readDevice fails the whole device rather than silently
+// truncating.
 func readU16Attr(fsys fs.FS, path string) (uint16, error) {
 	v, err := ReadUint(fsys, path)
 	if err != nil {
@@ -285,7 +285,7 @@ func (a *ExporterAdapter) readDeviceClasses(base string) (deviceClasses, error) 
 // as uint8. USB device-level class/subclass/protocol fields are u8 on
 // wire; sysfs formats them as two-digit hex so ReadHex16 is the
 // natural read primitive. Values above 0xFF are a malformed sysfs
-// entry and fail the whole device read (RANK 8) rather than silently
+// entry and fail the whole device read rather than silently
 // truncating.
 func narrowByteErr(attr string, v uint16) (uint8, error) {
 	if v > byteMax {
@@ -299,7 +299,7 @@ func narrowByteErr(attr string, v uint16) (uint8, error) {
 // readByteAttr reads a decimal sysfs attribute that is semantically a
 // byte (e.g. bConfigurationValue). A value exceeding byteMax is a
 // malformed sysfs entry and fails the whole device read rather than
-// silently truncating (RANK 8).
+// silently truncating.
 func (a *ExporterAdapter) readByteAttr(base, attr string) (uint8, error) {
 	p := path.Join(base, attr)
 
@@ -321,9 +321,9 @@ func (a *ExporterAdapter) readByteAttr(base, attr string) (uint8, error) {
 // sysfs attrs) are tolerated — some USB peripherals expose only a
 // subset of their configured interfaces under sysfs — but overflow
 // errors (errSysfsValueOutOfRange) are fatal for the whole device
-// read (pass-2 RANK 8). Surfacing a device with a silently-truncated
-// Interfaces slice when sysfs reports malformed byte-width fields
-// would hide data corruption from downstream consumers.
+// read. Surfacing a device with a silently-truncated Interfaces slice
+// when sysfs reports malformed byte-width fields would hide data
+// corruption from downstream consumers.
 func (a *ExporterAdapter) readInterfaces(busID domain.BusID, count uint8) ([]domain.Interface, error) {
 	ifaces := make([]domain.Interface, 0, count)
 

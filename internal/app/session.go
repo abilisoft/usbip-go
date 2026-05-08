@@ -52,14 +52,12 @@ func (c *connCloser) close() error {
 //
 // fd-passing contract (spec §5.4 item 4): the kernel dups the accepted
 // fd on ExportOnConn success and holds its own ref; the app's original
-// ref is released here exactly once via connCloser (sync.Once). Pre
-// pass-2 RANK 4 the handedOff flag suppressed close on the success
-// path entirely, leaking the accepted fd for the full session lifetime
-// plus whatever came after — the kernel's dup kept the socket alive,
-// but the app's userspace ref was never released. Post-fix the
-// deferred close fires on every handler exit regardless of outcome;
-// sync.Once guards against the handshake-timeout watcher's concurrent
-// close and against the adapter's documented self-close on failure.
+// ref is released here exactly once via connCloser (sync.Once). The
+// deferred close fires on every handler exit regardless of outcome so
+// the kernel's dup keeps the socket alive while the app's userspace ref
+// is released promptly. sync.Once guards against the handshake-timeout
+// watcher's concurrent close and against the adapter's documented
+// self-close on failure.
 func (e *Exporter) handleConn(ctx context.Context, conn net.Conn) {
 	closer := &connCloser{conn: conn}
 
@@ -101,12 +99,11 @@ func (e *Exporter) handleConn(ctx context.Context, conn net.Conn) {
 		)
 	case wire.OpReqImport:
 		// HandshakeDuration for OpReqImport is observed INSIDE
-		// serveImport at the handshake-complete boundary (pass-3
-		// RANK 5). Pre-fix handleConn recorded the metric after
-		// serveImport returned, but serveImport blocks on
-		// waitForSessionEnd — the metric therefore measured the
-		// entire session lifetime, not the handshake. Passing the
-		// start time through lets serveImport stop the clock at
+		// serveImport at the handshake-complete boundary. serveImport
+		// blocks on waitForSessionEnd after success, so observing the
+		// metric here (after serveImport returned) would measure the
+		// entire session lifetime rather than the handshake. Passing
+		// the start time through lets serveImport stop the clock at
 		// every terminal transition (success or handshake error).
 		e.serveImport(ctx, reader, conn, stopTimeout, handshakeStart)
 	case wire.OpRepDevlist, wire.OpRepImport:
@@ -212,31 +209,30 @@ func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn)
 // accepted fd is released after ExportOnConn returns regardless of
 // outcome — per spec §5.4 the kernel holds its own dup on success and
 // the app's remaining ref must be released so only the kernel's ref
-// keeps the socket alive (pass-2 RANK 4).
+// keeps the socket alive.
 //
 // stopTimeout is the handshake-timeout disarm callback; it is invoked
 // AFTER DecodeOpReqImport completes so a stalled body-decode still
-// fires the handshake deadline (Fix 3).
+// fires the handshake deadline.
 //
 // handshakeStart is the wall-clock instant the accept loop dispatched
 // this conn to the handler; serveImport uses it to emit the
 // usbip_exporter_handshake_duration_seconds sample at the handshake-
-// complete boundary (pass-3 RANK 5). Every terminal return path
-// observes the metric so the histogram's import-label samples cover
-// failed handshakes too; the success branch observes it the moment
-// ExportOnConn returns, BEFORE the handler parks on waitForSessionEnd.
-// Pre-fix handleConn observed the metric after serveImport returned,
-// which meant the histogram recorded the full session lifetime
-// rather than the handshake.
+// complete boundary. Every terminal return path observes the metric so
+// the histogram's import-label samples cover failed handshakes too;
+// the success branch observes it the moment ExportOnConn returns,
+// BEFORE the handler parks on waitForSessionEnd. Observing after
+// serveImport returns would make the histogram record the full session
+// lifetime rather than the handshake.
 //
 // After ExportOnConn returns success the kernel owns the fd but the
-// session is still live (RANK 1); the real sysfs write completes
-// immediately and the kernel carries the session for its actual
-// duration. The handler MUST NOT exit yet — an early return would fire
-// the deferred endSession and unregister the session, leaving
-// Sessions() empty while the device is still exported.
-// waitForSessionEnd blocks until the kernel signals session end via a
-// matching uevent, Shutdown signals handle.done, or ctx cancels.
+// session is still live; the real sysfs write completes immediately
+// and the kernel carries the session for its actual duration. The
+// handler MUST NOT exit yet — an early return would fire the deferred
+// endSession and unregister the session, leaving Sessions() empty
+// while the device is still exported. waitForSessionEnd blocks until
+// the kernel signals session end via a matching uevent, Shutdown
+// signals handle.done, or ctx cancels.
 func (e *Exporter) serveImport(
 	ctx context.Context, reader io.Reader, conn net.Conn, stopTimeout func(), handshakeStart time.Time,
 ) {
@@ -286,10 +282,10 @@ func (e *Exporter) serveImport(
 
 // runRegisteredSession executes the post-registration session lifecycle:
 // emit SessionStarted, open the KernelEvents subscription BEFORE handing
-// the fd to the kernel (pass-2 RANK 1), call ExportOnConn, observe the
-// handshake duration (pass-3 RANK 5), then park on waitForSessionEnd.
-// Extracted from serveImport to keep the parent function below the
-// funlen cap while preserving every ordering invariant documented above.
+// the fd to the kernel, call ExportOnConn, observe the handshake
+// duration, then park on waitForSessionEnd. Extracted from serveImport
+// to keep the parent function below the funlen cap while preserving
+// every ordering invariant documented above.
 func (e *Exporter) runRegisteredSession(
 	ctx context.Context,
 	conn net.Conn,
@@ -314,7 +310,7 @@ func (e *Exporter) runRegisteredSession(
 
 	defer e.endSession(handle, "handler exited")
 
-	// Subscribe to KernelEvents BEFORE ExportOnConn (pass-2 RANK 1).
+	// Subscribe to KernelEvents BEFORE ExportOnConn.
 	// The real adapter's ExportOnConn returns the moment the sysfs
 	// write lands, and the kernel can emit the matching detach uevent
 	// in the narrow gap between "kernel took the fd" and the first
@@ -380,8 +376,8 @@ func (e *Exporter) observeImportHandshakeDuration(handshakeStart time.Time) {
 }
 
 // waitForSessionEnd blocks the post-ExportOnConn handler until the
-// kernel signals the session ended (RANK 1). Signals observed, in
-// priority order:
+// kernel signals the session ended. Signals observed, in priority
+// order:
 //
 //  1. handle.done closed — Shutdown is tearing the exporter down;
 //     returns DisconnectReasonShutdown. Exporter.Shutdown cancels every
@@ -394,11 +390,11 @@ func (e *Exporter) observeImportHandshakeDuration(handshakeStart time.Time) {
 //     - DeviceUnboundEvent: local unbind of the busid — same treatment.
 //
 // The subscription is opened by serveImport BEFORE kernel.ExportOnConn
-// (pass-2 RANK 1) so a detach uevent published in the gap between
-// "kernel took the fd" and the first post-ExportOnConn instruction is
-// buffered in the channel rather than lost. waitForSessionEnd consumes
-// the pre-opened events channel; the subscription cancel is owned by
-// serveImport's defer.
+// so a detach uevent published in the gap between "kernel took the
+// fd" and the first post-ExportOnConn instruction is buffered in the
+// channel rather than lost. waitForSessionEnd consumes the pre-opened
+// events channel; the subscription cancel is owned by serveImport's
+// defer.
 func (e *Exporter) waitForSessionEnd(
 	ctx context.Context,
 	busID domain.BusID,

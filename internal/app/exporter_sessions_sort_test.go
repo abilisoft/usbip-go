@@ -17,9 +17,8 @@ import (
 
 // TestExporterSessions_SortStableOnEqualStartedAt asserts Sessions()
 // returns a deterministic order when two sessions share an identical
-// StartedAt timestamp. Pre-fix: sort.Slice tiebreaks arbitrarily, so
-// repeated calls reshuffle the list. Post-fix: the sort tiebreaks by
-// SessionID (UUIDv7 is lexical-time-ordered) so the order is stable.
+// StartedAt timestamp. The sort tiebreaks by SessionID (UUIDv7 is
+// lexical-time-ordered) so the order is stable across repeated calls.
 func TestExporterSessions_SortStableOnEqualStartedAt(t *testing.T) {
 	t.Parallel()
 
@@ -56,10 +55,10 @@ func TestExporterSessions_SortStableOnEqualStartedAt(t *testing.T) {
 
 			return nil
 		},
-		// Pass-2 RANK 3: Shutdown issues a graceful Disconnect per
-		// active session. Tests that drive Shutdown through an active
-		// session need a stub; the handler unwinds via the conn close
-		// triggered by close(release) regardless.
+		// Shutdown issues a graceful Disconnect per active session.
+		// Tests that drive Shutdown through an active session need a
+		// stub; the handler unwinds via the conn close triggered by
+		// close(release) regardless.
 		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
 	}
 
@@ -127,9 +126,8 @@ func TestExporterSessions_SortStableOnEqualStartedAt(t *testing.T) {
 		2*time.Second, 10*time.Millisecond)
 
 	// Capture the first snapshot as the baseline. Repeat 100 iterations
-	// and assert every snapshot matches. Pre-fix, sort.Slice's
-	// arbitrary tiebreak reshuffles the list under a load the scheduler
-	// manifests quickly.
+	// and assert every snapshot matches. Any regression to an arbitrary
+	// tiebreak would reshuffle the list under scheduler pressure.
 	first := exp.Sessions(context.Background())
 	require.Len(t, first, 2)
 

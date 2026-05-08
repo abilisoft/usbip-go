@@ -180,14 +180,13 @@ func TestDrainSubcommandTimeout(t *testing.T) {
 	require.Contains(t, stderr.String(), "drain timed out")
 }
 
-// TestIsDaemonGoneErrorClassification proves the transport-error
-// narrowing from Phase 8 review Finding 3: drain must only treat a
-// dial failure as "daemon gone" when the UDS is truly gone
-// (ENOENT / ErrNotExist) or the peer refused the connection
-// (ECONNREFUSED). Any other *net.OpError — including EACCES on bind,
-// ETIMEDOUT on dial, connection reset, or generic i/o errors — must
-// propagate so operators can tell "daemon drained" from "transport
-// wedged".
+// TestIsDaemonGoneErrorClassification pins the transport-error
+// narrowing for drain: a dial failure counts as "daemon gone" only
+// when the UDS is truly gone (ENOENT / ErrNotExist) or the peer
+// refused the connection (ECONNREFUSED). Any other *net.OpError —
+// including EACCES on bind, ETIMEDOUT on dial, connection reset, or
+// generic i/o errors — must propagate so operators can tell "daemon
+// drained" from "transport wedged".
 func TestIsDaemonGoneErrorClassification(t *testing.T) {
 	t.Parallel()
 

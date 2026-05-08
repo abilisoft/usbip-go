@@ -16,10 +16,10 @@ import (
 // handler whose kernel.ExportOnConn returns immediately (mirroring the
 // real sysfs write semantics — the kernel takes the fd and the call
 // returns) keeps the session registered until a matching detach uevent
-// arrives on the KernelEvents subscription (RANK 1). Pre-fix, Sessions()
-// empties the moment the handler goroutine returns after ExportOnConn;
-// the TCP conn leaks and the daemon view of active sessions is wrong
-// because ExportOnConn does not actually own the session lifetime.
+// arrives on the KernelEvents subscription. If Sessions() emptied the
+// moment the handler goroutine returned after ExportOnConn the TCP conn
+// would leak and the daemon view of active sessions would be wrong,
+// since ExportOnConn does not actually own the session lifetime.
 func TestExporterSession_LifecycleFollowsKernelDetachEvent(t *testing.T) {
 	t.Parallel()
 
@@ -70,9 +70,10 @@ func TestExporterSession_LifecycleFollowsKernelDetachEvent(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond,
 		"Sessions() must report the session after ExportOnConn returns — the kernel still owns the fd")
 
-	// Give an extra beat to guarantee the pre-fix bug (handler-returns-
-	// after-ExportOnConn) would have already unregistered the session.
-	// Post-fix the handler is blocked waiting on kernelEvents.
+	// Give an extra beat to guarantee that a regression where the
+	// handler returned after ExportOnConn would have already
+	// unregistered the session. The handler must stay blocked waiting
+	// on kernelEvents.
 	time.Sleep(50 * time.Millisecond)
 
 	require.Len(t, exp.Sessions(context.Background()), 1,
@@ -81,8 +82,8 @@ func TestExporterSession_LifecycleFollowsKernelDetachEvent(t *testing.T) {
 	require.Len(t, kernel.ExportOnConnCalls(), 1,
 		"ExportOnConn should have been invoked exactly once")
 
-	// Push a detach event keyed to the session's busid. Post-fix the
-	// handler's waitForSessionEnd helper matches this event and unwinds.
+	// Push a detach event keyed to the session's busid. The handler's
+	// waitForSessionEnd helper matches this event and unwinds.
 	events <- domain.PortDetachedEvent{
 		At:     time.Now(),
 		Port:   domain.Port{BusID: sessionBusID},
@@ -100,11 +101,11 @@ func TestExporterSession_LifecycleFollowsKernelDetachEvent(t *testing.T) {
 }
 
 // TestExporterSession_ShutdownEndsKernelOwnedSession asserts that
-// Shutdown unwinds a handler parked in waitForSessionEnd (RANK 1). The
-// handler must exit without the kernel emitting a detach event —
-// Shutdown cancels handle.done alongside its pass-2 RANK 3 graceful
-// Disconnect call so the waiter terminates with DisconnectReasonShutdown
-// even if the mock kernel's Disconnect is a silent no-op.
+// Shutdown unwinds a handler parked in waitForSessionEnd. The handler
+// must exit without the kernel emitting a detach event — Shutdown
+// cancels handle.done alongside its graceful Disconnect call so the
+// waiter terminates with DisconnectReasonShutdown even if the mock
+// kernel's Disconnect is a silent no-op.
 func TestExporterSession_ShutdownEndsKernelOwnedSession(t *testing.T) {
 	t.Parallel()
 
@@ -114,9 +115,9 @@ func TestExporterSession_ShutdownEndsKernelOwnedSession(t *testing.T) {
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
 			return nil
 		},
-		// Pass-2 RANK 3: Shutdown invokes Disconnect per active
-		// session. Silent no-op here; handle.cancel() drives the
-		// actual handler exit for this scenario.
+		// Shutdown invokes Disconnect per active session. Silent no-op
+		// here; handle.cancel() drives the actual handler exit for
+		// this scenario.
 		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
 	}
 

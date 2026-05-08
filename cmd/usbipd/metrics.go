@@ -30,15 +30,14 @@ const readinessRefreshInterval = 5 * time.Second
 // field is an input to the 503/200 decision: all modules Loaded AND
 // ListenerBound AND Accepting AND StatusWritable → 200, otherwise 503.
 //
-// ListenerBound and Accepting are split (Finding 5) so /readyz cannot
-// report 200 during the gap between "exporter configured" and "accept
-// loop actually processing connections": ListenerBound flips true once
-// the bind confirms a non-nil Addr, Accepting flips true only after
-// the accept loop has produced its first successful net.Listener.Accept
-// return. Prior to Finding 5 the two flags were collapsed into
-// Accepting and set BEFORE Serve began, so a kernel bind failure
-// landing mid-startup would leave /readyz green while the TCP surface
-// was unreachable.
+// ListenerBound and Accepting are split so /readyz cannot report 200
+// during the gap between "exporter configured" and "accept loop
+// actually processing connections": ListenerBound flips true once the
+// bind confirms a non-nil Addr, Accepting flips true only after the
+// accept loop has produced its first successful net.Listener.Accept
+// return. Collapsing the two flags into Accepting (set BEFORE Serve
+// began) would let a kernel bind failure landing mid-startup leave
+// /readyz green while the TCP surface was unreachable.
 type readinessState struct {
 	ListenerBound  bool
 	Accepting      bool

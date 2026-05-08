@@ -71,9 +71,9 @@ func TestExporter_MaxSessions(t *testing.T) {
 
 			return nil
 		},
-		// Pass-2 RANK 3: Shutdown issues a graceful Disconnect per
-		// active session; a stub keeps the mock from panicking when
-		// the test cleanup Shutdown fires.
+		// Shutdown issues a graceful Disconnect per active session; a
+		// stub keeps the mock from panicking when the test cleanup
+		// Shutdown fires.
 		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
 	}
 
@@ -157,9 +157,9 @@ func TestExporter_MaxSessionsPerPeer(t *testing.T) {
 
 			return nil
 		},
-		// Pass-2 RANK 3: Shutdown fans out Disconnect per active
-		// session; stub keeps the mock from panicking when the
-		// cleanup-time Shutdown runs.
+		// Shutdown fans out Disconnect per active session; stub keeps
+		// the mock from panicking when the cleanup-time Shutdown
+		// runs.
 		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
 	}
 
@@ -344,11 +344,10 @@ func TestExporter_MaxHandshakeBytes(t *testing.T) {
 
 // TestExporter_HandshakeTimeoutCoversBodyDecode asserts that the
 // handshake deadline remains armed through the FULL handshake read —
-// both the header AND the OP_REQ_IMPORT body. Pre-fix the handler
-// disarms the deadline right after DecodeHeader, so a peer that writes
-// a valid 8-byte header and then stalls on the busid body never gets
-// closed until TCP keep-alive fires. Post-fix the deadline covers
-// DecodeOpReqImport too.
+// both the header AND the OP_REQ_IMPORT body. Disarming the deadline
+// right after DecodeHeader would let a peer that writes a valid 8-byte
+// header and then stalls on the busid body sit uncovered until TCP
+// keep-alive fires; the deadline must cover DecodeOpReqImport too.
 func TestExporter_HandshakeTimeoutCoversBodyDecode(t *testing.T) {
 	t.Parallel()
 
@@ -358,8 +357,9 @@ func TestExporter_HandshakeTimeoutCoversBodyDecode(t *testing.T) {
 
 	// Force a real DecodeHeader and a slow DecodeOpReqImport: the mock
 	// reads BusIDSize bytes directly so the handler parks between
-	// header decode and busid decode — exactly the window the pre-fix
-	// code leaves uncovered by the timeout.
+	// header decode and busid decode — exactly the window a
+	// regression that disarms the deadline after DecodeHeader would
+	// leave uncovered.
 	decodeBodyReached := make(chan struct{}, 1)
 
 	codec := &ProtocolCodecMock{
@@ -402,7 +402,7 @@ func TestExporter_HandshakeTimeoutCoversBodyDecode(t *testing.T) {
 	t.Cleanup(func() {
 		// Closing the client unblocks any body-decode that the
 		// server-side timeout failed to tear down, so the handler can
-		// drain and Shutdown completes even on the failing pre-fix tree.
+		// drain and Shutdown completes even on a failing tree.
 		_ = client.Close()
 
 		cancel()
@@ -433,9 +433,9 @@ func TestExporter_HandshakeTimeoutCoversBodyDecode(t *testing.T) {
 
 	// Read with a generous deadline: the handshake timeout must close
 	// the conn so Read returns EOF (or similar server-closed error),
-	// NOT a client-side deadline-exceeded. Pre-fix, the watcher stops
-	// at DecodeHeader and the conn stays open — Read blocks until the
-	// client-side deadline, surfacing as a *net.OpError with
+	// NOT a client-side deadline-exceeded. If the watcher stopped at
+	// DecodeHeader and the conn stayed open, Read would block until
+	// the client-side deadline and surface as a *net.OpError with
 	// Timeout()==true. Discriminating by error kind is more robust
 	// than wall-clock timing under concurrent-test load.
 	_ = client.SetReadDeadline(time.Now().Add(2 * time.Second))

@@ -349,13 +349,13 @@ func (i *Importer) portIsDetached(ctx context.Context, id domain.PortID) bool {
 // original handle must be rolled back: Detach sets handle.detaching
 // before cancel; the watcher checks the flag after Attach returns and
 // issues kernel.DetachPort on the replacement port so the device the
-// user asked to release does not silently reappear (RANK 3).
+// user asked to release does not silently reappear.
 func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, source string) {
 	lastErr := fmt.Errorf("%w: port %d via %s", ErrPortDetached, p.portID, source)
 
 	// attempt is declared outside the for-init so the give-up log line
-	// below can surface the final attempt count (Finding 9); otherwise
-	// the loop variable goes out of scope on exit.
+	// below can surface the final attempt count; otherwise the loop
+	// variable goes out of scope on exit.
 	attempt := 1
 
 	for ; p.opts.MaxAttempts == 0 || attempt <= p.opts.MaxAttempts; attempt++ {
@@ -363,10 +363,10 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 		// BEFORE firing OnReconnect. Tests that synchronise on the
 		// callback (TestImporterReconnectBackoffRespected being the
 		// canonical one) then call clk.Advance(delay) and expect the
-		// deadline to fire; pre-fix OnReconnect fired first, so the
-		// FakeClock's pending list was empty at Advance time and the
-		// timer registered later against the already-advanced now —
-		// the watcher then waited for another full delay that no
+		// deadline to fire. If OnReconnect fired first, the FakeClock's
+		// pending list would be empty at Advance time and the timer
+		// would register later against the already-advanced now — the
+		// watcher would then wait for another full delay that no
 		// Advance ever delivered. Register-first makes the callback a
 		// sound sync point for deterministic clock control.
 		delayCh := i.armBackoff(p, attempt)
@@ -407,14 +407,14 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 	i.metrics.ImporterReconnectAttempt(ReconnectOutcomeExhausted)
 	i.removeHandle(p.portID, p.handle)
 	// Refresh usbip_importer_ports_active to reflect the retired
-	// handle slot (Pass-4 RANK 3). Pre-fix the gauge stayed inflated
+	// handle slot. Without this refresh the gauge would stay inflated
 	// from the original Attach until the next gauge-updating event,
 	// misleading operators about live-port count.
 	i.updateImporterPortsGauge()
 	// attempt is the for-loop's post-exit value: when the condition
 	// fails (attempt > MaxAttempts), the final attempted-and-failed
-	// iteration is attempt-1 (Finding 9). MaxAttempts==0 (infinite) is
-	// unreachable here because the loop only exits on success return.
+	// iteration is attempt-1. MaxAttempts==0 (infinite) is unreachable
+	// here because the loop only exits on success return.
 	i.logger.Warn("reconnect giving up after max attempts",
 		slog.Any("port_id", p.portID),
 		slog.Int("attempt", attempt-1),
@@ -425,9 +425,9 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 }
 
 // finishReconnectSuccess handles the post-Attach success branch of the
-// reconnect loop. If the original handle is flagged detaching (RANK 3)
-// the replacement kernel port is rolled back; otherwise the original
-// port id is removed and the success is logged. Extracted to keep
+// reconnect loop. If the original handle is flagged detaching the
+// replacement kernel port is rolled back; otherwise the original port
+// id is removed and the success is logged. Extracted to keep
 // runReconnectLoop within the project's cognitive-complexity cap.
 func (i *Importer) finishReconnectSuccess(
 	ctx context.Context,
@@ -440,7 +440,7 @@ func (i *Importer) finishReconnectSuccess(
 		// Detach bounded-waited past our wedged Attach and removed
 		// the original handle already; the user expects the device
 		// to stay gone. Roll back the replacement kernel handoff
-		// before it wins the race (RANK 3).
+		// before it wins the race.
 		i.rollbackSupersededReconnect(ctx, newPort.ID, p, source)
 		i.metrics.ImporterReconnectAttempt(ReconnectOutcomeCanceled)
 
@@ -451,23 +451,22 @@ func (i *Importer) finishReconnectSuccess(
 	i.removeHandle(p.portID, p.handle)
 	// Refresh usbip_importer_ports_active so the old slot's retirement
 	// nets out the Attach-time gauge bump the replacement already
-	// performed (Pass-4 RANK 3). When the kernel lands the replacement
-	// on a different PortID than the original, the gauge would
-	// otherwise stay inflated by one — the rollback path already does
-	// this; the success path was missing the symmetric refresh.
+	// performed. When the kernel lands the replacement on a different
+	// PortID than the original, the gauge would otherwise stay
+	// inflated by one. The rollback path does the same refresh; the
+	// success path needs the symmetric refresh too.
 	i.updateImporterPortsGauge()
 
 	// Per spec §5.5 / BackoffStrategy contract (internal/app/backoff.go:20
 	// and pkg/usbip/backoff.go:19): "Reset is called after a successful
 	// reconnect so the next failure starts from the smallest delay
-	// again." Pre pass-3 RANK 4 this call was missing — a stateful
-	// backoff stayed escalated across outages and the next failure
-	// paid the last-attempt delay instead of the configured floor.
-	// Reset is NOT invoked on the rollback-superseded branch above:
-	// that path is not a user-visible success (the kernel port is
-	// about to be detached). The Backoff field is typed as an
-	// interface with nil-zero; guard before the call so a caller that
-	// passes nil does not crash.
+	// again." Without this call a stateful backoff stays escalated
+	// across outages and the next failure pays the last-attempt delay
+	// instead of the configured floor. Reset is NOT invoked on the
+	// rollback-superseded branch above: that path is not a user-
+	// visible success (the kernel port is about to be detached). The
+	// Backoff field is typed as an interface with nil-zero; guard
+	// before the call so a caller that passes nil does not crash.
 	if p.opts.Backoff != nil {
 		p.opts.Backoff.Reset()
 	}
@@ -482,16 +481,15 @@ func (i *Importer) finishReconnectSuccess(
 
 // rollbackSupersededReconnect releases the kernel port that a
 // reconnect-path Attach acquired after the user's Detach had already
-// bounded-waited past the wedged watcher (RANK 3). The replacement
-// handle is already registered in the map by Attach's finishAttach
-// call.
+// bounded-waited past the wedged watcher. The replacement handle is
+// already registered in the map by Attach's finishAttach call.
 //
-// Pass-2 RANK 2: kernel.DetachPort fires BEFORE the handle map entry
-// is removed, and the entry is removed only on DetachPort success. If
-// DetachPort fails the handle stays registered so the user can retry
-// Detach(newID) and eventually release the kernel port. Pre-fix the
-// entry was deleted unconditionally, stranding the kernel port with
-// no owner on the failure path.
+// kernel.DetachPort fires BEFORE the handle map entry is removed, and
+// the entry is removed only on DetachPort success. If DetachPort
+// fails the handle stays registered so the user can retry
+// Detach(newID) and eventually release the kernel port. Deleting the
+// entry unconditionally would strand the kernel port with no owner on
+// the failure path.
 //
 // The fresh handle's reconnect watcher (if any) is cancelled either
 // way — the user has expressed intent for the device to stay gone;
@@ -609,16 +607,14 @@ func (i *Importer) removeHandle(id domain.PortID, owned *portHandle) {
 // cb may run concurrently with other Importer operations — callers who
 // need synchronous semantics must wire their own buffering.
 //
-// portID and source are logged on the panic-recovery path (Finding 9)
-// so operators can correlate the panic with the affected device and
-// the detach-detection source (uevent vs poll) that drove the retry
-// loop.
+// portID and source are logged on the panic-recovery path so
+// operators can correlate the panic with the affected device and the
+// detach-detection source (uevent vs poll) that drove the retry loop.
 //
 // The callback goroutine is enrolled in i.wg so Close's bounded drain
-// observes it (RANK 11). Pre-fix, the raw `go` spawn escaped the wg
-// and a blocking callback could outlive Close indefinitely; post-fix,
-// Close.waitGroupBounded waits up to shutdownTimeout on the tracked
-// goroutine before returning.
+// observes it. Without wg enrolment a blocking callback could outlive
+// Close indefinitely; Close.waitGroupBounded waits up to
+// shutdownTimeout on the tracked goroutine before returning.
 func (i *Importer) fireOnReconnect(
 	cb func(int, error),
 	attempt int,

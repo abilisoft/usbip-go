@@ -118,9 +118,9 @@ func TestFindFreePort_FlatSSNumbering(t *testing.T) {
 		"ss  0009 003 005 01020304 000005 1-1\n"
 
 	// status.1: one free SS row at flat port 25 (pdev_nr=1, hub
-	// offset 8, rhport 1). Pre-fix the parser added controllerIdx*16
-	// on top and this test asserted 17; under the new trust-flat
-	// contract the port ID comes through untouched.
+	// offset 8, rhport 1). Under the trust-flat contract the port ID
+	// comes through untouched — no controllerIdx*16 offset is added
+	// on top.
 	secondary := "hs  0016 003 003 01020304 000005 1-1\n" +
 		"ss  0025 000 000 00000000 000000 0-0\n"
 
@@ -230,14 +230,14 @@ func TestListPorts_ModuleMissingReturnsBoth(t *testing.T) {
 	require.ErrorIs(t, err, domain.ErrKernelModuleMissing)
 }
 
-// TestListPorts_TrustsFlatPortSingleController pins BUG 2a for the
-// single-controller case. Under the new contract the parser must
-// emit each row's PortID verbatim from the "port" column — the kernel
+// TestListPorts_TrustsFlatPortSingleController pins the trust-flat
+// port contract for the single-controller case. The parser emits
+// each row's PortID verbatim from the "port" column — the kernel
 // already computed the flat index via status_show_vhci and a
 // controllerIdx-based re-offset would double-count. With nports=16
 // (one controller, default VHCI_HC_PORTS=8), the HS row at flat port
-// 0 and the SS row at flat port 8 must surface as domain.PortID(0)
-// and domain.PortID(8) respectively.
+// 0 and the SS row at flat port 8 surface as domain.PortID(0) and
+// domain.PortID(8) respectively.
 func TestListPorts_TrustsFlatPortSingleController(t *testing.T) {
 	t.Parallel()
 
@@ -255,11 +255,11 @@ func TestListPorts_TrustsFlatPortSingleController(t *testing.T) {
 	require.EqualValues(t, 8, ports[1].ID, "SS row's flat port is trusted verbatim")
 }
 
-// TestListPorts_TrustsFlatPortMultiController pins BUG 2a across two
-// controllers. Every row's PortID must come out exactly as the kernel
-// wrote it: the controllerIdx-based offset that the pre-fix parser
-// added would have pushed status.1's flat-16 row to 32 and its flat-24
-// row to 40 (nports=32, default VHCI_HC_PORTS=8, 2 controllers).
+// TestListPorts_TrustsFlatPortMultiController pins the trust-flat
+// port contract across two controllers. Every row's PortID comes out
+// exactly as the kernel wrote it: any controllerIdx-based offset
+// would push status.1's flat-16 row to 32 and its flat-24 row to 40
+// (nports=32, default VHCI_HC_PORTS=8, 2 controllers).
 func TestListPorts_TrustsFlatPortMultiController(t *testing.T) {
 	t.Parallel()
 
@@ -284,11 +284,11 @@ func TestListPorts_TrustsFlatPortMultiController(t *testing.T) {
 	require.EqualValues(t, 24, ports[3].ID, "no +controllerIdx*16 double-add on status.1 SS row")
 }
 
-// TestListPorts_NonDefaultHCPorts pins BUG 2a for a kernel built with
-// VHCI_HC_PORTS=4 (nports=16, 2 controllers). The hardcoded
-// vhciPortsPerController=16 in the pre-fix parser over-counted by 4×
-// for every status.1 row; only a topology-sourced VHCIPorts (HCPorts*2
-// = 8 in this fixture) correctly renders the kernel's already-flat
+// TestListPorts_NonDefaultHCPorts pins the trust-flat port contract
+// for a kernel built with VHCI_HC_PORTS=4 (nports=16, 2 controllers).
+// A hardcoded vhciPortsPerController=16 would over-count by 4× for
+// every status.1 row; only a topology-sourced VHCIPorts (HCPorts*2 =
+// 8 in this fixture) correctly renders the kernel's already-flat
 // values. status.0 rows are flat 0..7 and status.1 rows are flat
 // 8..15; the parser emits every row exactly as written.
 func TestListPorts_NonDefaultHCPorts(t *testing.T) {
@@ -317,21 +317,20 @@ func TestListPorts_NonDefaultHCPorts(t *testing.T) {
 	require.EqualValues(t, 12, ports[3].ID, "non-default VHCI_HC_PORTS=4: status.1 SS at flat 12")
 }
 
-// TestListPorts_ToleratesIncompleteBusMap pins Bug B: the status-
-// reading path (ListPorts / findFreePort / readStatusRows) needs only
-// the controller count and the per-controller VHCI_PORTS stride — it
-// does NOT consume the BusMap. An incomplete usb* child layout (e.g. a
-// controller still mid-probe, or one hub vanishing around a hot-unplug
-// race) must not hard-fail ListPorts because the BusMap is irrelevant
-// to row parsing. Only BusMap-dependent paths (uevent mapping in
-// Task 3) should surface errTopologyIncomplete.
+// TestListPorts_ToleratesIncompleteBusMap pins the status-reading /
+// BusMap independence contract: the status-reading path (ListPorts /
+// findFreePort / readStatusRows) needs only the controller count and
+// the per-controller VHCI_PORTS stride — it does NOT consume the
+// BusMap. An incomplete usb* child layout (e.g. a controller still
+// mid-probe, or one hub vanishing around a hot-unplug race) must not
+// hard-fail ListPorts because the BusMap is irrelevant to row
+// parsing. Only BusMap-dependent paths (uevent mapping) surface
+// errTopologyIncomplete.
 //
 // Fixture: nports=16 on a single controller, a valid status file with
 // two well-formed rows, but ONLY usb1 present (the SS sibling is
-// missing). Pre-fix: ListPorts fails because discoverTopology asserts
-// the BusMap post-condition. Post-fix: ListPorts succeeds with the
-// parsed rows; the BusMap check stays on the full-topology path used
-// by uevent consumers.
+// missing). ListPorts must succeed with the parsed rows; the BusMap
+// check stays on the full-topology path used by uevent consumers.
 func TestListPorts_ToleratesIncompleteBusMap(t *testing.T) {
 	t.Parallel()
 
@@ -362,13 +361,14 @@ func TestListPorts_ToleratesIncompleteBusMap(t *testing.T) {
 	require.EqualValues(t, 8, ports[1].ID)
 }
 
-// TestParseStatusFile_GuardsZeroVHCIPorts pins Bug A's defense-in-depth
-// leg: parseStatusFile must never execute `port / vhciPorts` when
-// vhciPorts is zero. Topology-layer enforcement is the first line, but
-// parseStatusFile is the eventual user of the value and must refuse
-// the call with a clear error rather than panic with integer division
-// by zero. The body is a single well-formed row so the test pins the
-// guard itself, not a tokenisation side effect.
+// TestParseStatusFile_GuardsZeroVHCIPorts pins the
+// zero-VHCIPorts defense-in-depth guard: parseStatusFile must never
+// execute `port / vhciPorts` when vhciPorts is zero. Topology-layer
+// enforcement is the first line, but parseStatusFile is the eventual
+// user of the value and must refuse the call with a clear error
+// rather than panic with integer division by zero. The body is a
+// single well-formed row so the test pins the guard itself, not a
+// tokenisation side effect.
 func TestParseStatusFile_GuardsZeroVHCIPorts(t *testing.T) {
 	t.Parallel()
 
@@ -386,8 +386,9 @@ func TestParseStatusFile_GuardsZeroVHCIPorts(t *testing.T) {
 	}, "parseStatusFile must guard a zero vhciPorts input before dividing by it")
 }
 
-// TestListPorts_RowInWrongFileErrors pins BUG 2b: a row whose declared
-// flat port does not belong to its controller's block (port / VHCIPorts
+// TestListPorts_RowInWrongFileErrors pins the per-file block
+// consistency contract: a row whose declared flat port does not
+// belong to its controller's block (port / VHCIPorts
 // != controllerIdx) is a kernel-state inconsistency. The adapter must
 // refuse the whole call instead of silently surfacing an out-of-range
 // port that downstream attach/detach logic would trust. Here status.1

@@ -14,14 +14,10 @@ import (
 
 // TestExporterShutdown_RejectsNewConnections locks in the spec §3.4
 // contract (documented on pkg/usbip.Exporter.Shutdown): Shutdown
-// "stops accepting new connections". Pre pass-3 RANK 2, Shutdown set
-// the internal shutdown flag and drained in-flight sessions but never
-// closed the listener; acceptLoop kept running, new connections kept
-// being accepted, and Serve parked indefinitely because the only thing
-// that closed the listener was the ctx-cancel watcher. Post-fix:
-// Shutdown closes the listener, acceptShouldStop classifies
-// net.ErrClosed as a normal stop, Serve returns nil promptly, and any
-// new dial after Shutdown returns net.ErrClosed.
+// "stops accepting new connections". Shutdown closes the listener,
+// acceptShouldStop classifies net.ErrClosed as a normal stop, Serve
+// returns nil promptly, and any new dial after Shutdown returns
+// net.ErrClosed.
 //
 // The test uses the default exporter fixture (codec is a zero-value
 // ProtocolCodecMock so any accepted conn that reaches handleConn
@@ -33,9 +29,9 @@ func TestExporterShutdown_RejectsNewConnections(t *testing.T) {
 
 	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 42), Port: 9100})
 
-	// DecodeHeader returns EOF so any conn that sneaks past the listener-
-	// close gate (pre-fix path) drops through handleConn without panicking
-	// on the zero-value mock. The test's actual assertion is that dial
+	// DecodeHeader returns EOF so any conn that sneaks past the
+	// listener-close gate drops through handleConn without panicking on
+	// the zero-value mock. The test's actual assertion is that dial
 	// FAILS after Shutdown, but a fallback that survives is defensive.
 	codec := &ProtocolCodecMock{
 		DecodeHeaderFunc: func(_ io.Reader) (uint16, wire.OpCode, uint32, error) {
@@ -63,7 +59,7 @@ func TestExporterShutdown_RejectsNewConnections(t *testing.T) {
 	require.NoError(t, exp.Shutdown(shutdownCtx))
 
 	// After Shutdown returns, a new dial must fail: the listener is
-	// closed. Pre-fix the listener is still open and dial succeeds.
+	// closed.
 	dialCtx, dialCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer dialCancel()
 
@@ -73,8 +69,7 @@ func TestExporterShutdown_RejectsNewConnections(t *testing.T) {
 		"dial after Shutdown must report net.ErrClosed")
 
 	// Serve must return promptly: Shutdown closed the listener so
-	// acceptLoop unwound via acceptShouldStop. Pre-fix Serve parks on
-	// Accept forever.
+	// acceptLoop unwound via acceptShouldStop.
 	select {
 	case err := <-serveDone:
 		require.NoError(t, err, "Serve should return nil after Shutdown")

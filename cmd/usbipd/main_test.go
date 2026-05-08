@@ -39,8 +39,8 @@ func TestMain(m *testing.M) {
 
 // specFlags lists every flag spec §7.7 requires on the usbipd root
 // command. The assertion is that `--help` output contains each flag
-// name. --config was removed in Phase 8 review (Finding 6): operators
-// configure via flags + systemd drop-ins; YAML config is deferred to v2.
+// name. --config is intentionally absent: operators configure via
+// flags + systemd drop-ins; YAML config is deferred to v2.
 func specFlags() []string {
 	return []string{
 		"--listen",
@@ -94,10 +94,10 @@ func TestUnknownFlagReturnsExit2(t *testing.T) {
 	require.Equal(t, exitUsage, code)
 }
 
-// TestConfigFlagRemoved confirms Phase 8 Finding 6's removal: --config
-// must surface as a usage error (cobra "unknown flag"), not silently
-// accepted. YAML config is deferred to v2; operators use flags +
-// systemd drop-ins in v1.
+// TestConfigFlagRemoved confirms the --config flag is removed:
+// --config must surface as a usage error (cobra "unknown flag"), not
+// silently accepted. YAML config is deferred to v2; operators use
+// flags + systemd drop-ins in v1.
 func TestConfigFlagRemoved(t *testing.T) {
 	t.Parallel()
 

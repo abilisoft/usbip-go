@@ -117,23 +117,23 @@ func TestRunContextDrainExits(t *testing.T) {
 		t.Fatal("runDaemon did not exit within 8 seconds of POST /drain")
 	}
 
-	// Phase 8 review Finding 4: runDaemon's cleanup path must unlink
-	// the status socket unconditionally. Previously this was the status
-	// goroutine's defer, which silently no-ops if the goroutine exits
-	// via completeShutdown's force-timeout branch.
+	// runDaemon's cleanup path must unlink the status socket
+	// unconditionally. A status-goroutine defer silently no-ops if the
+	// goroutine exits via completeShutdown's force-timeout branch.
 	_, statErr := os.Stat(sockPath)
 	require.True(t, os.IsNotExist(statErr),
 		"status socket must be unlinked after runDaemon returns, stat err=%v", statErr)
 }
 
-// TestRunDaemonUnlinksStatusSocketOnForcedShutdown proves Finding 4's
-// core invariant: when the status goroutine never gets a chance to
-// run its deferred cleanup (e.g. completeShutdown times out and the
-// process is killed with os.Exit), run()'s own cleanup path MUST
-// still unlink the status socket. The test swaps serveStatusFn for a
-// stub that binds the UDS like real life, signals ready, then blocks
-// on ctx.Done() WITHOUT closing the listener or removing the file —
-// emulating an os.Exit that skips goroutine defers.
+// TestRunDaemonUnlinksStatusSocketOnForcedShutdown pins the
+// forced-shutdown cleanup invariant: when the status goroutine never
+// gets a chance to run its deferred cleanup (e.g. completeShutdown
+// times out and the process is killed with os.Exit), run()'s own
+// cleanup path MUST still unlink the status socket. The test swaps
+// serveStatusFn for a stub that binds the UDS like real life, signals
+// ready, then blocks on ctx.Done() WITHOUT closing the listener or
+// removing the file — emulating an os.Exit that skips goroutine
+// defers.
 func TestRunDaemonUnlinksStatusSocketOnForcedShutdown(t *testing.T) {
 	t.Parallel()
 	lockRunDaemonForTest(t)
@@ -145,8 +145,8 @@ func TestRunDaemonUnlinksStatusSocketOnForcedShutdown(t *testing.T) {
 	// SKIPS BOTH listener.Close AND os.Remove, simulating an os.Exit
 	// that killed the goroutine before its defer ran. Go's
 	// net.UnixListener.Close unlinks the socket file on success, so
-	// skipping Close is required to expose the Finding 4 bug: without
-	// runDaemon's own cleanup the file leaks.
+	// skipping Close is required to exercise the forced-shutdown
+	// cleanup path: without runDaemon's own cleanup the file leaks.
 	//
 	// The stub holds the listener in the test-scoped leakedLis var so
 	// the OS-level fd is reaped by t.Cleanup; the UDS file is the

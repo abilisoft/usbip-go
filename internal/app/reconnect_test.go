@@ -802,9 +802,9 @@ func TestImporterReconnectZeroBackoffSkipsSleep(t *testing.T) {
 // lowest free slot), a late uevent for that id that targets the OLD
 // generation must NOT fire a third reconnect. Id-equality alone is not
 // enough — the watcher must confirm with the kernel that the port is
-// actually detached before reacting. Pre-fix, isDetachForPort matches
-// purely on Port.ID so a stale event for port 1 at the new watcher
-// (whose port is still alive) triggers a bogus reconnect.
+// actually detached before reacting. Matching purely on Port.ID would
+// let a stale event for port 1 at the new watcher (whose port is still
+// alive) trigger a bogus reconnect.
 func TestImporterReconnectSameSlotStaleEventIgnored(t *testing.T) {
 	t.Parallel()
 

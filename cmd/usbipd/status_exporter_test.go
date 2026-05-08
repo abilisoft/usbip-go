@@ -24,11 +24,11 @@ func newStatusExporterForTest() *statusExporter {
 	}
 }
 
-// TestKernelModulesCachedWithinTTL proves Phase 8 Finding 5's caching
-// contract: statusExporter.KernelModules must NOT call the underlying
-// probe on every GET /. Consecutive calls within the cache TTL serve
-// the last-known snapshot. First call populates; second call inside
-// the TTL MUST NOT re-invoke the probe.
+// TestKernelModulesCachedWithinTTL pins the kernel-module probe
+// caching contract: statusExporter.KernelModules must NOT call the
+// underlying probe on every GET /. Consecutive calls within the
+// cache TTL serve the last-known snapshot. First call populates;
+// second call inside the TTL MUST NOT re-invoke the probe.
 //
 // Per-instance injection (not package globals) keeps this test
 // deterministic under -count=N -race even when TestKernelModulesReprobesAfterTTL

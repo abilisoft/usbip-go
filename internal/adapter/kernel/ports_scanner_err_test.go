@@ -30,8 +30,8 @@ func TestParseStatusFile_SurfacesScannerError(t *testing.T) {
 
 	// One row wider than bufio.MaxScanTokenSize (64 KiB) — Scan returns
 	// false with bufio.ErrTooLong; scanner.Err() surfaces it when the
-	// parser checks. Pre-fix: parser returned (nil, nil), silently
-	// pretending the status file was empty.
+	// parser checks. The parser must not return (nil, nil) and
+	// silently pretend the status file was empty.
 	oversized := strings.Repeat("x", 1<<17) // 128 KiB, no newline needed
 
 	rows, perr := kernel.ParseStatusFileForTest(a, oversized, "status", 0, 16)

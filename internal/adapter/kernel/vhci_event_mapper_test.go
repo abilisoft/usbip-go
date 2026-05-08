@@ -366,8 +366,8 @@ func TestVhciEventMapper_AnchoredRegexPreservesValidBusIDs(t *testing.T) {
 	}
 }
 
-// TestVhciEventMapper_LazyLoaderDegradesVHCIButPassesUsbipHost pins the
-// combined contract Pass-3 Task-3.1 BUG-1 requires:
+// TestVhciEventMapper_LazyLoaderDegradesVHCIButPassesUsbipHost pins
+// the combined lazy-loader contract:
 //
 //  1. Mapper construction MUST NOT invoke the topology loader. A
 //     caller building the mapper during exporter-only Subscribe (no
