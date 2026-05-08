@@ -98,5 +98,41 @@ inherently capped:
 Adding a co-maintainer raises both checks to full credit. Both are
 people problems, not code problems.
 
+## Packaging detection — install-only goreleaser-action step
+
+Scorecard's Packaging check is static workflow-file analysis. Its
+matcher for Go projects (see ossf/scorecard
+`checks/fileparser/github_workflow.go::IsPackagingWorkflow`) ONLY
+recognises a literal `uses: goreleaser/goreleaser-action` step.
+Shell-wrapped invocations such as `nix develop --command task
+ci:release` are invisible to the matcher even when they execute the
+same goreleaser binary.
+
+`release.yml` reconciles two competing requirements:
+
+1. **Hermetic release artefacts**: goreleaser, syft, cosign, and
+   nfpm all come from the nix flake closure (`flake.lock`), which
+   pins the exact source revision of every tool. Local runs via
+   `task release:snapshot` use the same binaries.
+2. **Honest Scorecard signal**: the score should reflect what we
+   actually ship.
+
+The compromise is an explicit `goreleaser/goreleaser-action@<sha>`
+step with `install-only: true` placed before the canonical release
+step. The action installs a goreleaser binary onto runner PATH;
+that binary is then SHADOWED by `nix develop`'s PATH in the next
+step, so the actual release work runs the flake-pinned binary, not
+the action-installed one. The action-installed binary is never
+executed at runtime, so its version does not need to track
+`pkgs.goreleaser` in flake.nix — the action's `version:` input
+uses a major-only constraint to reject accidental cross-major
+jumps without requiring lock-step bumps.
+
+The Packaging score moves from -1 to a positive value only after
+the first successful run of `release.yml` (Scorecard requires both
+the matched workflow file AND a green run for that file). The
+score therefore lifts on the first v*.*.* tag push that completes
+the release pipeline, not on the file change alone.
+
 [scorecard]: https://github.com/ossf/scorecard
 [bp]: https://www.bestpractices.coreinfrastructure.org/
