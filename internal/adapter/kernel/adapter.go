@@ -126,22 +126,9 @@ func (a *ImporterAdapter) ListPorts(_ context.Context) ([]domain.Port, error) {
 	return nil, fmt.Errorf("ImporterAdapter.ListPorts: %w", errNotYetImplemented)
 }
 
-// ModulesAvailable is wired by Task 4.9.
-func (a *ImporterAdapter) ModulesAvailable(_ context.Context) error {
-	_ = a
-
-	return fmt.Errorf("ImporterAdapter.ModulesAvailable: %w", errNotYetImplemented)
-}
-
-// ExporterAdapter method placeholders. Wired by Tasks 4.3 (list), 4.4
-// (bind/unbind), 4.8 (export/disconnect), 4.9 (modules).
-
-// ListLocalDevices is wired by Task 4.3.
-func (a *ExporterAdapter) ListLocalDevices(_ context.Context) ([]domain.Device, error) {
-	_ = a
-
-	return nil, fmt.Errorf("ExporterAdapter.ListLocalDevices: %w", errNotYetImplemented)
-}
+// ExporterAdapter method placeholders. Wired by Tasks 4.4
+// (bind/unbind) and 4.8 (export/disconnect). ModulesAvailable for
+// both role adapters lives in modules.go.
 
 // Bind is wired by Task 4.4.
 func (a *ExporterAdapter) Bind(_ context.Context, _ domain.BusID) error {
@@ -169,13 +156,6 @@ func (a *ExporterAdapter) Disconnect(_ context.Context, _ domain.BusID) error {
 	_ = a
 
 	return fmt.Errorf("ExporterAdapter.Disconnect: %w", errNotYetImplemented)
-}
-
-// ModulesAvailable is wired by Task 4.9.
-func (a *ExporterAdapter) ModulesAvailable(_ context.Context) error {
-	_ = a
-
-	return fmt.Errorf("ExporterAdapter.ModulesAvailable: %w", errNotYetImplemented)
 }
 
 // EventsAdapter method placeholder. Wired by Task 4.10.
