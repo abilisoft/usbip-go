@@ -63,18 +63,26 @@ type parsedPort struct {
 }
 
 // readStatusRows parses every status + status.N file into parsedPort
-// rows. Controller count and per-controller VHCI_PORTS width come from
-// the cached topology snapshot — the kernel already writes the fully
-// flat port identifier in each row, so the parser must trust that
-// value verbatim and use VHCIPorts only to validate that a row
-// belongs to the controller file it was read from.
+// rows. Controller count and per-controller VHCI_PORTS stride come
+// from the cached StatusTopology snapshot — the lighter projection
+// that omits BusMap. Status-row parsing never consumes usb*/busnum;
+// insisting on a complete BusMap here would hard-fail ListPorts /
+// findFreePort during live-host mid-probe races the parser is
+// otherwise equipped to handle (Bug B). BusMap consumers (uevent
+// mapping, future port-to-bus translation) route through loadTopology
+// separately.
+//
+// The kernel already writes the fully flat port identifier in each
+// row, so the parser trusts that value verbatim and uses VHCIPorts
+// only to validate that a row belongs to the controller file it was
+// read from.
 //
 // Malformed rows surface a slog.Warn signal and are skipped; a row
 // whose flat port falls outside its controller's window fails the
 // whole call — that is a kernel-state inconsistency the caller must
 // see, not a tokenisation glitch the caller can ignore.
 func (a *commonAdapter) readStatusRows() ([]parsedPort, error) {
-	topo, err := a.loadTopology()
+	topo, err := a.loadStatusTopology()
 	if err != nil {
 		return nil, err
 	}
