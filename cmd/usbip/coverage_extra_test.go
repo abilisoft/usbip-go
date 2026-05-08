@@ -87,11 +87,11 @@ func TestCompletionPathPerShell(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", tmp)
 
 	cases := map[string]string{
-		shellBash:       filepath.Join(tmp, "bash-completion", "completions", "usbip-go"),
-		shellZsh:        filepath.Join(tmp, "zsh", "site-functions", "_usbip-go"),
-		shellFish:       filepath.Join(tmp, "fish", "vendor_completions.d", "usbip-go.fish"),
-		shellPwsh:       filepath.Join(tmp, "powershell", "Modules", "usbip-go.ps1"),
-		shellPowershell: filepath.Join(tmp, "powershell", "Modules", "usbip-go.ps1"),
+		shellBash:       filepath.Join(tmp, "bash-completion", "completions", "usbip"),
+		shellZsh:        filepath.Join(tmp, "zsh", "site-functions", "_usbip"),
+		shellFish:       filepath.Join(tmp, "fish", "vendor_completions.d", "usbip.fish"),
+		shellPwsh:       filepath.Join(tmp, "powershell", "Modules", "usbip.ps1"),
+		shellPowershell: filepath.Join(tmp, "powershell", "Modules", "usbip.ps1"),
 	}
 
 	for shell, want := range cases {
@@ -400,7 +400,7 @@ func TestVersionCmdRendersStampedLabels(t *testing.T) {
 	cmd.SetOut(&buf)
 
 	require.NoError(t, cmd.RunE(cmd, nil))
-	require.Contains(t, buf.String(), "usbip-go version")
+	require.Contains(t, buf.String(), "usbip version")
 }
 
 // TestGenerateScriptErrorOnFailingWriter pins the error-return paths in
@@ -428,7 +428,7 @@ func TestWriteCompletionScript_StatusLineError(t *testing.T) {
 	t.Parallel()
 
 	tmp := t.TempDir()
-	target := filepath.Join(tmp, "bash-completion", "completions", "usbip-go")
+	target := filepath.Join(tmp, "bash-completion", "completions", "usbip")
 
 	err := writeCompletionScript(failingWriter{}, newRootCmd(), shellBash, target)
 	require.Error(t, err)

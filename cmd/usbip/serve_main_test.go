@@ -12,19 +12,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestMain redirects the test-scoped tmpdir to a project-local
-// directory. Some sandboxed CI environments refuse AF_UNIX socket
-// creation under /tmp via seccomp filters that block unix bind(2)
-// outside the project root, even though /tmp is otherwise writable.
-// Pointing t.TempDir() at ./.test-tmp-* keeps every UDS bind inside
-// the project directory that such sandboxes do permit. Removed
-// after m.Run.
+// TestMain handles BOTH the daemon-side TMPDIR redirect (AF_UNIX
+// bind under sandboxed CI requires the socket path to live inside
+// the project root) and the importer-side flag-completion-
+// registration suppression (parallel root-construction tests would
+// otherwise race cobra's global flagCompletionFunctions map).
 func TestMain(m *testing.M) {
-	tmp, err := os.MkdirTemp(".", ".test-tmp-")
+	skipFlagCompletionRegistration = true
+
+	tmp, err := os.MkdirTemp(".", ".t-")
 	if err != nil {
 		panic("mkdir project-local testtmp: " + err.Error())
 	}
 
+	// Project-local TMPDIR is required by sandboxed CI for AF_UNIX
+	// bind, but t.TempDir() returns it RELATIVE; some tests expect
+	// substring matches against absolute paths, which fail. Pre-build
+	// the absolute form so daemon tests can opt into either by
+	// branching on filepath.IsAbs.
 	setErr := os.Setenv("TMPDIR", tmp)
 	if setErr != nil {
 		panic("set TMPDIR: " + setErr.Error())
@@ -64,10 +69,10 @@ func specFlags() []string {
 	}
 }
 
-// TestRootHelpListsEveryFlag guards that the root `--help` surfaces
-// every flag required by v1 contract §7.7. cobra renders flags as `--foo` in
-// --help regardless of short form; the -v counter is detected via the
-// trailing comma in "-v, --verbose".
+// TestRootHelpListsEveryFlag guards that `usbip serve --help` surfaces
+// every flag required by v1 contract §7.7. The flags moved off the root
+// onto the serve subcommand when the two-binary tree merged into the
+// unified `usbip` binary (ADR-0011); the help assertion follows.
 func TestRootHelpListsEveryFlag(t *testing.T) {
 	t.Parallel()
 
@@ -77,14 +82,14 @@ func TestRootHelpListsEveryFlag(t *testing.T) {
 
 	cmd.SetOut(&buf)
 	cmd.SetErr(&buf)
-	cmd.SetArgs([]string{"--help"})
+	cmd.SetArgs([]string{"serve", "--help"})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
 
 	out := buf.String()
 	for _, flag := range specFlags() {
-		require.Contains(t, out, flag, "--help missing flag %q", flag)
+		require.Contains(t, out, flag, "serve --help missing flag %q", flag)
 	}
 }
 
@@ -93,9 +98,9 @@ func TestRootHelpListsEveryFlag(t *testing.T) {
 func TestUnknownFlagReturnsExit2(t *testing.T) {
 	t.Parallel()
 
-	code, err := run([]string{"--no-such-flag"})
+	code, err := runCtx(t.Context(), []string{"serve", "--no-such-flag"})
 	require.Error(t, err)
-	require.Equal(t, exitUsage, code)
+	require.Equal(t, ExitUsage, code)
 }
 
 // TestConfigFlagRemoved confirms the --config flag is removed:
@@ -105,9 +110,9 @@ func TestUnknownFlagReturnsExit2(t *testing.T) {
 func TestConfigFlagRemoved(t *testing.T) {
 	t.Parallel()
 
-	code, err := run([]string{"--config", "/tmp/does-not-exist.yaml", "version"})
+	code, err := runCtx(t.Context(), []string{"--config", "/tmp/does-not-exist.yaml", "version"})
 	require.Error(t, err)
-	require.Equal(t, exitUsage, code)
+	require.Equal(t, ExitUsage, code)
 	require.Contains(t, err.Error(), "unknown flag",
 		"expected cobra unknown-flag error, got %v", err)
 }
@@ -127,5 +132,5 @@ func TestVersionSubcommand(t *testing.T) {
 
 	err := cmd.Execute()
 	require.NoError(t, err)
-	require.Contains(t, buf.String(), "usbipd-go version")
+	require.Contains(t, buf.String(), "usbip version")
 }

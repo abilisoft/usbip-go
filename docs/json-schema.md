@@ -257,7 +257,7 @@ Every record has these three fields as its leading keys:
 
 Served on `GET /` via the UDS configured with `--status-socket`.
 Shape is `statusResponse` in
-[`cmd/usbipd-go/status.go`](../cmd/usbipd-go/status.go).
+[`cmd/usbip/status.go`](../cmd/usbip/status.go).
 
 ```json
 {
@@ -339,7 +339,7 @@ startup. Operators query for it via `journalctl --output=json | jq
 
 All consumers MUST treat unknown fields as opaque and pass them
 through or ignore them silently. The `output_forward_compat_test.go`
-suite in `cmd/usbip-go` asserts that renderers emit fields not present
+suite in `cmd/usbip` asserts that renderers emit fields not present
 in older fixtures without breaking older parsers that ignore them.
 
 When a breaking change is required, the library bumps the schema

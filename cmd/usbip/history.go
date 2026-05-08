@@ -34,7 +34,7 @@ const historyFileName = "history"
 // stateDirName is the per-binary subdirectory name under the XDG
 // state root — matches the package module so multiple CLIs can share
 // the same $XDG_STATE_HOME without colliding.
-const stateDirName = "usbip-go"
+const stateDirName = "usbip"
 
 // readHistory returns the attach-history entries most-recent-first.
 // I/O errors (missing file, permission denied, malformed UTF-8) are

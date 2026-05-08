@@ -23,7 +23,7 @@ var errActivationInjected = errors.New("injected activation error")
 // dup3FdOnto performs the syscall.Dup3(srcFd, target, 0) with the
 // uintptr→int narrowing guarded inline so gosec G115's flow analysis
 // sees a direct overflow comparison (same pattern as
-// cmd/usbip-go.isStderrTTY's os.Stderr.Fd() guard). External syscall
+// cmd/usbip.isStderrTTY's os.Stderr.Fd() guard). External syscall
 // errors are wrapped with fmt.Errorf to satisfy wrapcheck.
 func dup3FdOnto(t *testing.T, srcFd uintptr, target int) error {
 	t.Helper()
@@ -82,7 +82,7 @@ func TestListenOrActivationFallsBackWhenNoEnv(t *testing.T) {
 	t.Setenv("LISTEN_FDS", "")
 	t.Setenv("LISTEN_FDNAMES", "")
 
-	cfg := &Config{Listen: "127.0.0.1:0"}
+	cfg := &ServeConfig{Listen: "127.0.0.1:0"}
 
 	lis, err := listenOrActivation(context.Background(), cfg)
 	require.NoError(t, err)
@@ -105,9 +105,9 @@ func TestListenOrActivationIgnoresMismatchedPID(t *testing.T) {
 	// PID 1 is init; our tests never run as PID 1.
 	t.Setenv("LISTEN_PID", "1")
 	t.Setenv("LISTEN_FDS", "1")
-	t.Setenv("LISTEN_FDNAMES", "usbipd-go")
+	t.Setenv("LISTEN_FDNAMES", "usbip")
 
-	cfg := &Config{Listen: "127.0.0.1:0"}
+	cfg := &ServeConfig{Listen: "127.0.0.1:0"}
 
 	lis, err := listenOrActivation(context.Background(), cfg)
 	require.NoError(t, err)
@@ -148,9 +148,9 @@ func TestListenOrActivationNamedSocket(t *testing.T) {
 
 	t.Setenv("LISTEN_PID", strconv.Itoa(os.Getpid()))
 	t.Setenv("LISTEN_FDS", "1")
-	t.Setenv("LISTEN_FDNAMES", "usbipd-go")
+	t.Setenv("LISTEN_FDNAMES", "usbip")
 
-	cfg := &Config{Listen: "127.0.0.1:1"} // unused
+	cfg := &ServeConfig{Listen: "127.0.0.1:1"} // unused
 
 	lis, err := listenOrActivation(context.Background(), cfg)
 	require.NoError(t, err)
@@ -195,12 +195,12 @@ func TestListenOrActivationAmbiguousFds(t *testing.T) {
 	// "other0" / "other1" — both different from "usbipd".
 	t.Setenv("LISTEN_FDNAMES", "other0:other1")
 
-	cfg := &Config{Listen: "127.0.0.1:1"}
+	cfg := &ServeConfig{Listen: "127.0.0.1:1"}
 
 	lis, err := listenOrActivation(context.Background(), cfg)
 	require.Error(t, err)
 	require.Nil(t, lis)
-	require.Contains(t, err.Error(), "usbipd")
+	require.Contains(t, err.Error(), "usbip")
 }
 
 // TestListenOrActivation_ErrorPath covers the err != nil branch in
@@ -217,7 +217,7 @@ func TestListenOrActivation_ErrorPath(t *testing.T) {
 
 	t.Cleanup(func() { listenersWithNames = orig })
 
-	cfg := &Config{Listen: "127.0.0.1:0"}
+	cfg := &ServeConfig{Listen: "127.0.0.1:0"}
 
 	lis, err := listenOrActivation(context.Background(), cfg)
 	require.NoError(t, err,

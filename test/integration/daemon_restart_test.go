@@ -33,7 +33,7 @@ const daemonRestartDeadline = 30 * time.Second
 // daemonStartSignal is the substring the daemon logs when its
 // accept-path listener is bound — used as a synchronisation point so
 // the importer's Attach dials only after the daemon is ready. Matches
-// the log line emitted by cmd/usbipd-go/run.go's "usbipd-go accepting
+// the log line emitted by cmd/usbip/run.go's "usbipd-go accepting
 // connections" info log.
 const daemonStartSignal = "usbipd-go accepting connections"
 
@@ -165,7 +165,7 @@ func TestDaemonRestartSessionsSurvive(t *testing.T) {
 
 	// Daemon #2 does NOT see the in-memory session (empty table).
 	// That observation requires the status-socket endpoint which
-	// cmd/usbipd-go exposes when --status is passed; our subprocess
+	// cmd/usbip exposes when --status is passed; our subprocess
 	// helper does not wire it by default so we rely on the
 	// negative assertion via the Importer's own ListPorts instead:
 	// the importer-side port MUST still be present (kernel ref),
@@ -211,7 +211,7 @@ type daemonSubprocess struct {
 	stop sync.Once
 }
 
-// startDaemonSubprocess spawns cmd/usbipd-go at binary with --listen
+// startDaemonSubprocess spawns cmd/usbip at binary with --listen
 // pointing at addr and waits for the daemon's "accepting connections"
 // log before returning so callers can dial without racing the accept
 // loop startup. addr of "127.0.0.1:0" asks the daemon to pick a port;
@@ -288,7 +288,7 @@ func waitForDaemonReady(r pipeReader, signal string) (domain.RemoteEndpoint, err
 }
 
 // parseAddrFromReadyLog extracts the addr=<host:port> token emitted
-// by cmd/usbipd-go/run.go and converts it into a RemoteEndpoint. Lets
+// by cmd/usbip/run.go and converts it into a RemoteEndpoint. Lets
 // callers dial the kernel-picked port without scraping the port out
 // of the log themselves.
 func parseAddrFromReadyLog(line string) (domain.RemoteEndpoint, error) {
@@ -333,7 +333,7 @@ func splitHostPortLog(s string) (string, string, error) {
 	return "", "", fmt.Errorf("no colon in %q", s)
 }
 
-// buildDaemonBinary compiles cmd/usbipd-go into t.TempDir so daemon
+// buildDaemonBinary compiles cmd/usbip into t.TempDir so daemon
 // subprocesses run the exact source under test. Shares the
 // findModuleRoot helper defined in process_death_test.go.
 func buildDaemonBinary(t *testing.T) string {
@@ -346,7 +346,7 @@ func buildDaemonBinary(t *testing.T) string {
 	// rationale — the helper runs where `go build`'s VCS stamp cannot
 	// reach .git under the test UID, and version info is not surfaced
 	// anywhere that would notice its absence.
-	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", out, "./cmd/usbipd-go/")
+	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", out, "./cmd/usbip/")
 	cmd.Dir = repoRoot
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 

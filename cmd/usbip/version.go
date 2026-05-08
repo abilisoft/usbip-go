@@ -10,15 +10,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// version, commit, and buildDate mirror cmd/usbip-go's layout so the same
-// -ldflags stamping flow populates both binaries.
+// version, commit, and buildDate are stamped in via -ldflags at release
+// time. Tests exercise the zero-value defaults; release builds override
+// them from goreleaser.
 var (
 	version   = "dev"
 	commit    = "none"
 	buildDate = "unknown"
 )
 
-// newVersionCmd returns the `usbipd-go version` subcommand.
+// newVersionCmd returns the `usbip version` subcommand which prints
+// the stamped build metadata.
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
@@ -26,7 +28,7 @@ func newVersionCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := styleWriter(cmd.OutOrStdout())
 
-			line := actionStyle.Render("usbipd-go version") + " " +
+			line := actionStyle.Render("usbip version") + " " +
 				subjectStyle.Render(version) +
 				dimStyle.Render(fmt.Sprintf(" (commit %s, built %s, %s)",
 					commit, buildDate, runtime.Version()))

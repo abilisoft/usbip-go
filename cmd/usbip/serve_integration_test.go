@@ -62,7 +62,7 @@ func TestRunContextDrainExits(t *testing.T) {
 	addr := probe.Addr().String()
 	require.NoError(t, probe.Close())
 
-	cfg := &Config{
+	cfg := &ServeConfig{
 		Listen:            addr,
 		StatusSocket:      sockPath,
 		StatusSocketGroup: "",
@@ -200,7 +200,7 @@ func TestRunDaemonUnlinksStatusSocketOnForcedShutdown(t *testing.T) {
 	addr := probe.Addr().String()
 	require.NoError(t, probe.Close())
 
-	cfg := &Config{
+	cfg := &ServeConfig{
 		Listen:            addr,
 		StatusSocket:      sockPath,
 		StatusSocketGroup: "",

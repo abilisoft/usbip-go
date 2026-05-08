@@ -33,8 +33,8 @@ Three supported install paths:
 3. **Source build** for development:
 
    ```
-   go install github.com/abilisoft/usbip-go/cmd/usbip-go@latest
-   go install github.com/abilisoft/usbip-go/cmd/usbipd-go@latest
+   go install github.com/abilisoft/usbip-go/cmd/usbip@latest
+   go install github.com/abilisoft/usbip-go/cmd/usbip@latest
    ```
 
 Kernel modules must be loadable on the target host:

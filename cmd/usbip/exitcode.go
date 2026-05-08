@@ -28,6 +28,12 @@ const (
 	ExitTimeout          = 9
 	ExitNoFreePort       = 10
 	ExitProtocolError    = 11
+	// ExitAlreadyRunning is returned by `usbip serve` when another
+	// daemon instance owns the status UDS. Distinct from
+	// ExitPermission so operators / supervisors can distinguish
+	// "another instance is running" from "I lack the privileges to
+	// proceed".
+	ExitAlreadyRunning = 12
 	// ExitInterrupted signals context.Canceled: the user interrupted
 	// via SIGINT or a parent cancelled the call without a deadline.
 	// The value follows the Unix SIGINT convention (128 + signal
@@ -36,6 +42,14 @@ const (
 	// (exit 3).
 	ExitInterrupted = 130
 )
+
+// errAlreadyRunning is returned by serveStatus when another daemon
+// instance owns the configured --status-socket. Bound to ExitAlreadyRunning.
+var errAlreadyRunning = errors.New("usbip: another daemon instance is running")
+
+// errDrainTimeout signals that `usbip drain` exceeded --drain-timeout.
+// Bound to ExitTimeout.
+var errDrainTimeout = errors.New("drain timed out")
 
 // errorEntry pairs a sentinel (matched via errors.Is) with the spec
 // §7.4 exit code + stderr template. The registry drives both MapError
@@ -101,6 +115,14 @@ func errorRegistry() []errorEntry {
 		{
 			context.Canceled, ExitInterrupted,
 			"usbip-go: operation interrupted: %s",
+		},
+		{
+			errAlreadyRunning, ExitAlreadyRunning,
+			"usbip: another daemon instance is running",
+		},
+		{
+			errDrainTimeout, ExitTimeout,
+			"usbip: drain timed out: %s",
 		},
 	}
 }

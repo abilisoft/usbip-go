@@ -93,8 +93,11 @@ func TestCompletionInstallDryRun(t *testing.T) {
 	err := cmd.Execute()
 	require.NoError(t, err)
 	// Dry-run emits a target path somewhere in the buffer; assert the
-	// tmp dir substring appears.
-	require.Contains(t, out.String(), tmp)
+	// tmp dir substring appears. Strip any leading "./" so a project-
+	// local TMPDIR (set by TestMain for AF_UNIX bind compatibility)
+	// matches the dry-run renderer's filepath.Clean form.
+	wantSub := strings.TrimPrefix(tmp, "./")
+	require.Contains(t, out.String(), wantSub)
 }
 
 // TestCompletionInstallWrites — non-dry-run writes the zsh script to

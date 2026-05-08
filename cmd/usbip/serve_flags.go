@@ -14,7 +14,7 @@ import (
 const (
 	defaultListen             = "0.0.0.0:3240"
 	defaultStatusSocket       = "/run/usbip-go/status.sock"
-	defaultStatusSocketGroup  = "usbip-go"
+	defaultStatusSocketGroup  = "usbip"
 	defaultMaxSessions        = 128
 	defaultMaxSessionsPerPeer = 8
 	defaultAcceptRateLimit    = 10.0
@@ -26,10 +26,10 @@ const (
 	defaultLogFormat          = "auto"
 )
 
-// Config is the parsed command-line configuration for usbipd. Every
+// ServeConfig is the parsed command-line configuration for usbipd. Every
 // field is populated by cobra during flag parsing; zero values should
 // not be observed after PersistentPreRunE runs.
-type Config struct {
+type ServeConfig struct {
 	// Listen is the TCP bind address. Ignored when systemd passes a
 	// named socket via LISTEN_FDNAMES=usbipd-go.
 	Listen string
@@ -64,10 +64,10 @@ type Config struct {
 	VerboseCount int
 }
 
-// bindFlags registers every usbipd root-command flag on cmd and wires
+// bindServeFlags registers every usbipd root-command flag on cmd and wires
 // the parsed values into cfg. Defaults come from the v1 contract §7.7 table;
 // any change there must land here first.
-func bindFlags(cmd *cobra.Command, cfg *Config) {
+func bindServeFlags(cmd *cobra.Command, cfg *ServeConfig) {
 	flags := cmd.PersistentFlags()
 
 	flags.StringVar(&cfg.Listen, "listen", defaultListen,

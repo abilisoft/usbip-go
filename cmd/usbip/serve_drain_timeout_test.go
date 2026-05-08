@@ -15,7 +15,7 @@ import (
 // root usbipd command does not advertise a --drain-timeout flag. The
 // flag was inherited as a persistent entry but nothing in the daemon
 // code path consumes cfg.DrainTimeout; the real --drain-timeout lives
-// on the `usbipd-go drain` subcommand, which shadows the dead persistent
+// on the `usbip drain` subcommand, which shadows the dead persistent
 // flag anyway. Keeping the persistent shadow silently misleads
 // operators who run `usbipd-go --drain-timeout=10s` expecting the daemon
 // to honour it.

@@ -74,9 +74,9 @@ func newRootCmd() *cobra.Command {
 	gf := &globalFlags{}
 
 	cmd := &cobra.Command{
-		Use:   "usbip-go",
+		Use:   "usbip",
 		Short: "USB/IP client",
-		Long: "usbip-go is the client for the USB/IP protocol: list, attach, " +
+		Long: "usbip is the USB/IP CLI for the USB/IP protocol: list, attach, " +
 			"detach, bind, unbind, watch, and completion subcommands.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -146,6 +146,8 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newBindCmd())
 	cmd.AddCommand(newUnbindCmd())
 	cmd.AddCommand(newWatchCmd())
+	cmd.AddCommand(newServeCmd())
+	cmd.AddCommand(newDrainCmd())
 
 	// Cobra registers `completion {bash,zsh,fish,pwsh}` automatically
 	// via the root command, so we augment it with `install`.
