@@ -10,6 +10,23 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
+// DiscoverTopologyForTest exposes the unexported discoverTopology so
+// topology_test.go can drive a MapFS-backed discovery directly without
+// constructing an adapter. The production code keeps discoverTopology
+// internal so tasks 2+ route every topology read through the cached
+// LoadTopologyForTest path.
+func DiscoverTopologyForTest(fsys fs.FS) (Topology, error) {
+	return discoverTopology(fsys)
+}
+
+// LoadTopologyForTest exposes the ImporterAdapter's loadTopology method
+// so an integration-shaped test can confirm a freshly-constructed
+// adapter surfaces the sysfs topology via its injected fs.FS without
+// any Task 2+ consumers wired yet.
+func LoadTopologyForTest(a *ImporterAdapter) (Topology, error) {
+	return a.loadTopology()
+}
+
 // CommonExport mirrors commonAdapter for white-box tests. Keeping a
 // separate exported shape (rather than exposing commonAdapter directly)
 // lets the tests assert field identity without widening the production
