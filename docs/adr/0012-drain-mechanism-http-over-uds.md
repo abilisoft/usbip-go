@@ -94,10 +94,53 @@ behavior.
 
 `POST /drain` is idempotent at the application level:
 `Exporter.Shutdown` is guarded by `sync.Once` so multiple
-cancellations fold to one. The HTTP handler also guards against
-spawning redundant cancellation goroutines and emitting duplicate
-log lines on repeated calls — this is the one concrete addition
-this ADR introduces over the prior implementation.
+cancellations fold to one. The HTTP handler also guards goroutine
+spawn via an `atomic.Bool` CAS — the first POST that wins the swap
+spawns the drain goroutine and returns `202 Accepted` (RFC 9110
+§15.3.3 — request accepted for asynchronous processing). Subsequent
+POSTs see the gate already set and return `200 OK` as a no-op
+acknowledgement. The split lets monitoring tools distinguish "I
+initiated this drain" from "someone else already did" without
+parsing a response body.
+
+## What happens to active USB traffic during drain
+
+Drain does NOT cut active URB traffic. The kernel owns the URB path
+on both sides of the USB/IP link (see ADR-0001 + the `URB traffic`
+glossary entry in CONTEXT.md). The daemon's job is:
+
+1. Refuse new accepts (`accepting` flag flips false; the listener
+   stays bound so `systemctl restart usbip` does not see
+   `connect-refused`).
+2. Wait for in-flight Sessions (the exporter-side accounting unit)
+   to end naturally as the kernel signals `port_detached` or
+   `device_unbound` events.
+3. After `--shutdown-timeout` elapses, force-close any sessions
+   still tracked by the daemon. The KERNEL still holds its dup of
+   each session's fd, so URB traffic continues until the IMPORTER
+   peer detaches its port — the daemon's exit only stops the daemon
+   from accounting the session, not the data path.
+
+Operators upgrading via drain-and-replace see in-flight transfers
+continue across the daemon swap because the kernel state survives
+`usbip` process exit and the new process picks up the live ports
+through the kernel's existing accounting (per v1 contract §5.4
+item 7).
+
+## Failure modes and operator escape hatches
+
+| Failure | Effect | Operator action |
+|---|---|---|
+| `src.Drain` returns non-nil (rare; means `Exporter.Shutdown` errored on a wedged session) | The drain goroutine logs at error level; the `drainStarted` gate stays set. Subsequent `POST /drain` returns `200 OK` no-op. The daemon STILL exits when its own ctx cancels (deferred `drainExporter` in `runDaemon` runs `Exporter.Shutdown` again under the same `sync.Once`). | Wait for the daemon to exit on its own; check journald for the error. If drain was caused by a pending upgrade, the new process binds the activated socket regardless. |
+| Daemon ctx cancels mid-drain (operator Ctrl-C after triggering drain) | The drain goroutine receives the cancellation through the daemon ctx and aborts its wait. The deferred `drainExporter` in `runDaemon` runs the same `Exporter.Shutdown` sync.Once — second invocation returns immediately. | Intentional: operator-visible Ctrl-C wins; in-flight sessions force-close. |
+| Drain hangs past `--shutdown-timeout` | `Exporter.Shutdown` returns; lingering sessions are force-closed; daemon exits. Client polling sees ECONNREFUSED on the next `GET /` and treats it as drain success. | None — this is the well-behaved path. |
+| Kernel module hung (rare; sysfs writes stall) | Drain blocks inside the per-session `kernel.DetachPort` call. `--shutdown-timeout` fires; daemon force-exits; supervising systemd may issue SIGKILL after `TimeoutStopSec`. | Last-resort `systemctl kill -s SIGKILL usbip` if supervisor doesn't escalate. Investigate the wedged kernel module separately. |
+
+The drain gate does NOT reset on `src.Drain` failure: the design
+treats the first drain attempt as final because the daemon will
+exit either way. An operator who needs more time should bump
+`--shutdown-timeout` on the running daemon (not currently a live-
+reloadable flag) by killing it and restarting with a higher value.
 
 ## Permissions
 
@@ -106,3 +149,6 @@ UDS file mode `0660`, owned by the configured
 that group can drain the daemon without root. The status endpoint
 exposes only the daemon's own state — no kernel writes flow through
 the UDS.
+
+See [`docs/ops.md`](../ops.md) — "Status UDS" and "Two timeouts,
+server-authoritative" sections for operational guidance.

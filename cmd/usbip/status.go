@@ -198,11 +198,16 @@ func serveStatus(
 	// function-scoped defers before returning to main.
 	defer func() { _ = lis.Close() }()
 
-	// drainCtx detaches from the HTTP request context so drain can
-	// outlive the status client's connection but remains bounded by
-	// the daemon's ctx. context.WithoutCancel(ctx) cancels alongside
-	// daemon shutdown while ignoring per-request cancellation.
-	drainCtx := context.WithoutCancel(ctx)
+	// drainCtx is the daemon ctx itself, NOT context.WithoutCancel(ctx).
+	// The HTTP request context is ignored by the handler (the second
+	// arg is `_ *http.Request`), so the status client's connection
+	// state never reaches Drain — that part of the previous comment
+	// stands. The daemon's own cancellation MUST propagate, however:
+	// an operator who Ctrl-C's the daemon process AFTER triggering
+	// drain expects the in-flight Shutdown call to abort, not to keep
+	// running detached past the parent ctx. context.WithoutCancel
+	// would have severed the daemon-cancel signal too.
+	drainCtx := ctx
 
 	// drainStarted gates handleStatusDrain so concurrent / repeat
 	// POST /drain calls fold into a single goroutine spawn (see
@@ -421,12 +426,16 @@ func handleStatusGet(w http.ResponseWriter, r *http.Request, src statusSource) {
 // started guards against repeat POSTs spawning redundant goroutines.
 // ADR-0012 requires `POST /drain` be idempotent at the handler level:
 // the first POST flips started true via CompareAndSwap and spawns the
-// drain goroutine; subsequent POSTs see started already true and
-// return 200 without spawning. The underlying src.Drain implementation
-// is also idempotent (Exporter.Shutdown wraps in sync.Once); the
-// handler-level guard avoids the wasted goroutines and the duplicate
-// error log noise that would otherwise occur on the rare path where
-// Drain returns non-nil.
+// drain goroutine, returning 202 Accepted (RFC 9110 §15.3.3 — the
+// request was accepted for asynchronous processing). Subsequent POSTs
+// see started already true and return 200 OK as an idempotent
+// no-op acknowledgement. The two-code split lets monitoring tools
+// distinguish "I initiated this drain" from "someone else already
+// did" without parsing a response body. The underlying src.Drain
+// implementation is also idempotent (Exporter.Shutdown wraps in
+// sync.Once); the handler-level guard avoids the wasted goroutines
+// and the duplicate error log noise that would otherwise occur on
+// the rare path where Drain returns non-nil.
 func handleStatusDrain(drainCtx context.Context, started *atomic.Bool, w http.ResponseWriter, src statusSource) {
 	if !started.CompareAndSwap(false, true) {
 		w.WriteHeader(http.StatusOK)
@@ -442,7 +451,7 @@ func handleStatusDrain(drainCtx context.Context, started *atomic.Bool, w http.Re
 		}
 	}()
 
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // devicesToJSON renders []usbip.Device into the schema-v1 row shape.

@@ -107,7 +107,8 @@ func TestRunContextDrainExits(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, resp.Body.Close())
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode,
+		"first POST /drain returns 202 Accepted (RFC 9110 §15.3.3)")
 
 	select {
 	case runErr := <-done:

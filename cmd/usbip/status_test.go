@@ -336,7 +336,8 @@ func TestStatusDrainTriggersShutdown(t *testing.T) {
 
 	t.Cleanup(func() { _ = resp.Body.Close() })
 
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode,
+		"first POST /drain returns 202 Accepted; idempotent repeats return 200")
 
 	// Drain runs in a goroutine; give it up to 500ms to be invoked.
 	require.Eventually(t, func() bool {
@@ -627,10 +628,34 @@ func TestStatusDrainHandlerIdempotent(t *testing.T) {
 	wg.Wait()
 	close(results)
 
+	// Two distinct status codes by RFC 9110 §15.3 semantics: the
+	// FIRST POST that flips the gate gets 202 Accepted (drain
+	// queued, processing async); subsequent POSTs that find the
+	// gate already set get 200 OK (no-op idempotent acknowledgement).
+	// Operators distinguish "I started this drain" from "someone
+	// else already started it" without parsing a response body.
+	var (
+		accepted int
+		ok       int
+	)
+
 	for r := range results {
 		require.NoError(t, r.err)
-		require.Equal(t, http.StatusOK, r.status)
+
+		switch r.status {
+		case http.StatusAccepted:
+			accepted++
+		case http.StatusOK:
+			ok++
+		default:
+			t.Fatalf("unexpected status %d (want 200 or 202)", r.status)
+		}
 	}
+
+	require.Equalf(t, 1, accepted,
+		"exactly one POST must receive 202 (the one that won the gate)")
+	require.Equalf(t, drainCalls-1, ok,
+		"every other POST must receive 200 idempotent ack")
 
 	// Wait for any spawned drain goroutines to settle. Drain is a
 	// no-op fake here so 100ms is generous; the assertion is on the
