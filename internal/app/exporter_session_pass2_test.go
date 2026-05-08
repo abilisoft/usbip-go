@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -521,6 +522,99 @@ func TestExporterShutdown_DisconnectsActiveSessions(t *testing.T) {
 
 	require.Empty(t, exp.Sessions(context.Background()),
 		"Sessions() must be empty after Shutdown drains parked handlers")
+
+	cancel()
+
+	<-serveDone
+}
+
+// TestExporterShutdown_TimeoutIsMinOfCtxAndConfig proves the pass-2
+// RANK 7 fix. applyShutdownBackstop must derive the drain deadline as
+// min(ctx deadline, configured shutdownTimeout). Pre-fix, ANY
+// caller-supplied deadline disables the backstop entirely, so a
+// caller with a generous 10s ctx but a 50ms configured timeout waits
+// 10s despite the explicit configuration.
+//
+// The test pins the kernel in a forever-wedged ExportOnConn so
+// Shutdown has to rely on the backstop to unwedge. It passes a ctx
+// with a generous 10s deadline and a configured 50ms shutdown timeout;
+// post-fix Shutdown returns in ~50ms; pre-fix it waits up to 10s.
+func TestExporterShutdown_TimeoutIsMinOfCtxAndConfig(t *testing.T) {
+	t.Parallel()
+
+	exportStarted := make(chan struct{}, 1)
+
+	kernel := &ExporterKernelMock{
+		ExportOnConnFunc: func(_ context.Context, c net.Conn, _ domain.BusID) error {
+			select {
+			case exportStarted <- struct{}{}:
+			default:
+			}
+
+			// Block on the conn; only the backstop's force-close can
+			// unwedge this drain. io.Copy returns io.EOF once the
+			// backstop closes the conn — the error surface stays
+			// stdlib-sourced so wrapcheck is happy.
+			_, _ = io.Copy(io.Discard, c)
+
+			return io.EOF
+		},
+		// Pass-2 RANK 3: Shutdown now issues Disconnect per session;
+		// the scenario deliberately models a kernel that silently
+		// swallows Disconnect without emitting the matching uevent,
+		// forcing the backstop deadline to be the only exit path.
+		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
+	}
+
+	codec := newSessionImportCodec(domain.BusID("5-6"))
+
+	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 16), Port: 9200})
+
+	const configTimeout = 50 * time.Millisecond
+
+	exp := newExporterForTest(t,
+		app.WithExporterKernel(kernel),
+		app.WithExporterCodec(codec),
+		app.WithExporterShutdownTimeout(configTimeout),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	serveDone := make(chan error, 1)
+
+	go func() { serveDone <- exp.Serve(ctx, lis) }()
+
+	client, err := lis.dial(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	_, err = client.Write(opHeader(wire.OpReqImport))
+	require.NoError(t, err)
+
+	select {
+	case <-exportStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ExportOnConn never started")
+	}
+
+	// Caller supplies a GENEROUS deadline; the config's tighter
+	// timeout MUST win.
+	const callerBudget = 10 * time.Second
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), callerBudget)
+	defer shutdownCancel()
+
+	start := time.Now()
+
+	_ = exp.Shutdown(shutdownCtx)
+
+	elapsed := time.Since(start)
+
+	require.Less(t, elapsed, callerBudget/2,
+		"Shutdown timeout must be min(ctx deadline, configured timeout); "+
+			"pre-fix any ctx deadline disables the backstop and Shutdown "+
+			"waits the caller budget instead of the configured %s", configTimeout)
 
 	cancel()
 
