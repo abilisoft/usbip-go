@@ -6,6 +6,21 @@
 *.log
 .task/
 
+# Sandbox bind-mount shadows of $HOME dotfiles — created by Claude
+# Code when the harness sandbox is enabled; never contain project
+# content.
+/.bash_profile
+/.bashrc
+/.gitconfig
+/.gitmodules
+/.idea
+/.mcp.json
+/.profile
+/.ripgreprc
+/.vscode
+/.zprofile
+/.zshrc
+
 # Claude Code local state (project .claude/settings.json + agents/commands/skills ARE committed)
 .claude/settings.local.json
 .claude/*.local.*

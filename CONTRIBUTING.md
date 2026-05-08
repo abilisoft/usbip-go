@@ -21,18 +21,6 @@ DDD workflow; please read the design spec and implementation plan in
   `cargo install git-cliff`. Required only when regenerating
   `CHANGELOG.md` via `task changelog`.
 
-## Git hooks (required)
-
-The repository ships a pre-commit hook that runs `task fmt`, `task lint`, and
-`task test` before every commit. After your initial clone, enable it once:
-
-```
-git config core.hooksPath .githooks
-```
-
-This is stored per-checkout (not in the repository), so every contributor must
-run the command on their machine.
-
 ## Commit conventions
 
 - Commits follow [Conventional Commits](https://www.conventionalcommits.org):
