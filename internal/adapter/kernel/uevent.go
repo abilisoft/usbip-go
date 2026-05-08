@@ -376,6 +376,24 @@ func newVHCIEventMapper(topo Topology) vhciEventMapper {
 	return vhciEventMapper{topo: topo}
 }
 
+// topologyLoader is the deferred-fetch contract the mapper uses to
+// resolve the VHCI topology it needs for flat-Port.ID translation.
+// Used today only by the test-facing newVHCIEventMapperWithLoader —
+// production code routes through newVHCIEventMapper with a pre-loaded
+// Topology. The Pass-3 Task-3.1 BUG-1 fix migrates production to the
+// loader form.
+type topologyLoader func() (Topology, error)
+
+// newVHCIEventMapperWithLoader constructs a mapper from a topology
+// loader. The loader is invoked eagerly for now — this is the RED
+// implementation pinning the failing-lazy-contract. The subsequent
+// GREEN pass rewires it to be lazy (sync.Once inside mapVhciEvent).
+func newVHCIEventMapperWithLoader(load topologyLoader) vhciEventMapper {
+	topo, _ := load()
+
+	return vhciEventMapper{topo: topo}
+}
+
 // mapEvent is the topology-aware entry point used by the dispatcher.
 // It classifies a parsed uevent field map into a domain.Event using
 // the cached Topology for the vhci devpath branch; non-vhci subsystems
