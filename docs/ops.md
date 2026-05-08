@@ -142,7 +142,7 @@ When `--status-socket` is non-empty, the daemon serves a Unix-domain
 socket HTTP endpoint with the live status document.
 
 ```
-sudo curl --unix-socket /run/usbip-go/status.sock http://unused/status | jq .
+sudo curl --unix-socket /run/usbip-go/status.sock http://unused/ | jq .
 ```
 
 Output includes:
@@ -239,7 +239,7 @@ need accounting continuity should drain before upgrading.
   ```
   usbipd version
   sudo usbipd --log-level=trace --status-socket=/run/usbip-go/status.sock
-  sudo curl --unix-socket /run/usbip-go/status.sock http://unused/status | jq .
+  sudo curl --unix-socket /run/usbip-go/status.sock http://unused/ | jq .
   curl -s http://127.0.0.1:9240/metrics | grep usbip_
   ```
 

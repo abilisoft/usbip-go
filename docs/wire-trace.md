@@ -164,7 +164,7 @@ For a protocol-path bug report, attach:
 
    ```
    sudo curl --unix-socket /run/usbip-go/status.sock \
-     http://unused/status | tee /tmp/status.json
+     http://unused/ | tee /tmp/status.json
    ```
 
 5. `dmesg | grep -E 'usbip|vhci'` from both client and server hosts
