@@ -125,17 +125,6 @@ func defaultWriteFunc() WriteFunc {
 	return writeSysfsFile
 }
 
-// defaultNetlinkDialer is the production netlink-socket factory. The
-// real implementation lives in uevent.go; the closure
-// here adapts the concrete-typed openRealNetlinkSocket into the
-// interface-valued NetlinkDialer contract.
-func defaultNetlinkDialer() NetlinkDialer {
-	return func() (NetlinkSocket, error) {
-		s, err := openRealNetlinkSocket()
-		if err != nil {
-			return nil, err
-		}
-
-		return s, nil
-	}
-}
+// defaultNetlinkDialer lives in netlink_real_linux.go alongside the
+// real-socket symbols it composes; both are excluded from the
+// hermetic coverage gate via .testcoverage.yaml.

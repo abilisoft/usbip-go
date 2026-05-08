@@ -153,6 +153,29 @@ linters:
         # to the Linux file-descriptor ABI.
         text: 'G115:'
         linters: [gosec]
+      - path: internal/adapter/kernel/coverage_extra_test\.go
+        # This file lives in `package kernel` (not `kernel_test`) so
+        # it can call unexported helpers (commonAdapter,
+        # newDispatcher, mapUDCEvent, parseStatusRowNumbers,
+        # vhciEventMapper) without forcing exported test seams onto
+        # production code purely for coverage. testpackage flags any
+        # package-internal _test.go; that policy makes sense for the
+        # public surface but conflicts here.
+        linters: [testpackage]
+      - path: internal/adapter/transport/coverage_internal_test\.go
+        # Same rationale as kernel/coverage_extra_test.go: same-package
+        # access to applySockopt, tuningListener, tuneDeadlines so
+        # error branches can be reached without test-only production
+        # exports.
+        linters: [testpackage]
+      - path: cmd/usbip-go/coverage_extra_test\.go
+        # TestCompletionPathPerShell, TestCompletionPathUnknownShellRejected,
+        # TestXDGDataHomeUsesEnvWhenSet, TestXDGDataHomeFallsBackToHomeDir
+        # mutate process-wide environment via t.Setenv; t.Parallel +
+        # t.Setenv on the same T panics at runtime. The paralleltest /
+        # tparallel rules push for parallel execution by default; the
+        # exclusion is scoped to this single file.
+        linters: [paralleltest, tparallel]
     # Generated files (standard header "Code generated ... DO NOT EDIT.") are
     # auto-detected by golangci-lint and skipped. All other files run against
     # the full linter set; there is no path-based exclusion for live code.
