@@ -149,8 +149,9 @@ Output includes:
 
 - `schema` — stability discriminator (`"v1"`; see
   [`json-schema.md`](json-schema.md)).
-- `version`, `commit`, `go_version`, `build_date`.
+- `version`, `commit`, `uptime_sec`.
 - `listening` — TCP `addr` and whether it was `activation`-received.
+- `bound_devices` — every exported BusID with `vid` / `pid`.
 - `kernel_modules` — per-module `loaded` / `missing` / `unknown`.
 - `sessions` — every accepted session with `id`, `remote`, `busid`,
   `started_at`, byte counters.
