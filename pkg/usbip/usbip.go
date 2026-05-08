@@ -100,6 +100,13 @@ type AttachOptions struct {
 	// up the library default (5 seconds); a negative value disables
 	// polling entirely.
 	StatusPollInterval time.Duration
+
+	// ShutdownTimeout bounds how long Detach and Close block on a
+	// reconnect watcher's wind-down before proceeding with the
+	// kernel-side detach. Zero picks up the library default (5
+	// seconds); a negative value disables the bound and waits
+	// indefinitely for the watcher to exit.
+	ShutdownTimeout time.Duration
 }
 
 // toInternal translates the public AttachOptions shape to the internal
@@ -112,6 +119,7 @@ func (a AttachOptions) toInternal() internalapp.AttachOptions {
 		MaxAttempts:        a.MaxAttempts,
 		OnReconnect:        a.OnReconnect,
 		StatusPollInterval: a.StatusPollInterval,
+		ShutdownTimeout:    a.ShutdownTimeout,
 	}
 }
 
