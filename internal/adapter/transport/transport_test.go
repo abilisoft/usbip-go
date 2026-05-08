@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"strconv"
@@ -16,13 +17,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// errServerReadMismatch is a static sentinel for the loopback server
+// goroutine; defining it at package scope satisfies err113 without
+// introducing an opaque errors.New inside the test body.
+var errServerReadMismatch = errors.New("server read mismatch")
+
 // localListener stands up a 127.0.0.1:<ephemeral> listener and returns it
 // along with a parsed RemoteEndpoint targeting its address. Cleanup is
 // registered on t.
 func localListener(t *testing.T) (net.Listener, domain.RemoteEndpoint) {
 	t.Helper()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	var lc net.ListenConfig
+
+	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
 	t.Cleanup(func() { _ = ln.Close() })
@@ -103,6 +111,40 @@ func TestDial_TCPNodelay(t *testing.T) {
 	_ = server.Close()
 }
 
+// TestListen_BadAddress covers the error path where net.ListenConfig
+// rejects a malformed address. Confirms the wrap format survives the
+// downstream error and that the returned listener is nil.
+func TestListen_BadAddress(t *testing.T) {
+	t.Parallel()
+
+	tr := transport.New()
+
+	ln, err := tr.Listen(t.Context(), "127.0.0.1:not-a-port")
+	require.Nil(t, ln)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "listen 127.0.0.1:not-a-port")
+}
+
+// TestDial_BadAddress covers the error path where the dialer fails to
+// reach the target. Port 1 on loopback reliably refuses connections in
+// a CI sandbox, exercising the wrap path.
+func TestDial_BadAddress(t *testing.T) {
+	t.Parallel()
+
+	tr := transport.New()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+
+	conn, err := tr.Dial(ctx, domain.RemoteEndpoint{Host: "127.0.0.1", Port: 1})
+	if conn != nil {
+		_ = conn.Close()
+	}
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "dial 127.0.0.1:1")
+}
+
 // TestListen_ContextCancel checks that a pre-cancelled context makes
 // Listen return ctx.Err() without binding a port.
 func TestListen_ContextCancel(t *testing.T) {
@@ -122,6 +164,44 @@ func TestListen_ContextCancel(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
+// loopbackServer drives the accept/read/echo half of
+// TestListen_AcceptLoopback. Split out so the test body stays under the
+// funlen limit and wsl_v5 cuddling rules.
+func loopbackServer(ln net.Listener, payload []byte, done chan<- error) {
+	srv, aerr := ln.Accept()
+	if aerr != nil {
+		done <- fmt.Errorf("accept: %w", aerr)
+
+		return
+	}
+
+	defer func() { _ = srv.Close() }()
+
+	buf := make([]byte, len(payload))
+
+	_, rerr := srv.Read(buf)
+	if rerr != nil {
+		done <- fmt.Errorf("read: %w", rerr)
+
+		return
+	}
+
+	if !bytes.Equal(buf, payload) {
+		done <- errServerReadMismatch
+
+		return
+	}
+
+	_, werr := srv.Write(buf)
+	if werr != nil {
+		done <- fmt.Errorf("write: %w", werr)
+
+		return
+	}
+
+	done <- nil
+}
+
 // TestListen_AcceptLoopback exercises the full listen/dial/accept path
 // and round-trips a payload end-to-end.
 func TestListen_AcceptLoopback(t *testing.T) {
@@ -131,6 +211,7 @@ func TestListen_AcceptLoopback(t *testing.T) {
 
 	ln, err := tr.Listen(t.Context(), "127.0.0.1:0")
 	require.NoError(t, err)
+
 	defer func() { _ = ln.Close() }()
 
 	host, portStr, err := net.SplitHostPort(ln.Addr().String())
@@ -140,48 +221,10 @@ func TestListen_AcceptLoopback(t *testing.T) {
 	require.NoError(t, err)
 
 	ep := domain.RemoteEndpoint{Host: host, Port: uint16(port)}
-
 	payload := []byte{0xDE, 0xAD, 0xBE, 0xEF}
-
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-
 	serverErr := make(chan error, 1)
 
-	go func() {
-		defer wg.Done()
-
-		srv, aerr := ln.Accept()
-		if aerr != nil {
-			serverErr <- aerr
-
-			return
-		}
-
-		defer func() { _ = srv.Close() }()
-
-		buf := make([]byte, len(payload))
-		if _, rerr := srv.Read(buf); rerr != nil {
-			serverErr <- rerr
-
-			return
-		}
-
-		if !bytes.Equal(buf, payload) {
-			serverErr <- errors.New("server read mismatch")
-
-			return
-		}
-
-		if _, werr := srv.Write(buf); werr != nil {
-			serverErr <- werr
-
-			return
-		}
-
-		serverErr <- nil
-	}()
+	go loopbackServer(ln, payload, serverErr)
 
 	dialCtx, dialCancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer dialCancel()
@@ -195,11 +238,10 @@ func TestListen_AcceptLoopback(t *testing.T) {
 	require.NoError(t, err)
 
 	echo := make([]byte, len(payload))
+
 	_, err = client.Read(echo)
 	require.NoError(t, err)
 	require.Equal(t, payload, echo)
-
-	wg.Wait()
 	require.NoError(t, <-serverErr)
 }
 
@@ -215,12 +257,37 @@ func TestNew_OptionsApply(t *testing.T) {
 		tr := transport.New(transport.WithLogger(slog.New(capture)))
 		require.NotNil(t, tr)
 
-		// Trigger a logged event: a cancelled-ctx Dial should at least
-		// not panic, and the option plumbing itself is the assertion.
-		ctx, cancel := context.WithCancel(t.Context())
-		cancel()
+		ln, ep := localListener(t)
 
-		_, _ = tr.Dial(ctx, domain.RemoteEndpoint{Host: "127.0.0.1", Port: 1})
+		accepted := make(chan net.Conn, 1)
+
+		go func() {
+			c, aerr := ln.Accept()
+			if aerr != nil {
+				accepted <- nil
+
+				return
+			}
+
+			accepted <- c
+		}()
+
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		defer cancel()
+
+		conn, err := tr.Dial(ctx, ep)
+		require.NoError(t, err)
+
+		defer func() { _ = conn.Close() }()
+
+		srv := <-accepted
+		require.NotNil(t, srv)
+
+		_ = srv.Close()
+
+		msgs := capture.snapshot()
+		require.NotEmpty(t, msgs, "WithLogger must wire through to Dial's debug log")
+		require.Contains(t, msgs[0], "transport.Dial established")
 	})
 
 	t.Run("nil logger selects discard", func(t *testing.T) {
@@ -228,6 +295,13 @@ func TestNew_OptionsApply(t *testing.T) {
 
 		tr := transport.New(transport.WithLogger(nil))
 		require.NotNil(t, tr)
+
+		// Exercise a Dial path so the nil branch is observed; no crash
+		// means the discard handler substitution worked.
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		_, _ = tr.Dial(ctx, domain.RemoteEndpoint{Host: "127.0.0.1", Port: 1})
 	})
 }
 
@@ -253,3 +327,13 @@ func (c *captureHandler) Handle(_ context.Context, r slog.Record) error {
 func (c *captureHandler) WithAttrs(_ []slog.Attr) slog.Handler { return c }
 
 func (c *captureHandler) WithGroup(_ string) slog.Handler { return c }
+
+func (c *captureHandler) snapshot() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	out := make([]string, len(c.msgs))
+	copy(out, c.msgs)
+
+	return out
+}
