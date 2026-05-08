@@ -1,6 +1,8 @@
 package app_test
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -8,6 +10,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 // TestMustNewMetricsRegistersFullCatalog proves MustNewMetrics registers
@@ -58,7 +61,7 @@ func primeEveryFamily(m *app.Metrics) {
 	m.ImporterDetached(app.DetachOutcomeOK)
 	m.ImporterPortsActive(0)
 	m.ImporterReconnectAttempt(app.ReconnectOutcomeOK)
-	m.AdapterSysfsWriteFailure("/sys/x", "EACCES")
+	m.AdapterSysfsWriteFailure(app.SysfsWritePathOther, app.SysfsErrnoEACCES)
 	m.KernelModuleLoaded(app.ModuleUsbipCore, true)
 	m.SetBuildInfo("v", "c", "g")
 }
@@ -99,7 +102,7 @@ func TestMustNewMetricsTypedOutcomeAccessorsRecord(t *testing.T) {
 	m.ImporterDetached(app.DetachOutcomeOK)
 	m.ImporterPortsActive(2)
 	m.ImporterReconnectAttempt(app.ReconnectOutcomeOK)
-	m.AdapterSysfsWriteFailure("/sys/bus/usb/drivers/usbip-host/bind", "EACCES")
+	m.AdapterSysfsWriteFailure(app.SysfsWritePathBind, app.SysfsErrnoEACCES)
 	m.KernelModuleLoaded(app.ModuleUsbipCore, true)
 	m.KernelModuleLoaded(app.ModuleVhciHcd, false)
 	m.SetBuildInfo("v1.2.3", "abcdef", "go1.26")
@@ -166,7 +169,7 @@ func TestMustNewMetricsAcceptsNilRegisterer(t *testing.T) {
 	m.ExporterSessionAccepted(app.OutcomeHandshakeOK)
 	m.ImporterAttached(app.AttachOutcomeOK)
 	m.ImporterReconnectAttempt(app.ReconnectOutcomeBackoff)
-	m.AdapterSysfsWriteFailure("/sys/x", "EACCES")
+	m.AdapterSysfsWriteFailure(app.SysfsWritePathOther, app.SysfsErrnoEACCES)
 	m.SetBuildInfo("v", "c", "g")
 }
 
@@ -280,6 +283,144 @@ func labelsOf(m *dto.Metric) map[string]string {
 	}
 
 	return out
+}
+
+// TestAdapterSysfsWriteFailureClosedLabelSet proves the typed accessor
+// clamps both path and errno to the closed sets documented in §11.5.5,
+// preventing unbounded-cardinality label explosion. An ad-hoc path that
+// is not in the typed whitelist collapses to SysfsWritePathOther;
+// an errno outside the POSIX subset collapses to SysfsErrnoOther.
+func TestAdapterSysfsWriteFailureClosedLabelSet(t *testing.T) {
+	t.Parallel()
+
+	reg := prometheus.NewRegistry()
+	m := app.MustNewMetrics(reg)
+
+	// Every typed constant surfaces as its documented string; any path
+	// the typed API exposes must be valid when fed back through the
+	// accessor.
+	typedPaths := []app.SysfsWritePath{
+		app.SysfsWritePathBind,
+		app.SysfsWritePathUnbind,
+		app.SysfsWritePathMatchBusID,
+		app.SysfsWritePathRebind,
+		app.SysfsWritePathAttach,
+		app.SysfsWritePathDetach,
+		app.SysfsWritePathUsbipSockfd,
+		app.SysfsWritePathOther,
+	}
+
+	typedErrnos := []app.SysfsErrno{
+		app.SysfsErrnoENOENT,
+		app.SysfsErrnoEACCES,
+		app.SysfsErrnoEPERM,
+		app.SysfsErrnoEBUSY,
+		app.SysfsErrnoENODEV,
+		app.SysfsErrnoEIO,
+		app.SysfsErrnoOther,
+	}
+
+	for _, p := range typedPaths {
+		for _, e := range typedErrnos {
+			m.AdapterSysfsWriteFailure(p, e)
+		}
+	}
+
+	fams, err := reg.Gather()
+	require.NoError(t, err)
+
+	var writeFailures *dto.MetricFamily
+	for _, f := range fams {
+		if f.GetName() == "usbip_adapter_sysfs_write_failures_total" {
+			writeFailures = f
+		}
+	}
+	require.NotNil(t, writeFailures, "usbip_adapter_sysfs_write_failures_total must be registered")
+
+	// Cardinality ceiling: len(path-set) * len(errno-set) label combos max.
+	maxCardinality := len(typedPaths) * len(typedErrnos)
+	require.LessOrEqualf(t, len(writeFailures.GetMetric()), maxCardinality,
+		"cardinality exceeds closed-set ceiling %d; got %d samples",
+		maxCardinality, len(writeFailures.GetMetric()))
+
+	// Every observed label value must come from the closed sets — spot
+	// check that no ad-hoc string leaked through.
+	pathSet := make(map[string]struct{}, len(typedPaths))
+	for _, p := range typedPaths {
+		pathSet[string(p)] = struct{}{}
+	}
+
+	errnoSet := make(map[string]struct{}, len(typedErrnos))
+	for _, e := range typedErrnos {
+		errnoSet[string(e)] = struct{}{}
+	}
+
+	for _, mm := range writeFailures.GetMetric() {
+		lbs := labelsOf(mm)
+		_, pathOK := pathSet[lbs["path"]]
+		_, errnoOK := errnoSet[lbs["errno"]]
+		require.Truef(t, pathOK, "path label %q is not in closed set %v", lbs["path"], keysOf(pathSet))
+		require.Truef(t, errnoOK, "errno label %q is not in closed set %v", lbs["errno"], keysOf(errnoSet))
+	}
+}
+
+// TestSysfsErrnoFromErrorMapsPOSIX proves the helper that adapters use
+// to convert raw syscall errors into the closed SysfsErrno set. A call
+// site extracts unix.Errno from an error chain and feeds the result
+// through SysfsErrnoFromError; unrecognised errnos fall back to
+// SysfsErrnoOther.
+func TestSysfsErrnoFromErrorMapsPOSIX(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		err  error
+		want app.SysfsErrno
+	}{
+		{unix.ENOENT, app.SysfsErrnoENOENT},
+		{unix.EACCES, app.SysfsErrnoEACCES},
+		{unix.EPERM, app.SysfsErrnoEPERM},
+		{unix.EBUSY, app.SysfsErrnoEBUSY},
+		{unix.ENODEV, app.SysfsErrnoENODEV},
+		{unix.EIO, app.SysfsErrnoEIO},
+		{unix.EINVAL, app.SysfsErrnoOther},
+		{fmt.Errorf("wrapped: %w", unix.EACCES), app.SysfsErrnoEACCES},
+		{errors.New("no errno"), app.SysfsErrnoOther},
+		{nil, app.SysfsErrnoOther},
+	}
+
+	for _, tc := range tests {
+		got := app.SysfsErrnoFromError(tc.err)
+		require.Equalf(t, tc.want, got,
+			"SysfsErrnoFromError(%v) = %q, want %q", tc.err, got, tc.want)
+	}
+}
+
+// TestSysfsWritePathFromAbsClassifiesKnownAndOther proves the helper
+// that maps a raw sysfs path into the typed closed set. Unknown paths
+// must collapse to SysfsWritePathOther so cardinality stays bounded.
+func TestSysfsWritePathFromAbsClassifiesKnownAndOther(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		path string
+		want app.SysfsWritePath
+	}{
+		{"/sys/bus/usb/drivers/usbip-host/bind", app.SysfsWritePathBind},
+		{"/sys/bus/usb/drivers/usbip-host/unbind", app.SysfsWritePathUnbind},
+		{"/sys/bus/usb/drivers/usbip-host/match_busid", app.SysfsWritePathMatchBusID},
+		{"/sys/bus/usb/drivers/usbip-host/rebind", app.SysfsWritePathRebind},
+		{"/sys/devices/platform/vhci_hcd.0/attach", app.SysfsWritePathAttach},
+		{"/sys/devices/platform/vhci_hcd.0/detach", app.SysfsWritePathDetach},
+		{"/sys/bus/usb/devices/1-1/usbip_sockfd", app.SysfsWritePathUsbipSockfd},
+		{"/sys/foo/bar", app.SysfsWritePathOther},
+		{"", app.SysfsWritePathOther},
+	}
+
+	for _, tc := range tests {
+		got := app.SysfsWritePathFromAbs(tc.path)
+		require.Equalf(t, tc.want, got,
+			"SysfsWritePathFromAbs(%q) = %q, want %q", tc.path, got, tc.want)
+	}
 }
 
 // TestMetricsNamesUseSnakeCase guards the naming convention from

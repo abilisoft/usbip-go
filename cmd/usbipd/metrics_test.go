@@ -215,7 +215,7 @@ func primeMetricsCatalog(m *app.Metrics) {
 	m.ImporterDetached(app.DetachOutcomeOK)
 	m.ImporterPortsActive(0)
 	m.ImporterReconnectAttempt(app.ReconnectOutcomeOK)
-	m.AdapterSysfsWriteFailure("/sys/x", "EACCES")
+	m.AdapterSysfsWriteFailure(app.SysfsWritePathOther, app.SysfsErrnoEACCES)
 	m.KernelModuleLoaded(app.ModuleUsbipCore, true)
 	m.SetBuildInfo("v", "c", "g")
 }
