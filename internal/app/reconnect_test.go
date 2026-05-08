@@ -1141,3 +1141,64 @@ func TestImporterReconnectDetachShutdownTimeoutBounded(t *testing.T) {
 	}, 200*time.Millisecond, 5*time.Millisecond,
 		"Detach must return within ShutdownTimeout despite wedged watcher")
 }
+
+// TestReconnect_RegistersBackoffDeadlineBeforeOnReconnect pins the
+// ordering invariant that eliminates the fireOnReconnect / waitBackoff
+// race: the reconnect loop MUST register the backoff deadline on the
+// watcher goroutine BEFORE firing OnReconnect. Tests that synchronise
+// on OnReconnect firing (TestImporterReconnectBackoffRespected being
+// the canonical one) then call clk.Advance(delay) and expect the
+// backoff channel to fire; pre-fix, OnReconnect fires first and the
+// clk.After call happens AFTER Advance, so the deadline is registered
+// against the already-advanced now and the test deadlocks on a channel
+// that will never receive.
+//
+// The assertion runs inside the OnReconnect callback itself so the
+// observation is synchronous with the sync point tests use: if the
+// FakeClock has at least one pending deadline at callback time, the
+// watcher has already registered the backoff and subsequent Advance
+// calls are deterministic.
+func TestReconnect_RegistersBackoffDeadlineBeforeOnReconnect(t *testing.T) {
+	t.Parallel()
+
+	var nextID atomic.Uint32
+
+	attachFn := func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+		return domain.PortID(nextID.Add(1)), nil
+	}
+
+	imp, clk, registry, _ := newReconnectFixture(t, attachFn)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	var (
+		pendingAtCallback atomic.Int64
+		callbackFired     = make(chan struct{}, 1)
+	)
+
+	opts := attachOptionsWithBackoff()
+
+	opts.OnReconnect = func(_ int, _ error) {
+		pendingAtCallback.Store(int64(clk.Pending()))
+
+		select {
+		case callbackFired <- struct{}{}:
+		default:
+		}
+	}
+
+	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), opts)
+	require.NoError(t, err)
+
+	registry.waitFor(t, 1)
+
+	registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
+
+	select {
+	case <-callbackFired:
+	case <-time.After(reconnectTestSettleBudget):
+		t.Fatal("OnReconnect did not fire")
+	}
+
+	require.GreaterOrEqual(t, pendingAtCallback.Load(), int64(1),
+		"FakeClock must have the backoff deadline registered BEFORE OnReconnect fires")
+}
