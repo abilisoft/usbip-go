@@ -48,10 +48,12 @@ type reconnectParams struct {
 }
 
 // spawnReconnectWatcher enrols a new reconnect goroutine in the
-// Importer waitgroup and starts it. The handle's watcherDone channel is
-// created here (not at registerHandle time) so the goroutine itself is
-// the sole closer. Close/Detach observe this channel to synchronise
-// with the watcher's exit.
+// Importer waitgroup and starts it. The handle's watcherDone channel
+// is allocated under mu inside registerHandle when AutoReconnect is
+// set so Detach observes a published channel without any
+// unsynchronised write; this goroutine is the sole closer and signals
+// exit by closing watcherDone on its return path. Close/Detach
+// observe the channel to synchronise with the watcher's exit.
 //
 // The Attach caller's ctx is detached via context.WithoutCancel: the
 // watcher must outlive the Attach call (spec §5.5) and its only
