@@ -25,30 +25,11 @@ jobs:
   changelog-check:
     name: Changelog check (git-cliff) — release tags only
     runs-on: ubuntu-24.04
-    container:
-      image: nixos/nix@sha256:e2fe74e96e965653c7b8f16ac64d1e56581c63c84d7fa07fb0692fd055cd06b0
-    env:
-      NIX_CONFIG: |
-        experimental-features = nix-command flakes
-      GIT_CONFIG_COUNT: "1"
-      GIT_CONFIG_KEY_0: "safe.directory"
-      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
-      IN_NIX_CONTAINER: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/cache@v4
-        with:
-          path: |
-            /nix/store
-            /nix/var/nix/db
-          # Image-digest prefix in the cache key so a cache produced
-          # on one nixos/nix baseline is never restored over a
-          # different baseline. Same scheme as ci.yml.
-          key: nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-${{ hashFiles('flake.nix') }}
-          restore-keys: |
-            nix-${{ runner.os }}-img-e2fe74e9-${{ hashFiles('flake.lock') }}-
-            nix-${{ runner.os }}-img-e2fe74e9-
+      - uses: DeterminateSystems/nix-installer-action@v13
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
       - name: Verify CHANGELOG.md matches history at this tag
         run: nix develop --command task ci:changelog:check

@@ -10,8 +10,12 @@
 # ubuntu-24.04 for our jobs that already run inside their own
 # nixos/nix container.
 
-# Workflows pin ubuntu-24.04 explicitly; macos-14 (ci.yml unit-macos)
-# and the self-hosted kvm runner (integration.yml) cannot run under
-# act and are skipped at runtime.
+# Workflows pin ubuntu-24.04 explicitly; the self-hosted kvm runner
+# (integration.yml) cannot run under act and is skipped at runtime.
 -P ubuntu-24.04=catthehacker/ubuntu:act-latest
 --container-architecture linux/amd64
+# Disable act's built-in artifact/cache server: it binds to an empty
+# hostname under restrictive sandboxes and fails with "lookup <nil>".
+# CI does not need it for these jobs (everything is recomputed in the
+# job container).
+--no-cache-server
