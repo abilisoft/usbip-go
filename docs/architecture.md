@@ -26,9 +26,23 @@ contributors.
 +-------------------------+  internal/adapter/transport  (net.Dial / net.Listen)
 ```
 
-Dependencies flow top-down only. No adapter knows about `internal/app`;
-no package under `pkg/` imports anything from `internal/`. Both rules
-are enforced mechanically by the `ddd-boundary` job in
+Dependencies flow top-down only:
+
+- `pkg/domain` is a pure-stdlib value-object package; it never
+  imports from `internal/`.
+- `pkg/usbip` is the public facade. It is the *one* package allowed
+  to import from `internal/` (it composes `internal/app` services
+  on top of `internal/adapter/*` defaults). Consumers of the library
+  never reach `internal/` directly.
+- `internal/app` declares the adapter interfaces it consumes and may
+  import `internal/adapter/wire` because the codec types appear on
+  those interface signatures. It does NOT import
+  `internal/adapter/kernel` or `internal/adapter/transport`; those
+  are injected via interface, never through a direct package
+  dependency.
+- No adapter package imports `internal/app`.
+
+These rules are enforced mechanically by the `ddd-boundary` job in
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
 
 ## Package responsibilities
@@ -71,9 +85,11 @@ Implements the use-case services:
 `internal/app` declares every adapter interface it consumes
 (`ImporterKernel`, `ExporterKernel`, `KernelEvents`, `WireCodec`,
 `Transport`, `Clock`). Adapter packages implement the interfaces and
-are composed in via `pkg/usbip`'s constructors. The app layer has no
-direct imports from `internal/adapter/*` — the `ddd-boundary` CI job
-verifies this.
+are composed in via `pkg/usbip`'s constructors. The app layer
+imports `internal/adapter/wire` because the codec value types appear
+on those interface signatures, but it does NOT import
+`internal/adapter/kernel` or `internal/adapter/transport` —
+the `ddd-boundary` CI job verifies that latter rule.
 
 ### `internal/adapter/kernel`
 
@@ -153,11 +169,20 @@ map is in v1 contract §6.4.
 1. **Go `internal/` rule** — packages outside the module cannot
    import anything under `internal/`. This is a compiler-level
    check.
-2. **`pkg/` must not import `internal/`** — enforced by the
-   `ddd-boundary` CI job.
-3. **`internal/app` must not import `internal/adapter/`** —
-   enforced by the same job. The app layer reaches adapters only
-   through the interfaces it declares.
-4. **No cgo anywhere** — enforced by the `no-cgo` CI job via both
+2. **`pkg/domain` must not import `internal/`** — enforced by the
+   `ddd-boundary` CI job. The domain package stays a pure-stdlib
+   value-object surface.
+3. **`pkg/usbip` is the sole `pkg/` package allowed to import
+   `internal/`** — by design: it is the public facade that
+   composes `internal/app` services on top of `internal/adapter/*`
+   defaults. Consumers of the library never reach `internal/`
+   directly.
+4. **`internal/app` must not import `internal/adapter/kernel` or
+   `internal/adapter/transport`** — enforced by the same CI job.
+   The app layer reaches kernel and transport adapters only
+   through the interfaces it declares. It DOES import
+   `internal/adapter/wire` because codec value types appear on
+   those interface signatures.
+5. **No cgo anywhere** — enforced by the `no-cgo` CI job via both
    `go list -f '{{.CgoFiles}}'` and source grep for
    `import "C"`.
