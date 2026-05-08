@@ -91,6 +91,7 @@ func (a AttachOptions) toInternal() internalapp.AttachOptions {
 // zero value is not usable.
 type Importer struct {
 	inner *internalapp.Importer
+	cfg   importerConfig
 }
 
 // NewImporter constructs an Importer backed by the default Linux
@@ -108,10 +109,11 @@ func (i *Importer) ListRemote(ctx context.Context, r RemoteEndpoint) ([]Device, 
 }
 
 // Attach runs the USB/IP import handshake for busID at r and returns
-// the attached Port. AttachOptions is translated to the internal form
-// before forwarding.
+// the attached Port. AttachOptions is merged with the Importer-level
+// defaults (WithImporterBackoff, WithImporterStatusPollInterval) then
+// translated to the internal form before forwarding.
 func (i *Importer) Attach(ctx context.Context, r RemoteEndpoint, busID BusID, opts AttachOptions) (Port, error) {
-	return i.inner.Attach(ctx, r, busID, opts.toInternal())
+	return i.inner.Attach(ctx, r, busID, i.mergeAttachOptions(opts).toInternal())
 }
 
 // Detach tears down a previously-attached port.
@@ -137,11 +139,27 @@ func (i *Importer) Close() error {
 	return i.inner.Close()
 }
 
+// mergeAttachOptions overlays importer-level defaults onto the per-
+// call AttachOptions. Caller-supplied fields win; unset fields pick
+// up the corresponding WithImporter* value (if any).
+func (i *Importer) mergeAttachOptions(opts AttachOptions) AttachOptions {
+	if opts.Backoff == nil {
+		opts.Backoff = i.cfg.backoff
+	}
+
+	if opts.StatusPollInterval == 0 {
+		opts.StatusPollInterval = i.cfg.statusPollInterval
+	}
+
+	return opts
+}
+
 // Exporter is the public wrapper around internalapp.Exporter. Method
 // bodies forward after argument translation. Construct via NewExporter;
 // the zero value is not usable.
 type Exporter struct {
 	inner *internalapp.Exporter
+	cfg   exporterConfig
 }
 
 // NewExporter constructs an Exporter backed by the default Linux
