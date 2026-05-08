@@ -325,6 +325,95 @@ func TestSubscribe_FirstSubscriberCancelDoesNotStopOthers(t *testing.T) {
 	}
 }
 
+// TestSubscribe_UsbipHostEmitsDeviceBindEvents drives the usbip_host
+// bind/unbind notification shape. Pre pass-3 RANK 3, mapUeventToDomain
+// only produced vhci_hcd-shaped Port* events and never returned a
+// DeviceBoundEvent / DeviceUnboundEvent. Downstream consumers
+// (cmd/usbip/events.go, session.go, importer.go) that branch on those
+// event types were dead code. Post-fix: SUBSYSTEM=usbip_host
+// ACTION=add → DeviceBoundEvent; ACTION=remove → DeviceUnboundEvent;
+// the bus ID is the trailing path segment that matches the domain
+// busid topology pattern.
+func TestSubscribe_UsbipHostEmitsDeviceBindEvents(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		action    string
+		devpath   string
+		wantKind  domain.EventKind
+		wantBusID domain.BusID
+	}{
+		{
+			name:      "bind_simple",
+			action:    "add",
+			devpath:   "/devices/pci0000:00/0000:00:14.0/usb1/1-1",
+			wantKind:  domain.EventDeviceBound,
+			wantBusID: domain.BusID("1-1"),
+		},
+		{
+			name:      "unbind_simple",
+			action:    "remove",
+			devpath:   "/devices/pci0000:00/0000:00:14.0/usb1/1-1",
+			wantKind:  domain.EventDeviceUnbound,
+			wantBusID: domain.BusID("1-1"),
+		},
+		{
+			name:      "bind_dotted",
+			action:    "add",
+			devpath:   "/devices/pci0000:00/0000:00:14.0/usb1/1-1.2",
+			wantKind:  domain.EventDeviceBound,
+			wantBusID: domain.BusID("1-1.2"),
+		},
+		{
+			name:      "unbind_dotted",
+			action:    "remove",
+			devpath:   "/devices/pci0000:00/0000:00:14.0/usb2/2-3.4.5",
+			wantKind:  domain.EventDeviceUnbound,
+			wantBusID: domain.BusID("2-3.4.5"),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			a, sock := newAdapterWithFakeSocket(t)
+			defer func() { _ = sock.Close() }()
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			ch, unsub, err := a.Subscribe(ctx)
+			require.NoError(t, err)
+
+			defer unsub()
+
+			sock.feed(uevent(map[string]string{
+				"ACTION":    tc.action,
+				"SUBSYSTEM": "usbip_host",
+				"DEVPATH":   tc.devpath,
+			}))
+
+			select {
+			case ev := <-ch:
+				require.NotNil(t, ev)
+				require.Equal(t, tc.wantKind, ev.EventKind(),
+					"usbip_host %s devpath %q must produce %s", tc.action, tc.devpath, tc.wantKind)
+
+				switch e := ev.(type) {
+				case domain.DeviceBoundEvent:
+					require.Equal(t, tc.wantBusID, e.Device.BusID)
+				case domain.DeviceUnboundEvent:
+					require.Equal(t, tc.wantBusID, e.Device.BusID)
+				default:
+					t.Fatalf("unexpected event type %T", ev)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatalf("timed out waiting for usbip_host event (action=%s devpath=%q)", tc.action, tc.devpath)
+			}
+		})
+	}
+}
+
 // TestSubscribe_DottedBusIDProducesEvent drives the dotted-topology
 // parse path. Hub-attached devices have bus IDs like "1-1.2" or
 // "2-3.4.5"; pre-fix the devpath regex only matched the simple "N-P"
