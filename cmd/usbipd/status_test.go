@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/netip"
 	"os"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -68,9 +70,7 @@ func (f *fakeStatusSource) KernelModules(_ context.Context) (map[string]string, 
 	defer f.mu.Unlock()
 
 	out := make(map[string]string, len(f.modules))
-	for k, v := range f.modules {
-		out[k] = v
-	}
+	maps.Copy(out, f.modules)
 
 	return out, nil
 }
@@ -81,17 +81,23 @@ func (f *fakeStatusSource) Drain(_ context.Context) error {
 	return f.drainErr
 }
 
+// udsHTTPClientTimeout caps every helper HTTP call so a broken server
+// can't wedge the test suite.
+const udsHTTPClientTimeout = 5 * time.Second
+
 // newUDSHTTPClient returns an http.Client that dials the given UDS
 // path. Every request uses scheme http with the host ignored by the
 // transport; the URL must still be valid.
 func newUDSHTTPClient(path string) *http.Client {
 	return &http.Client{
 		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", path)
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				var d net.Dialer
+
+				return d.DialContext(ctx, "unix", path)
 			},
 		},
-		Timeout: 5 * time.Second,
+		Timeout: udsHTTPClientTimeout,
 	}
 }
 
@@ -147,14 +153,16 @@ func isClosedErr(err error) bool {
 // TestStatusUnlinkStale proves a stale socket file (nobody listening)
 // is unlinked and recreated instead of blocking startup.
 func TestStatusUnlinkStale(t *testing.T) {
-	// t.Setenv-free but still non-parallel because the status server
-	// binds a fixed UDS path per test.
+	t.Parallel()
 
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "status.sock")
 
-	// Leave a stale file at sockPath with no listener on it.
-	f, err := os.Create(sockPath)
+	// Leave a stale file at sockPath with no listener on it. Path is
+	// rooted at t.TempDir, so gosec G304's "variable inclusion" is a
+	// false positive here — the filename is test-controlled, not
+	// attacker-derived.
+	f, err := os.Create(filepath.Clean(sockPath))
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
 
@@ -189,12 +197,16 @@ func TestStatusUnlinkStale(t *testing.T) {
 // usbipd-ish process answering on it) causes the second startup to
 // return errAlreadyRunning.
 func TestStatusAlreadyRunning(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "status.sock")
 
 	// Spin a plain unix listener at sockPath to simulate "another
 	// usbipd is here". Any dial succeeding signals already-running.
-	lis, err := net.Listen("unix", sockPath)
+	var lc net.ListenConfig
+
+	lis, err := lc.Listen(context.Background(), "unix", sockPath)
 	require.NoError(t, err)
 
 	t.Cleanup(func() { _ = lis.Close() })
@@ -213,13 +225,24 @@ func TestStatusAlreadyRunning(t *testing.T) {
 		}
 	}()
 
-	err = detectAlreadyRunning(sockPath)
+	err = detectAlreadyRunning(context.Background(), sockPath)
 	require.ErrorIs(t, err, errAlreadyRunning)
+}
+
+// testSessionID is a fixed 16-byte UUID used across JSON golden tests
+// so the expected renders stay deterministic.
+var testSessionID = domain.SessionID{
+	0x01, 0x02, 0x03, 0x04,
+	0x05, 0x06, 0x07, 0x08,
+	0x09, 0x0a, 0x0b, 0x0c,
+	0x0d, 0x0e, 0x0f, 0x10,
 }
 
 // TestStatusGetJSON proves the §7.7 schema-v1 JSON is rendered by
 // GET /. Every required key is asserted.
 func TestStatusGetJSON(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "status.sock")
 
@@ -232,7 +255,7 @@ func TestStatusGetJSON(t *testing.T) {
 		},
 		sessions: []usbip.Session{
 			{
-				ID:         domain.SessionID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10},
+				ID:         testSessionID,
 				BusID:      usbip.BusID("1-1.2"),
 				RemoteAddr: netip.MustParseAddrPort("10.0.0.8:54221"),
 				StartedAt:  time.Unix(1_700_000_000, 0),
@@ -286,6 +309,8 @@ func TestStatusGetJSON(t *testing.T) {
 // TestStatusDrainTriggersShutdown proves POST /drain invokes Drain on
 // the underlying source and returns 200 immediately.
 func TestStatusDrainTriggersShutdown(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "status.sock")
 
@@ -321,6 +346,8 @@ func TestStatusDrainTriggersShutdown(t *testing.T) {
 // exists, the bind succeeds (a stricter chown-applied assertion would
 // require root to be meaningful).
 func TestStatusFileMode0660(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "status.sock")
 
@@ -344,6 +371,8 @@ func TestStatusFileMode0660(t *testing.T) {
 // a hard failure — operators on dev machines without a `usbip` group
 // should still see a usable endpoint).
 func TestStatusGroupChownSkipsIfMissing(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "status.sock")
 
@@ -354,23 +383,28 @@ func TestStatusGroupChownSkipsIfMissing(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 
 	started := make(chan struct{})
 	done := make(chan struct{})
 
 	go func() {
 		defer close(done)
+
 		_ = serveStatus(ctx, sockPath, "definitely-not-a-real-group-xyz", src, started)
 	}()
+
+	// Cleanup order matters: LIFO, so the first-registered hook fires
+	// last. We need cancel() to run BEFORE <-done (otherwise the goroutine
+	// never exits and <-done deadlocks). Registering cancel last makes it
+	// fire first.
+	t.Cleanup(func() { <-done })
+	t.Cleanup(cancel)
 
 	select {
 	case <-started:
 	case <-time.After(2 * time.Second):
 		t.Fatal("status server did not start")
 	}
-
-	t.Cleanup(func() { <-done })
 
 	// Sanity ping.
 	client := newUDSHTTPClient(sockPath)
@@ -386,47 +420,46 @@ func TestStatusGroupChownSkipsIfMissing(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-// TestStatusGroupChownAppliedIfGroupPresent proves that when the
-// configured --status-socket-group resolves, the UDS ownership is
-// updated. On a typical developer machine the `usbip` group is absent
-// so this test skips; CI hosts preconfigured with the group exercise
-// the branch without requiring root (a same-uid chgrp to a group the
-// caller already belongs to is permitted).
-func TestStatusGroupChownAppliedIfGroupPresent(t *testing.T) {
-	gname := "usbip"
+// TestStatusGroupChownResolvesCallerGroup proves applyStatusSocketACL
+// silently completes when handed a group the current process belongs to.
+// A same-uid chgrp to one of the caller's own groups does NOT need root,
+// so this test is deterministic on every Linux host (CI + dev) without
+// the /etc/group-dependent skip dance the earlier design implied.
+func TestStatusGroupChownResolvesCallerGroup(t *testing.T) {
+	t.Parallel()
 
-	_, err := user.LookupGroup(gname)
-	if err != nil {
-		t.Skipf("group %q absent; nothing to assert", gname)
+	gids, err := os.Getgroups()
+	require.NoError(t, err)
+	require.NotEmpty(t, gids, "process must belong to at least one group")
+
+	// LookupGroupId to resolve a *name* we can hand to applyStatusSocketACL.
+	// Walk every supplementary group until LookupGroupId succeeds — some
+	// NSS backends omit select gids from the name map.
+	var gname string
+
+	for _, gid := range gids {
+		grp, gerr := user.LookupGroupId(strconv.Itoa(gid))
+		if gerr == nil {
+			gname = grp.Name
+
+			break
+		}
 	}
+
+	require.NotEmpty(t, gname, "unable to resolve any caller group to a name")
 
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "status.sock")
 
-	src := &fakeStatusSource{
-		listenAddr: "0.0.0.0:3240",
-		accepting:  true,
-		modules:    map[string]string{"usbip_core": "loaded"},
-	}
+	// Create the file so applyStatusSocketACL has a valid target to
+	// chmod+chown. We're unit-testing the ACL helper itself; no HTTP
+	// server is needed. filepath.Clean reassures gosec G304 that the
+	// test-generated path has no traversal.
+	f, err := os.Create(filepath.Clean(sockPath))
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
 
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-
-	started := make(chan struct{})
-	done := make(chan struct{})
-
-	go func() {
-		defer close(done)
-		_ = serveStatus(ctx, sockPath, gname, src, started)
-	}()
-
-	select {
-	case <-started:
-	case <-time.After(2 * time.Second):
-		t.Fatal("status server did not start")
-	}
-
-	t.Cleanup(func() { <-done })
+	require.NoError(t, applyStatusSocketACL(sockPath, gname))
 
 	info, err := os.Stat(sockPath)
 	require.NoError(t, err)
