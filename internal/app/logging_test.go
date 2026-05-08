@@ -257,6 +257,222 @@ func TestReconnectGiveUpRecordCarriesPortIDAndAttempt(t *testing.T) {
 		bw.String())
 }
 
+// TestReconnectGiveUpRecordCarriesAttemptAndSource proves the
+// "reconnect giving up" record surfaces attempt + source attrs
+// (Finding 9). Operators correlating a give-up event with the retry
+// trail need the final attempt number AND the detection source
+// (uevent vs poll) that kicked the retry loop off in the first place;
+// without them, log consumers cannot reconstruct the retry sequence.
+func TestReconnectGiveUpRecordCarriesAttemptAndSource(t *testing.T) {
+	t.Parallel()
+
+	bw := &bufWriter{}
+	logger := slog.New(slog.NewJSONHandler(bw, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	var attachCalls int
+
+	var (
+		mu       sync.Mutex
+		giveUpCh = make(chan struct{}, 1)
+	)
+
+	conn := newFakeConn()
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			mu.Lock()
+
+			attachCalls++
+
+			n := attachCalls
+
+			mu.Unlock()
+
+			if n == 1 {
+				return domain.PortID(9), nil
+			}
+
+			return 0, errBoom
+		},
+		DetachPortFunc: func(_ context.Context, _ domain.PortID) error { return nil },
+		ListPortsFunc: func(_ context.Context) ([]domain.Port, error) {
+			return []domain.Port{{ID: domain.PortID(9), Status: domain.StatusNull}}, nil
+		},
+	}
+
+	events := make(chan domain.Event, 1)
+	eventsMock := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return events, func() {}, nil
+		},
+	}
+
+	transport := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+			return conn, nil
+		},
+	}
+	codec := &ProtocolCodecMock{
+		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
+		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
+	}
+
+	imp := newImporterForTest(t,
+		app.WithImporterKernel(kernel),
+		app.WithImporterEvents(eventsMock),
+		app.WithImporterTransport(transport),
+		app.WithImporterCodec(codec),
+		app.WithImporterLogger(logger),
+	)
+	t.Cleanup(func() {
+		require.NoError(t, imp.Close())
+	})
+
+	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{
+		AutoReconnect: true,
+		MaxAttempts:   1,
+		Backoff:       &app.FixedBackoff{Delay: 0},
+		OnReconnect: func(_ int, _ error) {
+			select {
+			case giveUpCh <- struct{}{}:
+			default:
+			}
+		},
+	})
+	require.NoError(t, err)
+
+	events <- domain.PortDetachedEvent{Port: port}
+
+	<-giveUpCh
+
+	require.NoError(t, imp.Close())
+
+	records := parseJSONRecords(t, bw.Bytes())
+
+	found := false
+
+	for _, r := range records {
+		if r["msg"] == "reconnect giving up after max attempts" {
+			assertAttrsPresent(t, r, "attempt", "source")
+
+			found = true
+		}
+	}
+
+	require.Truef(t, found,
+		"give-up record must carry attempt + source attrs; got:\n%s", bw.String())
+}
+
+// TestReconnectOnReconnectPanicRecordCarriesPortIDAndSource proves the
+// "OnReconnect callback panicked" record surfaces port_id + source
+// attrs (Finding 9). Without port_id operators cannot identify which
+// attached device triggered the buggy callback; without source they
+// cannot tell whether the retry loop was entered via uevent or the
+// polling backstop.
+func TestReconnectOnReconnectPanicRecordCarriesPortIDAndSource(t *testing.T) {
+	t.Parallel()
+
+	bw := &bufWriter{}
+	logger := slog.New(slog.NewJSONHandler(bw, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	var attachCalls int
+
+	var (
+		mu         sync.Mutex
+		panicFired = make(chan struct{}, 1)
+	)
+
+	conn := newFakeConn()
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			mu.Lock()
+
+			attachCalls++
+
+			n := attachCalls
+
+			mu.Unlock()
+
+			if n == 1 {
+				return domain.PortID(21), nil
+			}
+
+			return 0, errBoom
+		},
+		DetachPortFunc: func(_ context.Context, _ domain.PortID) error { return nil },
+		ListPortsFunc: func(_ context.Context) ([]domain.Port, error) {
+			return []domain.Port{{ID: domain.PortID(21), Status: domain.StatusNull}}, nil
+		},
+	}
+
+	events := make(chan domain.Event, 1)
+	eventsMock := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return events, func() {}, nil
+		},
+	}
+
+	transport := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+			return conn, nil
+		},
+	}
+	codec := &ProtocolCodecMock{
+		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
+		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
+	}
+
+	imp := newImporterForTest(t,
+		app.WithImporterKernel(kernel),
+		app.WithImporterEvents(eventsMock),
+		app.WithImporterTransport(transport),
+		app.WithImporterCodec(codec),
+		app.WithImporterLogger(logger),
+	)
+	t.Cleanup(func() {
+		require.NoError(t, imp.Close())
+	})
+
+	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{
+		AutoReconnect: true,
+		MaxAttempts:   1,
+		Backoff:       &app.FixedBackoff{Delay: 0},
+		OnReconnect: func(_ int, _ error) {
+			select {
+			case panicFired <- struct{}{}:
+			default:
+			}
+
+			panic("boom from OnReconnect")
+		},
+	})
+	require.NoError(t, err)
+
+	events <- domain.PortDetachedEvent{Port: port}
+
+	<-panicFired
+
+	require.NoError(t, imp.Close())
+
+	records := parseJSONRecords(t, bw.Bytes())
+
+	found := false
+
+	for _, r := range records {
+		if r["msg"] == "OnReconnect callback panicked" {
+			assertAttrsPresent(t, r, "port_id", "source")
+
+			found = true
+		}
+	}
+
+	require.Truef(t, found,
+		"panic record must carry port_id + source attrs; got:\n%s", bw.String())
+}
+
 // bufWriter serialises writes to an embedded bytes.Buffer so background
 // goroutines can safely share a single log sink with the test.
 type bufWriter struct {
