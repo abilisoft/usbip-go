@@ -4,6 +4,7 @@ package kernel_test
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"net"
 	"os"
@@ -33,6 +34,7 @@ func socketPair(t *testing.T) (net.Conn, net.Conn) {
 
 	ld, err := strconv.ParseUint(strconv.Itoa(pair[0]), 10, 64)
 	require.NoError(t, err)
+
 	rd, err := strconv.ParseUint(strconv.Itoa(pair[1]), 10, 64)
 	require.NoError(t, err)
 
@@ -93,7 +95,7 @@ func (c *countingCloseConn) Close() error {
 
 	err := c.Conn.Close()
 	if err != nil {
-		return err //nolint:wrapcheck // helper proxies underlying conn errors
+		return fmt.Errorf("close: %w", err)
 	}
 
 	return nil
@@ -101,10 +103,13 @@ func (c *countingCloseConn) Close() error {
 
 func (c *countingCloseConn) SyscallConn() (syscall.RawConn, error) {
 	inner, ok := c.Conn.(syscall.Conn)
-	require.True(nil, ok)
+	if !ok {
+		return nil, errNoEmbeddedSyscall
+	}
+
 	raw, err := inner.SyscallConn()
 	if err != nil {
-		return nil, err //nolint:wrapcheck // helper proxies underlying conn errors
+		return nil, fmt.Errorf("embedded SyscallConn: %w", err)
 	}
 
 	return raw, nil
