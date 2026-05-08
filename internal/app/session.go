@@ -60,21 +60,24 @@ func (e *Exporter) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	// Handshake header done; disarm the deadline so the long-running
-	// session (import) is not torn down prematurely.
-	stopTimeout()
-
+	// Per-opcode handshake-body read sits INSIDE serveDevlist /
+	// serveImport so the timeout covers the full handshake. Disarming
+	// the deadline right after the header would leave a
+	// DecodeOpReqImport body-decode stall uncovered.
 	switch op {
 	case wire.OpReqDevlist:
+		stopTimeout()
 		e.serveDevlist(ctx, reader, conn)
 	case wire.OpReqImport:
-		handedOff = e.serveImport(ctx, reader, conn)
+		handedOff = e.serveImport(ctx, reader, conn, stopTimeout)
 	case wire.OpRepDevlist, wire.OpRepImport:
+		stopTimeout()
 		// Reply opcodes arriving on an accepted connection indicate a
 		// misbehaving peer (or a reversed-role misconfiguration).
 		e.logger.Debug("exporter received reply opcode on accept side",
 			slog.Any("opcode", op))
 	default:
+		stopTimeout()
 		e.logger.Debug("exporter unexpected opcode",
 			slog.Any("opcode", op))
 	}
@@ -151,8 +154,21 @@ func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn)
 // (success path) so handleConn's deferred close skips closing the conn
 // — the kernel owns it at that point. Any error path returns false;
 // the deferred handler closes the conn per spec §5.4 item 4.
-func (e *Exporter) serveImport(ctx context.Context, reader io.Reader, conn net.Conn) bool {
+//
+// stopTimeout is the handshake-timeout disarm callback; it is invoked
+// AFTER DecodeOpReqImport completes so a stalled body-decode still
+// fires the handshake deadline (Fix 3).
+func (e *Exporter) serveImport(
+	ctx context.Context, reader io.Reader, conn net.Conn, stopTimeout func(),
+) bool {
 	busID, err := e.codec.DecodeOpReqImport(reader)
+
+	// Disarm the handshake deadline only once the full handshake read
+	// has completed — successful or not. If we leave the watcher armed
+	// past this point the long-running ExportOnConn call would be torn
+	// down when the clock ticks forward.
+	stopTimeout()
+
 	if err != nil {
 		e.logger.Warn("exporter decode import request",
 			slog.Any("err", err))
