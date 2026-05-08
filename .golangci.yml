@@ -5,6 +5,26 @@ version: 2
 run:
   timeout: 5m
   tests: true
+formatters:
+  # golangci-lint v2 splits formatters out of the linters list. Enable
+  # the same trio that `task fmt` runs locally (gofmt -s -w, gofumpt -w,
+  # goimports -w) so `task lint` enforces zero drift between developer
+  # machines and Go Report Card's gofmt check. Without this block,
+  # formatting violations only surface in the dedicated ci:fmt:check
+  # gate; routing them through golangci-lint as well keeps the IDE
+  # integration honest (golangci-lint-langserver flags drift as you
+  # type).
+  enable:
+    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    gofmt:
+      # simplify rewrites the `gofmt -s` patterns: composite-literal
+      # type elision, `for _ = range x` -> `for range x`, redundant
+      # type info on slice/map elements. Matches Taskfile.yml's
+      # `gofmt -s -w`.
+      simplify: true
 linters:
   default: all
   disable:
