@@ -18,7 +18,26 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-integration-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-integration-
+            ${{ runner.os }}-go-
       - name: Install task
         run: go install github.com/go-task/task/v3/cmd/task@latest
+      - name: Kernel-module preflight
+        # Informational — tests handle skip-on-missing themselves per plan §10.1.
+        run: |
+          for m in usbip_core vhci_hcd usbip_host usbip_vudc; do
+            if [ -d "/sys/module/$m" ]; then
+              echo "module $m: loaded"
+            else
+              echo "module $m: MISSING (tests will skip module-dependent cases)"
+            fi
+          done
       - name: Integration tests
         run: task test:integration
