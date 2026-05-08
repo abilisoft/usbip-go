@@ -438,21 +438,22 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 	// ignores Disconnect still unwinds. The call is synchronous but
 	// each invocation runs in its own goroutine: a single wedged sysfs
 	// write must not block the rest of the loop nor the subsequent
-	// waitSessionsBounded path. Goroutines that never return are
-	// accepted as a leaked-goroutine trade-off (same rationale as the
-	// truly-stuck handler note in waitSessionsBounded) — Shutdown-blocks-
-	// forever is a worse failure mode. firstShutdown gate prevents
-	// repeated Shutdown calls accumulating fresh Disconnect goroutines
-	// on top of any already-wedged from the prior invocation.
+	// waitSessionsBounded path. firstShutdown gate prevents repeated
+	// Shutdown calls accumulating fresh Disconnect goroutines on top
+	// of any already-wedged from the prior invocation. We track every
+	// goroutine on a WaitGroup so the bounded wait below can surface a
+	// "graceful disconnect did not complete" diagnostic instead of
+	// silently leaking goroutines past the Shutdown return.
+	var disconnectWG sync.WaitGroup
 	for _, h := range handles {
-		go func() {
+		disconnectWG.Go(func() {
 			err := e.kernel.Disconnect(ctx, h.session.BusID)
 			if err != nil {
 				e.logger.Warn("shutdown kernel disconnect",
 					slog.Any("busid", h.session.BusID),
 					slog.Any("err", err))
 			}
-		}()
+		})
 	}
 
 	// Wait for acceptLoop to exit so no sessionsWG.Go call can race
@@ -468,12 +469,39 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 
 	waitErr := e.waitSessionsBounded(drainCtx)
 
+	// Bound the graceful Disconnect goroutines by drainCtx so they do
+	// not silently outlive Shutdown. A wedged kernel sysfs write still
+	// leaks the offending goroutine, but Shutdown surfaces the
+	// diagnostic instead of returning success while N background
+	// goroutines remain pending.
+	e.waitDisconnectBounded(drainCtx, &disconnectWG)
+
 	// Tear down WatchSessions subscribers last so consumers see every
 	// SessionEnded event published during drain before the channel
 	// closes.
 	e.closeAllSubscribers()
 
 	return waitErr
+}
+
+// waitDisconnectBounded waits on the per-session Disconnect goroutines
+// up to drainCtx. If drainCtx fires first, the residual count is logged
+// at Warn — those goroutines leak, but the leak is bounded by the
+// session count and surfaces in observability.
+func (e *Exporter) waitDisconnectBounded(drainCtx context.Context, wg *sync.WaitGroup) {
+	done := make(chan struct{})
+
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-drainCtx.Done():
+		e.logger.Warn("shutdown: graceful kernel disconnect goroutines did not complete in drain window",
+			slog.Any("err", drainCtx.Err()))
+	}
 }
 
 // applyShutdownBackstop derives the ctx the drain actually waits on.
