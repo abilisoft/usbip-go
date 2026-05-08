@@ -75,6 +75,19 @@ func (f *FakeClock) After(d time.Duration) <-chan time.Time {
 	return ch
 }
 
+// Pending reports the number of After-channels currently awaiting their
+// deadline. Exposed so tests asserting the "register-before-return"
+// contract of a watcher goroutine can verify registration synchronously
+// without falling back to polling or wall-clock sleeps. The count is
+// taken under the FakeClock mutex so concurrent After/Advance callers
+// cannot observe a torn value.
+func (f *FakeClock) Pending() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return len(f.pending)
+}
+
 // Advance moves the clock forward by d. Any After channel whose deadline
 // is at or before the new Now is fired with the new Now value and removed
 // from the pending list.
