@@ -554,6 +554,83 @@ func TestDiscoverTopology_RejectsZeroNports(t *testing.T) {
 	require.Zero(t, topo.VHCIPorts, "VHCIPorts must never surface as zero through a successful path")
 }
 
+// flakyFS wraps an fs.FS and fails the first Open call against a
+// watched path with a canned error, then delegates to the inner fs for
+// every subsequent call. Used to pin the transient-failure retry
+// semantics of loadTopology: a poisoned cache would wedge the adapter
+// forever on the first transient fs error, but the contract requires
+// retrying load on every call until one succeeds.
+type flakyFS struct {
+	inner     fs.FS
+	watch     string
+	firstErr  error
+	triggered *int
+}
+
+// Open implements fs.FS. The first Open of the watched path returns
+// firstErr; subsequent calls delegate to inner unchanged.
+func (f flakyFS) Open(name string) (fs.File, error) {
+	if name == f.watch {
+		if *f.triggered == 0 {
+			*f.triggered++
+
+			return nil, &fs.PathError{Op: "open", Path: name, Err: f.firstErr}
+		}
+	}
+
+	file, err := f.inner.Open(name)
+	if err != nil {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: err}
+	}
+
+	return file, nil
+}
+
+// TestCommonAdapter_TopologyRetriesAfterTransientFailure pins the
+// long-lived daemon recovery contract for the topology cache: a
+// transient sysfs error on the first loadTopology call must NOT
+// poison the cache forever. The first call observes the fs error;
+// every subsequent call retries the underlying load and, once the
+// transient fault clears, returns a valid Topology without error.
+//
+// Pre-fix behaviour: the sync.Once wrapper memoised both success and
+// error, so the first failure wedged the cache permanently and a
+// daemon that survived a vhci_hcd module reload could never recover
+// its BusMap-consuming paths (uevent mapping, findFreePort).
+func TestCommonAdapter_TopologyRetriesAfterTransientFailure(t *testing.T) {
+	t.Parallel()
+
+	inner := topoFS(map[string]string{
+		"/sys/devices/platform/vhci_hcd.0/nports":      "16\n",
+		"/sys/devices/platform/vhci_hcd.0/status":      "",
+		"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
+		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
+	})
+
+	var triggered int
+
+	fake := flakyFS{
+		inner:     inner,
+		watch:     "sys/devices/platform/vhci_hcd.0/nports",
+		firstErr:  fs.ErrInvalid,
+		triggered: &triggered,
+	}
+
+	a, err := kernel.NewImporterAdapter(kernel.WithFS(fake))
+	require.NoError(t, err)
+
+	_, err = kernel.LoadTopologyForTest(a)
+	require.Error(t, err, "first call observes the injected transient error")
+
+	topo, err := kernel.LoadTopologyForTest(a)
+	require.NoError(t, err,
+		"second call must retry the load — the cache must not memoise error")
+	require.EqualValues(t, 1, topo.NControllers,
+		"retry must yield the valid Topology from the now-healthy fs")
+	require.Len(t, topo.BusMap, 2,
+		"BusMap must be fully populated after the retry succeeds")
+}
+
 // TestImporterAdapter_LoadTopology confirms the importer adapter
 // exposes a cached topology post-construction. Task 2 and later consume
 // this cached value rather than re-reading sysfs on every call.
