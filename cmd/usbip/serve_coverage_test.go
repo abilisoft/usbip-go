@@ -158,7 +158,7 @@ func TestFirstSingletonListenerReturnsExpected(t *testing.T) {
 	defer func() { _ = ln.Close() }()
 
 	got := firstSingletonListener(map[string][]net.Listener{
-		"usbipd-go.socket": {ln},
+		"usbip.socket": {ln},
 	})
 	require.Same(t, ln, got)
 }

@@ -31,7 +31,7 @@ const (
 // not be observed after PersistentPreRunE runs.
 type ServeConfig struct {
 	// Listen is the TCP bind address. Ignored when systemd passes a
-	// named socket via LISTEN_FDNAMES=usbipd-go.
+	// named socket via LISTEN_FDNAMES=usbip.
 	Listen string
 	// StatusSocket is the UDS path for the health/status endpoint.
 	// Empty string disables the endpoint entirely.

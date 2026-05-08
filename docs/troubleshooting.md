@@ -63,7 +63,7 @@ START: usbip-go attach HOST BUSID fails.
   |     |
   |     +-- YES -> curl -v telnet://HOST:3240 (or `nc HOST 3240`) from the client.
   |     |          Succeeds? Daemon is running but rejecting you -> check --allow-cidr on server.
-  |     |          Refused? Daemon is down -> systemctl status usbipd-go on server.
+  |     |          Refused? Daemon is down -> systemctl status usbip on server.
   |     |          Timeout? Firewall or network path -> check iptables/nftables and route.
   |     |
   |     +-- NO  -> continue.
@@ -147,11 +147,11 @@ This is the last-resort path; prefer `usbip-go detach` when it works.
 ## Daemon not accepting connections
 
 ```
-$ sudo systemctl status usbipd-go usbipd-go.socket
+$ sudo systemctl status usbip usbip.socket
 $ sudo journalctl -u usbipd-go -f
 ```
 
-Socket-activation quirk: `systemctl status usbipd-go` may show
+Socket-activation quirk: `systemctl status usbip` may show
 "inactive (dead)" between clients. That is normal — the socket unit
 accepts inbound TCP and wakes the daemon on demand.
 
@@ -166,7 +166,7 @@ If the listener is absent, the socket unit failed. Check its
 logs:
 
 ```
-$ sudo journalctl -u usbipd-go.socket -f
+$ sudo journalctl -u usbip.socket -f
 ```
 
 ## When to capture a wire trace

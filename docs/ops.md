@@ -1,8 +1,9 @@
-# Operating the usbip-go daemon
+# Operating the `usbip` daemon
 
 This document covers installation, systemd integration, the status
-UDS, metrics scraping, and health/readiness endpoints for
-production deployments of `usbipd-go`.
+UDS, and health/readiness endpoints for production deployments of
+`usbip serve` (the daemon subcommand of the unified `usbip` binary;
+see ADR-0011).
 
 ## Installation
 
@@ -13,9 +14,9 @@ Three supported install paths:
    ```
    curl -LO https://github.com/abilisoft/usbip-go/releases/download/vX.Y.Z/usbip-go_vX.Y.Z_linux_amd64.tar.gz
    tar xzf usbip-go_vX.Y.Z_linux_amd64.tar.gz
-   sudo install -m 0755 usbip-go usbipd-go /usr/bin/
-   sudo install -Dm 0644 contrib/systemd/usbipd-go.service /etc/systemd/system/usbipd-go.service
-   sudo install -Dm 0644 contrib/systemd/usbipd-go.socket  /etc/systemd/system/usbipd-go.socket
+   sudo install -m 0755 usbip /usr/bin/
+   sudo install -Dm 0644 contrib/systemd/usbip.service /etc/systemd/system/usbip.service
+   sudo install -Dm 0644 contrib/systemd/usbip.socket  /etc/systemd/system/usbip.socket
    ```
 
 2. **Debian / RPM package** from the release assets. Install via
@@ -52,7 +53,7 @@ The project ships two unit files under
 [`contrib/systemd/`](../contrib/systemd/). Both are intentionally
 minimal — operators are expected to copy and customise.
 
-### `usbipd-go.socket`
+### `usbip.socket`
 
 ```ini
 [Unit]
@@ -61,7 +62,7 @@ Description=USB/IP (Go) daemon socket
 [Socket]
 ListenStream=0.0.0.0:3240
 Accept=no
-FileDescriptorName=usbipd-go
+FileDescriptorName=usbip
 
 [Install]
 WantedBy=sockets.target
@@ -70,20 +71,20 @@ WantedBy=sockets.target
 Socket activation means systemd binds the TCP port. The daemon
 receives the listener via `LISTEN_FDS` + `LISTEN_FDNAMES` and never
 races with a previous daemon over port 3240 during upgrades. The
-`FileDescriptorName=usbipd-go` directive lets the Go
+`FileDescriptorName=usbip` directive lets the Go
 `activation.ListenersWithNames` helper disambiguate if multiple
 sockets are ever passed to the same unit.
 
-### `usbipd-go.service`
+### `usbip.service`
 
 ```ini
 [Unit]
 Description=USB/IP (Go) daemon
-Requires=usbipd-go.socket
+Requires=usbip.socket
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/usbipd-go
+ExecStart=/usr/bin/usbip serve
 Restart=on-failure
 CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
 
@@ -97,8 +98,9 @@ Copy, then customise:
   your network (see [`security.md`](security.md)).
 - Add `--health-addr=127.0.0.1:9240` to expose `/healthz` and
   `/readyz` on localhost for orchestrator probes.
-- Add `--status-socket-group=usbip-go` and create the `usbip-go` group
-  for the operators who need `usbipd-go drain`.
+- Add `--status-socket-group=usbip` (the daemon's default) or any
+  group of your choice; create that group and add the operators who
+  need `usbip drain` to it.
 - Pin additional hardening directives:
   `NoNewPrivileges=yes`, `ProtectSystem=strict`,
   `ProtectHome=true`, `PrivateTmp=yes`, `RestrictSUIDSGID=yes`,
@@ -108,12 +110,12 @@ Enable:
 
 ```
 sudo systemctl daemon-reload
-sudo systemctl enable --now usbipd-go.socket
+sudo systemctl enable --now usbip.socket
 ```
 
 Socket activation means the daemon starts on the first inbound
-connection, not at boot. `systemctl status usbipd-go` reports the
-daemon's state; `systemctl status usbipd-go.socket` reports the
+connection, not at boot. `systemctl status usbip` reports the
+daemon's state; `systemctl status usbip.socket` reports the
 listener.
 
 ## Daemon flags
@@ -131,7 +133,7 @@ Authoritative list in v1 contract §7.7. Full flag set:
 | `--handshake-timeout` | `10s` | Slowloris defence; drop a peer that stalls mid-handshake. |
 | `--shutdown-timeout` | `30s` | Graceful drain budget before force-close. |
 | `--status-socket` | `/run/usbip-go/status.sock` | Change to an alternate runtime dir or `""` to disable. |
-| `--status-socket-group` | `usbip-go` | Match your operator group. |
+| `--status-socket-group` | `usbip` | Match your operator group. |
 | `--health-addr` | `""` | Set to `127.0.0.1:9240` (or similar) to expose `/healthz` and `/readyz` for orchestrator probes. |
 | `--log-level` | `info` | `debug` or `trace` during incident response. |
 | `--log-format` | `auto` | `json` for log-aggregation pipelines. |
@@ -245,16 +247,16 @@ Recommended journald signal queries:
 
 ```
 # Bind / unbind failures by outcome
-journalctl -u usbipd-go --output=json \
+journalctl -u usbip --output=json \
   | jq 'select(.MESSAGE | startswith("exporter bind failed"))
         | {time: .__REALTIME_TIMESTAMP, busid, outcome, err}'
 
 # Reconnect storms (watcher backoff churn)
-journalctl -u usbipd-go --output=json \
+journalctl -u usbip --output=json \
   | jq 'select(.outcome == "backoff")'
 
 # Sessions rejected by ACL or rate limit
-journalctl -u usbipd-go --output=json \
+journalctl -u usbip --output=json \
   | jq 'select(.outcome == "rejected_acl" or .outcome == "rejected_rate")'
 ```
 
@@ -268,9 +270,9 @@ adapter.
 For seamless upgrades:
 
 ```
-sudo usbipd-go drain --status-socket /run/usbip-go/status.sock
-sudo install -m 0755 /tmp/new-usbipd-go /usr/bin/usbipd-go
-sudo systemctl start usbipd-go
+sudo usbip drain --status-socket /run/usbip-go/status.sock
+sudo install -m 0755 /tmp/new-usbip /usr/bin/usbip
+sudo systemctl start usbip
 ```
 
 Kernel-owned sessions survive the daemon restart because the kernel
@@ -293,11 +295,11 @@ need accounting continuity should drain before upgrading.
 - **Something else** — include the output of:
 
   ```
-  usbipd-go version
-  sudo usbipd-go --log-level=trace --status-socket=/run/usbip-go/status.sock
+  usbip version
+  sudo usbip serve --log-level=trace --status-socket=/run/usbip-go/status.sock
   sudo curl --unix-socket /run/usbip-go/status.sock http://unused/ | jq .
   curl -s http://127.0.0.1:9240/readyz
-  journalctl -u usbipd-go --output=json --since '-15min'
+  journalctl -u usbip --output=json --since '-15min'
   ```
 
   in any issue you file.

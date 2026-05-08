@@ -372,7 +372,7 @@ func TestStatusFileMode0660(t *testing.T) {
 
 // TestStatusGroupChownSkipsIfMissing proves the status server handles
 // a missing --status-socket-group gracefully (best-effort chown, not
-// a hard failure — operators on dev machines without a `usbip-go` group
+// a hard failure — operators on dev machines without a `usbip` group
 // should still see a usable endpoint).
 func TestStatusGroupChownSkipsIfMissing(t *testing.T) {
 	t.Parallel()
