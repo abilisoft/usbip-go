@@ -92,11 +92,17 @@
         fileSystems."/src" = {
           device = "src";
           fsType = "9p";
-          # Read-only to close a TOCTOU: the runner validates
-          # build/vm/cmd.sh exists on the host before launching
-          # qemu; mounting /src rw would let the host swap the
-          # file out after the check but before the VM reads it.
+          # /src is read-only so the VM cannot mutate host source,
+          # cmd.sh, or build artefacts outside the cache carve-out.
+          # A separate rw mount on /src/build/cache (below) gives Go
+          # a writable space without widening the blast radius to
+          # the whole tree.
           options = [ "trans=virtio" "version=9p2000.L" "msize=131072" "ro" ];
+        };
+        fileSystems."/src/build/cache" = {
+          device = "srccache";
+          fsType = "9p";
+          options = [ "trans=virtio" "version=9p2000.L" "msize=131072" "rw" ];
         };
         fileSystems."/sys/kernel/config" = {
           device = "configfs";
@@ -110,9 +116,21 @@
         services.getty.autologinUser = "root";
         users.users.root.hashedPassword = "";
 
-        # The test payload: run whatever /src/build/vm/cmd.sh contains.
-        # The runner script stages that file via 9p before booting, so
-        # the VM only has to exec it.
+        # Make the Go toolchain and a minimal shell surface available
+        # to the test payload inside the VM. /nix/store is bind-mounted
+        # from the host, so every path under systemPackages resolves
+        # without the VM having to download or install anything.
+        environment.systemPackages = with pkgs; [
+          bash coreutils util-linux kmod iproute2 procps
+          pkgs."go_${builtins.replaceStrings ["."] ["_"] goMinor}"
+          git gotools
+        ];
+
+        # The test payload: copy /src/build/vm/cmd.sh into tmpfs,
+        # then exec the tmpfs copy. That snapshot closes the TOCTOU
+        # window even though /src is mounted rw for the sake of Go's
+        # cache writes. The unit powers off on success AND failure so
+        # every crash class ends the VM instead of holding serial.
         systemd.services.usbip-go-test = {
           wantedBy = [ "multi-user.target" ];
           after = [ "local-fs.target" ];
@@ -123,6 +141,11 @@
           };
           path = with pkgs; [
             bash coreutils util-linux kmod iproute2 procps
+            # Go + goimports + git visible to the oneshot so integration
+            # payloads can run `go test ./...` against the bind-mounted
+            # /src without needing to re-install anything inside the VM.
+            pkgs."go_${builtins.replaceStrings ["."] ["_"] goMinor}"
+            pkgs.git pkgs.gotools pkgs.gcc pkgs.binutils
           ];
           script = ''
             set -eu
@@ -130,14 +153,14 @@
             for m in ${lib.concatStringsSep " " microvmKernelModules}; do
               modprobe "$m"
             done
-            echo "[vm] running /src/build/vm/cmd.sh"
-            exec bash /src/build/vm/cmd.sh
+            echo "[vm] snapshotting /src/build/vm/cmd.sh -> /run/vm-cmd.sh"
+            install -m 0755 /src/build/vm/cmd.sh /run/vm-cmd.sh
+            echo "[vm] running /run/vm-cmd.sh"
+            exec bash /run/vm-cmd.sh
           '';
+          onSuccess = [ "poweroff.target" ];
+          onFailure = [ "poweroff.target" ];
         };
-
-        # Power off after the oneshot completes (success or failure).
-        systemd.services.usbip-go-test.onSuccess = [ "poweroff.target" ];
-        systemd.services.usbip-go-test.onFailure = [ "poweroff.target" ];
       };
 
       mkMicrovmRun = pkgs: pkgs.writeShellApplication {
@@ -187,6 +210,7 @@
             -append "init=$toplevel/init $(cat $toplevel/kernel-params) console=ttyS0 panic=-1 loglevel=4" \
             -virtfs "local,id=store,path=/nix/store,mount_tag=store,security_model=none,readonly=on" \
             -virtfs "local,id=src,path=$src,mount_tag=src,security_model=none,readonly=on" \
+            -virtfs "local,id=srccache,path=$src/build/cache,mount_tag=srccache,security_model=none" \
             -device virtio-rng-pci \
             -no-reboot
         '';
