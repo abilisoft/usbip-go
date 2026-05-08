@@ -64,7 +64,7 @@ func TestCompletionBindDynamic(t *testing.T) {
 	swapFactories(t, &mockImporter{}, exp)
 
 	completions, directive := completeBindableBusIDs(newRootCmd(), nil, "")
-	require.Equal(t, []string{"1-1.2\tabcd:0001"}, []string(cobraCompletionStrings(completions)))
+	require.Equal(t, []string{"1-1.2\tabcd:0001"}, cobraCompletionStrings(completions))
 	require.NotZero(t, directive)
 }
 
