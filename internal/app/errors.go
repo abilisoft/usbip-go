@@ -1,6 +1,10 @@
 package app
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/abilisoft/usbip-go/pkg/domain"
+)
 
 // Sentinel errors returned by internal/app services. Consumers in the
 // public facade (pkg/usbip) re-export a subset; the rest are internal
@@ -8,8 +12,10 @@ import "errors"
 var (
 	// ErrAttachInProgress indicates Attach is already running on the
 	// same busid/remote pair. Concurrent Attach calls would race the
-	// fd-passing handoff and corrupt the handle map.
-	ErrAttachInProgress = errors.New("attach already in progress for this endpoint")
+	// fd-passing handoff and corrupt the handle map. Aliased to
+	// pkg/domain so the public facade re-exports the same identity
+	// (pass-2 RANK 6).
+	ErrAttachInProgress = domain.ErrAttachInProgress
 
 	// ErrHandleNotFound indicates Detach or ListPorts was called with
 	// a PortID that is not tracked by the Importer. Typical causes:

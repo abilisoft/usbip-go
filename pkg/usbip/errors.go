@@ -55,6 +55,12 @@ var (
 	// domain package already publishes this lifecycle sentinel on the
 	// public surface (spec §5.7).
 	ErrAlreadyShutdown = domain.ErrAlreadyShutdown
+
+	// ErrAttachInProgress indicates Attach is already running for the
+	// same (remote, busid) pair and the dedupe gate rejected a second
+	// caller. Aliased to pkg/domain so errors.Is matches against
+	// either form (pass-2 RANK 6).
+	ErrAttachInProgress = domain.ErrAttachInProgress
 )
 
 // Public lifecycle sentinels. ErrImporterClosed and
