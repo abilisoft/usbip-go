@@ -144,11 +144,17 @@ func startHealthServer(
 	stop := func(stopCtx context.Context) error {
 		shutdownErr := srv.Shutdown(stopCtx)
 
-		// Wait for Serve to return so the stopCtx-bounded shutdown is
-		// actually complete before we report success. Reading from the
-		// buffered channel establishes happens-before with the Serve
-		// goroutine's write.
-		serveErr := <-serveDone
+		// Wait for Serve to return — but only up to the same stopCtx
+		// deadline. A wedged handler that ignores Shutdown's drain
+		// would otherwise block daemon exit forever (Shutdown returns
+		// the deadline error, but its Serve goroutine never finishes
+		// because the in-flight handler refuses to release).
+		var serveErr error
+		select {
+		case serveErr = <-serveDone:
+		case <-stopCtx.Done():
+			serveErr = stopCtx.Err()
+		}
 
 		if shutdownErr != nil {
 			return fmt.Errorf("shutdown health server: %w", shutdownErr)

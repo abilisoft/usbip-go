@@ -23,7 +23,9 @@ import (
 // session lifecycle share this setup via newSessionImportCodec.
 //
 // serveImport now sends OP_REP_IMPORT before kernel handoff — the mock
-// must accept the success-reply encode call.
+// must accept both the success-reply encode call and the error-reply
+// encode call (the latter fires on subscribe failure / busid collision /
+// register decline paths).
 func newSessionImportCodec(busID domain.BusID) *ProtocolCodecMock {
 	return &ProtocolCodecMock{
 		DecodeHeaderFunc: wire.NewCodec().DecodeHeader,
@@ -31,6 +33,9 @@ func newSessionImportCodec(busID domain.BusID) *ProtocolCodecMock {
 			return busID, nil
 		},
 		EncodeOpRepImportFunc: func(_ io.Writer, _ domain.Device) error {
+			return nil
+		},
+		EncodeOpRepImportErrorFunc: func(_ io.Writer, _ uint32) error {
 			return nil
 		},
 	}

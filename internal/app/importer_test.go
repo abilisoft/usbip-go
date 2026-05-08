@@ -1153,9 +1153,23 @@ func TestImporterAttachConcurrentWithCloseNoPanic(t *testing.T) {
 			return newFakeConn(), nil
 		},
 	}
+	// The importer now rejects an OP_REP_IMPORT whose busid differs from
+	// the request — pair the codec mock so the reply busid mirrors the
+	// request. A buffered channel handles the per-attach pairing under
+	// concurrent dispatch.
+	pendingBusID := make(chan domain.BusID, parallelAttaches)
 	codec := &ProtocolCodecMock{
-		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
-		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
+		EncodeOpReqImportFunc: func(_ io.Writer, b domain.BusID) error {
+			pendingBusID <- b
+
+			return nil
+		},
+		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) {
+			d := attachDevice()
+			d.BusID = <-pendingBusID
+
+			return d, nil
+		},
 	}
 
 	imp := newImporterForTest(t,

@@ -776,6 +776,20 @@ func (e *Exporter) registerSession(sess domain.Session, peerKey string, conn net
 		return nil, ErrPerPeerLimitExceeded
 	}
 
+	// Reject a second concurrent session for the same busid before the
+	// kernel handoff. Without this guard two importers racing the same
+	// device both pass lookupExportedDevice, both get a success
+	// OP_REP_IMPORT, and the kernel rejects the second sockfd write —
+	// leaving the second importer with a contradictory protocol exchange
+	// (success reply, then a closed conn). Surfacing the collision as
+	// ErrDeviceAlreadyBound lets serveImport reply ST_DEV_BUSY before
+	// any handoff.
+	for _, existing := range e.sessions {
+		if existing.session.BusID == sess.BusID {
+			return nil, fmt.Errorf("%w: busid %s", domain.ErrDeviceAlreadyBound, sess.BusID)
+		}
+	}
+
 	h := &sessionHandle{
 		session: sess,
 		done:    make(chan struct{}),
