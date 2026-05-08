@@ -92,16 +92,28 @@ behavior.
 
 ## Idempotency
 
-`POST /drain` is idempotent at the application level:
-`Exporter.Shutdown` is guarded by `sync.Once` so multiple
-cancellations fold to one. The HTTP handler also guards goroutine
-spawn via an `atomic.Bool` CAS — the first POST that wins the swap
-spawns the drain goroutine and returns `202 Accepted` (RFC 9110
-§15.3.3 — request accepted for asynchronous processing). Subsequent
-POSTs see the gate already set and return `200 OK` as a no-op
-acknowledgement. The split lets monitoring tools distinguish "I
-initiated this drain" from "someone else already did" without
-parsing a response body.
+`POST /drain` is idempotent at three layers:
+
+1. **HTTP handler**: an `atomic.Bool` CAS gate ensures only the first
+   POST that wins the swap spawns the drain goroutine. That POST
+   returns `202 Accepted` (RFC 9110 §15.3.3 — request accepted for
+   asynchronous processing). Subsequent POSTs see the gate already
+   set and return `200 OK` as a no-op acknowledgement. The split
+   lets monitoring tools distinguish "I initiated this drain" from
+   "someone else already did" without parsing a response body.
+2. **Run-side cancel**: the cancel func registered via
+   `statusExporter.setDrain` is `cancelServe(errDrainRequested)`,
+   which delegates to `context.WithCancelCause`. The underlying ctx
+   cancellation is naturally idempotent — second cancels are no-ops.
+3. **Exporter.Shutdown**: under the exporter mutex, the `shutdown`
+   flag flips on first entry and the tracked listener is captured
+   and cleared. Subsequent calls find an empty listener field, an
+   empty sessions map, and proceed through the same cleanup code
+   path with nothing to do — no panic, no duplicate session-end
+   events, just a fast return.
+
+The handler-level CAS is the layer this ADR introduces. The other
+two layers were already idempotent through pre-existing design.
 
 ## What happens to active USB traffic during drain
 
@@ -131,7 +143,7 @@ item 7).
 
 | Failure | Effect | Operator action |
 |---|---|---|
-| `src.Drain` returns non-nil (rare; means `Exporter.Shutdown` errored on a wedged session) | The drain goroutine logs at error level; the `drainStarted` gate stays set. Subsequent `POST /drain` returns `200 OK` no-op. The daemon STILL exits when its own ctx cancels (deferred `drainExporter` in `runDaemon` runs `Exporter.Shutdown` again under the same `sync.Once`). | Wait for the daemon to exit on its own; check journald for the error. If drain was caused by a pending upgrade, the new process binds the activated socket regardless. |
+| `src.Drain` returns non-nil (rare; means `Exporter.Shutdown` errored on a wedged session) | The drain goroutine logs at error level; the `drainStarted` gate stays set. Subsequent `POST /drain` returns `200 OK` no-op. The daemon STILL exits when its own ctx cancels (deferred `drainExporter` in `runDaemon` re-enters `Exporter.Shutdown`; the second call finds the listener already cleared and the sessions map drained, so it returns quickly). | Wait for the daemon to exit on its own; check journald for the error. If drain was caused by a pending upgrade, the new process binds the activated socket regardless. |
 | Daemon ctx cancels mid-drain (operator Ctrl-C after triggering drain) | The drain goroutine receives the cancellation through the daemon ctx and aborts its wait. The deferred `drainExporter` in `runDaemon` runs the same `Exporter.Shutdown` sync.Once — second invocation returns immediately. | Intentional: operator-visible Ctrl-C wins; in-flight sessions force-close. |
 | Drain hangs past `--shutdown-timeout` | `Exporter.Shutdown` returns; lingering sessions are force-closed; daemon exits. Client polling sees ECONNREFUSED on the next `GET /` and treats it as drain success. | None — this is the well-behaved path. |
 | Kernel module hung (rare; sysfs writes stall) | Drain blocks inside the per-session `kernel.DetachPort` call. `--shutdown-timeout` fires; daemon force-exits; supervising systemd may issue SIGKILL after `TimeoutStopSec`. | Last-resort `systemctl kill -s SIGKILL usbip` if supervisor doesn't escalate. Investigate the wedged kernel module separately. |

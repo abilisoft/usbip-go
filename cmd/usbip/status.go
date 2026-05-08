@@ -220,7 +220,17 @@ func serveStatus(
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		handleStatusGet(w, r, src)
 	})
-	mux.HandleFunc("POST /drain", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("POST /drain", func(w http.ResponseWriter, r *http.Request) {
+		// Reject any query params: v1 has no recognised flags on
+		// /drain. Silently accepting `?force=true` would let a
+		// future client typo masquerade as success; ADR-0012
+		// chooses the explicit-rejection forward-compat policy.
+		if r.URL.RawQuery != "" {
+			http.Error(w, "POST /drain accepts no query parameters in v1", http.StatusBadRequest)
+
+			return
+		}
+
 		handleStatusDrain(drainCtx, &drainStarted, w, src)
 	})
 

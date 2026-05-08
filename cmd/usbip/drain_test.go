@@ -281,3 +281,25 @@ func TestDrainSubcommandUDSDisappears(t *testing.T) {
 	err := cmd.ExecuteContext(context.Background())
 	require.NoError(t, err, "stderr: %s", stderr.String())
 }
+
+// TestDrainSubcommandRejectsEmptyStatusSocket pins the operator-
+// ergonomics fix: when --status-socket is empty (status endpoint
+// disabled on the daemon side), `usbip drain` MUST surface a
+// targeted error explaining the disabled state rather than fall
+// through to a raw dial failure with no context.
+func TestDrainSubcommandRejectsEmptyStatusSocket(t *testing.T) {
+	t.Parallel()
+
+	cmd := newDrainCmd()
+	cmd.SetArgs([]string{"--status-socket", ""})
+
+	var stdout, stderr bytes.Buffer
+
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+
+	err := cmd.ExecuteContext(context.Background())
+	require.Error(t, err, "drain must reject an empty status socket path")
+	require.Contains(t, err.Error(), "status socket",
+		"error message must name the disabled mechanism so operators understand the root cause")
+}
