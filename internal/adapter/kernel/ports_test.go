@@ -317,6 +317,51 @@ func TestListPorts_NonDefaultHCPorts(t *testing.T) {
 	require.EqualValues(t, 12, ports[3].ID, "non-default VHCI_HC_PORTS=4: status.1 SS at flat 12")
 }
 
+// TestListPorts_ToleratesIncompleteBusMap pins Bug B: the status-
+// reading path (ListPorts / findFreePort / readStatusRows) needs only
+// the controller count and the per-controller VHCI_PORTS stride — it
+// does NOT consume the BusMap. An incomplete usb* child layout (e.g. a
+// controller still mid-probe, or one hub vanishing around a hot-unplug
+// race) must not hard-fail ListPorts because the BusMap is irrelevant
+// to row parsing. Only BusMap-dependent paths (uevent mapping in
+// Task 3) should surface errTopologyIncomplete.
+//
+// Fixture: nports=16 on a single controller, a valid status file with
+// two well-formed rows, but ONLY usb1 present (the SS sibling is
+// missing). Pre-fix: ListPorts fails because discoverTopology asserts
+// the BusMap post-condition. Post-fix: ListPorts succeeds with the
+// parsed rows; the BusMap check stays on the full-topology path used
+// by uevent consumers.
+func TestListPorts_ToleratesIncompleteBusMap(t *testing.T) {
+	t.Parallel()
+
+	mfs := fstest.MapFS{
+		"sys/module/usbip_core":                       {Mode: fs.ModeDir},
+		"sys/module/vhci_hcd":                         {Mode: fs.ModeDir},
+		"sys/devices/platform/vhci_hcd.0":             {Mode: fs.ModeDir},
+		"sys/devices/platform/vhci_hcd.0/nports":      {Data: []byte("16\n")},
+		"sys/devices/platform/vhci_hcd.0/usb1/busnum": {Data: []byte("1\n")},
+		// Note: no usb2 entry — the SS sibling is missing. The full
+		// Topology would fail len(BusMap)==2; the StatusTopology must
+		// not care.
+		"sys/devices/platform/vhci_hcd.0/status": {Data: []byte(
+			"hub port sta spd dev      sockfd local_busid\n" +
+				"hs  0000 000 000 00000000 000000 0-0\n" +
+				"ss  0008 000 000 00000000 000000 0-0\n",
+		)},
+	}
+
+	a, err := kernel.NewImporterAdapter(kernel.WithFS(mfs))
+	require.NoError(t, err)
+
+	ports, err := a.ListPorts(context.Background())
+	require.NoError(t, err,
+		"ListPorts must succeed on an incomplete BusMap — status-reading does not consume BusMap")
+	require.Len(t, ports, 2, "both rows must surface despite the missing usb2 sibling")
+	require.EqualValues(t, 0, ports[0].ID)
+	require.EqualValues(t, 8, ports[1].ID)
+}
+
 // TestParseStatusFile_GuardsZeroVHCIPorts pins Bug A's defense-in-depth
 // leg: parseStatusFile must never execute `port / vhciPorts` when
 // vhciPorts is zero. Topology-layer enforcement is the first line, but
