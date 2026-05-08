@@ -51,6 +51,16 @@ type Exporter struct {
 	// sessionsWG (spec §3.4: Serve returns on ctx cancel; Shutdown
 	// drains in-flight sessions bounded by its own ctx).
 	sessionsWG sync.WaitGroup
+
+	// sessionsDrainedOnce lazily spawns a single goroutine that waits
+	// on sessionsWG and closes sessionsDrained. Multiple Shutdown
+	// calls share this drain future so a truly-stuck handler cannot
+	// leak one waiter goroutine per Shutdown (pass-5 RANK A). The
+	// once-init happens inside waitSessionsBounded — at construction
+	// time Serve may not be up yet, so sessionsWG has no participants
+	// to wait for.
+	sessionsDrainedOnce sync.Once
+	sessionsDrained     chan struct{}
 }
 
 // sessionHandle is the per-session bookkeeping entry. done is closed
@@ -132,6 +142,7 @@ func NewExporterWithError(opts ...ExporterOption) (*Exporter, error) {
 		shutdownTimeout: cfg.shutdownTimeout,
 		sessions:        make(map[domain.SessionID]*sessionHandle),
 		perPeer:         make(map[string]int),
+		sessionsDrained: make(chan struct{}),
 	}, nil
 }
 
@@ -476,6 +487,24 @@ func (e *Exporter) acceptLoop(ctx context.Context, listener net.Listener) error 
 	}
 }
 
+// drainFuture returns the shared sessionsWG-drain channel. The first
+// call spawns the single `sessionsWG.Wait(); close(sessionsDrained)`
+// goroutine via sync.Once; subsequent calls return the same channel.
+// Construction-time initialisation is not sufficient because Serve
+// (and hence any sessionsWG.Go(...) calls) may not have happened yet
+// — delaying the spawn until the first Shutdown keeps the waiter
+// aligned with actual draining need.
+func (e *Exporter) drainFuture() <-chan struct{} {
+	e.sessionsDrainedOnce.Do(func() {
+		go func() {
+			e.sessionsWG.Wait()
+			close(e.sessionsDrained)
+		}()
+	})
+
+	return e.sessionsDrained
+}
+
 // shutdownResidualGrace is the extra wall-clock budget
 // waitSessionsBounded allows after force-closing session conns before
 // giving up and returning — long enough for a cooperative handler to
@@ -495,13 +524,15 @@ const shutdownResidualGrace = 100 * time.Millisecond
 // (one that ignores conn.Close) is accepted as a leaked goroutine
 // tradeoff because Shutdown-blocks-forever is a worse failure mode
 // than a bounded goroutine leak. See pass-4 RANK 2.
+//
+// The `sessionsWG.Wait()` observer is a single lazily-spawned
+// goroutine shared across every Shutdown call (pass-5 RANK A). A
+// truly-stuck handler keeps Wait() blocked forever; pre-fix every
+// Shutdown spawned its own waiter so N repeated Shutdowns leaked N
+// parked goroutines. Post-fix sessionsDrainedOnce gates the spawn so
+// the waiter is allocated at most once per Exporter.
 func (e *Exporter) waitSessionsBounded(ctx context.Context) error {
-	done := make(chan struct{})
-
-	go func() {
-		e.sessionsWG.Wait()
-		close(done)
-	}()
+	done := e.drainFuture()
 
 	select {
 	case <-done:
