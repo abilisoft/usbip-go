@@ -175,3 +175,9 @@ type usageError struct {
 
 // Error implements error.
 func (e *usageError) Error() string { return e.msg }
+
+// errUsage returns a *usageError so MapError classifies the wrapped
+// error as ExitUsage. The string is surfaced verbatim on stderr.
+func errUsage(format string, args ...any) error {
+	return &usageError{msg: fmt.Sprintf(format, args...)}
+}

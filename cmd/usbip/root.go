@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/spf13/cobra"
 )
@@ -13,6 +14,13 @@ import (
 // errors.Is if we ever want to distinguish output-class usage errors
 // from others; today it fits the ExitUsage bucket via isUsageError.
 var errInvalidOutput = errors.New("invalid --output")
+
+// outputTable and outputJSON are the two legal values of --output;
+// centralising them kills goconst's complaint about duplicated literals.
+const (
+	outputTable = "table"
+	outputJSON  = "json"
+)
 
 // globalFlags bundles the shared top-level flags from spec §7.2. The
 // struct is populated by cobra's flag bindings during ParseFlags; each
@@ -84,7 +92,7 @@ func newRootCmd() *cobra.Command {
 	}
 
 	flags := cmd.PersistentFlags()
-	flags.StringVarP(&gf.Output, "output", "o", "table", "output format: table or json")
+	flags.StringVarP(&gf.Output, "output", "o", outputTable, "output format: table or json")
 	flags.StringVar(&gf.LogLevel, "log-level", "info", "log level: error/warn/info/debug/trace")
 	flags.StringVar(&gf.LogFormat, "log-format", "auto", "log handler: auto/pretty/json")
 	flags.CountVarP(&gf.VerboseCount, "verbose", "v", "verbose counter: -v=debug, -vv=trace")
@@ -93,7 +101,7 @@ func newRootCmd() *cobra.Command {
 
 	// Fixed-completion hints for enum flags (spec §7.6 static completion).
 	_ = cmd.RegisterFlagCompletionFunc("output", cobra.FixedCompletions(
-		[]cobra.Completion{"table", "json"}, cobra.ShellCompDirectiveNoFileComp))
+		[]cobra.Completion{outputTable, outputJSON}, cobra.ShellCompDirectiveNoFileComp))
 	_ = cmd.RegisterFlagCompletionFunc("log-level", cobra.FixedCompletions(
 		[]cobra.Completion{"error", "warn", "info", "debug", "trace"},
 		cobra.ShellCompDirectiveNoFileComp))
@@ -101,6 +109,7 @@ func newRootCmd() *cobra.Command {
 		[]cobra.Completion{"auto", "pretty", "json"}, cobra.ShellCompDirectiveNoFileComp))
 
 	cmd.AddCommand(newVersionCmd())
+	cmd.AddCommand(newListCmd())
 
 	return cmd
 }
@@ -111,10 +120,22 @@ func newRootCmd() *cobra.Command {
 // PersistentPreRunE.
 func validateGlobalFlags(f *globalFlags) error {
 	switch f.Output {
-	case "table", "json":
+	case outputTable, outputJSON:
 		return nil
 	default:
 		return fmt.Errorf("%w %q (want table or json)", errInvalidOutput, f.Output)
 	}
+}
+
+// loggerFromCtx retrieves the *slog.Logger stashed by PersistentPreRunE.
+// Returns nil when no logger is installed; callers apply a default at
+// that point.
+func loggerFromCtx(ctx context.Context) *slog.Logger {
+	v, ok := ctx.Value(loggerCtxKey).(*slog.Logger)
+	if !ok {
+		return nil
+	}
+
+	return v
 }
 

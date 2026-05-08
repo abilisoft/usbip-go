@@ -9,6 +9,7 @@ require (
 	github.com/goreleaser/goreleaser/v2 v2.15.3
 	github.com/lmittmann/tint v1.1.3
 	github.com/matryer/moq v0.7.1
+	github.com/olekukonko/tablewriter v0.0.5
 	github.com/prometheus/client_golang v1.23.2
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
