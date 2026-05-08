@@ -148,3 +148,59 @@ func TestFakeClockSatisfiesInterface(t *testing.T) {
 	var clock app.Clock = testutil.NewFakeClockAt(newFakeClockEpoch())
 	require.NotNil(t, clock)
 }
+
+// fakeClockAfterRaceSubscribers is the number of goroutines registering
+// After timers concurrently with an Advance in the race test.
+const fakeClockAfterRaceSubscribers = 16
+
+// TestFakeClockAfterRaceWithAdvance exercises concurrent After
+// registration against a single Advance caller. The scenario: N
+// goroutines each call After(d) to register a timer at deadline epoch+d.
+// One additional goroutine calls Advance(d) to fire them. The race
+// detector catches any unsynchronised access on the timer slice;
+// channel-fire semantics are asserted by requiring every registered
+// channel to receive exactly one tick.
+//
+// This is the actual concurrency scenario the earlier test claimed to
+// cover but did not: Sleep is just Advance serially, so TestFakeClockConcurrentSafe
+// was only proving that Advance is safe to call sequentially from many
+// goroutines, not that After + Advance are safe against each other.
+func TestFakeClockAfterRaceWithAdvance(t *testing.T) {
+	t.Parallel()
+
+	epoch := newFakeClockEpoch()
+	clock := testutil.NewFakeClockAt(epoch)
+
+	const tick = 10 * time.Millisecond
+
+	var registered sync.WaitGroup
+
+	registered.Add(fakeClockAfterRaceSubscribers)
+
+	channels := make([]<-chan time.Time, fakeClockAfterRaceSubscribers)
+
+	// Fan out: each goroutine registers its After timer. Every call
+	// takes the FakeClock mutex; the race detector fires if Advance
+	// touches the timer list without locking.
+	for i := range fakeClockAfterRaceSubscribers {
+		go func(idx int) {
+			defer registered.Done()
+
+			channels[idx] = clock.After(tick)
+		}(i)
+	}
+
+	registered.Wait()
+
+	// Advance past every registered deadline. All channels must fire.
+	clock.Advance(tick)
+
+	for i, ch := range channels {
+		select {
+		case fireTime := <-ch:
+			require.Equal(t, epoch.Add(tick), fireTime, "subscriber %d fire-time mismatch", i)
+		case <-time.After(time.Second):
+			t.Fatalf("subscriber %d did not receive after Advance", i)
+		}
+	}
+}
