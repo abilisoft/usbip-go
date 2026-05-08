@@ -19,6 +19,53 @@ artefacts from a single code base:
 No cgo, no dependencies on `usbip-utils`. Upstream wire compatibility
 is pinned by conformance tests against real captures.
 
+## How this compares to upstream `usbip-utils`
+
+The upstream reference is the C client/daemon shipped under
+`linux/tools/usb/usbip` (built and packaged as `usbip` /
+`usbipd` / `libusbip`). usbip-go re-uses the same wire format and
+the same kernel sysfs interface, so it interoperates with upstream
+peers in either direction. What differs is the userspace surface
+around the protocol:
+
+| Capability                                                     | upstream `usbip-utils` | usbip-go                                          |
+| -------------------------------------------------------------- | ---------------------- | ------------------------------------------------- |
+| Wire-compatible with `usbip-utils` peers                       | ✅     | ✅                                |
+| Uses kernel `vhci_hcd` / `usbip_host` / `usbip_vudc`           | ✅     | ✅                                |
+| Pure Go, no cgo                                                | ❌                    | ✅                                |
+| Cross-compile to all Linux arches in one command               | ❌                    | ✅ (`GOOS`/`GOARCH`)              |
+| Embeddable as a library (`pkg/usbip`)                          | ❌                    | ✅                                |
+| Auto-reconnect on detach                                       | ❌                    | ✅ (exponential backoff + jitter) |
+| Concurrent-Attach deduplication (per `(remote, busid)`)        | ❌                    | ✅                                |
+| Per-attach `MaxAttempts` / `OnReconnect` callback              | ❌                    | ✅                                |
+| Graceful drain + bounded `ShutdownTimeout`                     | ❌                    | ✅                                |
+| Structured logging (`slog` JSON / text)                        | ❌                    | ✅                                |
+| Prometheus metrics on importer + exporter                      | ❌                    | ✅                                |
+| Event subscription API (port / session / reconnect)            | ❌                    | ✅                                |
+| systemd socket activation                                      | ❌                    | ✅ (`usbipd-go.socket`)           |
+| Status UDS for live introspection                              | ❌                    | ✅                                |
+| JSON output mode with versioned schema                         | ❌                    | ✅                                |
+| Allow-list CIDR / rate-limit / session caps                    | ❌                    | ✅                                |
+| TCP_NODELAY on dialed connections                              | ✅     | ✅                                |
+| Configurable connect timeout                                   | ❌                    | ✅                                |
+| Tunable TCP keepalive (idle / interval / probes)               | ❌                    | ✅                                |
+| Tunable `SO_SNDBUF` / `SO_RCVBUF` for WAN bandwidth-delay      | ❌                    | ✅                                |
+| Static read / write deadlines per Importer/Exporter            | ❌                    | ✅                                |
+| Tolerance for high-latency / lossy links (50–800 ms RTT)       | ❌                    | ✅                                |
+| Reproducible builds (`-trimpath`, no cgo)                      | ❌                    | ✅                                |
+| Static analysis (CodeQL, `govulncheck`, `golangci-lint`)       | ❌                    | ✅                                |
+| Conformance tests against real wire captures                   | ❌                    | ✅                                |
+| Fuzz targets on the wire codec                                 | ❌                    | ✅                                |
+| Mutation testing on protocol-critical packages                 | ❌                    | ✅                                |
+| Coverage gate (90%+ for pure-logic packages)                   | ❌                    | ✅                                |
+| SBOM + cosign keyless signed releases                          | ❌                    | ✅                                |
+| SLSA Build Provenance on every release                         | ❌                    | ✅                                |
+| OpenSSF Scorecard / Best Practices                             | ❌                    | ✅                                |
+| TLS or authentication on the wire                              | ❌                    | ❌ (out of scope — tunnel via WG/SSH/Tailscale)  |
+
+The underlying invariant — wire-compatible with upstream — does not
+change as new features land.
+
 ## Security posture
 
 > **USB/IP is a plaintext, unauthenticated protocol.**
@@ -52,6 +99,49 @@ GoReleaser archive names follow
 `usbip-go_<version>_<os>_<arch>.tar.gz` (see `.goreleaser.yml`). Pick
 the architecture that matches your host (`amd64`, `arm64`, or
 `armv7`).
+
+### Verifying a release
+
+Every release ships a SLSA Build Provenance bundle
+(`multiple.intoto.jsonl`) and a cosign keyless signature on
+`checksums.txt`. Verify both before installing:
+
+```
+VERSION=1.0.0
+ARCHIVE=usbip-go_${VERSION}_linux_amd64.tar.gz
+BASE=https://github.com/abilisoft/usbip-go/releases/download/v${VERSION}
+
+curl -LO "${BASE}/${ARCHIVE}"
+curl -LO "${BASE}/checksums.txt"
+curl -LO "${BASE}/checksums.txt.sig"
+curl -LO "${BASE}/checksums.txt.pem"
+curl -LO "${BASE}/multiple.intoto.jsonl"
+
+# 1. Provenance: prove the artifact came out of the abilisoft/usbip-go
+#    GitHub Actions release workflow at the matching tag.
+slsa-verifier verify-artifact "${ARCHIVE}" \
+  --provenance-path multiple.intoto.jsonl \
+  --source-uri github.com/abilisoft/usbip-go \
+  --source-tag "v${VERSION}"
+
+# 2. Checksum signature: prove checksums.txt was signed by a Sigstore
+#    keyless cert whose OIDC subject is the .github/workflows/release.yml
+#    workflow at the same v*.*.* tag — matches the exact workflow path
+#    so a different workflow in this repo cannot satisfy the check.
+cosign verify-blob \
+  --certificate checksums.txt.pem \
+  --signature checksums.txt.sig \
+  --certificate-identity-regexp '^https://github\.com/abilisoft/usbip-go/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+
+# 3. Per-binary integrity: confirm the archive's sha256 is in checksums.txt.
+sha256sum -c --ignore-missing checksums.txt
+```
+
+Install [`slsa-verifier`](https://github.com/slsa-framework/slsa-verifier#installation)
+and [`cosign`](https://docs.sigstore.dev/cosign/system_config/installation/)
+once; both are statically linked single binaries.
 
 ### Systemd
 

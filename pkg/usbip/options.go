@@ -20,6 +20,11 @@ type importerConfig struct {
 	backoff            BackoffStrategy
 	statusPollInterval time.Duration
 	metricsRegisterer  prometheus.Registerer
+	// transportOptions is the snapshot wired into internal/app via
+	// WithImporterTransportOptions during config translation. Zero
+	// preserves v1.0.0 behavior; non-zero values reach the dialed
+	// connection through the transport adapter.
+	transportOptions TransportOptions
 }
 
 // ImporterOption configures an Importer at construction time. Apply
@@ -57,6 +62,24 @@ func WithImporterMetricsRegisterer(r prometheus.Registerer) ImporterOption {
 	return func(c *importerConfig) { c.metricsRegisterer = r }
 }
 
+// WithImporterTransportOptions stores TCP-level tuning that the
+// Importer hands to the transport adapter on every outbound Dial.
+// Zero-valued fields preserve v1.0.0 behavior. Negative values cause
+// NewImporter to return ErrTransportOptionsInvalid.
+//
+// Recommended values per RTT class are documented in
+// `docs/high-latency-plan.md`. Common WAN starting point:
+//
+//	usbip.WithImporterTransportOptions(usbip.TransportOptions{
+//	    DialConnectTimeout:   10 * time.Second,
+//	    TCPKeepAliveIdle:     30 * time.Second,
+//	    TCPKeepAliveInterval: 10 * time.Second,
+//	    TCPKeepAliveProbes:   6,
+//	})
+func WithImporterTransportOptions(opts TransportOptions) ImporterOption {
+	return func(c *importerConfig) { c.transportOptions = opts }
+}
+
 // importerConfigToInternal translates the public-facing importerConfig
 // into the matching slice of internalapp.ImporterOption values. Fields
 // that have no internal counterpart yet (backoff, statusPollInterval)
@@ -64,7 +87,7 @@ func WithImporterMetricsRegisterer(r prometheus.Registerer) ImporterOption {
 // Attach time; this keeps the public surface stable while the internal
 // Importer grows its per-Importer defaults.
 func importerConfigToInternal(cfg importerConfig) []internalapp.ImporterOption {
-	const importerInternalOptCap = 2
+	const importerInternalOptCap = 3
 
 	out := make([]internalapp.ImporterOption, 0, importerInternalOptCap)
 
@@ -75,6 +98,10 @@ func importerConfigToInternal(cfg importerConfig) []internalapp.ImporterOption {
 	if cfg.metricsRegisterer != nil {
 		out = append(out, internalapp.WithImporterMetrics(
 			internalapp.MustNewMetrics(cfg.metricsRegisterer)))
+	}
+
+	if cfg.transportOptions != (TransportOptions{}) {
+		out = append(out, internalapp.WithImporterTransportOptions(cfg.transportOptions))
 	}
 
 	return out
@@ -103,6 +130,12 @@ type exporterConfig struct {
 	// Zero value means "do not stamp"; exporterConfigToInternal skips
 	// the option when all three fields are empty.
 	buildInfo exporterBuildInfo
+	// transportOptions is wired through to internal/app via
+	// WithExporterTransportOptions. Today the value reaches accepted
+	// connections only through the transport adapter's Listen wrapper;
+	// callers that pass a pre-built net.Listener to Serve must tune
+	// that listener themselves.
+	transportOptions TransportOptions
 }
 
 // exporterBuildInfo mirrors the internal/app buildInfo shape so the
@@ -190,6 +223,20 @@ func WithExporterShutdownTimeout(d time.Duration) ExporterOption {
 // option twice replaces the previous value.
 func WithExporterMetricsRegisterer(r prometheus.Registerer) ExporterOption {
 	return func(c *exporterConfig) { c.metricsRegisterer = r }
+}
+
+// WithExporterTransportOptions stores TCP-level tuning that the
+// Exporter hands to the transport adapter on accepted listener
+// connections. Zero-valued fields preserve v1.0.0 behavior. Negative
+// values cause NewExporter to return ErrTransportOptionsInvalid.
+//
+// IMPORTANT: tuning reaches accepted connections only when the
+// listener was produced by the transport adapter's Listen wrapper.
+// Daemons that pass a pre-built net.Listener (e.g. systemd
+// activation) into Serve must apply socket options to that listener
+// themselves; the option is silently inert in that path.
+func WithExporterTransportOptions(opts TransportOptions) ExporterOption {
+	return func(c *exporterConfig) { c.transportOptions = opts }
 }
 
 // WithExporterBuildInfo stamps the usbip_build_info gauge (§11.5.5)
@@ -293,6 +340,10 @@ func appendExporterMetrics(
 	if !cfg.buildInfo.isZero() {
 		out = append(out, internalapp.WithExporterBuildInfo(
 			cfg.buildInfo.version, cfg.buildInfo.commit, cfg.buildInfo.goVersion))
+	}
+
+	if cfg.transportOptions != (TransportOptions{}) {
+		out = append(out, internalapp.WithExporterTransportOptions(cfg.transportOptions))
 	}
 
 	return out

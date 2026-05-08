@@ -31,6 +31,12 @@ jobs:
       # token for a Sigstore Fulcio certificate; flakehub-cache uses
       # the same scope to authenticate to FlakeHub Cache.
       id-token: write
+    outputs:
+      # hashes is a base64-encoded `sha256<TAB>filename` list covering
+      # every release artifact the SLSA provenance job downstream
+      # should attest to. The trailing-newline shape matches the input
+      # the slsa-github-generator generic builder consumes.
+      hashes: ${{ steps.hash-artifacts.outputs.hashes }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -46,3 +52,55 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COSIGN_EXPERIMENTAL: '1'
+
+      - name: Hash release artifacts for SLSA provenance
+        id: hash-artifacts
+        # Provenance the user-downloadable binary archives and OS
+        # packages only; checksums.txt and per-archive SBOM/.sig/.pem
+        # are derivative artefacts whose integrity is already covered
+        # by the cosign keyless signature on checksums.txt itself.
+        # Listing every per-arch archive plus the deb/rpm packages
+        # gives slsa-verifier a single intoto.jsonl that covers every
+        # binary a consumer can download.
+        working-directory: build/dist
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          artifacts=( *.tar.gz *.deb *.rpm )
+          if [ ${#artifacts[@]} -eq 0 ]; then
+            echo "no release artefacts to hash; goreleaser run produced none" >&2
+            exit 1
+          fi
+          hashes=$(sha256sum "${artifacts[@]}" | base64 -w0)
+          echo "hashes=$hashes" >> "$GITHUB_OUTPUT"
+
+  provenance:
+    name: SLSA Build Provenance
+    needs: [release]
+    permissions:
+      # actions:read lets the generator inspect the parent workflow
+      # graph it attests to.
+      actions: read
+      # id-token:write is the OIDC scope cosign keyless uses to sign
+      # the generated provenance bundle.
+      id-token: write
+      # contents:write so the generator can upload <artifact>.intoto.jsonl
+      # back onto the GitHub Release that the goreleaser job created.
+      contents: write
+    # The SLSA generic generator MUST be referenced by tag (not SHA):
+    # slsa-github-generator's SECURITY.md is explicit that slsa-verifier
+    # fails validation when the call site uses a commit SHA, because
+    # the trusted-builder identity baked into the provenance certificate
+    # is the tag-form ref. Dependabot still picks up version bumps via
+    # the github-actions ecosystem since the @<tag> shape is supported.
+    # Generic builder is the right entry point for goreleaser output
+    # (multi-artifact, base64 hash list); the go-specific builder would
+    # re-run the build itself and bypass goreleaser.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects: ${{ needs.release.outputs.hashes }}
+      # upload-assets attaches the *.intoto.jsonl provenance bundle
+      # to the GitHub Release as a downloadable asset, which is what
+      # OpenSSF Scorecard's Signed-Releases check looks for to award
+      # score 10.
+      upload-assets: true
