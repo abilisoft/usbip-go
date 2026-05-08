@@ -209,6 +209,40 @@ func TestSubscribe_CancelStopsConsumer(t *testing.T) {
 	}
 }
 
+// TestSubscribe_ExplicitUnsubReleasesCtxWatcher drives the explicit
+// unsub path: the caller subscribes with a long-lived ctx (not
+// cancelled for the lifetime of the test), calls the returned unsub
+// func, and returns. With the pre-fix code, the per-subscription
+// ctx-watcher goroutine is still parked on ctx.Done() after unsub ran,
+// so goleak.VerifyTestMain flags it at suite teardown. With the fix,
+// unsub signals the watcher to exit, goleak is quiet.
+//
+// Using context.Background directly (rather than t.Context()) is
+// intentional: t.Context() is cancelled when the test returns, which
+// would mask the leak we are hunting.
+func TestSubscribe_ExplicitUnsubReleasesCtxWatcher(t *testing.T) {
+	t.Parallel()
+
+	a, sock := newAdapterWithFakeSocket(t)
+
+	defer func() { _ = sock.Close() }()
+
+	ch, unsub, err := a.Subscribe(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, ch)
+
+	unsub()
+
+	// Drain the channel so the test is not subject to scheduling
+	// timing on the close signal.
+	select {
+	case _, ok := <-ch:
+		require.False(t, ok, "channel must close after unsub")
+	case <-time.After(1 * time.Second):
+		t.Fatal("channel did not close after unsub")
+	}
+}
+
 // TestSubscribe_DialFailurePropagates confirms a dialer error surfaces
 // to the caller.
 func TestSubscribe_DialFailurePropagates(t *testing.T) {
