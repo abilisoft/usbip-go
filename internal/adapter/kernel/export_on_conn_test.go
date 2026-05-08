@@ -213,10 +213,21 @@ func TestDetachPort_WritesDecimalPortID(t *testing.T) {
 		return nil
 	}
 
+	// Task 5 added a StatusTopology-backed bounds check to DetachPort,
+	// so the fixture must expose nports + status (the BusMap-free
+	// projection loadStatusTopology consumes) in addition to the
+	// module-presence entries ModulesAvailable probes. nports=8 comfortably
+	// includes port 5 (flat, kernel-post-Task-2 semantics).
 	a, err := kernel.NewImporterAdapter(
 		kernel.WithFS(fstest.MapFS{
-			"sys/module/usbip_core": &fstest.MapFile{Mode: fs.ModeDir},
-			"sys/module/vhci_hcd":   &fstest.MapFile{Mode: fs.ModeDir},
+			"sys/module/usbip_core":                  &fstest.MapFile{Mode: fs.ModeDir},
+			"sys/module/vhci_hcd":                    &fstest.MapFile{Mode: fs.ModeDir},
+			"sys/devices/platform/vhci_hcd.0":        &fstest.MapFile{Mode: fs.ModeDir},
+			"sys/devices/platform/vhci_hcd.0/nports": &fstest.MapFile{Data: []byte("8\n")},
+			"sys/devices/platform/vhci_hcd.0/status": &fstest.MapFile{Data: []byte(
+				"hub port sta spd dev      sockfd local_busid\n" +
+					"hs  0000 000 000 00000000 000000 0-0\n",
+			)},
 		}),
 		kernel.WithWriteFunc(writer),
 	)
