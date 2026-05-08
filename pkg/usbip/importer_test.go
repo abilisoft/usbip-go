@@ -242,10 +242,10 @@ func TestImporterCloseIsIdempotent(t *testing.T) {
 }
 
 // TestImporterAfterCloseSurfacesSentinel proves operations against a
-// closed Importer return the internal sentinel so wrapping code can
-// branch on errors.Is(err, internalapp.ErrImporterClosed). The facade
-// does not expose ErrImporterClosed itself (not in §5.7), so the test
-// matches on the underlying internal sentinel.
+// closed Importer return the public usbip.ErrImporterClosed sentinel
+// so wrapping code can classify the error via errors.Is against the
+// public identity. The stronger boundary assertion (no internal-
+// sentinel leak) lives in TestImporterAfterCloseYieldsPublicSentinel.
 func TestImporterAfterCloseSurfacesSentinel(t *testing.T) {
 	t.Parallel()
 
@@ -255,7 +255,7 @@ func TestImporterAfterCloseSurfacesSentinel(t *testing.T) {
 	require.NoError(t, imp.Close())
 
 	_, err := imp.ListRemote(t.Context(), usbip.RemoteEndpoint{Host: "peer"})
-	require.ErrorIs(t, err, internalapp.ErrImporterClosed)
+	require.ErrorIs(t, err, usbip.ErrImporterClosed)
 }
 
 // TestImporterAttachOptionsTypeIsPublic pins the AttachOptions shape
