@@ -39,7 +39,8 @@ func TestExporterACL_Allow(t *testing.T) {
 
 	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 5), Port: 1234})
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterCodec(codec),
 		app.WithExporterACL("10.0.0.0/24"),
@@ -85,7 +86,8 @@ func TestExporterACL_Reject(t *testing.T) {
 	// Peer is outside the allow-list.
 	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(192, 168, 1, 5), Port: 1234})
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterCodec(codec),
 		app.WithExporterACL("10.0.0.0/24"),
@@ -151,7 +153,8 @@ func TestExporterACL_ServeContinuesAfterReject(t *testing.T) {
 
 	badListener := newAddrListener(&net.TCPAddr{IP: net.IPv4(192, 168, 1, 5), Port: 1234})
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterCodec(codec),
 		app.WithExporterACL("10.0.0.0/24"),

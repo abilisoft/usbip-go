@@ -857,7 +857,8 @@ func (e *Exporter) waitSessionsBounded(ctx context.Context) error {
 	default:
 	}
 
-	e.logger.Warn("exporter shutdown residual handlers did not drain",
+	e.logger.Warn(
+		"exporter shutdown residual handlers did not drain",
 		slog.Int("residual_sessions", e.countSessions()),
 		slog.Duration("residual_grace", shutdownResidualGrace),
 	)

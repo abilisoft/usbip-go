@@ -65,7 +65,8 @@ func TestExporterShutdownHonoursConfiguredTimeout(t *testing.T) {
 
 	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 1), Port: 2000})
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterCodec(codec),
 		app.WithExporterShutdownTimeout(50*time.Millisecond),

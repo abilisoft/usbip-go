@@ -41,7 +41,8 @@ func newImporterForTest(t *testing.T, opts ...app.ImporterOption) *app.Importer 
 
 	base := make([]app.ImporterOption, 0, baseOptCount+len(opts))
 
-	base = append(base,
+	base = append(
+		base,
 		app.WithImporterKernel(&ImporterKernelMock{}),
 		app.WithImporterEvents(&KernelEventsMock{
 			SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
@@ -282,7 +283,8 @@ func TestImporterListRemoteHappyPath(t *testing.T) {
 		},
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterTransport(transport),
 		app.WithImporterCodec(codec),
 	)
@@ -321,7 +323,8 @@ func TestImporterListRemoteDialFailure(t *testing.T) {
 
 	codec := &ProtocolCodecMock{}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterTransport(transport),
 		app.WithImporterCodec(codec),
 	)
@@ -359,7 +362,8 @@ func TestImporterListRemoteDecodeFailure(t *testing.T) {
 		},
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterTransport(transport),
 		app.WithImporterCodec(codec),
 	)
@@ -461,7 +465,8 @@ func TestImporterAttachHappyPath(t *testing.T) {
 		},
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport),
 		app.WithImporterCodec(codec),
@@ -498,7 +503,8 @@ func TestImporterAttachModulesAvailableFailure(t *testing.T) {
 	}
 	transport := &TransportMock{}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport),
 	)
@@ -523,7 +529,8 @@ func TestImporterAttachDialFailure(t *testing.T) {
 		},
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport),
 	)
@@ -553,7 +560,8 @@ func TestImporterAttachEncodeFailure(t *testing.T) {
 		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return errBoom },
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport),
 		app.WithImporterCodec(codec),
@@ -587,7 +595,8 @@ func TestImporterAttachDecodeFailure(t *testing.T) {
 		},
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport),
 		app.WithImporterCodec(codec),
@@ -623,7 +632,8 @@ func TestImporterAttachAttachRemoteFailure(t *testing.T) {
 		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport),
 		app.WithImporterCodec(codec),
@@ -643,7 +653,8 @@ func TestImporterAttachClosedReturnsErr(t *testing.T) {
 	kernel := &ImporterKernelMock{}
 	transport := &TransportMock{}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport),
 	)
@@ -675,7 +686,8 @@ func attachOnce(t *testing.T, kernel *ImporterKernelMock) (*app.Importer, domain
 		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport),
 		app.WithImporterCodec(codec),
@@ -895,7 +907,8 @@ func TestImporterCloseCancelsAllHandles(t *testing.T) {
 	// Rewire — but we already constructed imp in attachOnce with its
 	// own transport/codec; to attach twice cleanly the test drives a
 	// second imp rather than hot-swapping deps.
-	imp2 := newImporterForTest(t,
+	imp2 := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport2),
 		app.WithImporterCodec(codec2),
@@ -1182,7 +1195,8 @@ func TestImporterAttachConcurrentWithCloseNoPanic(t *testing.T) {
 		},
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport),
 		app.WithImporterCodec(codec),
@@ -1308,7 +1322,8 @@ func TestImporterAttachCloseRaceDetachFailureLogged(t *testing.T) {
 		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport),
 		app.WithImporterCodec(codec),

@@ -571,7 +571,8 @@ func firstAvailableVUDC() (string, error) {
 			}
 
 			status, rerr := os.ReadFile(
-				filepath.Join("/sys/devices/platform", name, "usbip_status"))
+				filepath.Join("/sys/devices/platform", name, "usbip_status"),
+			)
 			if rerr != nil {
 				continue
 			}

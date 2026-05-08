@@ -166,7 +166,8 @@ var errDrainPostFailed = errors.New("POST /drain failed")
 // operators do not chase a raw dial failure with no context.
 var errStatusSocketDisabled = errors.New(
 	"usbip drain: status socket is disabled (--status-socket is empty); " +
-		"start the daemon with a non-empty --status-socket to enable drain")
+		"start the daemon with a non-empty --status-socket to enable drain",
+)
 
 // errDrainPollIntervalInvalid signals a non-positive --poll-interval:
 // time.NewTicker panics on zero or negative durations, so the value
@@ -174,7 +175,8 @@ var errStatusSocketDisabled = errors.New(
 // the ticker constructor. Mapped to ExitUsage via errorRegistry so
 // supervisors distinguish operator-config faults from runtime errors.
 var errDrainPollIntervalInvalid = errors.New(
-	"usbip drain: --poll-interval must be a positive duration")
+	"usbip drain: --poll-interval must be a positive duration",
+)
 
 // pollUntilIdle loops GET / requests at pollInterval until sessions is
 // empty AND listening.accepting is false, or the context is done. A

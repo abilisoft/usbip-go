@@ -504,7 +504,8 @@ func (a *ExporterAdapter) readInterface(base string) (domain.Interface, error) {
 // chains. Used by readInterfaces to distinguish "file not present in
 // sysfs" (skip) from "read error" (fatal).
 func isMissing(err error) bool {
-	return errorsIsAny(err,
+	return errorsIsAny(
+		err,
 		fs.ErrNotExist,
 		domain.ErrDeviceNotFound,
 		domain.ErrKernelModuleMissing,

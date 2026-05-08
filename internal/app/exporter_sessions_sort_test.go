@@ -99,7 +99,8 @@ func TestExporterSessions_SortStableOnEqualStartedAt(t *testing.T) {
 
 	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 9), Port: 9100})
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterCodec(codec),
 		app.WithExporterClock(clk),
@@ -122,7 +123,8 @@ func TestExporterSessions_SortStableOnEqualStartedAt(t *testing.T) {
 		}
 
 		shutdownCtx, shutdownCancel := context.WithTimeout(
-			context.Background(), 2*time.Second)
+			context.Background(), 2*time.Second,
+		)
 		defer shutdownCancel()
 
 		require.NoError(t, exp.Shutdown(shutdownCtx))

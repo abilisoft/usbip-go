@@ -108,7 +108,8 @@ func TestCLIFullFlow_DummyHCD(t *testing.T) {
 	daemonCtx, daemonCancel := context.WithCancel(ctx)
 	defer daemonCancel()
 
-	daemonCmd := exec.CommandContext(daemonCtx, usbipBin,
+	daemonCmd := exec.CommandContext(
+		daemonCtx, usbipBin,
 		"--log-level", "info",
 		"--log-format", "json",
 		"serve",

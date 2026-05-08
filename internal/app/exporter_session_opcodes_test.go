@@ -44,7 +44,8 @@ func TestExporterServe_ReplyOpcodeClosesConn(t *testing.T) {
 
 			lis := newPipeListener()
 
-			exp := newExporterForTest(t,
+			exp := newExporterForTest(
+				t,
 				app.WithExporterKernel(kernel),
 				app.WithExporterCodec(codec),
 			)
@@ -94,7 +95,8 @@ func TestExporterServe_UnknownOpcodeClosesConn(t *testing.T) {
 
 	lis := newPipeListener()
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterCodec(codec),
 	)
@@ -146,7 +148,8 @@ func TestExporterServe_DevlistKernelError(t *testing.T) {
 
 	lis := newPipeListener()
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterCodec(codec),
 	)
@@ -200,7 +203,8 @@ func TestExporterServe_DevlistEncodeError(t *testing.T) {
 
 	lis := newPipeListener()
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterCodec(codec),
 	)
@@ -269,7 +273,8 @@ func TestExporterServe_DevlistWriteErrorClosesConn(t *testing.T) {
 
 	lis := newPipeListener()
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterCodec(codec),
 	)

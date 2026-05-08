@@ -62,7 +62,8 @@ func TestImporterAttachConcurrentSameEndpoint(t *testing.T) {
 		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
 	}
 
-	imp := newImporterForTest(t,
+	imp := newImporterForTest(
+		t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport),
 		app.WithImporterCodec(codec),

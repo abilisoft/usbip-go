@@ -189,7 +189,8 @@ func shutdownHealthServer(
 	log *slog.Logger,
 ) {
 	sctx, cancel := context.WithTimeout(
-		context.WithoutCancel(parentCtx), timeout)
+		context.WithoutCancel(parentCtx), timeout,
+	)
 	defer cancel()
 
 	err := stop(sctx)

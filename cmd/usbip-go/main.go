@@ -96,7 +96,8 @@ func runCtx(ctx context.Context, args []string) (int, error) {
 	cmd := rootCmdFactory()
 	cmd.SetArgs(args)
 
-	err := fang.Execute(ctx, cmd,
+	err := fang.Execute(
+		ctx, cmd,
 		fang.WithoutCompletions(),
 		fang.WithoutVersion(),
 		fang.WithoutManpage(),

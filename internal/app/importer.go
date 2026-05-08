@@ -637,7 +637,8 @@ func (i *Importer) waitWatcherBounded(h *portHandle, id domain.PortID) {
 	select {
 	case <-h.watcherDone:
 	case <-i.clock.After(h.shutdownTimeout):
-		i.logger.Warn("detach watcher wait timed out",
+		i.logger.Warn(
+			"detach watcher wait timed out",
 			slog.Any("port_id", id),
 			slog.Duration("timeout", h.shutdownTimeout),
 		)
@@ -663,7 +664,8 @@ func (i *Importer) waitGroupBounded(handles []*portHandle) {
 	select {
 	case <-done:
 	case <-i.clock.After(timeout):
-		i.logger.Warn("close waitgroup drain timed out",
+		i.logger.Warn(
+			"close waitgroup drain timed out",
 			slog.Duration("timeout", timeout),
 		)
 	}
@@ -966,7 +968,8 @@ func (i *Importer) finishAttach(
 		// original ErrImporterClosed to the caller.
 		detachErr := i.kernel.DetachPort(ctx, portID)
 		if detachErr != nil {
-			i.logger.Warn("release port after close race",
+			i.logger.Warn(
+				"release port after close race",
 				slog.Any("port_id", portID),
 				slog.Any("err", detachErr),
 			)

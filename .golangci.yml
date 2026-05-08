@@ -141,15 +141,27 @@ linters:
         # additional fmt.Errorf here would obscure the offending field
         # name without adding new context.
         linters: [wrapcheck]
+      - path: cmd/usbip-go
+        # The CLI surface is built from cobra subcommand definitions
+        # whose Use strings ("bind", "unbind", "list", "version", …)
+        # appear in dispatch logic, parent registration, and tests by
+        # the same literal value. Extracting each cobra Use to a
+        # const adds noise without preventing real bugs — the strings
+        # are identifier-shaped command names, not magic configuration.
+        # Same rationale applies to log-level / format strings ("debug",
+        # "info", "json", "pretty") and style enum strings used by the
+        # styled-output renderers.
+        linters: [goconst]
       - path: _test\.go
-        # Test files are exempt from complexity and magic-number linters
-        # because table-driven tests with 10+ cases hit gocyclo / mnd
-        # trivially, and tests routinely assert specific string and
-        # numeric literals that goconst would flag. They are NOT exempt
+        # Test files are exempt from complexity, magic-number, and
+        # repeated-string linters because table-driven tests with 10+
+        # cases hit gocyclo / mnd trivially, and tests routinely assert
+        # specific string and numeric literals that goconst would flag
+        # (busids "1-1", IPs "::1", peer hostnames). They are NOT exempt
         # from gochecknoglobals, paralleltest, or err113 — shared test
         # state, missing t.Parallel(), and ad-hoc errors.New() are
         # real smells even in tests.
-        linters: [funlen, gocyclo, cyclop, gocognit, dupl, mnd]
+        linters: [funlen, gocyclo, cyclop, gocognit, dupl, mnd, goconst]
       - path: _test\.go
         # Tests legitimately use math/rand/v2 for deterministic, seeded
         # PRNG streams (backoff jitter, etc.). crypto/rand would defeat

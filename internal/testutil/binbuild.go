@@ -56,7 +56,8 @@ func BuildBinary(t *testing.T, name string) string {
 
 	cmd.Dir = root
 
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(
+		os.Environ(),
 		"CGO_ENABLED=0",
 		"TMPDIR="+tmp,
 	)

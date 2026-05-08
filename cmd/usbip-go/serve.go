@@ -239,7 +239,8 @@ func drainExporter(
 	log *slog.Logger,
 ) {
 	shutdownCtx, cancel := context.WithTimeout(
-		context.WithoutCancel(parentCtx), cfg.ShutdownTimeout)
+		context.WithoutCancel(parentCtx), cfg.ShutdownTimeout,
+	)
 	defer cancel()
 
 	err := exp.Shutdown(shutdownCtx)

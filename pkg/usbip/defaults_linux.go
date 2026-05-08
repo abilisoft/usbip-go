@@ -60,7 +60,8 @@ func newDefaultImporter(opts []ImporterOption) (*Importer, error) {
 	// receives a single backing array.
 	baseOpts := make([]internalapp.ImporterOption, 0, importerBaseOptCount+len(extra))
 
-	baseOpts = append(baseOpts,
+	baseOpts = append(
+		baseOpts,
 		internalapp.WithImporterKernel(k),
 		internalapp.WithImporterEvents(e),
 		internalapp.WithImporterTransport(transport.New()),
@@ -122,7 +123,8 @@ func newDefaultExporter(opts []ExporterOption) (*Exporter, error) {
 	// configuration.
 	tr := transport.New()
 
-	baseOpts = append(baseOpts,
+	baseOpts = append(
+		baseOpts,
 		internalapp.WithExporterKernel(k),
 		internalapp.WithExporterEvents(e),
 		internalapp.WithExporterTransport(tr),

@@ -106,7 +106,8 @@ func TestExporter_MaxSessions(t *testing.T) {
 
 	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 1), Port: 1234})
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterCodec(codec),
 		app.WithExporterMaxSessions(1),
@@ -222,7 +223,8 @@ func TestExporter_MaxSessionsPerPeer(t *testing.T) {
 	peer := &net.TCPAddr{IP: net.IPv4(10, 0, 0, 5), Port: 4000}
 	lis := newAddrListener(peer)
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterCodec(codec),
 		app.WithExporterMaxSessionsPerPeer(perPeerCap),
@@ -301,7 +303,8 @@ func TestExporter_RateLimit(t *testing.T) {
 
 	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 1), Port: 1234})
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(kernel),
 		app.WithExporterCodec(codec),
 		// 0.001 rps ≈ no refills during the test window; burst sets
@@ -354,7 +357,8 @@ func TestExporter_MaxHandshakeBytes(t *testing.T) {
 
 	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 1), Port: 1234})
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(&ExporterKernelMock{}),
 		app.WithExporterCodec(codec),
 		app.WithExporterMaxHandshakeBytes(capBytes),
@@ -432,7 +436,8 @@ func TestExporter_HandshakeTimeoutCoversBodyDecode(t *testing.T) {
 
 	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 1), Port: 1234})
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(&ExporterKernelMock{}),
 		app.WithExporterCodec(codec),
 		app.WithExporterClock(clk),
@@ -457,7 +462,8 @@ func TestExporter_HandshakeTimeoutCoversBodyDecode(t *testing.T) {
 		cancel()
 
 		shutdownCtx, shutdownCancel := context.WithTimeout(
-			context.Background(), 2*time.Second)
+			context.Background(), 2*time.Second,
+		)
 		defer shutdownCancel()
 
 		require.NoError(t, exp.Shutdown(shutdownCtx))
@@ -515,7 +521,8 @@ func TestExporter_HandshakeTimeout(t *testing.T) {
 
 	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 1), Port: 1234})
 
-	exp := newExporterForTest(t,
+	exp := newExporterForTest(
+		t,
 		app.WithExporterKernel(&ExporterKernelMock{}),
 		app.WithExporterCodec(codec),
 		app.WithExporterClock(clk),
