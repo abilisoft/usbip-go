@@ -124,6 +124,10 @@ func errorRegistry() []errorEntry {
 			errDrainTimeout, ExitTimeout,
 			"usbip: drain timed out: %s",
 		},
+		{
+			errStatusSocketDisabled, ExitUsage,
+			"%s",
+		},
 	}
 }
 
