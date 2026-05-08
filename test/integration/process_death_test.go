@@ -105,6 +105,85 @@ func TestProcessDeathAfterDial(t *testing.T) {
 	})
 }
 
+// TestProcessDeathCheckpointAnnouncedBeforeFailingOp pins the invariant
+// that the helper announces AT=<checkpoint> BEFORE the op whose failure
+// would otherwise skip the announce. The scenario points the child at a
+// listener that is bound then immediately closed so any dial attempt
+// from the Importer fails with ECONNREFUSED; with USBIP_TEST_KILL_AT
+// set to after_sysfs the pre-fix helper exits via exitAttachFailed
+// without ever writing AT=after_sysfs, which hangs the parent on its
+// stderr read. Asserting the parent observes the AT line within a tight
+// 1-second budget guards the announce-before-op ordering required by
+// spec §5.4 item 5a / item 7 telemetry.
+func TestProcessDeathCheckpointAnnouncedBeforeFailingOp(t *testing.T) {
+	// No SetupVUDC / kernel module preflight: this test asserts on the
+	// helper's stderr ordering only, and Attach aborts at dial (before
+	// any sysfs write) because the fake server is unreachable. Keeping
+	// the test kernel-free keeps it runnable on non-root CI where the
+	// rest of the integration suite skips on configfs permission.
+
+	// Bind 127.0.0.1:0 so we get a free-port reservation, then close
+	// so any later dial returns ECONNREFUSED deterministically.
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	refusedAddr := lis.Addr().String()
+
+	require.NoError(t, lis.Close())
+
+	helper := buildKillHelper(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, helper)
+	cmd.Env = append(os.Environ(),
+		killHelperEnvKillAt+"=after_sysfs",
+		killHelperEnvServer+"="+refusedAddr,
+		killHelperEnvBusID+"=usbip-vudc.0",
+	)
+
+	stderr, err := cmd.StderrPipe()
+	require.NoError(t, err)
+
+	require.NoError(t, cmd.Start())
+
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+
+		_ = cmd.Wait()
+	})
+
+	// Tight 1s budget — ECONNREFUSED fires synchronously on loopback
+	// within tens of milliseconds; the announce must beat the parent's
+	// stderr read regardless of Attach's outcome.
+	announceCh := make(chan string, 1)
+
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.HasPrefix(line, "AT=after_sysfs") {
+				announceCh <- line
+
+				return
+			}
+		}
+
+		close(announceCh)
+	}()
+
+	select {
+	case line, ok := <-announceCh:
+		require.True(t, ok, "helper stderr closed before announcing AT=after_sysfs")
+		require.Equal(t, "AT=after_sysfs", line)
+	case <-time.After(1 * time.Second):
+		t.Fatal("helper did not announce AT=after_sysfs within 1s despite Attach failure; parent would hang indefinitely")
+	}
+}
+
 // killScenario packages the per-test knobs runKillScenario needs. One
 // struct keeps the argument list short and lets new checkpoints slot
 // in by adding a case to the assertPost handler.
