@@ -11,11 +11,12 @@
 
   outputs = { self, nixpkgs, ... }:
     let
+      # Linux-only. usbip-go targets the Linux kernel USB/IP stack
+      # end-to-end; macOS builds are not supported (the kernel surface
+      # the adapters speak to does not exist outside Linux).
       systems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
-        "aarch64-darwin"
       ];
 
       forAllSystems = f:
