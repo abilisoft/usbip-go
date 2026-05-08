@@ -40,10 +40,16 @@ Prebuilt binaries, `.deb`, and `.rpm` packages are published to
 [GitHub Releases](https://github.com/abilisoft/usbip-go/releases).
 
 ```
-curl -LO https://github.com/abilisoft/usbip-go/releases/latest/download/usbip-go_linux_amd64.tar.gz
-tar xzf usbip-go_linux_amd64.tar.gz
+VERSION=0.1.0  # replace with the tag you want; see the Releases page
+curl -LO "https://github.com/abilisoft/usbip-go/releases/download/v${VERSION}/usbip-go_${VERSION}_linux_amd64.tar.gz"
+tar xzf "usbip-go_${VERSION}_linux_amd64.tar.gz"
 sudo install -m 0755 usbip usbipd /usr/bin/
 ```
+
+GoReleaser archive names follow
+`usbip-go_<version>_<os>_<arch>.tar.gz` (see `.goreleaser.yml`). Pick
+the architecture that matches your host (`amd64`, `arm64`, or
+`armv7`).
 
 ### Systemd
 
