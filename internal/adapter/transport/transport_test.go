@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/abilisoft/usbip-go/internal/adapter/transport"
+	"github.com/abilisoft/usbip-go/internal/netopts"
 	"github.com/abilisoft/usbip-go/pkg/domain"
 	"github.com/stretchr/testify/require"
 )
@@ -60,7 +61,7 @@ func TestDial_ContextCancelPreDial(t *testing.T) {
 
 	tr := transport.New()
 
-	conn, err := tr.Dial(ctx, ep)
+	conn, err := tr.Dial(ctx, ep, netopts.TransportOptions{})
 	if conn != nil {
 		_ = conn.Close()
 	}
@@ -94,7 +95,7 @@ func TestDial_TCPNodelay(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
-	conn, err := tr.Dial(ctx, ep)
+	conn, err := tr.Dial(ctx, ep, netopts.TransportOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
@@ -122,7 +123,7 @@ func TestListen_BadAddress(t *testing.T) {
 
 	tr := transport.New()
 
-	ln, err := tr.Listen(t.Context(), "127.0.0.1:not-a-port")
+	ln, err := tr.Listen(t.Context(), "127.0.0.1:not-a-port", netopts.TransportOptions{})
 	require.Nil(t, ln)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "listen 127.0.0.1:not-a-port")
@@ -139,7 +140,7 @@ func TestDial_BadAddress(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 	defer cancel()
 
-	conn, err := tr.Dial(ctx, domain.RemoteEndpoint{Host: "127.0.0.1", Port: 1})
+	conn, err := tr.Dial(ctx, domain.RemoteEndpoint{Host: "127.0.0.1", Port: 1}, netopts.TransportOptions{})
 	if conn != nil {
 		_ = conn.Close()
 	}
@@ -158,7 +159,7 @@ func TestListen_ContextCancel(t *testing.T) {
 
 	tr := transport.New()
 
-	ln, err := tr.Listen(ctx, "127.0.0.1:0")
+	ln, err := tr.Listen(ctx, "127.0.0.1:0", netopts.TransportOptions{})
 	if ln != nil {
 		_ = ln.Close()
 	}
@@ -212,7 +213,7 @@ func TestListen_AcceptLoopback(t *testing.T) {
 
 	tr := transport.New()
 
-	ln, err := tr.Listen(t.Context(), "127.0.0.1:0")
+	ln, err := tr.Listen(t.Context(), "127.0.0.1:0", netopts.TransportOptions{})
 	require.NoError(t, err)
 
 	defer func() { _ = ln.Close() }()
@@ -232,7 +233,7 @@ func TestListen_AcceptLoopback(t *testing.T) {
 	dialCtx, dialCancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer dialCancel()
 
-	client, err := tr.Dial(dialCtx, ep)
+	client, err := tr.Dial(dialCtx, ep, netopts.TransportOptions{})
 	require.NoError(t, err)
 
 	defer func() { _ = client.Close() }()
@@ -278,7 +279,7 @@ func TestNew_OptionsApply(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 		defer cancel()
 
-		conn, err := tr.Dial(ctx, ep)
+		conn, err := tr.Dial(ctx, ep, netopts.TransportOptions{})
 		require.NoError(t, err)
 
 		defer func() { _ = conn.Close() }()
@@ -304,7 +305,7 @@ func TestNew_OptionsApply(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
-		_, _ = tr.Dial(ctx, domain.RemoteEndpoint{Host: "127.0.0.1", Port: 1})
+		_, _ = tr.Dial(ctx, domain.RemoteEndpoint{Host: "127.0.0.1", Port: 1}, netopts.TransportOptions{})
 	})
 }
 
@@ -320,7 +321,7 @@ func TestListen_ClosesOnContextCancel(t *testing.T) {
 
 	tr := transport.New()
 
-	ln, err := tr.Listen(ctx, "127.0.0.1:0")
+	ln, err := tr.Listen(ctx, "127.0.0.1:0", netopts.TransportOptions{})
 	require.NoError(t, err)
 
 	defer func() { _ = ln.Close() }()
@@ -351,7 +352,7 @@ func TestListen_CloseIdempotent(t *testing.T) {
 
 	tr := transport.New()
 
-	ln, err := tr.Listen(t.Context(), "127.0.0.1:0")
+	ln, err := tr.Listen(t.Context(), "127.0.0.1:0", netopts.TransportOptions{})
 	require.NoError(t, err)
 
 	_ = ln.Close()
@@ -369,7 +370,7 @@ func TestListen_CloseDoesNotDeadlockAfterCtxCancel(t *testing.T) {
 
 	tr := transport.New()
 
-	ln, err := tr.Listen(ctx, "127.0.0.1:0")
+	ln, err := tr.Listen(ctx, "127.0.0.1:0", netopts.TransportOptions{})
 	require.NoError(t, err)
 
 	cancel()
@@ -437,7 +438,7 @@ func TestDial_CancelRaceInvariant(t *testing.T) {
 
 		go cancel()
 
-		conn, err := tr.Dial(ctx, ep)
+		conn, err := tr.Dial(ctx, ep, netopts.TransportOptions{})
 
 		switch {
 		case conn != nil:

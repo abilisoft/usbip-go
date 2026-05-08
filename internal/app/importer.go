@@ -40,6 +40,11 @@ type Importer struct {
 	clock     Clock
 	logger    *slog.Logger
 	metrics   *Metrics
+	// transportOptions is the snapshot taken at NewImporter time. Every
+	// Dial inside the importer passes this struct by value so the
+	// adapter can apply per-connection tuning; zero preserves v1.0.0
+	// behavior.
+	transportOptions TransportOptions
 
 	mu        sync.RWMutex
 	closed    bool
@@ -148,16 +153,26 @@ func NewImporter(opts ...ImporterOption) *Importer {
 		cfg.metrics = MustNewMetrics(nil)
 	}
 
+	// NewImporter has no error return, matching the existing missing-
+	// dependency contract. Surface validation failures the same way so
+	// a caller wiring negative values cannot build a working Importer
+	// that quietly ignores them.
+	transportErr := ValidateTransportOptions(cfg.transportOptions)
+	if transportErr != nil {
+		panic(fmt.Errorf("app.NewImporter: TransportOptions invalid: %w", transportErr))
+	}
+
 	return &Importer{
-		kernel:    cfg.kernel,
-		events:    cfg.events,
-		transport: cfg.transport,
-		codec:     cfg.codec,
-		clock:     cfg.clock,
-		logger:    cfg.logger,
-		metrics:   cfg.metrics,
-		handles:   make(map[domain.PortID]*portHandle),
-		inFlight:  make(map[attachKey]struct{}),
+		kernel:           cfg.kernel,
+		events:           cfg.events,
+		transport:        cfg.transport,
+		codec:            cfg.codec,
+		clock:            cfg.clock,
+		logger:           cfg.logger,
+		metrics:          cfg.metrics,
+		transportOptions: cfg.transportOptions,
+		handles:          make(map[domain.PortID]*portHandle),
+		inFlight:         make(map[attachKey]struct{}),
 	}
 }
 
@@ -245,7 +260,7 @@ func (i *Importer) ListRemote(ctx context.Context, endpoint domain.RemoteEndpoin
 
 	endpoint = endpoint.NormalizePort()
 
-	conn, err := i.transport.Dial(ctx, endpoint)
+	conn, err := i.transport.Dial(ctx, endpoint, i.transportOptions)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", endpoint.String(), err)
 	}
@@ -618,7 +633,7 @@ func (i *Importer) attachOverDialed(
 	busID domain.BusID,
 	opts AttachOptions,
 ) (domain.Port, error) {
-	conn, err := i.transport.Dial(ctx, endpoint)
+	conn, err := i.transport.Dial(ctx, endpoint, i.transportOptions)
 	if err != nil {
 		i.metrics.ImporterAttached(AttachOutcomeDialFailed)
 

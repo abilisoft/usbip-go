@@ -79,9 +79,15 @@ type ProtocolCodec interface {
 
 // Transport abstracts the TCP transport used by importer and exporter.
 // Production uses internal/adapter/transport; tests inject a fake.
+//
+// TransportOptions is passed by value on every call so the adapter
+// applies socket tuning per-dial (importer side) and per-listen
+// (exporter side). PR 1a wires the parameter through; PR 1b makes
+// adapter-side tuning honor non-zero fields. Zero-valued options keep
+// v1.0.0 behavior.
 type Transport interface {
-	Dial(ctx context.Context, endpoint domain.RemoteEndpoint) (net.Conn, error)
-	Listen(ctx context.Context, addr string) (net.Listener, error)
+	Dial(ctx context.Context, endpoint domain.RemoteEndpoint, opts TransportOptions) (net.Conn, error)
+	Listen(ctx context.Context, addr string, opts TransportOptions) (net.Listener, error)
 }
 
 // Compile-time assertion: wire.Codec satisfies ProtocolCodec. If this

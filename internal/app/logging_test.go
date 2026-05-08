@@ -48,7 +48,9 @@ func TestAttachFailurePathCarriesSpecRequiredAttrs(t *testing.T) {
 	conn := newFakeConn()
 
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) { return conn, nil },
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
+			return conn, nil
+		},
 	}
 	codec := &ProtocolCodecMock{
 		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
@@ -99,7 +101,9 @@ func TestAttachKernelErrorRecordCarriesBusIDAndRemote(t *testing.T) {
 	conn := newFakeConn()
 
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) { return conn, nil },
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
+			return conn, nil
+		},
 	}
 	codec := &ProtocolCodecMock{
 		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
@@ -193,7 +197,7 @@ func TestReconnectGiveUpRecordCarriesPortIDAndAttempt(t *testing.T) {
 	}
 
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
 			return conn, nil
 		},
 	}
@@ -316,7 +320,7 @@ func TestReconnectGiveUpRecordCarriesAttemptAndSource(t *testing.T) {
 	}
 
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
 			return conn, nil
 		},
 	}
@@ -436,7 +440,7 @@ func TestReconnectOnReconnectPanicRecordCarriesPortIDAndSource(t *testing.T) {
 	}
 
 	transport := &TransportMock{
-		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) {
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
 			return conn, nil
 		},
 	}
