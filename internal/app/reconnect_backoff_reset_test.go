@@ -85,10 +85,14 @@ func TestReconnect_ResetsBackoffAfterSuccess(t *testing.T) {
 	}, reconnectTestSettleBudget, 5*time.Millisecond,
 		"reconnect must succeed on attempt 1")
 
-	// Wait for the replacement watcher to register its subscription,
-	// a deterministic signal that finishReconnectSuccess has returned.
-	registry.waitFor(t, 2)
-
-	require.Equal(t, int32(1), backoff.ResetCalls(),
+	// Reset is called on the original watcher goroutine after the
+	// recursive Attach returns; the replacement watcher's subscription
+	// runs on a separate goroutine spawned inside that Attach, so its
+	// arrival in the registry races with the Reset call. Poll directly
+	// on the counter rather than treating the subscribe count as a
+	// happens-before fence.
+	require.Eventually(t, func() bool {
+		return backoff.ResetCalls() == 1
+	}, reconnectTestSettleBudget, 5*time.Millisecond,
 		"Backoff.Reset must fire exactly once after the reconnect succeeds")
 }
