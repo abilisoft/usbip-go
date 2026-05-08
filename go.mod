@@ -5,8 +5,10 @@ go 1.26.2
 require (
 	github.com/go-gremlins/gremlins v0.6.0
 	github.com/golangci/golangci-lint/v2 v2.11.4
+	github.com/google/uuid v1.6.0
 	github.com/goreleaser/goreleaser/v2 v2.15.3
 	github.com/matryer/moq v0.7.1
+	github.com/stretchr/testify v1.11.1
 	golang.org/x/exp v0.0.0-20251209150349-8475f28825e9
 	golang.org/x/tools v0.44.0
 	golang.org/x/vuln v1.2.0
@@ -263,7 +265,6 @@ require (
 	github.com/google/ko v0.18.2-0.20260407063826-ae9c7272d7de // indirect
 	github.com/google/rpmpack v0.7.1 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/google/wire v0.7.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.12 // indirect
 	github.com/googleapis/gax-go/v2 v2.17.0 // indirect
@@ -433,7 +434,6 @@ require (
 	github.com/ssgreg/nlreturn/v2 v2.2.1 // indirect
 	github.com/stbenjam/no-sprintf-host-port v0.3.1 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tetafro/godot v1.5.4 // indirect
 	github.com/theupdateframework/go-tuf v0.7.0 // indirect

@@ -27,6 +27,7 @@ func TestNewSessionID_Distinct(t *testing.T) {
 
 	a, err := domain.NewSessionID()
 	require.NoError(t, err)
+
 	b, err := domain.NewSessionID()
 	require.NoError(t, err)
 	require.NotEqual(t, a, b)
