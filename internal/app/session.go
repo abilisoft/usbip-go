@@ -130,6 +130,16 @@ func (e *Exporter) handleConn(ctx context.Context, conn net.Conn) {
 // watcher; callers MUST call it exactly once after the handshake
 // completes (or the watcher goroutine leaks until the timeout fires).
 // A non-positive timeout disables the watcher entirely.
+//
+// The clock.After call is issued on the CALLER goroutine BEFORE the
+// watcher is spawned so the deadline is registered on the Clock before
+// armHandshakeTimeout returns. Test code routinely calls
+// clk.Advance(handshakeTimeout + …) the moment a connection is
+// accepted; under the previous arrangement (After inside the spawned
+// goroutine) the Advance could beat the watcher to the Clock, leaving
+// the pending list empty — the watcher would register its deadline
+// against an already-advanced Now and never fire, making the
+// handshake-timeout tests flaky under -race -count=N.
 func (e *Exporter) armHandshakeTimeout(closer *connCloser) func() {
 	if e.cfg.handshakeTimeout <= 0 {
 		return func() {}
@@ -138,11 +148,16 @@ func (e *Exporter) armHandshakeTimeout(closer *connCloser) func() {
 	stop := make(chan struct{})
 	stopped := make(chan struct{})
 
+	// Register the handshake deadline on the caller goroutine so the
+	// pending list is guaranteed to contain our timer the instant this
+	// function returns. The channel is captured by the watcher below.
+	timerCh := e.clock.After(e.cfg.handshakeTimeout)
+
 	e.sessionsWG.Go(func() {
 		defer close(stopped)
 
 		select {
-		case <-e.clock.After(e.cfg.handshakeTimeout):
+		case <-timerCh:
 			e.logger.Debug("exporter handshake timeout",
 				slog.Duration("timeout", e.cfg.handshakeTimeout))
 
