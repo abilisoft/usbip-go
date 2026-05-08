@@ -3,6 +3,7 @@
 package kernel_test
 
 import (
+	"fmt"
 	"io/fs"
 	"testing"
 	"testing/fstest"
@@ -266,6 +267,50 @@ func TestDiscoverTopology_StatusFilePermissionErrorSurfaces(t *testing.T) {
 	require.Error(t, err, "permission-denied on status.N must surface as an error")
 	require.ErrorIs(t, err, fs.ErrPermission,
 		"the wrapped error must chain back to fs.ErrPermission")
+}
+
+// TestDiscoverTopology_SupportsManyControllers pins BUG 4: the probe
+// loop must not cap at a hardcoded controller count. The natural stop
+// signal is the first ENOENT on status.<i>; any arbitrary cap silently
+// truncates large deployments. The fixture here installs 20
+// controllers (nports = 20 * 2 * 8 = 320) with the expected two usb
+// children per controller and asserts full discovery.
+func TestDiscoverTopology_SupportsManyControllers(t *testing.T) {
+	t.Parallel()
+
+	const (
+		controllers  = 20
+		portsPerHub  = 8
+		hubsPerCtrl  = 2
+		totalBusmaps = controllers * hubsPerCtrl
+		nports       = controllers * hubsPerCtrl * portsPerHub
+	)
+
+	files := map[string]string{
+		"/sys/devices/platform/vhci_hcd.0/nports": fmt.Sprintf("%d\n", nports),
+		"/sys/devices/platform/vhci_hcd.0/status": "",
+	}
+
+	for i := 1; i < controllers; i++ {
+		files[fmt.Sprintf("/sys/devices/platform/vhci_hcd.0/status.%d", i)] = ""
+	}
+
+	for i := range controllers {
+		hsBus := 2*i + 1
+		ssBus := 2*i + 2
+
+		files[fmt.Sprintf("/sys/devices/platform/vhci_hcd.%d/usb%d/busnum", i, hsBus)] =
+			fmt.Sprintf("%d\n", hsBus)
+		files[fmt.Sprintf("/sys/devices/platform/vhci_hcd.%d/usb%d/busnum", i, ssBus)] =
+			fmt.Sprintf("%d\n", ssBus)
+	}
+
+	mfs := topoFS(files)
+
+	topo, err := kernel.DiscoverTopologyForTest(mfs)
+	require.NoError(t, err)
+	require.EqualValues(t, controllers, topo.NControllers)
+	require.Len(t, topo.BusMap, totalBusmaps)
 }
 
 // TestDiscoverTopology_IncompleteControllerErrors pins BUG 3: the
