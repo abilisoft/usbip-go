@@ -114,6 +114,10 @@ func run() int {
 		return exitInvalidEnv
 	}
 
+	// Each announceCheckpoint MUST fire BEFORE any op whose failure
+	// would otherwise skip the announce and strand the parent on its
+	// stderr scanner. checkpointBeforeDial already matched that shape;
+	// the other two follow suit below.
 	announceCheckpoint(checkpointBeforeDial)
 
 	if target == checkpointBeforeDial {
@@ -129,16 +133,23 @@ func run() int {
 
 	defer func() { _ = imp.Close() }()
 
+	// AT=after_dial fires BEFORE imp.Attach so a dial-time failure
+	// (e.g. ECONNREFUSED) still surfaces the checkpoint to the parent.
 	announceCheckpoint(checkpointAfterDial)
 
 	if target == checkpointAfterDial {
-		// A fake-server connection is already opened inside
-		// Importer.Attach's dial; for the "after_dial" checkpoint we
-		// want the process to die AFTER dial but BEFORE AttachRemote.
-		// Since Attach is a single call, park here and let the parent
-		// SIGKILL before we enter Attach.
+		// Park here so the parent SIGKILLs the child BEFORE Attach's
+		// dial touches the server. Semantically this is "reached the
+		// after_dial sync point without proceeding to AttachRemote".
 		parkForSIGKILL()
 	}
+
+	// AT=after_sysfs fires BEFORE imp.Attach so Attach failure on the
+	// non-sysfs path (dial refused, protocol error, kernel handoff
+	// rejected) no longer skips the announce. If Attach fails we exit
+	// via exitAttachFailed; the parent, having already seen the line,
+	// reaps the already-exited process instead of hanging on stderr.
+	announceCheckpoint(checkpointAfterSysfs)
 
 	_, err = imp.Attach(context.Background(), endpoint, domain.BusID(busID), usbip.AttachOptions{})
 	if err != nil {
@@ -147,8 +158,6 @@ func run() int {
 		// "attach failed as expected" from "attach succeeded".
 		return exitAttachFailed
 	}
-
-	announceCheckpoint(checkpointAfterSysfs)
 
 	if target == checkpointAfterSysfs {
 		parkForSIGKILL()
