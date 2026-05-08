@@ -70,21 +70,34 @@ func (s readinessState) ready() bool {
 
 // newReadinessChecker returns an http.Handler that runs probe on each
 // request and writes 200 OK when ready() is true, 503 otherwise. The
-// handler applies a per-request timeout so a wedged probe cannot stall
-// the health server's accept loop.
+// per-request ctx carries the timeout, but a wedged probe that
+// ignores ctx would still stall the handler — so the result is also
+// raced against the timeout in a select. A timed-out probe surfaces
+// as 503 and the handler returns immediately; the orphaned probe
+// goroutine completes in its own time without holding the conn.
 func newReadinessChecker(probe readinessProbe) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), healthRequestTimeout)
 		defer cancel()
 
-		state := probe(ctx)
-		if !state.ready() {
-			http.Error(w, "not ready", http.StatusServiceUnavailable)
+		result := make(chan readinessState, 1)
 
-			return
+		go func() {
+			result <- probe(ctx)
+		}()
+
+		select {
+		case state := <-result:
+			if !state.ready() {
+				http.Error(w, "not ready", http.StatusServiceUnavailable)
+
+				return
+			}
+
+			w.WriteHeader(http.StatusOK)
+		case <-ctx.Done():
+			http.Error(w, "not ready: probe timeout", http.StatusServiceUnavailable)
 		}
-
-		w.WriteHeader(http.StatusOK)
 	})
 }
 

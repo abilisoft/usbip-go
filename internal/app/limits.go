@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -75,9 +76,14 @@ type acceptLimiter struct {
 // newAcceptLimiter returns an acceptLimiter configured for rps tokens
 // per second with the given burst size. rps <= 0 returns a disabled
 // limiter that always permits; burst <= 0 picks up the default so a
-// caller who supplied only rps still gets a usable bucket.
+// caller who supplied only rps still gets a usable bucket. NaN /
+// +Inf inputs are also treated as "disabled" — neither comparison
+// rps <= 0 nor rate.NewLimiter handles NaN sensibly (NaN slips
+// through every numeric guard and produces a limiter that permits
+// every connection), and an Inf rate is functionally unlimited
+// anyway.
 func newAcceptLimiter(rps float64, burst int) acceptLimiter {
-	if rps <= 0 {
+	if rps <= 0 || math.IsNaN(rps) || math.IsInf(rps, 0) {
 		return acceptLimiter{}
 	}
 
