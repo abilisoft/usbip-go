@@ -175,17 +175,16 @@ exit code and a message on stderr, never as `{"ok": false}`.
 
 ## Watch events (jsonlines)
 
-`usbip-go watch --output=json` emits one record per line. Every record
+`usbip watch --output=json` emits one record per line. Every record
 carries the schema envelope plus a `kind` discriminator. `kind`
 comes from a closed set matching `pkg/domain.EventKind.String()`:
 
 - `port_attached`
 - `port_detached`
 - `port_errored`
+- `port_reconnect_exhausted`
 - `device_bound`
 - `device_unbound`
-- `remote_device_added`
-- `remote_device_removed`
 - `session_started`
 - `session_ended`
 
@@ -217,6 +216,26 @@ Every record has these three fields as its leading keys:
 { "schema":"v1", "kind":"port_errored", "at":"...", "port": portView, "err":"..." }
 ```
 
+### `port_reconnect_exhausted`
+
+Emitted by `Importer.Watch` when the reconnect watcher gives up after
+`AttachOptions.MaxAttempts` failed reattaches. `port` is a snapshot of
+the last successful Attach (the kernel slot is gone at emission time);
+`attempts` is the number of reconnect attempts actually made (NOT
+`MaxAttempts`); `last_error` is the stringified final error. See
+ADR-0009.
+
+```json
+{
+  "schema": "v1",
+  "kind": "port_reconnect_exhausted",
+  "at": "...",
+  "port": portView,
+  "attempts": 3,
+  "last_error": "..."
+}
+```
+
 ### `device_bound`
 
 ```json
@@ -227,18 +246,6 @@ Every record has these three fields as its leading keys:
 
 ```json
 { "schema":"v1", "kind":"device_unbound", "at":"...", "device": deviceView }
-```
-
-### `remote_device_added`
-
-```json
-{ "schema":"v1", "kind":"remote_device_added", "at":"...", "remote":"host:port", "device": deviceView }
-```
-
-### `remote_device_removed`
-
-```json
-{ "schema":"v1", "kind":"remote_device_removed", "at":"...", "remote":"host:port", "busid":"<BusID>" }
 ```
 
 ### `session_started`

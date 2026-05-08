@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -83,6 +84,14 @@ type sessionHandle struct {
 	closeOnce sync.Once
 	peerKey   string
 	conn      net.Conn
+	// disconnectReason is the typed DisconnectReason recorded by
+	// waitForSessionEnd at session termination. Stored via
+	// atomic.Pointer[string] so endSession can read it without taking
+	// e.mu (the publish path already holds an RLock and atomic ops
+	// mate cleanly with the closed-set classification). Empty value
+	// means waitForSessionEnd never recorded a typed reason — falls
+	// back to the free-form string passed to endSession.
+	disconnectReason atomic.Pointer[string]
 }
 
 // cancel closes done exactly once. Safe to call from any goroutine.

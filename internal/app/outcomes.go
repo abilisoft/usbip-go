@@ -3,12 +3,6 @@
 
 package app
 
-import (
-	"errors"
-
-	"golang.org/x/sys/unix"
-)
-
 // Domain outcome enums. These name the closed set of outcomes for each
 // operation in the project's ubiquitous language. They are emitted as
 // `slog.String("outcome", string(outcome))` at every operation boundary
@@ -104,104 +98,6 @@ const (
 	ReconnectOutcomeExhausted ReconnectOutcome = "exhausted"
 	ReconnectOutcomeCanceled  ReconnectOutcome = "canceled"
 )
-
-// SysfsWritePath identifies the closed set of sysfs writes the kernel
-// adapter performs. Used as a structured log field on write failures so
-// operators can query journald by path category.
-type SysfsWritePath string
-
-// SysfsWritePath values.
-const (
-	SysfsWritePathBind        SysfsWritePath = "bind"
-	SysfsWritePathUnbind      SysfsWritePath = "unbind"
-	SysfsWritePathMatchBusID  SysfsWritePath = "match_busid"
-	SysfsWritePathRebind      SysfsWritePath = "rebind"
-	SysfsWritePathAttach      SysfsWritePath = "attach"
-	SysfsWritePathDetach      SysfsWritePath = "detach"
-	SysfsWritePathUsbipSockfd SysfsWritePath = "usbip_sockfd"
-	SysfsWritePathOther       SysfsWritePath = "other"
-)
-
-// SysfsErrno classifies a sysfs write failure into a closed set of
-// POSIX errnos. Used as a structured log field so journald queries
-// can filter by errno without parsing free-form error strings.
-type SysfsErrno string
-
-// SysfsErrno values.
-const (
-	SysfsErrnoENOENT SysfsErrno = "ENOENT"
-	SysfsErrnoEACCES SysfsErrno = "EACCES"
-	SysfsErrnoEPERM  SysfsErrno = "EPERM"
-	SysfsErrnoEBUSY  SysfsErrno = "EBUSY"
-	SysfsErrnoENODEV SysfsErrno = "ENODEV"
-	SysfsErrnoEIO    SysfsErrno = "EIO"
-	SysfsErrnoOther  SysfsErrno = "other"
-)
-
-// SysfsErrnoFromError collapses an arbitrary error into the closed
-// SysfsErrno set. Uses errors.As to walk the chain so wrapped errnos
-// (fmt.Errorf("...%w...", unix.EACCES)) still classify correctly; any
-// non-errno error returns SysfsErrnoOther.
-func SysfsErrnoFromError(err error) SysfsErrno {
-	if err == nil {
-		return SysfsErrnoOther
-	}
-
-	var errno unix.Errno
-	if !errors.As(err, &errno) {
-		return SysfsErrnoOther
-	}
-
-	switch errno {
-	case unix.ENOENT:
-		return SysfsErrnoENOENT
-	case unix.EACCES:
-		return SysfsErrnoEACCES
-	case unix.EPERM:
-		return SysfsErrnoEPERM
-	case unix.EBUSY:
-		return SysfsErrnoEBUSY
-	case unix.ENODEV:
-		return SysfsErrnoENODEV
-	case unix.EIO:
-		return SysfsErrnoEIO
-	default:
-		return SysfsErrnoOther
-	}
-}
-
-// SysfsWritePathFromAbs maps an absolute sysfs path to its closed-set
-// label. Matching is by suffix on the final path segment. Anything
-// that doesn't match collapses to SysfsWritePathOther so ad-hoc paths
-// cannot explode log cardinality.
-func SysfsWritePathFromAbs(path string) SysfsWritePath {
-	switch {
-	case hasSysfsSuffix(path, "/usbip-host/bind"):
-		return SysfsWritePathBind
-	case hasSysfsSuffix(path, "/usbip-host/unbind"):
-		return SysfsWritePathUnbind
-	case hasSysfsSuffix(path, "/usbip-host/match_busid"):
-		return SysfsWritePathMatchBusID
-	case hasSysfsSuffix(path, "/usbip-host/rebind"):
-		return SysfsWritePathRebind
-	case hasSysfsSuffix(path, "/vhci_hcd.0/attach"):
-		return SysfsWritePathAttach
-	case hasSysfsSuffix(path, "/vhci_hcd.0/detach"):
-		return SysfsWritePathDetach
-	case hasSysfsSuffix(path, "/usbip_sockfd"):
-		return SysfsWritePathUsbipSockfd
-	default:
-		return SysfsWritePathOther
-	}
-}
-
-func hasSysfsSuffix(path, suffix string) bool {
-	if len(path) < len(suffix) {
-		return false
-	}
-
-	return path[len(path)-len(suffix):] == suffix
-}
 
 // KernelModule names the kernel modules whose load state the daemon
 // reports through readiness checks. Closed set.
