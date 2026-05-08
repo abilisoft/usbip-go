@@ -37,6 +37,7 @@ type Exporter struct {
 	mu          sync.RWMutex
 	shutdown    bool
 	serving     bool
+	listener    net.Listener
 	sessions    map[domain.SessionID]*sessionHandle
 	perPeer     map[string]int
 	subscribers []*sessionEventSubscriber
@@ -234,7 +235,7 @@ func (e *Exporter) ListAvailable(ctx context.Context) ([]domain.Device, error) {
 // from multiple goroutines on the same Exporter — overlapping accept
 // loops would fight over shared bookkeeping.
 func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
-	err := e.startServing()
+	err := e.startServing(listener)
 	if err != nil {
 		return err
 	}
@@ -242,9 +243,17 @@ func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
 	defer e.stopServing()
 
 	stopWatcher := e.spawnCtxListenerCloser(ctx, listener)
-	defer stopWatcher()
 
 	loopErr := e.acceptLoop(ctx, listener)
+
+	// Release the ctx-listener-closer before waiting on wg. When
+	// acceptLoop exits via Shutdown-driven listener close (pass-3
+	// RANK 2) the ctx is still live and the watcher is parked on
+	// ctx.Done; without this explicit stop, wg.Wait would block
+	// forever. When acceptLoop exits via ctx cancel the watcher has
+	// already returned via its ctx.Done branch, so this call is a
+	// no-op on the stop channel's close-once guard.
+	stopWatcher()
 
 	// Wait for the ctx-listener-closer only. Session handlers run on
 	// sessionsWG; Shutdown drains them with a bounded deadline per
@@ -274,12 +283,31 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 		e.shutdown = true
 	}
 
+	// Capture and clear the tracked listener under the same lock so
+	// Shutdown closes it exactly once even if called concurrently. The
+	// listener-close drives acceptLoop to return via acceptShouldStop,
+	// which unwinds Serve. Pre pass-3 RANK 2, Shutdown never closed
+	// the listener — the only listener-close path was the ctx-cancel
+	// watcher, so a caller that used Shutdown alone (without cancelling
+	// the Serve ctx) parked Serve on Accept forever and the contract
+	// "Shutdown stops accepting new connections" was silently broken.
+	listener := e.listener
+	e.listener = nil
+
 	handles := make([]*sessionHandle, 0, len(e.sessions))
 	for _, h := range e.sessions {
 		handles = append(handles, h)
 	}
 
 	e.mu.Unlock()
+
+	if listener != nil {
+		closeErr := listener.Close()
+		if closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
+			e.logger.Debug("exporter shutdown listener close",
+				slog.Any("err", closeErr))
+		}
+	}
 
 	// Graceful: ask the kernel to release each active session's socket
 	// (pass-2 RANK 3). Disconnect writes -1 to usbip_sockfd; the
@@ -346,8 +374,12 @@ func (e *Exporter) applyShutdownBackstop(ctx context.Context) (context.Context, 
 
 // startServing transitions the Exporter from idle → serving. Returns
 // ErrAlreadyShutdown when Shutdown has run or ErrServeAlreadyRunning
-// when Serve is already running.
-func (e *Exporter) startServing() error {
+// when Serve is already running. The listener is stored on the
+// Exporter so Shutdown can close it and unwind acceptLoop without
+// depending on ctx-cancel (pass-3 RANK 2: the documented contract is
+// "Shutdown stops accepting new connections" — Shutdown alone must
+// suffice).
+func (e *Exporter) startServing(listener net.Listener) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -360,23 +392,29 @@ func (e *Exporter) startServing() error {
 	}
 
 	e.serving = true
+	e.listener = listener
 
 	return nil
 }
 
 // stopServing flips the serving flag back to false so a caller that
-// wants to re-Serve after a non-shutdown Serve exit can do so.
+// wants to re-Serve after a non-shutdown Serve exit can do so. Clears
+// the tracked listener so a follow-up Shutdown does not try to close
+// a listener that is already gone.
 func (e *Exporter) stopServing() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	e.serving = false
+	e.listener = nil
 }
 
 // spawnCtxListenerCloser watches ctx and closes listener exactly once
 // when ctx is cancelled. Returns a stop func so Serve can cancel the
 // watcher cleanly on a normal return — without it, the watcher would
-// leak a goroutine waiting on ctx forever.
+// leak a goroutine waiting on ctx forever. The stop func is idempotent
+// via sync.Once so Serve can call it eagerly (before wg.Wait) without
+// risking a close-of-closed-channel panic on the deferred second call.
 func (e *Exporter) spawnCtxListenerCloser(ctx context.Context, listener net.Listener) func() {
 	stop := make(chan struct{})
 
@@ -392,7 +430,7 @@ func (e *Exporter) spawnCtxListenerCloser(ctx context.Context, listener net.List
 		}
 	})
 
-	return func() { close(stop) }
+	return sync.OnceFunc(func() { close(stop) })
 }
 
 // acceptLoop pulls connections off listener and dispatches each to a
