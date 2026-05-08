@@ -67,19 +67,66 @@ func ReadPaddedString(r io.Reader, size int) (string, bool, error) {
 	return s, truncated, nil
 }
 
+// minPrintableASCII and maxPrintableASCII bound the printable subset
+// of ASCII (0x20 space through 0x7E tilde). Bytes outside this range —
+// NUL, control characters, DEL, and any high-bit byte — are not valid
+// in USBIP padded-string fields per spec §6.2.
+const (
+	minPrintableASCII = 0x20
+	maxPrintableASCII = 0x7E
+)
+
 // paddedStringFromBytes interprets buf as a NUL-padded fixed-width
-// string. Returns the decoded string and a flag indicating whether no
-// NUL was found (truncated == true; the full buffer contents are
-// returned verbatim). Used for decoding already-read fixed-width
-// payloads (e.g. device descriptor path / busid slices from a larger
-// DecodeDevice buffer).
+// string. Returns the decoded string and a truncated flag, matching
+// spec §6.2 semantics:
+//
+//   - First byte is NUL-or-non-printable at offset i > 0: return
+//     buf[:i] and truncated == false (the well-formed case: NUL
+//     terminator found, or garbage after valid ASCII). No warn.
+//   - Well-formed NUL terminator (NUL within the buffer): truncated
+//     == false regardless.
+//   - Buffer is entirely printable with no NUL: return string(buf)
+//     and truncated == true (the malformed case: padding is missing).
+//   - Non-printable-before-NUL encountered after printable prefix:
+//     return the printable prefix and truncated == true.
+//
+// The spec language is "truncated at first non-printable or end of
+// buffer". NUL is one non-printable byte; a zero-length prefix (first
+// byte non-printable) is allowed and returns "".
 func paddedStringFromBytes(buf []byte) (string, bool) {
+	// Fast path for the typical well-formed case: locate the NUL and
+	// return everything before it. If a non-printable byte appears
+	// before the NUL we fall through to the slow scan.
 	before, _, found := bytes.Cut(buf, []byte{0})
-	if !found {
-		return string(buf), true
+	if found && isAllPrintable(before) {
+		return string(before), false
 	}
 
-	return string(before), false
+	// Slow path: scan byte-by-byte, stop at first non-printable.
+	for i, b := range buf {
+		if b < minPrintableASCII || b > maxPrintableASCII {
+			// Truncated flag distinguishes the clean NUL-before-non-
+			// printable case (handled above) from everything else.
+			// Reaching here means either no NUL at all, or NUL is
+			// preceded by a non-printable byte — both malformed.
+			return string(buf[:i]), true
+		}
+	}
+
+	// All bytes printable, no NUL: spec's end-of-buffer case.
+	return string(buf), true
+}
+
+// isAllPrintable reports whether every byte in buf lies in the
+// printable ASCII range (0x20..0x7E).
+func isAllPrintable(buf []byte) bool {
+	for _, b := range buf {
+		if b < minPrintableASCII || b > maxPrintableASCII {
+			return false
+		}
+	}
+
+	return true
 }
 
 // overflowErr maps a padded-string overflow to the spec's error matrix:

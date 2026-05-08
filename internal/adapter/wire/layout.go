@@ -32,11 +32,20 @@ const (
 	offDevNumIntfs    = 311
 )
 
-// errDeviceFieldTooLarge is an internal sentinel surfaced when a u32
+//gremlins:target
+// ^ spec §8.6 / plan 2.3: this file is a primary mutation-testing
+// target because every byte offset, endianness choice, and overflow
+// guard affects upstream interop.
+
+// errDeviceFieldTooLarge wraps domain.ErrProtocolError per spec §6.4
+// error-matrix rules (protocol-level overflow is a protocol error,
+// not a domain-level sentinel). Kept as a package-internal identity
+// so callers in this package can disambiguate via errors.Is, and
+// upstream callers still match on the public domain.ErrProtocolError.
 // wire field holds a value that does not fit the corresponding domain
 // u16. Upstream kernel never emits such values, but a hostile or
 // corrupted peer could.
-var errDeviceFieldTooLarge = errors.New("device descriptor field exceeds u16 range")
+var errDeviceFieldTooLarge = fmt.Errorf("%w: device descriptor field exceeds u16 range", domain.ErrProtocolError)
 
 // EncodeDevice serializes d into the 312-byte on-wire device descriptor
 // format (spec §6.2) and writes it to w.
