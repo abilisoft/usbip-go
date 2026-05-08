@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/abilisoft/usbip-go/internal/app"
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -457,20 +458,28 @@ func TestReconnectOnReconnectPanicRecordCarriesPortIDAndSource(t *testing.T) {
 
 	require.NoError(t, imp.Close())
 
-	records := parseJSONRecords(t, bw.Bytes())
+	// The panic-recovery log runs on the fire-and-forget goroutine
+	// spawned by fireOnReconnect, NOT on the watcher waitgroup that
+	// imp.Close waits for (spec §5.5: the callback is intentionally
+	// isolated from the retry cadence). Poll the buffer until the
+	// record lands; Eventually is idiomatic here because the record
+	// is guaranteed to be emitted — we only race the timing.
+	var panicRecord map[string]any
 
-	found := false
+	require.Eventually(t, func() bool {
+		for _, r := range parseJSONRecords(t, bw.Bytes()) {
+			if r["msg"] == "OnReconnect callback panicked" {
+				panicRecord = r
 
-	for _, r := range records {
-		if r["msg"] == "OnReconnect callback panicked" {
-			assertAttrsPresent(t, r, "port_id", "source")
-
-			found = true
+				return true
+			}
 		}
-	}
 
-	require.Truef(t, found,
-		"panic record must carry port_id + source attrs; got:\n%s", bw.String())
+		return false
+	}, 2*time.Second, 10*time.Millisecond,
+		"panic-recovery log never landed; buf=%s", bw.String())
+
+	assertAttrsPresent(t, panicRecord, "port_id", "source")
 }
 
 // bufWriter serialises writes to an embedded bytes.Buffer so background
