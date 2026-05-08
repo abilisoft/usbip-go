@@ -8,7 +8,6 @@ import (
 	"time"
 
 	internalapp "github.com/abilisoft/usbip-go/internal/app"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 // importerConfig carries the option-tunable fields for NewImporter.
@@ -19,7 +18,6 @@ type importerConfig struct {
 	logger             *slog.Logger
 	backoff            BackoffStrategy
 	statusPollInterval time.Duration
-	metricsRegisterer  prometheus.Registerer
 	// transportOptions is the snapshot wired into internal/app via
 	// WithImporterTransportOptions during config translation. Zero
 	// preserves v1.0.0 behavior; non-zero values reach the dialed
@@ -55,13 +53,6 @@ func WithImporterStatusPollInterval(d time.Duration) ImporterOption {
 	return func(c *importerConfig) { c.statusPollInterval = d }
 }
 
-// WithImporterMetricsRegisterer records a Prometheus registerer that
-// the Importer uses to publish the §11.5.5 metric catalog. A nil
-// registerer (the default) yields a no-op metrics bundle.
-func WithImporterMetricsRegisterer(r prometheus.Registerer) ImporterOption {
-	return func(c *importerConfig) { c.metricsRegisterer = r }
-}
-
 // WithImporterTransportOptions stores TCP-level tuning that the
 // Importer hands to the transport adapter on every outbound Dial.
 // Zero-valued fields preserve v1.0.0 behavior. Negative values cause
@@ -95,11 +86,6 @@ func importerConfigToInternal(cfg importerConfig) []internalapp.ImporterOption {
 		out = append(out, internalapp.WithImporterLogger(cfg.logger))
 	}
 
-	if cfg.metricsRegisterer != nil {
-		out = append(out, internalapp.WithImporterMetrics(
-			internalapp.MustNewMetrics(cfg.metricsRegisterer)))
-	}
-
 	if cfg.transportOptions != (TransportOptions{}) {
 		out = append(out, internalapp.WithImporterTransportOptions(cfg.transportOptions))
 	}
@@ -122,28 +108,12 @@ type exporterConfig struct {
 	// shutdownTimeout is forwarded into internal/app's
 	// WithExporterShutdownTimeout by exporterConfigToInternal.
 	shutdownTimeout time.Duration
-	// metricsRegisterer is forwarded into internal/app's
-	// WithExporterMetrics by exporterConfigToInternal, which registers
-	// the §11.5.5 collectors against this registerer.
-	metricsRegisterer prometheus.Registerer
-	// buildInfo labels the usbip_build_info gauge at construction time.
-	// Zero value means "do not stamp"; exporterConfigToInternal skips
-	// the option when all three fields are empty.
-	buildInfo exporterBuildInfo
 	// transportOptions is wired through to internal/app via
 	// WithExporterTransportOptions. Today the value reaches accepted
 	// connections only through the transport adapter's Listen wrapper;
 	// callers that pass a pre-built net.Listener to Serve must tune
 	// that listener themselves.
 	transportOptions TransportOptions
-}
-
-// exporterBuildInfo mirrors the internal/app buildInfo shape so the
-// public surface does not leak internal types.
-type exporterBuildInfo struct {
-	version   string
-	commit    string
-	goVersion string
 }
 
 // ExporterOption configures an Exporter at construction time. Apply
@@ -213,18 +183,6 @@ func WithExporterShutdownTimeout(d time.Duration) ExporterOption {
 	return func(c *exporterConfig) { c.shutdownTimeout = d }
 }
 
-// WithExporterMetricsRegisterer records a Prometheus registerer that
-// the Exporter uses to publish the §11.5.5 metric catalog. A nil
-// registerer (the default) yields a no-op metrics bundle: every typed
-// accessor inside the app layer is gated on the bundle's nop flag, so
-// call sites don't need pre-call nil guards.
-//
-// Only the first non-nil registerer wins per Exporter; calling this
-// option twice replaces the previous value.
-func WithExporterMetricsRegisterer(r prometheus.Registerer) ExporterOption {
-	return func(c *exporterConfig) { c.metricsRegisterer = r }
-}
-
 // WithExporterTransportOptions stores TCP-level tuning that the
 // Exporter hands to the transport adapter on accepted listener
 // connections. Zero-valued fields preserve v1.0.0 behavior. Negative
@@ -239,39 +197,16 @@ func WithExporterTransportOptions(opts TransportOptions) ExporterOption {
 	return func(c *exporterConfig) { c.transportOptions = opts }
 }
 
-// WithExporterBuildInfo stamps the usbip_build_info gauge (§11.5.5)
-// with the supplied labels at Exporter construction. The labels appear
-// in /metrics immediately, before any workload runs. An all-empty
-// triple is a no-op so callers that leave the option unspecified do
-// not clobber an existing stamp with blanks.
-//
-// Wiring the stamp through the exporter's own metrics bundle keeps
-// metric-collector registration exactly-once per registerer. Callers
-// MUST NOT additionally invoke app.MustNewMetrics or SetBuildInfo on
-// the same registerer — doing so duplicate-registers the §11.5.5
-// catalog and panics at startup.
-func WithExporterBuildInfo(version, commit, goVersion string) ExporterOption {
-	return func(c *exporterConfig) {
-		c.buildInfo = exporterBuildInfo{
-			version:   version,
-			commit:    commit,
-			goVersion: goVersion,
-		}
-	}
-}
-
 // exporterConfigToInternal translates the public-facing exporterConfig
 // into the matching slice of internalapp.ExporterOption values. Every
 // non-zero field forwards to the internal option space; shutdownTimeout
 // is plumbed via internalapp.WithExporterShutdownTimeout.
-// metricsRegisterer is plumbed via internalapp.WithExporterMetrics
-// (MustNewMetrics(registerer)).
 func exporterConfigToInternal(cfg exporterConfig) []internalapp.ExporterOption {
 	out := make([]internalapp.ExporterOption, 0, exporterInternalOptCap)
 
 	out = appendExporterLoggerAndLimits(out, cfg)
 	out = appendExporterTimeouts(out, cfg)
-	out = appendExporterMetrics(out, cfg)
+	out = appendExporterTransport(out, cfg)
 
 	return out
 }
@@ -327,33 +262,15 @@ func appendExporterTimeouts(
 	return out
 }
 
-// appendExporterMetrics forwards the Prometheus registerer + build-
-// info stamp.
-func appendExporterMetrics(
+// appendExporterTransport forwards the per-Exporter transport tuning.
+func appendExporterTransport(
 	out []internalapp.ExporterOption, cfg exporterConfig,
 ) []internalapp.ExporterOption {
-	if cfg.metricsRegisterer != nil {
-		out = append(out, internalapp.WithExporterMetrics(
-			internalapp.MustNewMetrics(cfg.metricsRegisterer)))
-	}
-
-	if !cfg.buildInfo.isZero() {
-		out = append(out, internalapp.WithExporterBuildInfo(
-			cfg.buildInfo.version, cfg.buildInfo.commit, cfg.buildInfo.goVersion))
-	}
-
 	if cfg.transportOptions != (TransportOptions{}) {
 		out = append(out, internalapp.WithExporterTransportOptions(cfg.transportOptions))
 	}
 
 	return out
-}
-
-// isZero reports whether bi carries no build-info labels. Drives the
-// skip-the-option path in exporterConfigToInternal so an unset
-// buildInfo never overwrites an existing stamp with empty labels.
-func (bi exporterBuildInfo) isZero() bool {
-	return bi.version == "" && bi.commit == "" && bi.goVersion == ""
 }
 
 // exporterInternalOptCap is the ceiling used to preallocate the slice

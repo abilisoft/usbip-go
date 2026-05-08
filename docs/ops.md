@@ -95,8 +95,8 @@ Copy, then customise:
 
 - Add `--allow-cidr=10.0.0.0/8` or similar `ExecStart` flags for
   your network (see [`security.md`](security.md)).
-- Add `--metrics-addr=127.0.0.1:9240` to expose Prometheus
-  scraping on localhost.
+- Add `--health-addr=127.0.0.1:9240` to expose `/healthz` and
+  `/readyz` on localhost for orchestrator probes.
 - Add `--status-socket-group=usbip-go` and create the `usbip-go` group
   for the operators who need `usbipd-go drain`.
 - Pin additional hardening directives:
@@ -132,7 +132,7 @@ Authoritative list in v1 contract §7.7. Full flag set:
 | `--shutdown-timeout` | `30s` | Graceful drain budget before force-close. |
 | `--status-socket` | `/run/usbip-go/status.sock` | Change to an alternate runtime dir or `""` to disable. |
 | `--status-socket-group` | `usbip-go` | Match your operator group. |
-| `--metrics-addr` | `""` | Set to `127.0.0.1:9240` (or similar) to enable scraping. |
+| `--health-addr` | `""` | Set to `127.0.0.1:9240` (or similar) to expose `/healthz` and `/readyz` for orchestrator probes. |
 | `--log-level` | `info` | `debug` or `trace` during incident response. |
 | `--log-format` | `auto` | `json` for log-aggregation pipelines. |
 | `--verbose` / `-v` | `0` | Count flag: `-v` raises log level to `debug`, `-vv` to `trace`. Wins over `--log-level` when set. |
@@ -170,48 +170,52 @@ in-flight sessions up to `--drain-timeout`, and exit cleanly.
 `systemctl restart usbipd-go` then starts the new version against the
 same socket-activated listener without a connect-refused window.
 
-## Metrics scraping
+## Health endpoints
 
-Enable with `--metrics-addr`:
+Enable with `--health-addr`:
 
 ```
-usbipd-go --metrics-addr 127.0.0.1:9240
+usbipd-go --health-addr 127.0.0.1:9240
 ```
 
-The endpoint exposes three paths:
+The endpoint exposes two paths, served by `net/http` from the standard
+library (no third-party dependency):
 
-- `GET /metrics` — Prometheus text format, with the v1 contract §11.5.5
-  metric catalog.
-- `GET /healthz` — unconditional 200 OK while the metrics HTTP
+- `GET /healthz` — unconditional 200 OK while the daemon's HTTP
   server is reachable. Pure liveness — does NOT inspect the accept
   loop, kernel modules, or status socket; the readiness signals
   belong to `/readyz`.
-- `GET /readyz` — 200 only when: process up, required kernel
-  modules loaded, listener bound, accept loop armed, status socket
-  writable. Readiness gate for Kubernetes-style orchestrators.
+- `GET /readyz` — 200 only when: required kernel modules loaded,
+  listener bound, accept loop armed, status socket writable.
+  Readiness gate for Kubernetes-style orchestrators.
 
-Prometheus scrape configuration:
+Per ADR-0010, this daemon does NOT export Prometheus metrics. Operator
+observability is structured slog (journald) + sysfs + `systemctl
+status`. Every operation that previously emitted a metric now emits a
+slog record with an `outcome` field carrying the closed-set
+classification, so journald queries cover the same dashboards.
 
-```yaml
-- job_name: usbip-go
-  static_configs:
-    - targets: ['usbipd-host:9240']
-  scrape_interval: 15s
-  scrape_timeout: 10s
+Recommended journald signal queries:
+
+```
+# Bind / unbind failures by outcome
+journalctl -u usbipd-go --output=json \
+  | jq 'select(.MESSAGE | startswith("exporter bind failed"))
+        | {time: .__REALTIME_TIMESTAMP, busid, outcome, err}'
+
+# Reconnect storms (watcher backoff churn)
+journalctl -u usbipd-go --output=json \
+  | jq 'select(.outcome == "backoff")'
+
+# Sessions rejected by ACL or rate limit
+journalctl -u usbipd-go --output=json \
+  | jq 'select(.outcome == "rejected_acl" or .outcome == "rejected_rate")'
 ```
 
-Recommended alerting signals:
-
-- `usbip_kernel_modules_loaded{module="usbip_host"} == 0` — the
-  export kernel module disappeared.
-- `rate(usbip_exporter_sessions_accepted_total{outcome=~"rejected_.*"}[5m])`
-  high — ambient abuse or misconfigured clients.
-- `usbip_exporter_sessions_active > 0.8 * <your --max-sessions>` —
-  approaching the session cap.
-
-Every metric in the catalog is defined in
-[`json-schema.md`](json-schema.md#metrics) and v1 contract §11.5.5. Labels
-are drawn from closed small sets; no unbounded cardinality.
+Operators who genuinely need Prometheus metrics should run a sidecar
+that parses `journalctl --output=json` and republishes counters in the
+exposition format. The library deliberately does not ship that
+adapter.
 
 ## Drain-and-upgrade
 
@@ -246,7 +250,8 @@ need accounting continuity should drain before upgrading.
   usbipd-go version
   sudo usbipd-go --log-level=trace --status-socket=/run/usbip-go/status.sock
   sudo curl --unix-socket /run/usbip-go/status.sock http://unused/ | jq .
-  curl -s http://127.0.0.1:9240/metrics | grep usbip_
+  curl -s http://127.0.0.1:9240/readyz
+  journalctl -u usbipd-go --output=json --since '-15min'
   ```
 
   in any issue you file.

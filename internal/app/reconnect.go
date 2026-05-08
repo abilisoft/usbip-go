@@ -385,7 +385,11 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 		i.fireOnReconnect(p.opts.OnReconnect, attempt, lastErr, p.portID, source)
 
 		if !i.waitBackoffChan(ctx, delayCh) {
-			i.metrics.ImporterReconnectAttempt(ReconnectOutcomeCanceled)
+			i.logger.Info("reconnect canceled",
+				slog.Any("port_id", p.portID),
+				slog.Int("attempt", attempt),
+				slog.String("source", source),
+				slog.String("outcome", string(ReconnectOutcomeCanceled)))
 
 			return
 		}
@@ -400,28 +404,25 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 		lastErr = err
 
 		if errors.Is(err, ErrImporterClosed) {
-			i.metrics.ImporterReconnectAttempt(ReconnectOutcomeCanceled)
+			i.logger.Info("reconnect canceled by close",
+				slog.Any("port_id", p.portID),
+				slog.Int("attempt", attempt),
+				slog.String("source", source),
+				slog.String("outcome", string(ReconnectOutcomeCanceled)))
 
 			return
 		}
-
-		i.metrics.ImporterReconnectAttempt(ReconnectOutcomeBackoff)
 
 		i.logger.Warn("reconnect attempt failed",
 			slog.Any("port_id", p.portID),
 			slog.Int("attempt", attempt),
 			slog.String("source", source),
+			slog.String("outcome", string(ReconnectOutcomeBackoff)),
 			slog.Any("err", err),
 		)
 	}
 
-	i.metrics.ImporterReconnectAttempt(ReconnectOutcomeExhausted)
 	i.removeHandle(p.portID, p.handle)
-	// Refresh usbip_importer_ports_active to reflect the retired
-	// handle slot. Without this refresh the gauge would stay inflated
-	// from the original Attach until the next gauge-updating event,
-	// misleading operators about live-port count.
-	i.updateImporterPortsGauge()
 	// attempt is the for-loop's post-exit value: when the condition
 	// fails (attempt > MaxAttempts), the final attempted-and-failed
 	// iteration is attempt-1. MaxAttempts==0 (infinite) is unreachable
@@ -433,6 +434,7 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 		slog.Int("attempt", attempts),
 		slog.String("source", source),
 		slog.Int("max_attempts", p.opts.MaxAttempts),
+		slog.String("outcome", string(ReconnectOutcomeExhausted)),
 		slog.Any("last_err", lastErr),
 	)
 
@@ -462,12 +464,10 @@ func (i *Importer) finishReconnectSuccess(
 		// to stay gone. Roll back the replacement kernel handoff
 		// before it wins the race.
 		i.rollbackSupersededReconnect(ctx, newPort.ID, p, source)
-		i.metrics.ImporterReconnectAttempt(ReconnectOutcomeCanceled)
 
 		return
 	}
 
-	i.metrics.ImporterReconnectAttempt(ReconnectOutcomeOK)
 	i.removeHandle(p.portID, p.handle)
 	// Refresh usbip_importer_ports_active so the old slot's retirement
 	// nets out the Attach-time gauge bump the replacement already
@@ -475,7 +475,6 @@ func (i *Importer) finishReconnectSuccess(
 	// PortID than the original, the gauge would otherwise stay
 	// inflated by one. The rollback path does the same refresh; the
 	// success path needs the symmetric refresh too.
-	i.updateImporterPortsGauge()
 
 	// Per v1 contract §5.5 / BackoffStrategy contract (internal/app/backoff.go:20
 	// and pkg/usbip/backoff.go:19): "Reset is called after a successful
@@ -496,6 +495,7 @@ func (i *Importer) finishReconnectSuccess(
 		slog.Any("new_port_id", newPort.ID),
 		slog.Int("attempt", attempt),
 		slog.String("source", source),
+		slog.String("outcome", string(ReconnectOutcomeOK)),
 	)
 }
 
@@ -555,8 +555,6 @@ func (i *Importer) rollbackSupersededReconnect(
 		slog.Any("old_port_id", p.portID),
 		slog.String("source", source),
 	)
-
-	i.updateImporterPortsGauge()
 }
 
 // armBackoff computes Backoff.Next(attempt-1) and, when positive,

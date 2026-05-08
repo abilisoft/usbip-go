@@ -30,7 +30,6 @@ type Exporter struct {
 	codec     ProtocolCodec
 	clock     Clock
 	logger    *slog.Logger
-	metrics   *Metrics
 	// transportOptions is the snapshot taken at NewExporter time.
 	// PR 1a stores and validates the value; PR 1b adds an Exporter-
 	// owned listener path that honors it on accepted connections. In
@@ -133,15 +132,6 @@ func NewExporterWithError(opts ...ExporterOption) (*Exporter, error) {
 		return nil, transportErr
 	}
 
-	if cfg.metrics == nil {
-		cfg.metrics = MustNewMetrics(nil)
-	}
-
-	if !cfg.buildInfo.empty() {
-		cfg.metrics.SetBuildInfo(
-			cfg.buildInfo.version, cfg.buildInfo.commit, cfg.buildInfo.goVersion)
-	}
-
 	return &Exporter{
 		kernel:           cfg.kernel,
 		events:           cfg.events,
@@ -149,7 +139,6 @@ func NewExporterWithError(opts ...ExporterOption) (*Exporter, error) {
 		codec:            cfg.codec,
 		clock:            cfg.clock,
 		logger:           cfg.logger,
-		metrics:          cfg.metrics,
 		transportOptions: cfg.transportOptions,
 		cfg:              resolveExporterLimits(&cfg),
 		acceptLim:        newAcceptLimiter(resolveAcceptRate(&cfg), resolveAcceptBurst(&cfg)),
@@ -184,30 +173,43 @@ func requireExporterDeps(cfg *exporterConfig) {
 
 // Bind delegates to kernel.Bind per v1 contract §5.3. Errors are wrapped with
 // the busid so callers that bind many devices can identify which failed.
+// Every terminal branch logs a structured slog record with an outcome
+// field so journald queries can filter by outcome without parsing
+// free-form messages.
 func (e *Exporter) Bind(ctx context.Context, busID domain.BusID) error {
 	err := e.kernel.Bind(ctx, busID)
 	if err != nil {
-		e.metrics.ExporterBind(classifyBindError(err))
+		e.logger.Warn("exporter bind failed",
+			slog.Any("busid", busID),
+			slog.String("outcome", string(classifyBindError(err))),
+			slog.Any("err", err))
 
 		return fmt.Errorf("bind %s: %w", busID, err)
 	}
 
-	e.metrics.ExporterBind(BindOutcomeOK)
+	e.logger.Info("exporter bind",
+		slog.Any("busid", busID),
+		slog.String("outcome", string(BindOutcomeOK)))
 
 	return nil
 }
 
 // Unbind delegates to kernel.Unbind per v1 contract §5.3. Errors are wrapped
-// with the busid.
+// with the busid. Outcome is logged structurally per Bind's contract.
 func (e *Exporter) Unbind(ctx context.Context, busID domain.BusID) error {
 	err := e.kernel.Unbind(ctx, busID)
 	if err != nil {
-		e.metrics.ExporterUnbind(classifyUnbindError(err))
+		e.logger.Warn("exporter unbind failed",
+			slog.Any("busid", busID),
+			slog.String("outcome", string(classifyUnbindError(err))),
+			slog.Any("err", err))
 
 		return fmt.Errorf("unbind %s: %w", busID, err)
 	}
 
-	e.metrics.ExporterUnbind(UnbindOutcomeOK)
+	e.logger.Info("exporter unbind",
+		slog.Any("busid", busID),
+		slog.String("outcome", string(UnbindOutcomeOK)))
 
 	return nil
 }
@@ -490,7 +492,6 @@ func (e *Exporter) acceptLoop(ctx context.Context, listener net.Listener) error 
 		}
 
 		if !e.acl.allow(conn.RemoteAddr()) {
-			e.metrics.ExporterSessionAccepted(OutcomeRejectedACL)
 			e.logger.Info("exporter accept rejected by ACL",
 				slog.String("remote", conn.RemoteAddr().String()))
 
@@ -500,7 +501,6 @@ func (e *Exporter) acceptLoop(ctx context.Context, listener net.Listener) error 
 		}
 
 		if !e.acceptLim.allow() {
-			e.metrics.ExporterSessionAccepted(OutcomeRejectedRate)
 			e.logger.Debug("exporter accept rate-limited",
 				slog.String("remote", conn.RemoteAddr().String()))
 
@@ -746,14 +746,7 @@ func (e *Exporter) unregisterSession(id domain.SessionID) {
 		delete(e.perPeer, h.peerKey)
 	}
 
-	n := len(e.sessions)
-
 	e.mu.Unlock()
 
 	h.cancel()
-
-	// Push the updated session count to the gauge OUTSIDE the lock so a
-	// slow prometheus accessor cannot back-pressure the session-close
-	// path.
-	e.metrics.ExporterSessionsActive(n)
 }

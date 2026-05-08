@@ -80,7 +80,9 @@ Implements the use-case services:
 - Reconnect watcher with per-port generation tokens (v1 contract §5.5).
 - Session accounting, ACL enforcement, accept rate limiting (spec
   §11.5.3).
-- Metrics bundle wiring to the optional Prometheus registerer.
+- Closed-set outcome enums (AttachOutcome, ReconnectOutcome, etc.) used
+  as `slog.String("outcome", …)` field values for journald queries
+  (no Prometheus dependency — see ADR-0010).
 
 `internal/app` declares every adapter interface it consumes
 (`ImporterKernel`, `ExporterKernel`, `KernelEvents`, `WireCodec`,

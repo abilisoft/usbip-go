@@ -9,7 +9,6 @@ import (
 	"time"
 
 	internalapp "github.com/abilisoft/usbip-go/internal/app"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 // ProbeOneAtForTest exposes probeOneAt so tests can point the probe at
@@ -153,32 +152,6 @@ func (c ExporterConfigForTest) HandshakeTimeoutForTest() time.Duration {
 // ShutdownTimeoutForTest returns the stored shutdown timeout.
 func (c ExporterConfigForTest) ShutdownTimeoutForTest() time.Duration {
 	return c.inner.shutdownTimeout
-}
-
-// MetricsRegistererForTest returns the stored Prometheus registerer.
-func (c ExporterConfigForTest) MetricsRegistererForTest() prometheus.Registerer {
-	return c.inner.metricsRegisterer
-}
-
-// ExporterBuildInfoForTest is the test-only snapshot of the stored
-// build-info triple. Zero value means "no stamp"; callers assert
-// against the empty-string fields to verify the option was not
-// applied.
-type ExporterBuildInfoForTest struct {
-	Version   string
-	Commit    string
-	GoVersion string
-}
-
-// BuildInfoForTest returns the stored build-info labels as a snapshot
-// struct. A struct return keeps the assertion surface stable even if
-// the set of labels evolves.
-func (c ExporterConfigForTest) BuildInfoForTest() ExporterBuildInfoForTest {
-	return ExporterBuildInfoForTest{
-		Version:   c.inner.buildInfo.version,
-		Commit:    c.inner.buildInfo.commit,
-		GoVersion: c.inner.buildInfo.goVersion,
-	}
 }
 
 // TransportOptions returns the stored TransportOptions snapshot.

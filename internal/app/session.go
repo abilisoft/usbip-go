@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/netip"
 	"sync"
-	"time"
 
 	"github.com/abilisoft/usbip-go/internal/adapter/wire"
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -72,8 +71,6 @@ func (e *Exporter) handleConn(ctx context.Context, conn net.Conn) {
 		}
 	}()
 
-	handshakeStart := e.clock.Now()
-
 	stopTimeout := e.armHandshakeTimeout(closer)
 	defer stopTimeout()
 
@@ -81,7 +78,6 @@ func (e *Exporter) handleConn(ctx context.Context, conn net.Conn) {
 
 	_, op, _, err := e.codec.DecodeHeader(reader)
 	if err != nil {
-		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
 		e.logger.Debug("exporter decode header",
 			slog.Any("err", err))
 
@@ -96,29 +92,16 @@ func (e *Exporter) handleConn(ctx context.Context, conn net.Conn) {
 	case wire.OpReqDevlist:
 		stopTimeout()
 		e.serveDevlist(ctx, reader, conn)
-		e.metrics.ExporterHandshakeDuration(
-			HandshakeOpDevlist,
-			e.clock.Now().Sub(handshakeStart).Seconds(),
-		)
 	case wire.OpReqImport:
-		// HandshakeDuration for OpReqImport is observed INSIDE
-		// serveImport at the handshake-complete boundary. serveImport
-		// blocks on waitForSessionEnd after success, so observing the
-		// metric here (after serveImport returned) would measure the
-		// entire session lifetime rather than the handshake. Passing
-		// the start time through lets serveImport stop the clock at
-		// every terminal transition (success or handshake error).
-		e.serveImport(ctx, reader, conn, stopTimeout, handshakeStart)
+		e.serveImport(ctx, reader, conn, stopTimeout)
 	case wire.OpRepDevlist, wire.OpRepImport:
 		stopTimeout()
-		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
 		// Reply opcodes arriving on an accepted connection indicate a
 		// misbehaving peer (or a reversed-role misconfiguration).
 		e.logger.Debug("exporter received reply opcode on accept side",
 			slog.Any("opcode", op))
 	default:
 		stopTimeout()
-		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
 		e.logger.Debug("exporter unexpected opcode",
 			slog.Any("opcode", op))
 	}
@@ -193,8 +176,9 @@ func (e *Exporter) armHandshakeTimeout(closer *connCloser) func() {
 func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn) {
 	devs, err := e.kernel.ListExportedDevices(ctx)
 	if err != nil {
-		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
 		e.logger.Warn("exporter list exported devices",
+			slog.String("op", string(HandshakeOpDevlist)),
+			slog.String("outcome", string(OutcomeHandshakeFailed)),
 			slog.Any("err", err))
 
 		return
@@ -202,14 +186,18 @@ func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn)
 
 	err = e.codec.EncodeOpRepDevlist(conn, devs)
 	if err != nil {
-		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
 		e.logger.Warn("exporter encode devlist reply",
+			slog.String("op", string(HandshakeOpDevlist)),
+			slog.String("outcome", string(OutcomeHandshakeFailed)),
 			slog.Any("err", err))
 
 		return
 	}
 
-	e.metrics.ExporterSessionAccepted(OutcomeHandshakeOK)
+	e.logger.Debug("exporter devlist served",
+		slog.String("op", string(HandshakeOpDevlist)),
+		slog.String("outcome", string(OutcomeHandshakeOK)),
+		slog.Int("device_count", len(devs)))
 }
 
 // serveImport handles the OP_REQ_IMPORT request. It decodes the busid
@@ -245,7 +233,7 @@ func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn)
 // the kernel signals session end via a matching uevent, Shutdown
 // signals handle.done, or ctx cancels.
 func (e *Exporter) serveImport(
-	ctx context.Context, reader io.Reader, conn net.Conn, stopTimeout func(), handshakeStart time.Time,
+	ctx context.Context, reader io.Reader, conn net.Conn, stopTimeout func(),
 ) {
 	// Body-only decode: handleConn already consumed the 8-byte header
 	// to dispatch to serveImport. Calling DecodeOpReqImport here would
@@ -260,9 +248,9 @@ func (e *Exporter) serveImport(
 	stopTimeout()
 
 	if err != nil {
-		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
-		e.observeImportHandshakeDuration(handshakeStart)
 		e.logger.Warn("exporter decode import request",
+			slog.String("op", string(HandshakeOpImport)),
+			slog.String("outcome", string(OutcomeHandshakeFailed)),
 			slog.Any("err", err))
 
 		return
@@ -270,9 +258,9 @@ func (e *Exporter) serveImport(
 
 	sess, err := e.buildSession(conn, busID)
 	if err != nil {
-		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
-		e.observeImportHandshakeDuration(handshakeStart)
 		e.logger.Warn("exporter build session",
+			slog.String("op", string(HandshakeOpImport)),
+			slog.String("outcome", string(OutcomeHandshakeFailed)),
 			slog.Any("err", err))
 
 		return
@@ -282,38 +270,53 @@ func (e *Exporter) serveImport(
 
 	handle, err := e.registerSession(sess, peerKey, conn)
 	if err != nil {
-		e.metrics.ExporterSessionAccepted(OutcomeRejectedCap)
-		e.observeImportHandshakeDuration(handshakeStart)
 		e.logger.Warn("exporter session declined",
 			slog.Any("busid", busID),
 			slog.String("peer", peerKey),
+			slog.String("op", string(HandshakeOpImport)),
+			slog.String("outcome", string(classifySessionDeclineOutcome(err))),
 			slog.Any("err", err))
 
 		return
 	}
 
-	e.runRegisteredSession(ctx, conn, busID, handle, handshakeStart)
+	e.runRegisteredSession(ctx, conn, busID, handle)
+}
+
+// classifySessionDeclineOutcome maps a registerSession failure to the
+// closed SessionOutcome set. ErrACLRejected, ErrRateLimited, and the
+// MaxSessions / per-peer caps are domain sentinels exposed by the
+// registration path; anything else falls through to handshake_failed
+// so the closed-set contract is preserved.
+func classifySessionDeclineOutcome(err error) SessionOutcome {
+	switch {
+	case errors.Is(err, ErrACLRejected):
+		return OutcomeRejectedACL
+	case errors.Is(err, ErrRateLimited):
+		return OutcomeRejectedRate
+	case errors.Is(err, ErrMaxSessionsExceeded), errors.Is(err, ErrPerPeerLimitExceeded):
+		return OutcomeRejectedCap
+	}
+
+	return OutcomeHandshakeFailed
 }
 
 // runRegisteredSession executes the post-registration session lifecycle:
 // emit SessionStarted, open the KernelEvents subscription BEFORE handing
-// the fd to the kernel, call ExportOnConn, observe the handshake
-// duration, then park on waitForSessionEnd. Extracted from serveImport
-// to keep the parent function below the funlen cap while preserving
-// every ordering invariant documented above.
+// the fd to the kernel, call ExportOnConn, then park on
+// waitForSessionEnd. Extracted from serveImport to keep the parent
+// function below the funlen cap while preserving every ordering
+// invariant documented above.
 func (e *Exporter) runRegisteredSession(
 	ctx context.Context,
 	conn net.Conn,
 	busID domain.BusID,
 	handle *sessionHandle,
-	handshakeStart time.Time,
 ) {
 	// Successful registration: count the accept BEFORE ExportOnConn
 	// because the kernel call may block for the session's entire
 	// lifetime. Deferring the increment until ExportOnConn returns
 	// would hide live sessions from the accepted_total counter.
-	e.metrics.ExporterSessionAccepted(OutcomeHandshakeOK)
-	e.updateSessionsActiveGauge()
 
 	// Publish SessionStarted AFTER register (under its own lock) and
 	// BEFORE ExportOnConn blocks. Using a defer for SessionEnded binds
@@ -322,6 +325,12 @@ func (e *Exporter) runRegisteredSession(
 		At:      e.clock.Now(),
 		Session: handle.session,
 	})
+
+	e.logger.Info("exporter session accepted",
+		slog.Any("busid", busID),
+		slog.String("session_id", handle.session.ID.String()),
+		slog.String("op", string(HandshakeOpImport)),
+		slog.String("outcome", string(OutcomeHandshakeOK)))
 
 	defer e.endSession(handle, "handler exited")
 
@@ -346,8 +355,6 @@ func (e *Exporter) runRegisteredSession(
 		// we cannot open one we must not hand the fd to the kernel
 		// (we would park forever after a successful handoff). Surface
 		// the subscribe failure the same way as a kernel-side error.
-		e.metrics.ExporterDisconnect(DisconnectReasonKernelError)
-		e.observeImportHandshakeDuration(handshakeStart)
 
 		return
 	}
@@ -359,35 +366,17 @@ func (e *Exporter) runRegisteredSession(
 		if !errors.Is(err, context.Canceled) {
 			e.logger.Warn("exporter export on conn",
 				slog.Any("busid", busID),
+				slog.String("disconnect_reason", string(DisconnectReasonKernelError)),
 				slog.Any("err", err))
 		}
-
-		e.metrics.ExporterDisconnect(classifyDisconnectReason(err))
-		e.observeImportHandshakeDuration(handshakeStart)
 
 		return
 	}
 
 	// ExportOnConn returned success: the kernel accepted the fd, the
-	// handshake is done. Observe the handshake duration BEFORE
-	// parking on waitForSessionEnd so the histogram samples the
-	// handshake cost, not the full session runtime.
-	e.observeImportHandshakeDuration(handshakeStart)
-
-	reason := e.waitForSessionEnd(ctx, busID, handle, events)
-
-	e.metrics.ExporterDisconnect(reason)
-}
-
-// observeImportHandshakeDuration records
-// usbip_exporter_handshake_duration_seconds for the import op from
-// handshakeStart to now. Extracted so serveImport's six terminal
-// transitions share one code path.
-func (e *Exporter) observeImportHandshakeDuration(handshakeStart time.Time) {
-	e.metrics.ExporterHandshakeDuration(
-		HandshakeOpImport,
-		e.clock.Now().Sub(handshakeStart).Seconds(),
-	)
+	// handshake is done. Park on waitForSessionEnd until the kernel
+	// signals the session ended.
+	e.waitForSessionEnd(ctx, busID, handle, events)
 }
 
 // waitForSessionEnd blocks the post-ExportOnConn handler until the
@@ -477,19 +466,6 @@ func classifyDisconnectReason(err error) DisconnectReason {
 	return DisconnectReasonKernelError
 }
 
-// updateSessionsActiveGauge snapshots the current session-map size and
-// pushes it to usbip_exporter_sessions_active. Called on every
-// transition that moves the count.
-func (e *Exporter) updateSessionsActiveGauge() {
-	e.mu.RLock()
-
-	n := len(e.sessions)
-
-	e.mu.RUnlock()
-
-	e.metrics.ExporterSessionsActive(n)
-}
-
 // endSession unregisters the session and publishes a SessionEnded
 // event. Kept out of unregisterSession itself so the lock-holding
 // bookkeeping call does not also trigger fan-out under the write lock
@@ -503,6 +479,11 @@ func (e *Exporter) endSession(h *sessionHandle, reason string) {
 		Session: h.session,
 		Reason:  reason,
 	})
+
+	e.logger.Info("exporter session ended",
+		slog.Any("busid", h.session.BusID),
+		slog.String("session_id", h.session.ID.String()),
+		slog.String("disconnect_reason", reason))
 }
 
 // buildSession assembles the domain.Session recorded for the accepted
