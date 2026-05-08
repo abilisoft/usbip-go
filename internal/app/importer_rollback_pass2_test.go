@@ -144,10 +144,10 @@ func TestImporterRollback_PreservesHandleOnKernelDetachFailure(t *testing.T) {
 		t.Fatal("rollback kernel.DetachPort(2) was not invoked")
 	}
 
-	// Post-fix: because rollback DetachPort failed, the handle for
-	// PortID=2 MUST stay registered so the user can retry. The retry
-	// Detach(2) must reach the kernel — if the handle was deleted the
-	// retry returns ErrDeviceNotBound and no DetachPort is issued.
+	// Because rollback DetachPort failed, the handle for PortID=2 MUST
+	// stay registered so the user can retry. The retry Detach(2) must
+	// reach the kernel — if the handle was deleted the retry returns
+	// ErrDeviceNotBound and no DetachPort is issued.
 	retryErr := imp.Detach(context.Background(), domain.PortID(2))
 	require.NoError(t, retryErr,
 		"retry Detach(2) must succeed — handle must remain registered "+

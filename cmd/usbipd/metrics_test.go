@@ -294,9 +294,11 @@ func TestMaybeStartMetricsServerNoDoubleRegistration(t *testing.T) {
 	var stop func(context.Context) error
 
 	// The production regression: NewExporter registered collectors
-	// against reg, and maybeStartMetricsServer (pre-fix) called
-	// MustNewMetrics(reg) again, panicking. require.NotPanics turns
-	// the latent panic into a RED failure.
+	// against reg, and a second MustNewMetrics(reg) from
+	// maybeStartMetricsServer would panic on duplicate registration.
+	// maybeStartMetricsServer must reuse the already-registered
+	// collectors; require.NotPanics turns any regression into a RED
+	// failure.
 	require.NotPanics(t, func() {
 		var startErr error
 
