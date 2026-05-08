@@ -286,7 +286,9 @@ func TestDrainSubcommandUDSDisappears(t *testing.T) {
 // ergonomics fix: when --status-socket is empty (status endpoint
 // disabled on the daemon side), `usbip drain` MUST surface a
 // targeted error explaining the disabled state rather than fall
-// through to a raw dial failure with no context.
+// through to a raw dial failure with no context. The error MUST
+// also map to ExitUsage (2), not ExitGeneric (1), because empty
+// --status-socket is a configuration / preflight class fault.
 func TestDrainSubcommandRejectsEmptyStatusSocket(t *testing.T) {
 	t.Parallel()
 
@@ -302,4 +304,7 @@ func TestDrainSubcommandRejectsEmptyStatusSocket(t *testing.T) {
 	require.Error(t, err, "drain must reject an empty status socket path")
 	require.Contains(t, err.Error(), "status socket",
 		"error message must name the disabled mechanism so operators understand the root cause")
+	require.Equalf(t, ExitUsage, MapError(err),
+		"empty --status-socket is a configuration class fault and must map to ExitUsage (2), got %d",
+		MapError(err))
 }
