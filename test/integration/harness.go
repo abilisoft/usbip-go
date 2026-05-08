@@ -214,36 +214,26 @@ func uniqueGadgetName(t *testing.T) string {
 // registerGadgetCleanup queues the configfs teardown on the test's
 // t.Cleanup stack. Teardown is idempotent: an UDC unbind writes empty
 // to UDC, then function symlinks are removed, then directories are
-// rmdir'd leaf-first. Errors are best-effort logged; the test has
-// already returned by the time cleanup fires so a test-failure signal
-// cannot be raised from here.
+// rmdir'd leaf-first. Errors from each step are joined via errors.Join
+// and surfaced via t.Logf so a broken teardown is visible in CI
+// output without being escalated to t.Errorf (which would turn a
+// cleanup-time kernel quirk into a test failure). Not all cleanup
+// errors are symptomatic: a "file does not exist" on an unbind-empty
+// write just means the gadget was never bound in the first place.
 func registerGadgetCleanup(t *testing.T, root string) func() {
 	t.Helper()
 
 	fn := func() {
-		// Unbind UDC first: writing empty detaches the gadget so the
-		// later rmdir stack is not rejected with EBUSY.
-		_ = writeFile(filepath.Join(root, "UDC"), "")
-
-		// Function symlinks must go before their parent configs dir.
-		configsDir := filepath.Join(root, "configs")
-		_ = filepath.WalkDir(configsDir, func(path string, d fs.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return nil //nolint:nilerr // cleanup is best-effort; log-and-continue is intentional
-			}
-
-			if d.Type()&fs.ModeSymlink != 0 {
-				_ = os.Remove(path)
-			}
-
-			return nil
-		})
-
-		// Depth-first rmdir so leaf configfs directories vanish
-		// before their parents. os.RemoveAll cannot be used here
-		// because configfs rejects unlink on attribute-file children
-		// — only rmdir is legal, and only once the dir is empty.
-		_ = removeConfigfsTreeDepthFirst(root)
+		err := runGadgetCleanup(root)
+		if err != nil {
+			// t.Logf because cleanup fires AFTER the test body returned
+			// (t.Errorf from here would not mark the in-progress test as
+			// failed anyway, and marking the already-finished test as
+			// failed would hide whether the scenario itself succeeded).
+			// A log line is sufficient to flag stuck configfs state that
+			// operators must investigate.
+			t.Logf("integration harness: gadget cleanup errors at %s: %v", root, err)
+		}
 	}
 
 	t.Cleanup(fn)
@@ -251,16 +241,76 @@ func registerGadgetCleanup(t *testing.T, root string) func() {
 	return fn
 }
 
+// runGadgetCleanup performs the configfs teardown dance and accumulates
+// every step's error via errors.Join. Extracted from the t.Cleanup
+// closure so registerGadgetCleanup's surface is purely "log the joined
+// error" and the teardown sequence itself is testable independently.
+//
+// Each step keeps running even if a previous one errored because
+// configfs state can be partially torn down and the remaining steps
+// often succeed: e.g. an UDC write failure (gadget never bound) should
+// not skip the symlink+rmdir cleanup.
+func runGadgetCleanup(root string) error {
+	var errs []error
+
+	// Unbind UDC first: writing empty detaches the gadget so the
+	// later rmdir stack is not rejected with EBUSY. A missing UDC
+	// attribute ("not bound in the first place") is not treated as
+	// an error — errors.Is(err, fs.ErrNotExist) filters those.
+	if err := writeFile(filepath.Join(root, "UDC"), ""); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		errs = append(errs, fmt.Errorf("unbind UDC: %w", err))
+	}
+
+	// Function symlinks must go before their parent configs dir.
+	configsDir := filepath.Join(root, "configs")
+
+	err := filepath.WalkDir(configsDir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			errs = append(errs, fmt.Errorf("walk %s: %w", path, walkErr))
+
+			return nil //nolint:nilerr // continue walking; the joined-error accumulates the skipped branch
+		}
+
+		if d.Type()&fs.ModeSymlink != 0 {
+			if rmErr := os.Remove(path); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+				errs = append(errs, fmt.Errorf("remove symlink %s: %w", path, rmErr))
+			}
+		}
+
+		return nil
+	})
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		errs = append(errs, fmt.Errorf("walk configs: %w", err))
+	}
+
+	// Depth-first rmdir so leaf configfs directories vanish before
+	// their parents. os.RemoveAll cannot be used here because configfs
+	// rejects unlink on attribute-file children — only rmdir is legal,
+	// and only once the dir is empty.
+	if rmErr := removeConfigfsTreeDepthFirst(root); rmErr != nil {
+		errs = append(errs, fmt.Errorf("rmdir tree: %w", rmErr))
+	}
+
+	return errors.Join(errs...)
+}
+
 // removeConfigfsTreeDepthFirst walks root depth-first and rmdirs every
 // directory. configfs directories reject os.Remove on attribute files
 // (they are not regular files) so os.RemoveAll fails halfway through;
 // this routine skips files and only attempts rmdir on directories.
+// Per-rmdir failures are joined via errors.Join so a partial teardown
+// surfaces every stuck directory, not just the first one. fs.ErrNotExist
+// is filtered because a concurrent cleanup can unlink before we do.
 func removeConfigfsTreeDepthFirst(root string) error {
 	paths := make([]string, 0, 16)
 
+	var errs []error
+
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return nil //nolint:nilerr // walk continues past transient errors during cleanup
+			errs = append(errs, fmt.Errorf("walk %s: %w", path, walkErr))
+
+			return nil //nolint:nilerr // continue the walk; the joined-error captures the skipped branch
 		}
 
 		if d.IsDir() {
@@ -270,16 +320,19 @@ func removeConfigfsTreeDepthFirst(root string) error {
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("walk configfs tree: %w", err)
+		errs = append(errs, fmt.Errorf("walk configfs tree: %w", err))
 	}
 
 	// rmdir leaves first: reverse the accumulated order so each
 	// directory's children are already gone when its rmdir fires.
 	for i := len(paths) - 1; i >= 0; i-- {
-		_ = os.Remove(paths[i])
+		rmErr := os.Remove(paths[i])
+		if rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+			errs = append(errs, fmt.Errorf("rmdir %s: %w", paths[i], rmErr))
+		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // writeGadgetTree performs the sequence of configfs writes that
