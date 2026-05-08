@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"time"
 
 	"github.com/abilisoft/usbip-go/internal/adapter/wire"
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -99,11 +100,15 @@ func (e *Exporter) handleConn(ctx context.Context, conn net.Conn) {
 			e.clock.Now().Sub(handshakeStart).Seconds(),
 		)
 	case wire.OpReqImport:
-		e.serveImport(ctx, reader, conn, stopTimeout)
-		e.metrics.ExporterHandshakeDuration(
-			HandshakeOpImport,
-			e.clock.Now().Sub(handshakeStart).Seconds(),
-		)
+		// HandshakeDuration for OpReqImport is observed INSIDE
+		// serveImport at the handshake-complete boundary (pass-3
+		// RANK 5). Pre-fix handleConn recorded the metric after
+		// serveImport returned, but serveImport blocks on
+		// waitForSessionEnd — the metric therefore measured the
+		// entire session lifetime, not the handshake. Passing the
+		// start time through lets serveImport stop the clock at
+		// every terminal transition (success or handshake error).
+		e.serveImport(ctx, reader, conn, stopTimeout, handshakeStart)
 	case wire.OpRepDevlist, wire.OpRepImport:
 		stopTimeout()
 		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
@@ -198,6 +203,17 @@ func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn)
 // AFTER DecodeOpReqImport completes so a stalled body-decode still
 // fires the handshake deadline (Fix 3).
 //
+// handshakeStart is the wall-clock instant the accept loop dispatched
+// this conn to the handler; serveImport uses it to emit the
+// usbip_exporter_handshake_duration_seconds sample at the handshake-
+// complete boundary (pass-3 RANK 5). Every terminal return path
+// observes the metric so the histogram's import-label samples cover
+// failed handshakes too; the success branch observes it the moment
+// ExportOnConn returns, BEFORE the handler parks on waitForSessionEnd.
+// Pre-fix handleConn observed the metric after serveImport returned,
+// which meant the histogram recorded the full session lifetime
+// rather than the handshake.
+//
 // After ExportOnConn returns success the kernel owns the fd but the
 // session is still live (RANK 1); the real sysfs write completes
 // immediately and the kernel carries the session for its actual
@@ -207,7 +223,7 @@ func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn)
 // waitForSessionEnd blocks until the kernel signals session end via a
 // matching uevent, Shutdown signals handle.done, or ctx cancels.
 func (e *Exporter) serveImport(
-	ctx context.Context, reader io.Reader, conn net.Conn, stopTimeout func(),
+	ctx context.Context, reader io.Reader, conn net.Conn, stopTimeout func(), handshakeStart time.Time,
 ) {
 	busID, err := e.codec.DecodeOpReqImport(reader)
 
@@ -219,6 +235,7 @@ func (e *Exporter) serveImport(
 
 	if err != nil {
 		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
+		e.observeImportHandshakeDuration(handshakeStart)
 		e.logger.Warn("exporter decode import request",
 			slog.Any("err", err))
 
@@ -228,6 +245,7 @@ func (e *Exporter) serveImport(
 	sess, err := e.buildSession(conn, busID)
 	if err != nil {
 		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
+		e.observeImportHandshakeDuration(handshakeStart)
 		e.logger.Warn("exporter build session",
 			slog.Any("err", err))
 
@@ -239,6 +257,7 @@ func (e *Exporter) serveImport(
 	handle, err := e.registerSession(sess, peerKey, conn)
 	if err != nil {
 		e.metrics.ExporterSessionAccepted(OutcomeRejectedCap)
+		e.observeImportHandshakeDuration(handshakeStart)
 		e.logger.Warn("exporter session declined",
 			slog.Any("busid", busID),
 			slog.String("peer", peerKey),
@@ -286,6 +305,7 @@ func (e *Exporter) serveImport(
 		// (we would park forever after a successful handoff). Surface
 		// the subscribe failure the same way as a kernel-side error.
 		e.metrics.ExporterDisconnect(DisconnectReasonKernelError)
+		e.observeImportHandshakeDuration(handshakeStart)
 
 		return
 	}
@@ -301,13 +321,31 @@ func (e *Exporter) serveImport(
 		}
 
 		e.metrics.ExporterDisconnect(classifyDisconnectReason(err))
+		e.observeImportHandshakeDuration(handshakeStart)
 
 		return
 	}
 
+	// ExportOnConn returned success: the kernel accepted the fd, the
+	// handshake is done. Observe the handshake duration BEFORE
+	// parking on waitForSessionEnd so the histogram samples the
+	// handshake cost, not the full session runtime.
+	e.observeImportHandshakeDuration(handshakeStart)
+
 	reason := e.waitForSessionEnd(ctx, busID, handle, events)
 
 	e.metrics.ExporterDisconnect(reason)
+}
+
+// observeImportHandshakeDuration records
+// usbip_exporter_handshake_duration_seconds for the import op from
+// handshakeStart to now. Extracted so serveImport's six terminal
+// transitions share one code path.
+func (e *Exporter) observeImportHandshakeDuration(handshakeStart time.Time) {
+	e.metrics.ExporterHandshakeDuration(
+		HandshakeOpImport,
+		e.clock.Now().Sub(handshakeStart).Seconds(),
+	)
 }
 
 // waitForSessionEnd blocks the post-ExportOnConn handler until the
