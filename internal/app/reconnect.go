@@ -394,6 +394,11 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 
 	i.metrics.ImporterReconnectAttempt(ReconnectOutcomeExhausted)
 	i.removeHandle(p.portID, p.handle)
+	// Refresh usbip_importer_ports_active to reflect the retired
+	// handle slot (Pass-4 RANK 3). Pre-fix the gauge stayed inflated
+	// from the original Attach until the next gauge-updating event,
+	// misleading operators about live-port count.
+	i.updateImporterPortsGauge()
 	// attempt is the for-loop's post-exit value: when the condition
 	// fails (attempt > MaxAttempts), the final attempted-and-failed
 	// iteration is attempt-1 (Finding 9). MaxAttempts==0 (infinite) is
@@ -432,6 +437,13 @@ func (i *Importer) finishReconnectSuccess(
 
 	i.metrics.ImporterReconnectAttempt(ReconnectOutcomeOK)
 	i.removeHandle(p.portID, p.handle)
+	// Refresh usbip_importer_ports_active so the old slot's retirement
+	// nets out the Attach-time gauge bump the replacement already
+	// performed (Pass-4 RANK 3). When the kernel lands the replacement
+	// on a different PortID than the original, the gauge would
+	// otherwise stay inflated by one — the rollback path already does
+	// this; the success path was missing the symmetric refresh.
+	i.updateImporterPortsGauge()
 
 	// Per spec §5.5 / BackoffStrategy contract (internal/app/backoff.go:20
 	// and pkg/usbip/backoff.go:19): "Reset is called after a successful
