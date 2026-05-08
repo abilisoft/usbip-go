@@ -673,14 +673,11 @@ func TestImporterAttachClosedReturnsErr(t *testing.T) {
 }
 
 // attachOnce is a helper that drives a successful Attach with every
-// dependency stubbed minimally. It returns the resulting PortID and
-// the Importer so Detach/Close tests can exercise the post-attach
-// state without re-wiring the full dependency graph every time.
-func attachOnce(
-	t *testing.T,
-	kernel *ImporterKernelMock,
-	extra ...app.ImporterOption,
-) (*app.Importer, domain.Port) {
+// dependency stubbed minimally. It returns the Importer and the Port
+// produced by the attach so Detach/Close tests can exercise the
+// post-attach state without re-wiring the full dependency graph every
+// time.
+func attachOnce(t *testing.T, kernel *ImporterKernelMock) (*app.Importer, domain.Port) {
 	t.Helper()
 
 	conn := newFakeConn()
@@ -693,14 +690,11 @@ func attachOnce(
 		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
 	}
 
-	opts := []app.ImporterOption{
+	imp := newImporterForTest(t,
 		app.WithImporterKernel(kernel),
 		app.WithImporterTransport(transport),
 		app.WithImporterCodec(codec),
-	}
-	opts = append(opts, extra...)
-
-	imp := newImporterForTest(t, opts...)
+	)
 
 	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{})
 	require.NoError(t, err)
@@ -890,7 +884,9 @@ func TestImporterCloseCancelsAllHandles(t *testing.T) {
 		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
 			mu.Lock()
 			defer mu.Unlock()
+
 			id := nextID + counter
+
 			counter++
 
 			return id, nil
@@ -931,6 +927,7 @@ func TestImporterCloseCancelsAllHandles(t *testing.T) {
 	// Post-close detach surfaces ErrImporterClosed, not ErrDeviceNotBound.
 	err = imp.Detach(context.Background(), 10)
 	require.ErrorIs(t, err, app.ErrImporterClosed)
+
 	err = imp2.Detach(context.Background(), 11)
 	require.ErrorIs(t, err, app.ErrImporterClosed)
 }
