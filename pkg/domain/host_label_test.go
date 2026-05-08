@@ -32,14 +32,9 @@ func TestParseRemoteHostLabelChars(t *testing.T) {
 		{"hyphen mid label", "host-name", false},
 		{"all digits", "1234", false},
 		{"underscore rejected", "bad_host", true},
-		{"dot inside label rejected", "", false}, // empty handled separately
 	}
 
 	for _, tc := range cases {
-		if tc.input == "" {
-			continue
-		}
-
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

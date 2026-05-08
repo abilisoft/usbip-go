@@ -141,12 +141,13 @@ enforces gates 1-6, 8, and 12 mechanically.
 - Breaking changes to `pkg/usbip` or `pkg/domain` require a
   `BREAKING:` prefix on the relevant commit subject so the API-
   surface CI check acknowledges the break.
-- `CHANGELOG.md` is generated from commit history by
-  [`git-cliff`](https://git-cliff.org/) — **never hand-edit it**.
-  Regenerate after your changes with `task changelog`. The CI
-  `changelog-check` job (release tags only) diffs the checked-in
-  file against what `git-cliff` would produce; a mismatch fails the
-  build.
+- Release notes live on the [GitHub Releases
+  page](https://github.com/abilisoft/usbip-go/releases), generated at
+  tag time by [`git-cliff`](https://git-cliff.org/) from the commit
+  history since the previous tag and published by goreleaser as the
+  release body. There is no checked-in `CHANGELOG.md` to maintain —
+  the commit log is the source of truth, so well-formed Conventional
+  Commit subjects are what land in the rendered notes.
 
 ## Style rules
 
@@ -206,10 +207,8 @@ items per the progressive-enforcement policy:
 | 11 | Error mapping: new sysfs/wire paths map to the v1 contract §6.2 + §6.4 sentinels in the same PR | Code review. |
 | 12 | Cross-compile for `linux/{amd64,arm64,arm}` | CI: `cross-compile` job (release builds use `goreleaser build --snapshot` wiring). |
 
-Two additional CI jobs run outside the numbered-gate table:
-`lint-and-vet` also runs `task vuln` (govulncheck) on every PR, and
-`changelog-check` verifies `CHANGELOG.md` matches `git-cliff` output
-on release tags.
+One additional CI job runs outside the numbered-gate table:
+`lint-and-vet` also runs `task vuln` (govulncheck) on every PR.
 
 ## Code-review checklist
 
@@ -232,11 +231,9 @@ When reviewing a PR, verify:
 - [ ] `.github/pull_request_template.md` sections are filled in.
 - [ ] `BREAKING:` changes include regenerated `api/*.json`
       baselines.
-- [ ] `CHANGELOG.md` regeneration is not required mid-PR; the
-      release commit (the one the v* tag points at) must run
-      `task changelog` so `release-validate.yml`'s
-      `ci:changelog:check` job sees a byte-identical file at the
-      tag.
+- [ ] Conventional Commit subjects are accurate; the GitHub Release
+      body is generated from them at tag time, so a sloppy subject
+      lands verbatim in user-visible release notes.
 
 ## Running CI locally
 
