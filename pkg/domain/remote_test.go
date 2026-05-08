@@ -1,6 +1,7 @@
 package domain_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -59,6 +60,16 @@ func TestParseRemote(t *testing.T) {
 		{"invalid_ipv6_short", "::xyz", domain.RemoteEndpoint{}, true},
 		{"host_starts_with_dot", ".host.example", domain.RemoteEndpoint{}, true},
 		{"host_trailing_dot_ok", "host.example.", domain.RemoteEndpoint{Host: "host.example.", Port: 3240}, false},
+		{"label_too_long", strings.Repeat("a", 64) + ".example", domain.RemoteEndpoint{}, true},
+		{"label_leading_hyphen", "-host.example", domain.RemoteEndpoint{}, true},
+		{"label_trailing_hyphen", "host-.example", domain.RemoteEndpoint{}, true},
+		{"label_underscore", "bad_host", domain.RemoteEndpoint{}, true},
+		{"label_only_dots", "..", domain.RemoteEndpoint{}, true},
+		{"bare_dot", ".", domain.RemoteEndpoint{}, true},
+		{"valid_with_digits", "host1.example2", domain.RemoteEndpoint{Host: "host1.example2", Port: 3240}, false},
+		{"valid_with_hyphens", "a-b-c.d-e-f", domain.RemoteEndpoint{Host: "a-b-c.d-e-f", Port: 3240}, false},
+		{"ipv6_full", "fe80::1", domain.RemoteEndpoint{Host: "fe80::1", Port: 3240}, false},
+		{"ipv6_bracket_noport", "[fe80::1]", domain.RemoteEndpoint{Host: "fe80::1", Port: 3240}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -31,51 +31,63 @@ const (
 	usbClassVendorSpecific USBClass = 0xFF
 )
 
-// usbClassEntry pairs a class code with its canonical name for lookup.
-type usbClassEntry struct {
-	code USBClass
-	name string
-}
-
-// usbClassTable is the committed usb.ids subset. Kept as a local slice
-// (not a package-level global) to satisfy gochecknoglobals; the closure
-// is allocated lazily via usbClassName.
-func usbClassTable() []usbClassEntry {
-	return []usbClassEntry{
-		{usbClassUseInterface, "use-interface-descriptor"},
-		{usbClassAudio, "audio"},
-		{usbClassComms, "communications"},
-		{usbClassHID, "hid"},
-		{usbClassPhysical, "physical"},
-		{usbClassImage, "image"},
-		{usbClassPrinter, "printer"},
-		{usbClassMassStorage, "mass-storage"},
-		{usbClassHub, "hub"},
-		{usbClassCDCData, "cdc-data"},
-		{usbClassSmartCard, "smart-card"},
-		{usbClassContentSec, "content-security"},
-		{usbClassVideo, "video"},
-		{usbClassHealthcare, "personal-healthcare"},
-		{usbClassAudioVideo, "audio-video"},
-		{usbClassBillboard, "billboard"},
-		{usbClassTypeCBridge, "usb-type-c-bridge"},
-		{usbClassDiagnostic, "diagnostic"},
-		{usbClassWireless, "wireless"},
-		{usbClassMiscellaneous, "miscellaneous"},
-		{usbClassApplicationSpc, "application-specific"},
-		{usbClassVendorSpecific, "vendor-specific"},
-	}
-}
-
 // usbClassName returns the canonical lowercase-kebab name for a USB class
 // code, or ("", false) if the class is not known to the committed
 // usb.ids subset.
+//
+// Implementation note: the Go compiler lowers a dense constant-case
+// switch into a jump table, giving O(1) lookup with zero allocation.
+// This satisfies gochecknoglobals (no package-level map) AND avoids the
+// per-call slice/map construction that a function-returning-literal
+// pattern would require. Generated replacements (internal/tools/gen_usb_ids.go)
+// emit the same switch shape, so the migration is mechanical.
 func usbClassName(c USBClass) (string, bool) {
-	for _, e := range usbClassTable() {
-		if e.code == c {
-			return e.name, true
-		}
+	switch c {
+	case usbClassUseInterface:
+		return "use-interface-descriptor", true
+	case usbClassAudio:
+		return "audio", true
+	case usbClassComms:
+		return "communications", true
+	case usbClassHID:
+		return "hid", true
+	case usbClassPhysical:
+		return "physical", true
+	case usbClassImage:
+		return "image", true
+	case usbClassPrinter:
+		return "printer", true
+	case usbClassMassStorage:
+		return "mass-storage", true
+	case usbClassHub:
+		return "hub", true
+	case usbClassCDCData:
+		return "cdc-data", true
+	case usbClassSmartCard:
+		return "smart-card", true
+	case usbClassContentSec:
+		return "content-security", true
+	case usbClassVideo:
+		return "video", true
+	case usbClassHealthcare:
+		return "personal-healthcare", true
+	case usbClassAudioVideo:
+		return "audio-video", true
+	case usbClassBillboard:
+		return "billboard", true
+	case usbClassTypeCBridge:
+		return "usb-type-c-bridge", true
+	case usbClassDiagnostic:
+		return "diagnostic", true
+	case usbClassWireless:
+		return "wireless", true
+	case usbClassMiscellaneous:
+		return "miscellaneous", true
+	case usbClassApplicationSpc:
+		return "application-specific", true
+	case usbClassVendorSpecific:
+		return "vendor-specific", true
+	default:
+		return "", false
 	}
-
-	return "", false
 }
