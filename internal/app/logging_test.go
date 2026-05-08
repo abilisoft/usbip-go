@@ -5,16 +5,23 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/abilisoft/usbip-go/internal/app"
 	"github.com/abilisoft/usbip-go/pkg/domain"
 	"github.com/stretchr/testify/require"
 )
+
+// errReconnectBoom is a sentinel used by the logging-contract tests so
+// assertions can identify the failure origin via errors.Is without
+// relying on string matching. err113 requires static sentinels.
+var errReconnectBoom = errors.New("reconnect attempt boom")
 
 // TestAttachFailurePathCarriesSpecRequiredAttrs proves spec §11.5.5's
 // structured-log contract: every log record emitted on the attach path
@@ -27,15 +34,10 @@ func TestAttachFailurePathCarriesSpecRequiredAttrs(t *testing.T) {
 	buf := &bytes.Buffer{}
 	logger := slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	// Drive the reconnect-giving-up branch: a MaxAttempts-capped watcher
-	// fails once and exhausts immediately. The "reconnect giving up
-	// after max attempts" record must carry port_id + last_err.
-	failErr := errors.New("reconnect attempt boom")
-
 	kernel := &ImporterKernelMock{
 		ModulesAvailableFunc: func(_ context.Context) error { return nil },
 		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
-			return 0, failErr
+			return 0, errReconnectBoom
 		},
 	}
 
@@ -133,25 +135,42 @@ func TestAttachKernelErrorRecordCarriesBusIDAndRemote(t *testing.T) {
 
 // TestReconnectGiveUpRecordCarriesPortIDAndAttempt proves the
 // reconnect-watcher's "giving up" record surfaces port_id + attempt.
-// The test drives the watcher with MaxAttempts=1 so it exhausts
-// immediately.
+// The test drives the watcher with MaxAttempts=1 so it exhausts after
+// one retry failure.
 func TestReconnectGiveUpRecordCarriesPortIDAndAttempt(t *testing.T) {
 	t.Parallel()
 
-	buf := &bytes.Buffer{}
-	logger := slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	// bufWriter is a mutex-guarded bytes.Buffer: slog.Handler is
+	// explicitly documented to be safe for concurrent use, so the
+	// underlying io.Writer must be too when background goroutines
+	// (the reconnect watcher) share it with the test goroutine.
+	bw := &bufWriter{}
+	logger := slog.New(slog.NewJSONHandler(bw, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	// Build an importer whose AttachRemote succeeds once (so a handle
-	// is registered and a watcher spawned) then fails on every retry.
+	// AttachRemote succeeds once so a handle is registered and a
+	// watcher spawned; every subsequent call fails so the retry loop
+	// exhausts MaxAttempts.
 	var attachCalls int
+
+	var (
+		mu       sync.Mutex
+		giveUpCh = make(chan struct{}, 1)
+	)
 
 	conn := newFakeConn()
 
 	kernel := &ImporterKernelMock{
 		ModulesAvailableFunc: func(_ context.Context) error { return nil },
 		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			mu.Lock()
+
 			attachCalls++
-			if attachCalls == 1 {
+
+			n := attachCalls
+
+			mu.Unlock()
+
+			if n == 1 {
 				return domain.PortID(3), nil
 			}
 
@@ -195,18 +214,33 @@ func TestReconnectGiveUpRecordCarriesPortIDAndAttempt(t *testing.T) {
 	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{
 		AutoReconnect: true,
 		MaxAttempts:   1,
+		Backoff:       &app.FixedBackoff{Delay: 0},
+		OnReconnect: func(attempt int, _ error) {
+			// Signal so the test can synchronise on the watcher having
+			// progressed far enough to emit its retry record.
+			_ = attempt
+
+			select {
+			case giveUpCh <- struct{}{}:
+			default:
+			}
+		},
 	})
 	require.NoError(t, err)
 
-	// Trigger the detach signal so the watcher runs its reconnect loop,
-	// fails once, and emits the give-up record.
+	// Push the detach event; the watcher sees it, enters the reconnect
+	// loop, fails MaxAttempts times, emits "reconnect giving up".
 	events <- domain.PortDetachedEvent{Port: port}
 
-	// Wait for Close to drain the watcher; the give-up log line is
-	// emitted before runReconnectLoop returns.
+	// Block the test until the watcher has at least started its retry
+	// loop (OnReconnect fires before waitBackoff).
+	<-giveUpCh
+
+	// Close drains the watcher; by the time Close returns, the give-up
+	// log line is emitted.
 	require.NoError(t, imp.Close())
 
-	records := parseJSONRecords(t, buf.Bytes())
+	records := parseJSONRecords(t, bw.Bytes())
 
 	found := false
 
@@ -220,8 +254,45 @@ func TestReconnectGiveUpRecordCarriesPortIDAndAttempt(t *testing.T) {
 
 	require.Truef(t, found,
 		"watcher must emit 'reconnect giving up after max attempts' with port_id+last_err+max_attempts; got:\n%s",
-		buf.String())
+		bw.String())
 }
+
+// bufWriter serialises writes to an embedded bytes.Buffer so background
+// goroutines can safely share a single log sink with the test.
+type bufWriter struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+// Write is the io.Writer contract; every slog.Handler write path flows
+// through here and serialises via mu. The underlying bytes.Buffer
+// Write never returns a meaningful error (documented: always nil) but
+// we pass it through unchanged to match the contract.
+func (b *bufWriter) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	n, err := b.buf.Write(p)
+	if err != nil {
+		return n, fmt.Errorf("bufWriter.Write: %w", err)
+	}
+
+	return n, nil
+}
+
+// Bytes returns a snapshot of the serialised log bytes.
+func (b *bufWriter) Bytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	out := make([]byte, b.buf.Len())
+	copy(out, b.buf.Bytes())
+
+	return out
+}
+
+// String renders the serialised log for failure messages.
+func (b *bufWriter) String() string { return string(b.Bytes()) }
 
 // parseJSONRecords splits a slog JSON buffer into per-record maps. The
 // slog JSON handler emits one object per newline; we ignore empty lines
