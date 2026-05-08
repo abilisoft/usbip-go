@@ -126,23 +126,9 @@ func (a *ImporterAdapter) ListPorts(_ context.Context) ([]domain.Port, error) {
 	return nil, fmt.Errorf("ImporterAdapter.ListPorts: %w", errNotYetImplemented)
 }
 
-// ExporterAdapter method placeholders. Wired by Tasks 4.4
-// (bind/unbind) and 4.8 (export/disconnect). ModulesAvailable for
-// both role adapters lives in modules.go.
-
-// Bind is wired by Task 4.4.
-func (a *ExporterAdapter) Bind(_ context.Context, _ domain.BusID) error {
-	_ = a
-
-	return fmt.Errorf("ExporterAdapter.Bind: %w", errNotYetImplemented)
-}
-
-// Unbind is wired by Task 4.4.
-func (a *ExporterAdapter) Unbind(_ context.Context, _ domain.BusID) error {
-	_ = a
-
-	return fmt.Errorf("ExporterAdapter.Unbind: %w", errNotYetImplemented)
-}
+// ExporterAdapter method placeholders. Wired by Task 4.8
+// (export/disconnect). ModulesAvailable for both role adapters lives
+// in modules.go; Bind and Unbind live in bind.go.
 
 // ExportOnConn is wired by Task 4.8.
 func (a *ExporterAdapter) ExportOnConn(_ context.Context, _ net.Conn, _ domain.BusID) error {
