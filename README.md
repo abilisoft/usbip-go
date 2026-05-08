@@ -169,8 +169,6 @@ kernel without requiring the USBIP modules on your host.
   contract.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup, TDD discipline,
   commit conventions.
-- [`docs/superpowers/specs/2026-04-18-usbip-go-design.md`](docs/superpowers/specs/2026-04-18-usbip-go-design.md)
-  — the authoritative design spec.
 
 ## Status
 
