@@ -100,6 +100,26 @@ func (a *EventsAdapter) Subscribe(ctx context.Context) (<-chan domain.Event, fun
 	// least one consumer in the fan-out map.
 	if firstSubscribe {
 		go dispatcher.run()
+
+		// Cleanup goroutine: fires whenever run() exits — intentional
+		// teardown or fatal netlink error. On intentional teardown,
+		// a.disp is already nil and the socket is already closed, so
+		// the guarded operations below are no-ops. On unexpected exit,
+		// we close all subscriber channels (callers see end-of-events)
+		// and clear the stale disp pointer so the next Subscribe dials
+		// a fresh connection.
+		go func() {
+			<-dispatcher.done
+
+			dispatcher.closeAllSubscribers()
+
+			a.dispMu.Lock()
+			if a.disp == dispatcher {
+				a.disp = nil
+				_ = dispatcher.sock.Close()
+			}
+			a.dispMu.Unlock()
+		}()
 	}
 
 	// unsubSig lets the ctx-watcher goroutine below exit when the
@@ -256,6 +276,22 @@ func (d *eventDispatcher) removeSubscriber(id int64) bool {
 	return len(d.subscribers) == 0
 }
 
+// closeAllSubscribers closes every remaining subscriber channel under
+// the mutex. Called by the cleanup goroutine when run() exits
+// unexpectedly so blocked readers see end-of-events and can respond.
+// Concurrent removeSubscriber calls are safe: the channel is deleted
+// first so a subsequent call finds ok=false and skips the close.
+func (d *eventDispatcher) closeAllSubscribers() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	for _, ch := range d.subscribers {
+		close(ch)
+	}
+
+	clear(d.subscribers)
+}
+
 // run is the dispatcher's read loop. Reads one payload, parses it,
 // and broadcasts any resulting domain.Event to every subscriber. Slow
 // subscribers drop events via the buffered channel's overflow path.
@@ -356,21 +392,20 @@ type topologyLoader func() (Topology, error)
 // Topology so exporter-only deployments — which only need usbip_host
 // events and never touch vhci_hcd — can still start the dispatcher
 // without hard-failing on a missing VHCI module. The loader fires
-// lazily on the first VHCI-shaped event; a sync.Once memoises both
-// success and failure for the mapper's lifetime. A loader failure
-// degrades only the VHCI branch: individual VHCI events are dropped
-// with ok=false (the dispatcher logs nothing extra — the drop path is
-// the same one used for non-VHCI buses), while usbip_host events
-// continue unaffected.
+// lazily on the first VHCI-shaped event. A loader failure is NOT
+// memoised — the next VHCI event retries, allowing recovery after a
+// transient sysfs error or vhci_hcd module reload. A failure degrades
+// only the VHCI branch: the event is dropped with ok=false, while
+// usbip_host events continue unaffected.
 //
-// once is held through a pointer so copies of vhciEventMapper share
-// the same gate and vet's copylocks check never trips — the dispatcher
+// mu is held through a pointer so copies of vhciEventMapper share the
+// same lock and vet's copylocks check never trips — the dispatcher
 // currently runs mapEvent from a single goroutine, but keeping the
 // guard self-synchronising costs nothing and future-proofs fan-in of
 // the mapper if mapEvent is ever invoked from multiple readers.
 type vhciEventMapper struct {
 	load   topologyLoader
-	once   *sync.Once
+	mu     *sync.Mutex
 	topo   Topology
 	loaded bool
 }
@@ -393,27 +428,32 @@ func newVHCIEventMapper(topo Topology) vhciEventMapper {
 func newVHCIEventMapperWithLoader(load topologyLoader) vhciEventMapper {
 	return vhciEventMapper{
 		load: load,
-		once: &sync.Once{},
+		mu:   &sync.Mutex{},
 	}
 }
 
-// resolveTopology runs the injected loader at most once. On success
-// topo is cached and loaded flips to true; on failure loaded stays
-// false and every subsequent VHCI event drops. The sync.Once keeps
-// the contract race-free if mapEvent is ever called from multiple
-// goroutines (the dispatcher is single-threaded today).
+// resolveTopology loads the topology on first call and caches the
+// result. A failed load is NOT memoised — the next call retries so
+// the mapper can recover after a transient sysfs error or vhci_hcd
+// module reload. mu serialises concurrent callers (the dispatcher is
+// single-threaded today, but the lock future-proofs fan-in).
 func (m *vhciEventMapper) resolveTopology() (Topology, bool) {
-	m.once.Do(func() {
-		topo, err := m.load()
-		if err != nil {
-			return
-		}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-		m.topo = topo
-		m.loaded = true
-	})
+	if m.loaded {
+		return m.topo, true
+	}
 
-	return m.topo, m.loaded
+	topo, err := m.load()
+	if err != nil {
+		return Topology{}, false
+	}
+
+	m.topo = topo
+	m.loaded = true
+
+	return m.topo, true
 }
 
 // mapEvent is the topology-aware entry point used by the dispatcher.

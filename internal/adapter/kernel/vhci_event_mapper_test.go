@@ -442,12 +442,13 @@ func TestVhciEventMapper_LazyLoaderDegradesVHCIButPassesUsbipHost(t *testing.T) 
 	require.Equal(t, 1, calls,
 		"the loader must be invoked exactly once on the first VHCI event")
 
-	// Subsequent VHCI events reuse the cached error — no further
-	// loader calls.
+	// Loader failures are not memoised — each subsequent VHCI event
+	// retries so the mapper recovers automatically after a transient
+	// sysfs error or vhci_hcd module reload.
 	_, _ = mapper.MapEventForTest(vhciFields)
 
-	require.Equal(t, 1, calls,
-		"loader failure must be memoised after the first attempt")
+	require.Equal(t, 2, calls,
+		"loader failure must not be memoised — second VHCI event must retry")
 }
 
 // TestVhciEventMapper_LazyLoaderSuccessCachedAcrossVHCIEvents mirrors
