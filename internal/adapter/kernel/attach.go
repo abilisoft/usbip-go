@@ -110,7 +110,7 @@ func (a *ImporterAdapter) attachAtPort(
 		return 0, err
 	}
 
-	err = validateAttachPort(topo, portID)
+	err = validatePortInRange(topo, portID)
 	if err != nil {
 		return 0, err
 	}
@@ -134,16 +134,18 @@ func (a *ImporterAdapter) attachAtPort(
 	return portID, nil
 }
 
-// validateAttachPort checks that port is inside the kernel's flat
-// port space [0, NControllers*VHCIPorts). vhci_sysfs.c::attach_store
-// derives (pdev_nr, rhport) from the flat id and returns -EINVAL
-// when pdev_nr >= VHCI_NR_HCS (our NControllers); the adapter
-// surfaces that pre-write as the adapter-local errPortOutOfRange
-// wrapping port + nports so a stale-cache race or bypassed
-// findFreePort path produces a diagnosable failure rather than a
-// bare EINVAL. The sentinel is kernel-package-local because the
-// flat-port concept is VHCI-specific; pkg/domain and pkg/usbip
-// must not carry kernel implementation details.
+// validatePortInRange checks that port is inside the kernel's flat
+// port space [0, NControllers*VHCIPorts). Shared between attachAtPort
+// and DetachPort: vhci_sysfs.c::attach_store and ::detach_store both
+// derive (pdev_nr, rhport) from the flat id and return -EINVAL when
+// pdev_nr >= VHCI_NR_HCS (our NControllers); the adapter surfaces
+// that pre-write as the adapter-local errPortOutOfRange wrapping
+// port + nports so a stale-cache race or bypassed findFreePort path
+// (attach) or a stale importer-side handle surviving a vhci_hcd
+// module reload (detach) produces a diagnosable failure rather than
+// a bare EINVAL. The sentinel is kernel-package-local because the
+// flat-port concept is VHCI-specific; pkg/domain and pkg/usbip must
+// not carry kernel implementation details.
 //
 // VHCIPorts is guaranteed nonzero by discoverStatusTopology's nports
 // validation, which loadStatusTopology routes through before
@@ -164,7 +166,14 @@ func (a *ImporterAdapter) attachAtPort(
 // VHCIPorts = HCPorts*hubsPerController invariant enforced by
 // deriveHCPorts); adding one would only obscure the single
 // boundary actually being policed.
-func validateAttachPort(topo StatusTopology, port domain.PortID) error {
+//
+// Shared rather than duplicated across attach + detach because the
+// range semantics are symmetric: both kernel paths police the same
+// flat index space, and a future kernel change (if any) would
+// shift both in lockstep. Duplication would invite a partial
+// update that left attach and detach disagreeing about the valid
+// range — a silent protocol split.
+func validatePortInRange(topo StatusTopology, port domain.PortID) error {
 	nports := topo.NControllers * topo.VHCIPorts
 	if uint32(port) >= nports {
 		return fmt.Errorf("%w: port=%d nports=%d", errPortOutOfRange, uint32(port), nports)
@@ -209,8 +218,37 @@ func formatAttachPayload(portID domain.PortID, fd uintptr, devID domain.DeviceID
 // DetachPort writes the decimal port ID to vhci_hcd.0/detach. Format
 // per spec §6.1: kstrtoint, single decimal integer, no trailing
 // newline.
+//
+// Defence-in-depth: the flat port is validated against the cached
+// topology before any sysfs write, symmetric with attachAtPort.
+// vhci_sysfs.c::detach_store returns -EINVAL when the flat port
+// fails valid_port(), but surfacing that bare errno gives operators
+// no context; the pre-write check wraps the adapter-local
+// errPortOutOfRange with port + nports so a stale handle surviving
+// a vhci_hcd module reload (or any other source of drift between
+// the importer's cached portID and the current kernel port space)
+// produces a diagnosable failure instead of a silent EINVAL. The
+// check is cheap (one map lookup + two uint32 comparisons) and runs
+// ahead of the expensive sysfs write regardless of caller.
+//
+// The bounds check consumes only NControllers + VHCIPorts, so it
+// routes through loadStatusTopology — the BusMap-free projection
+// that survives live-host mid-probe races (Task 2.1 precedent,
+// mirrored by attachAtPort). Using loadTopology would tie every
+// detach to BusMap completeness and spuriously fail on transient
+// shortfalls irrelevant to the bounds arithmetic.
 func (a *ImporterAdapter) DetachPort(ctx context.Context, id domain.PortID) error {
 	err := a.ModulesAvailable(ctx)
+	if err != nil {
+		return err
+	}
+
+	topo, err := a.loadStatusTopology()
+	if err != nil {
+		return err
+	}
+
+	err = validatePortInRange(topo, id)
 	if err != nil {
 		return err
 	}

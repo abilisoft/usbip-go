@@ -478,6 +478,146 @@ func TestFormatDetachPayload_MatchesKernelContract(t *testing.T) {
 			"vhci_sysfs.c::detach_store")
 }
 
+// TestDetachPort_RejectsOutOfRangePort pins symmetry with Task 4's
+// attach bounds check: a detach request targeting a flat port outside
+// the kernel's port space must be refused by the adapter before any
+// sysfs write. vhci_sysfs.c::detach_store runs kstrtoint + valid_port
+// and returns -EINVAL when pdev_nr >= VHCI_NR_HCS (our NControllers);
+// surfacing that bare errno gives operators no context. The adapter
+// therefore validates proactively and wraps the adapter-local
+// errPortOutOfRange sentinel with port + nports context, matching the
+// Task 4 attach flow byte for byte.
+//
+// Without the check a stale portID (cached by the importer across a
+// vhci_hcd module reload) would silently fall through to writeClassified
+// and fail with a bare EINVAL the operator cannot classify.
+//
+// Pre-fix: DetachPort ignores port range entirely, so the write spy
+// records one call and the adapter returns nil.
+// Post-fix: validateDetachPort short-circuits before writeClassified,
+// the spy records zero calls, and errors.Is surfaces the adapter-local
+// sentinel via its test shim.
+//
+// attachFS() has nports=8, so port 20 is well outside [0, 8).
+func TestDetachPort_RejectsOutOfRangePort(t *testing.T) {
+	t.Parallel()
+
+	var writes atomic.Int32
+
+	writer := func(string, string) error {
+		writes.Add(1)
+
+		return nil
+	}
+
+	a, err := kernel.NewImporterAdapter(
+		kernel.WithFS(attachFS()),
+		kernel.WithWriteFunc(writer),
+	)
+	require.NoError(t, err)
+
+	err = a.DetachPort(context.Background(), domain.PortID(20))
+	require.ErrorIs(t, err, kernel.ErrPortOutOfRangeForTest,
+		"flat port 20 is outside [0, 8); must surface errPortOutOfRange")
+	require.EqualValues(t, 0, writes.Load(),
+		"bounds check must refuse the port BEFORE any sysfs write")
+}
+
+// TestDetachPort_AcceptsInRangePort regresses the common path: a
+// detach targeting a valid flat port must still reach the sysfs write
+// exactly once and render the expected decimal payload. Guards against
+// a validator that over-rejects — e.g. an off-by-one making the range
+// exclusive of its upper neighbour, or a swap of < / <= that refuses
+// port 0. Mirrors TestAttachRemote_RejectsPortAtNportsBoundary's
+// accept half on the detach side.
+//
+// attachFS() declares nports=8; port 7 is the last valid slot.
+func TestDetachPort_AcceptsInRangePort(t *testing.T) {
+	t.Parallel()
+
+	var gotWrites []writeCall
+
+	writer := func(path, data string) error {
+		gotWrites = append(gotWrites, writeCall{Path: path, Data: data})
+
+		return nil
+	}
+
+	a, err := kernel.NewImporterAdapter(
+		kernel.WithFS(attachFS()),
+		kernel.WithWriteFunc(writer),
+	)
+	require.NoError(t, err)
+
+	err = a.DetachPort(context.Background(), domain.PortID(7))
+	require.NoError(t, err,
+		"flat port 7 (nports-1=7) is the last valid slot; validator must accept it")
+	require.Len(t, gotWrites, 1)
+	require.Equal(t, "/sys/devices/platform/vhci_hcd.0/detach", gotWrites[0].Path)
+	require.Equal(t, "7", gotWrites[0].Data,
+		"detach payload must be the bare decimal of the flat port id")
+}
+
+// TestDetachPort_SucceedsDespiteIncompleteBusMap pins the Task 4.1
+// layering invariant on the detach side: bounds validation must
+// consume only StatusTopology (NControllers + VHCIPorts), never the
+// BusMap. A controller mid-probe whose usb* children are not yet
+// populated in sysfs produces an incomplete BusMap —
+// discoverTopology rejects that snapshot with errTopologyIncomplete.
+// Routing detach through the full loadTopology would tie every
+// detach to BusMap completeness and spuriously fail an otherwise
+// in-range detach on a transient shortfall that has nothing to do
+// with the bounds arithmetic.
+//
+// Symmetric with TestAttachRemote_SucceedsDespiteIncompleteBusMap:
+// detach uses loadStatusTopology for the same reason, and a fixture
+// with valid nports + status but no usb* children must succeed for
+// an in-range port.
+//
+// Pre-fix failure mode (only if detach ever routes through
+// loadTopology): DetachPort returns errTopologyIncomplete because
+// loadTopology's BusMap completeness check fails when vhci_hcd.0 has
+// zero usb children (hubsPerController=2 expected).
+func TestDetachPort_SucceedsDespiteIncompleteBusMap(t *testing.T) {
+	t.Parallel()
+
+	var writes atomic.Int32
+
+	writer := func(string, string) error {
+		writes.Add(1)
+
+		return nil
+	}
+
+	// Minimal fixture: modules present, valid nports + status file,
+	// but NO usb* children under vhci_hcd.0. discoverTopology would
+	// fail with errTopologyIncomplete; discoverStatusTopology must
+	// succeed because it never walks usb* children.
+	mfs := fstest.MapFS{
+		"sys/module/usbip_core":                  &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/vhci_hcd":                    &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/devices/platform/vhci_hcd.0":        &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/devices/platform/vhci_hcd.0/nports": &fstest.MapFile{Data: []byte("8\n")},
+		"sys/devices/platform/vhci_hcd.0/status": &fstest.MapFile{Data: []byte(
+			"hub port sta spd dev      sockfd local_busid\n" +
+				"hs  0000 000 000 00000000 000000 0-0\n",
+		)},
+	}
+
+	a, err := kernel.NewImporterAdapter(
+		kernel.WithFS(mfs),
+		kernel.WithWriteFunc(writer),
+	)
+	require.NoError(t, err)
+
+	err = a.DetachPort(context.Background(), domain.PortID(0))
+	require.NoError(t, err,
+		"detach bounds validation must not depend on BusMap completeness; "+
+			"routing through loadTopology would surface errTopologyIncomplete")
+	require.EqualValues(t, 1, writes.Load(),
+		"valid in-range port must reach sysfs write exactly once")
+}
+
 func TestAttachRemote_HappyPath(t *testing.T) {
 	t.Parallel()
 
