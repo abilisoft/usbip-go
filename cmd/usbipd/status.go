@@ -113,17 +113,36 @@ const statusReadHeaderTimeout = 5 * time.Second
 // mode 0755).
 const statusSocketMode os.FileMode = 0o660
 
-// detectAlreadyRunning dials path. Success → another instance owns the
-// socket → errAlreadyRunning. ECONNREFUSED → stale file → nil (caller
-// must unlink). ENOENT → fresh start → nil. Any other error falls
-// through: we prefer to surface dial oddities verbatim.
+// dialFunc is the minimal contract detectAlreadyRunningWithDialer
+// consumes. The production dialer is net.Dialer.DialContext; tests
+// inject a stub to exercise specific errno branches that would
+// otherwise require filesystem or network manipulation.
+type dialFunc func(ctx context.Context, network, address string) (net.Conn, error)
+
+// detectAlreadyRunning dials path. Success means another instance
+// owns the socket and errAlreadyRunning is returned. ENOENT means
+// fresh start; ECONNREFUSED means stale file the caller may unlink.
+// Any other dial error — EACCES, ELOOP, context.DeadlineExceeded,
+// etc. — surfaces verbatim so the caller does NOT unlink a socket
+// it could not prove was stale.
 func detectAlreadyRunning(ctx context.Context, path string) error {
+	var d net.Dialer
+
+	return detectAlreadyRunningWithDialer(ctx, path, d.DialContext)
+}
+
+// detectAlreadyRunningWithDialer is the dialer-injected core of
+// detectAlreadyRunning. The production entry point passes a net.Dialer
+// bound method; tests pass a stub. Semantics match the comment on
+// detectAlreadyRunning; keeping the behaviour in one place avoids
+// drift between production and test paths.
+func detectAlreadyRunningWithDialer(
+	ctx context.Context, path string, dial dialFunc,
+) error {
 	dctx, cancel := context.WithTimeout(ctx, detectAlreadyRunningDialTimeout)
 	defer cancel()
 
-	var d net.Dialer
-
-	conn, err := d.DialContext(dctx, "unix", path)
+	conn, err := dial(dctx, "unix", path)
 	if err == nil {
 		_ = conn.Close()
 
@@ -140,10 +159,7 @@ func detectAlreadyRunning(ctx context.Context, path string) error {
 		return nil
 	}
 
-	// Any other error (permissions, bad type) — let caller decide.
-	// Today we treat it as non-fatal so startup proceeds; the listen
-	// below will fail loudly if the path is truly unusable.
-	return nil
+	return fmt.Errorf("detect already-running on %s: %w", path, err)
 }
 
 // serveStatus binds the UDS at path, applies mode 0660 + optional
