@@ -10,35 +10,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// swapKernelModuleProbeFn replaces the package-level probe hook under
-// lock and returns the previous value so t.Cleanup can restore it.
-// Paired with swapKernelModuleProbeClock, the two helpers let a test
-// drive the cache TTL without real-time sleeps.
-func swapKernelModuleProbeFn(
-	fn func(context.Context) (map[string]usbip.ModuleState, error),
-) func(context.Context) (map[string]usbip.ModuleState, error) {
-	kernelModuleProbeMu.Lock()
-	defer kernelModuleProbeMu.Unlock()
-
-	prev := kernelModuleProbeFn
-
-	kernelModuleProbeFn = fn
-
-	return prev
-}
-
-// swapKernelModuleProbeClock replaces the clock hook used by
-// statusExporter.KernelModules so tests can advance "now" past the
-// cache TTL deterministically.
-func swapKernelModuleProbeClock(fn func() time.Time) func() time.Time {
-	kernelModuleProbeMu.Lock()
-	defer kernelModuleProbeMu.Unlock()
-
-	prev := kernelModuleProbeClock
-
-	kernelModuleProbeClock = fn
-
-	return prev
+// newStatusExporterForTest constructs a statusExporter with just the
+// fields KernelModules reads. Leaving exp / listenAddr / atomic flags
+// at their zero values is intentional: these tests exercise only the
+// TTL-cache path, and statusSource methods that dereference exp are
+// never invoked. kernelModuleProbe and kernelModuleClock default to
+// the production hooks, which tests override via setKernelModuleProbe
+// / setKernelModuleClock.
+func newStatusExporterForTest() *statusExporter {
+	return &statusExporter{
+		kernelModuleProbe: defaultKernelModuleProbe,
+		kernelModuleClock: time.Now,
+	}
 }
 
 // TestKernelModulesCachedWithinTTL proves Phase 8 Finding 5's caching
@@ -46,12 +29,17 @@ func swapKernelModuleProbeClock(fn func() time.Time) func() time.Time {
 // probe on every GET /. Consecutive calls within the cache TTL serve
 // the last-known snapshot. First call populates; second call inside
 // the TTL MUST NOT re-invoke the probe.
+//
+// Per-instance injection (not package globals) keeps this test
+// deterministic under -count=N -race even when TestKernelModulesReprobesAfterTTL
+// schedules concurrently.
 func TestKernelModulesCachedWithinTTL(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
 
-	originalFn := swapKernelModuleProbeFn(func(
+	s := newStatusExporterForTest()
+	s.setKernelModuleProbe(func(
 		_ context.Context,
 	) (map[string]usbip.ModuleState, error) {
 		calls.Add(1)
@@ -60,10 +48,6 @@ func TestKernelModulesCachedWithinTTL(t *testing.T) {
 			"usbip_core": usbip.ModuleStateLoaded,
 		}, nil
 	})
-
-	t.Cleanup(func() { swapKernelModuleProbeFn(originalFn) })
-
-	s := &statusExporter{}
 
 	// First call — must populate the cache and invoke the probe once.
 	mods, err := s.KernelModules(context.Background())
@@ -83,7 +67,8 @@ func TestKernelModulesCachedWithinTTL(t *testing.T) {
 
 // TestKernelModulesReprobesAfterTTL proves the cache actually expires:
 // after the TTL elapses, KernelModules must re-invoke the underlying
-// probe rather than hand back stale data.
+// probe rather than hand back stale data. Per-instance clock injection
+// means the Advance below cannot affect any other test's cache expiry.
 func TestKernelModulesReprobesAfterTTL(t *testing.T) {
 	t.Parallel()
 
@@ -94,7 +79,8 @@ func TestKernelModulesReprobesAfterTTL(t *testing.T) {
 
 	now.Store(time.Now().UnixNano())
 
-	originalFn := swapKernelModuleProbeFn(func(
+	s := newStatusExporterForTest()
+	s.setKernelModuleProbe(func(
 		_ context.Context,
 	) (map[string]usbip.ModuleState, error) {
 		calls.Add(1)
@@ -103,16 +89,9 @@ func TestKernelModulesReprobesAfterTTL(t *testing.T) {
 			"usbip_core": usbip.ModuleStateLoaded,
 		}, nil
 	})
-
-	t.Cleanup(func() { swapKernelModuleProbeFn(originalFn) })
-
-	originalClock := swapKernelModuleProbeClock(func() time.Time {
+	s.setKernelModuleClock(func() time.Time {
 		return time.Unix(0, now.Load())
 	})
-
-	t.Cleanup(func() { swapKernelModuleProbeClock(originalClock) })
-
-	s := &statusExporter{}
 
 	_, err := s.KernelModules(context.Background())
 	require.NoError(t, err)
