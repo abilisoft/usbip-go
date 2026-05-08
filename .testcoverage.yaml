@@ -1,6 +1,6 @@
 # Per-package coverage thresholds per spec §8.7.
 # Enforced by vladopajic/go-test-coverage@v2 in the CI "coverage" job.
-profile: coverage.out
+profile: build/coverage/coverage.out
 local-prefix: github.com/abilisoft/usbip-go
 
 # Empty total threshold; per-package overrides below are the source of truth.

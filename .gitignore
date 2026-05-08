@@ -84,7 +84,10 @@ Thumbs.db
 .claude/tmp/
 /tmp/claude-*
 
-# OpenAI Codex (CLI + companion plugin).
+# OpenAI Codex (CLI + companion plugin). Pattern covers both the
+# directory form the plugin uses and the zero-byte sandbox-shadow
+# file the harness sometimes drops at the repo root.
+.codex
 .codex/
 codex-*.log
 /tmp/codex-*
