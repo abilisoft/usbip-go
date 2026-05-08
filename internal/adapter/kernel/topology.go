@@ -89,6 +89,12 @@ var errTopologyNoControllers = errors.New("vhci topology: no controllers found")
 // port arithmetic would be wrong.
 var errTopologyInconsistent = errors.New("vhci topology: nports not divisible by 2*nControllers")
 
+// errTopologyZeroNPorts surfaces when nports reads as zero. A Topology
+// with VHCIPorts=0 panics the row-parser's controller-block check
+// (port / vhciPorts) with integer divide by zero, so the snapshot is
+// refused at discovery time rather than handed downstream.
+var errTopologyZeroNPorts = errors.New("vhci topology: nports is zero")
+
 // errTopologyIncomplete surfaces when one or more vhci_hcd.<N>
 // controllers exposes fewer than hubsPerController usb children. A
 // partial BusMap would silently misroute every flat-port lookup keyed
@@ -218,10 +224,17 @@ func statusFileState(fsys fs.FS, i uint32) (bool, error) {
 }
 
 // deriveHCPorts enforces the sysfs invariant nports = nControllers *
-// VHCI_PORTS = nControllers * VHCI_HC_PORTS * 2. If the division is
-// inexact the kernel reported inconsistent state and we refuse to make
-// up a value.
+// VHCI_PORTS = nControllers * VHCI_HC_PORTS * 2. nports=0 is surfaced
+// with a dedicated sentinel because HCPorts=0 propagates to VHCIPorts=0
+// and would panic any downstream `port / VHCIPorts` consumer; callers
+// must see the specific failure, not a generic inconsistency error.
+// If the division is inexact the kernel reported inconsistent state
+// and we refuse to make up a value.
 func deriveHCPorts(nports, nControllers uint32) (uint32, error) {
+	if nports == 0 {
+		return 0, fmt.Errorf("%w: nControllers=%d", errTopologyZeroNPorts, nControllers)
+	}
+
 	divisor := nControllers * hubsPerController
 	if divisor == 0 || nports%divisor != 0 {
 		return 0, fmt.Errorf("%w: nports=%d nControllers=%d", errTopologyInconsistent, nports, nControllers)
