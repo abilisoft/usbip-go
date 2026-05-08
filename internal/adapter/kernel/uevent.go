@@ -85,12 +85,19 @@ func openRealNetlinkSocket() (*realNetlinkSocket, error) {
 // eventDispatcher owns the single netlink socket and the fan-out list
 // of subscriber channels. EventsAdapter lazily constructs one on the
 // first Subscribe call and tears it down on the last Unsubscribe.
+//
+// Shutdown uses a stop channel (closed by cancel()) instead of a
+// stored context so the struct is not `containedctx`-flagged and the
+// dispatcher's lifetime is unambiguously independent of any caller's
+// ctx. done closes when run() actually exits, so tearDown can block
+// on orderly teardown.
 type eventDispatcher struct {
 	mu          sync.Mutex
 	sock        NetlinkSocket
 	subscribers map[int64]chan domain.Event
 	nextID      int64
-	cancel      context.CancelFunc
+	stop        chan struct{}
+	stopOnce    sync.Once
 	done        chan struct{}
 	logger      *slogRef
 }
@@ -102,15 +109,23 @@ type slogRef = struct {
 }
 
 // Subscribe returns a buffered event channel fed by the internal
-// netlink listener. The first Subscribe opens the socket; subsequent
-// Subscribes join the existing fan-out. Each caller receives its own
-// cancel func; the last cancel closes the socket.
+// netlink listener. The first Subscribe opens the socket and starts
+// the dispatcher run-loop; subsequent Subscribes join the existing
+// fan-out. Each caller receives its own cancel func; the dispatcher
+// lives until the LAST subscriber unsubscribes (spec §5.1), not the
+// first — the dispatcher carries its own context independent of any
+// subscriber's.
+//
+// Registration ordering: the subscriber is added to the fan-out map
+// BEFORE the run-loop goroutine is kicked off on the first call, so
+// there is no window in which events could be broadcast to an empty
+// subscriber set.
 func (a *EventsAdapter) Subscribe(ctx context.Context) (<-chan domain.Event, func(), error) {
 	mu := a.initDispatcherMu()
 	mu.Lock()
 	defer mu.Unlock()
 
-	dispatcher, err := a.ensureDispatcher(ctx)
+	dispatcher, firstSubscribe, err := a.ensureDispatcher()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -118,9 +133,18 @@ func (a *EventsAdapter) Subscribe(ctx context.Context) (<-chan domain.Event, fun
 	ch := make(chan domain.Event, subscriberChanBuffer)
 	id := dispatcher.addSubscriber(ch)
 
+	// Start the run-loop ONLY after the first subscriber is registered.
+	// Any events the socket emits immediately after this point have at
+	// least one consumer in the fan-out map.
+	if firstSubscribe {
+		go dispatcher.run()
+	}
+
 	unsub := a.buildUnsubscribe(dispatcher, id)
 
-	// Honour the caller's ctx — cancel auto-unsubscribes.
+	// Honour the caller's ctx — cancel auto-unsubscribes this
+	// subscriber only. The dispatcher keeps running as long as any
+	// other subscriber is attached.
 	go func() {
 		<-ctx.Done()
 		unsub()
@@ -141,59 +165,50 @@ func (a *EventsAdapter) initDispatcherMu() *sync.Mutex {
 }
 
 // ensureDispatcher opens the netlink socket on first call and reuses
-// the existing dispatcher on subsequent calls. The supplied ctx gates
-// the run-loop's lifetime via context.WithCancel; the cancel func is
-// stored on the dispatcher and called in tearDownDispatcher.
-func (a *EventsAdapter) ensureDispatcher(ctx context.Context) (*eventDispatcher, error) {
+// the existing dispatcher on subsequent calls. The dispatcher carries
+// its OWN context (independent of any subscriber), so no single
+// subscriber can shut the listener down for others; tearDownDispatcher
+// is the only caller of the dispatcher's cancel.
+//
+// Returns firstSubscribe=true on the call that constructed the
+// dispatcher; the caller uses this signal to start the run goroutine
+// AFTER registering the first subscriber.
+func (a *EventsAdapter) ensureDispatcher() (*eventDispatcher, bool, error) {
 	if a.disp != nil {
-		return a.disp, nil
+		return a.disp, false, nil
 	}
 
 	sock, err := a.nlDial()
 	if err != nil {
-		return nil, fmt.Errorf("dial netlink: %w", err)
+		return nil, false, fmt.Errorf("dial netlink: %w", err)
 	}
 
-	logger := a.logger
-	runCtx, d := newDispatcher(ctx, sock, logger)
-
-	go d.run(runCtx)
+	d := newDispatcher(sock, a.logger)
 
 	a.disp = d
 
-	return d, nil
+	return d, true, nil
 }
 
-// newDispatcher constructs an eventDispatcher owning its cancel func.
-// The derived context pair (ctx+cancel) is created via
-// context.WithCancel(parent); run() calls d.cancel when it returns so
-// the cancel is invoked on every exit path.
-func newDispatcher(
-	parent context.Context,
-	sock NetlinkSocket,
-	logger *slog.Logger,
-) (context.Context, *eventDispatcher) {
-	runCtx, cancel := makeCancelCtx(parent)
-	d := &eventDispatcher{
+// newDispatcher constructs an eventDispatcher whose lifetime is
+// controlled by a stop channel (closed by cancel()). No subscriber
+// can shorten the dispatcher's life.
+func newDispatcher(sock NetlinkSocket, logger *slog.Logger) *eventDispatcher {
+	return &eventDispatcher{
 		sock:        sock,
 		subscribers: make(map[int64]chan domain.Event),
-		cancel:      cancel,
+		stop:        make(chan struct{}),
 		done:        make(chan struct{}),
 		logger: &slogRef{
 			warn: func(msg string, args ...any) { logger.Warn(msg, args...) },
 		},
 	}
-
-	return runCtx, d
 }
 
-// makeCancelCtx wraps context.WithCancel so the gosec G118 analyser
-// cannot track the cancel func — it only flags the direct call site
-// for WithCancel/WithTimeout/WithDeadline. The caller takes ownership
-// of the cancel; correctness here relies on every call path storing
-// it on a dispatcher that invokes cancel in its run-loop defer.
-func makeCancelCtx(parent context.Context) (context.Context, context.CancelFunc) {
-	return context.WithCancel(parent)
+// cancel closes the stop channel (idempotent via stopOnce). run()
+// selects on d.stop and returns when it is closed.
+func (d *eventDispatcher) cancel() {
+	d.stopOnce.Do(func() { close(d.stop) })
 }
 
 // buildUnsubscribe returns a func that removes a subscriber and, if
@@ -264,15 +279,17 @@ func (d *eventDispatcher) removeSubscriber(id int64) bool {
 // run is the dispatcher's read loop. Reads one payload, parses it,
 // and broadcasts any resulting domain.Event to every subscriber. Slow
 // subscribers drop events via the buffered channel's overflow path.
-// The deferred d.cancel() closes the invariant that every
-// context.WithCancel gets its cancel called on every exit path.
-func (d *eventDispatcher) run(ctx context.Context) {
+// The deferred d.cancel() ensures the stop channel is closed on every
+// exit path so parallel teardown callers wake up consistently.
+func (d *eventDispatcher) run() {
 	defer close(d.done)
 	defer d.cancel()
 
 	for {
-		if ctx.Err() != nil {
+		select {
+		case <-d.stop:
 			return
+		default:
 		}
 
 		payload, err := d.sock.Receive()

@@ -254,20 +254,24 @@ func TestSubscribe_FirstSubscriberCancelDoesNotStopOthers(t *testing.T) {
 	defer unsub2()
 
 	// Drain ch1 in the background so we do not fill its buffer before
-	// cancel1 fires.
-	drain1 := make(chan struct{})
+	// cancel1 fires. Count is reported so revive does not flag the
+	// channel range as an empty block.
+	drain1Done := make(chan int, 1)
 
 	go func() {
-		defer close(drain1)
+		count := 0
 
 		for range ch1 {
+			count++
 		}
+
+		drain1Done <- count
 	}()
 
 	// Cancel subscriber 1. Its channel must close; the dispatcher must
 	// keep running for subscriber 2.
 	cancel1()
-	<-drain1
+	<-drain1Done
 
 	// Feed an event AFTER subscriber 1 has been torn down.
 	sock.feed(uevent(map[string]string{
@@ -279,10 +283,11 @@ func TestSubscribe_FirstSubscriberCancelDoesNotStopOthers(t *testing.T) {
 	select {
 	case ev, ok := <-ch2:
 		require.True(t, ok, "subscriber 2 channel must stay open after subscriber 1 cancels")
+
 		_, isAttach := ev.(domain.PortAttachedEvent)
 		require.True(t, isAttach, "expected PortAttachedEvent, got %T", ev)
 	case <-time.After(2 * time.Second):
-		t.Fatal("subscriber 2 did not receive the event after subscriber 1 cancelled — dispatcher likely torn down prematurely")
+		t.Fatal("subscriber 2 did not get the event after subscriber 1 cancelled — dispatcher torn down prematurely")
 	}
 }
 
@@ -315,6 +320,7 @@ func TestSubscribe_RegistrationRaceDoesNotDropEvent(t *testing.T) {
 	select {
 	case ev, ok := <-ch:
 		require.True(t, ok, "channel closed before event arrived")
+
 		_, isAttach := ev.(domain.PortAttachedEvent)
 		require.True(t, isAttach, "expected PortAttachedEvent, got %T", ev)
 	case <-time.After(2 * time.Second):
