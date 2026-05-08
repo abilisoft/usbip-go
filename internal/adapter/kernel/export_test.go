@@ -123,3 +123,23 @@ type ParsedPortForTest struct {
 func ExtractPortFromBusIDForTest(busID string) domain.PortID {
 	return extractPortFromBusID(busID)
 }
+
+// VHCIEventMapperForTest is the test-side façade over the internal
+// vhciEventMapper. It carries the full Topology the mapper uses so
+// unit tests can drive MapEventForTest against a field map without
+// standing up an EventsAdapter.
+type VHCIEventMapperForTest struct {
+	inner vhciEventMapper
+}
+
+// NewVHCIEventMapperForTest constructs a mapper against the supplied
+// topology snapshot. Mirrors the internal newVHCIEventMapper.
+func NewVHCIEventMapperForTest(topo Topology) VHCIEventMapperForTest {
+	return VHCIEventMapperForTest{inner: newVHCIEventMapper(topo)}
+}
+
+// MapEventForTest calls the internal mapEvent and returns its
+// (domain.Event, bool) pair verbatim.
+func (m VHCIEventMapperForTest) MapEventForTest(fields map[string]string) (domain.Event, bool) {
+	return m.inner.mapEvent(fields)
+}
