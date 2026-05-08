@@ -73,19 +73,19 @@ func syntheticDeviceBytes(t *testing.T, name string) []byte {
 // original bytes.
 type deviceFixture struct {
 	Path          string             `json:"path"`
-	BusID         string             `json:"busId"`
-	BusNum        uint16             `json:"busNum"`
-	DevNum        uint16             `json:"devNum"`
+	BusID         string             `json:"busid"`
+	BusNum        uint16             `json:"busnum"`
+	DevNum        uint16             `json:"devnum"`
 	Speed         domain.Speed       `json:"speed"`
-	VendorID      uint16             `json:"vendorId"`
-	ProductID     uint16             `json:"productId"`
-	BcdDevice     uint16             `json:"bcdDevice"`
+	VendorID      uint16             `json:"vendor_id"`
+	ProductID     uint16             `json:"product_id"`
+	BcdDevice     uint16             `json:"bcd_device"`
 	Class         domain.USBClass    `json:"class"`
 	Subclass      domain.USBSubclass `json:"subclass"`
 	Protocol      domain.USBProtocol `json:"protocol"`
-	ConfigValue   uint8              `json:"configValue"`
-	NumConfigs    uint8              `json:"numConfigs"`
-	NumInterfaces uint8              `json:"numInterfaces"`
+	ConfigValue   uint8              `json:"config_value"`
+	NumConfigs    uint8              `json:"num_configs"`
+	NumInterfaces uint8              `json:"num_interfaces"`
 }
 
 // TestDecodeDeviceHSKingstonFixture decodes the committed HS fixture and
