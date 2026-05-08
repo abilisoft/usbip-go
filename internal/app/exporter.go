@@ -71,6 +71,17 @@ type Exporter struct {
 	sessionsDrainedOnce sync.Once
 	sessionsDrained     <-chan struct{}
 
+	// disconnectWG tracks every per-session graceful Disconnect
+	// goroutine spawned by Shutdown. firstShutdown gate ensures only
+	// one Shutdown spawns; disconnectDone (lazily set on first
+	// Shutdown) is closed by a single waiter goroutine after
+	// disconnectWG drains so subsequent Shutdown calls observe a clean
+	// channel-receive without spawning a fresh wg.Wait helper that
+	// would race the already-cancelled drainCtx.
+	disconnectWG       sync.WaitGroup
+	disconnectDone     chan struct{}
+	disconnectDoneOnce sync.Once
+
 	// acceptLoopExited is closed by Serve immediately after acceptLoop
 	// returns. Shutdown waits on it before calling drainFuture so that
 	// no sessionsWG.Go call can race with the captured drain channel.
@@ -99,11 +110,53 @@ type sessionHandle struct {
 	// means waitForSessionEnd never recorded a typed reason — falls
 	// back to the free-form string passed to endSession.
 	disconnectReason atomic.Pointer[string]
+
+	// handoffMu serialises the kernel.ExportOnConn handoff against
+	// concurrent Shutdown. tryHandoff and signalCancel atomically
+	// resolve the race where Shutdown closes done + spawns Disconnect
+	// while runRegisteredSession is between the pre-handoff cancel
+	// check and the kernel sysfs write — without this lock the kernel
+	// can end up with a stale export that no Disconnect was scheduled
+	// against (handedOff stays false at cancel time).
+	handoffMu sync.Mutex
+	handedOff bool
+	cancelled bool
 }
 
 // cancel closes done exactly once. Safe to call from any goroutine.
 func (h *sessionHandle) cancel() {
 	h.closeOnce.Do(func() { close(h.done) })
+}
+
+// tryHandoff atomically marks the session as kernel-owned, returning
+// true if no Shutdown has marked the handle cancelled yet. A false
+// return means Shutdown beat the handler and the caller MUST NOT
+// invoke ExportOnConn — the session never reached the kernel.
+func (h *sessionHandle) tryHandoff() bool {
+	h.handoffMu.Lock()
+	defer h.handoffMu.Unlock()
+
+	if h.cancelled {
+		return false
+	}
+
+	h.handedOff = true
+
+	return true
+}
+
+// signalCancel atomically marks the handle cancelled and reports
+// whether ExportOnConn already completed (handedOff). Shutdown uses
+// the return value to decide whether scheduling Disconnect is
+// necessary: if handedOff is false the kernel was never given the
+// fd, so Disconnect would write to a non-existent sysfs entry.
+func (h *sessionHandle) signalCancel() (handedOff bool) {
+	h.handoffMu.Lock()
+	defer h.handoffMu.Unlock()
+
+	h.cancelled = true
+
+	return h.handedOff
 }
 
 // NewExporter constructs an Exporter from functional options. Required
@@ -421,15 +474,6 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	// Cancel every session handle FIRST so the bounded drain can make
-	// progress even if a graceful Disconnect wedges. h.cancel() unblocks
-	// waitForSessionEnd's Shutdown branch unconditionally and is cheap
-	// (channel close), so it must precede the synchronous kernel call.
-	// Repeat-Shutdown skips this — handles is empty.
-	for _, h := range handles {
-		h.cancel()
-	}
-
 	// Derive the backstopped drainCtx FIRST so the per-session
 	// Disconnect goroutines below can carry it. Using the original
 	// caller ctx instead would let a Disconnect outlive the configured
@@ -437,30 +481,52 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 	drainCtx, cancel := e.applyShutdownBackstop(ctx)
 	defer cancel()
 
-	// Graceful: ask the kernel to release each active session's socket.
-	// Disconnect writes -1 to usbip_sockfd; the kernel-side session
-	// teardown emits the remove uevent that the handler's pre-opened
-	// subscription observes. Failures are logged but not fatal — the
-	// bounded drain falls through to force-close so a kernel that
-	// ignores Disconnect still unwinds. The call is synchronous but
-	// each invocation runs in its own goroutine: a single wedged sysfs
-	// write must not block the rest of the loop nor the subsequent
-	// waitSessionsBounded path. firstShutdown gate prevents repeated
-	// Shutdown calls accumulating fresh Disconnect goroutines on top
-	// of any already-wedged from the prior invocation. We track every
-	// goroutine on a WaitGroup so the bounded wait below can surface a
-	// "graceful disconnect did not complete" diagnostic instead of
-	// silently leaking goroutines past the Shutdown return.
-	var disconnectWG sync.WaitGroup
-	for _, h := range handles {
-		disconnectWG.Go(func() {
-			err := e.kernel.Disconnect(drainCtx, h.session.BusID)
-			if err != nil {
-				e.logger.Warn("shutdown kernel disconnect",
-					slog.Any("busid", h.session.BusID),
-					slog.Any("err", err))
-			}
+	// Atomically transition each handle: signalCancel returns whether
+	// the handler had already passed tryHandoff (= ExportOnConn ran or
+	// is running). Disconnect is only scheduled for handed-off
+	// sessions; a handle that never reached ExportOnConn left no kernel
+	// state to clean up. The signalCancel-then-cancel ordering is
+	// deliberate: cancel() closes done unconditionally so a handler
+	// blocked in waitForSessionEnd unwinds either way.
+	//
+	// firstShutdown gate prevents repeated Shutdown calls accumulating
+	// fresh Disconnect goroutines on top of any already-wedged from the
+	// prior invocation. The shared e.disconnectDone channel (allocated
+	// here, closed by the single waiter goroutine after disconnectWG
+	// drains) lets concurrent / sequential repeat Shutdown calls all
+	// wait on the same completion event.
+	if firstShutdown {
+		e.disconnectDoneOnce.Do(func() {
+			e.disconnectDone = make(chan struct{})
 		})
+
+		for _, h := range handles {
+			handedOff := h.signalCancel()
+
+			h.cancel()
+
+			if !handedOff {
+				continue
+			}
+
+			e.disconnectWG.Go(func() {
+				err := e.kernel.Disconnect(drainCtx, h.session.BusID)
+				if err != nil {
+					e.logger.Warn("shutdown kernel disconnect",
+						slog.Any("busid", h.session.BusID),
+						slog.Any("err", err))
+				}
+			})
+		}
+
+		// Single waiter goroutine: closes disconnectDone once every
+		// Disconnect goroutine returns. Subsequent Shutdown calls
+		// (concurrent or sequential) observe this close instead of
+		// each spawning their own wg.Wait helper.
+		go func() {
+			e.disconnectWG.Wait()
+			close(e.disconnectDone)
+		}()
 	}
 
 	// Wait for acceptLoop to exit so no sessionsWG.Go call can race
@@ -479,15 +545,12 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 	// only when waitSessionsBounded returned nil (the drain itself
 	// succeeded) but Disconnect remained pending — without this
 	// promotion Shutdown would return nil while goroutines lingered
-	// past the call. Skip the wait entirely when no goroutines were
-	// spawned (firstShutdown=false path or zero handles): there is
-	// nothing to wait on, and racing an already-cancelled drainCtx
-	// against a never-incremented WaitGroup would surface a spurious
-	// wrapped-ctx error.
-	var disconnectErr error
-	if len(handles) > 0 {
-		disconnectErr = e.waitDisconnectBounded(drainCtx, &disconnectWG)
-	}
+	// past the call. e.disconnectDone is the shared completion channel
+	// (lazily set on first Shutdown via disconnectDoneOnce); concurrent
+	// or sequential repeat Shutdown calls all wait on the same channel
+	// without spawning a fresh wg.Wait helper that would race the
+	// drainCtx.
+	disconnectErr := e.waitDisconnectBounded(drainCtx)
 
 	// Tear down WatchSessions subscribers last so consumers see every
 	// SessionEnded event published during drain before the channel
@@ -501,32 +564,29 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 	return disconnectErr
 }
 
-// waitDisconnectBounded waits on the per-session Disconnect goroutines
-// up to drainCtx. Returns nil on clean drain. If drainCtx fires first
-// the residual goroutines leak but the function returns a wrapped
-// drainCtx error so Shutdown can surface the incomplete-graceful path
-// when the session drain itself succeeded.
+// waitDisconnectBounded waits on e.disconnectDone — the shared
+// completion channel set on the first Shutdown call. Returns nil when
+// every Disconnect goroutine has returned, or a wrapped drainCtx error
+// when the deadline fires first. Because every Shutdown call shares
+// the same channel, concurrent / sequential repeats wait on the same
+// completion event with no per-call helper goroutine.
 //
-// The non-blocking re-check after the select guards against the
-// select-race where wg already finished AND drainCtx is already
-// cancelled at entry: Go's select picks randomly among ready cases,
-// so without the re-check a Shutdown(already-cancelled-ctx) call with
-// an empty wg could surface a spurious wrapped-ctx error.
+// disconnectDone may be nil if no Shutdown has spawned any Disconnect
+// goroutines yet (the firstShutdown=true path always allocates it
+// before any repeat Shutdown can observe firstShutdown=false). The
+// nil case is treated as "nothing to wait for" — return nil.
 //
-// The wg.Wait() helper goroutine below is uncancellable: it remains
-// parked until every Disconnect goroutine returns. A truly-wedged
-// Disconnect therefore leaks both the Disconnect goroutine itself
-// AND this helper. The leak is bounded (one helper per Shutdown
-// invocation, firstShutdown gate prevents repeats) and is the same
-// accepted trade-off documented in the wedged-handler note in
+// A truly-wedged Disconnect goroutine still leaks: e.disconnectDone
+// remains unclosed, but this function's drainCtx-bounded wait
+// surfaces the diagnostic and returns. The single waiter goroutine
+// (spawned in the firstShutdown branch) leaks alongside the wedged
+// Disconnect — the same accepted trade-off documented in
 // waitSessionsBounded.
-func (e *Exporter) waitDisconnectBounded(drainCtx context.Context, wg *sync.WaitGroup) error {
-	done := make(chan struct{})
-
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
+func (e *Exporter) waitDisconnectBounded(drainCtx context.Context) error {
+	done := e.disconnectDone
+	if done == nil {
+		return nil
+	}
 
 	select {
 	case <-done:
@@ -534,6 +594,8 @@ func (e *Exporter) waitDisconnectBounded(drainCtx context.Context, wg *sync.Wait
 	case <-drainCtx.Done():
 	}
 
+	// Non-blocking re-check guards the select-race where done and
+	// drainCtx.Done are both ready at entry.
 	select {
 	case <-done:
 		return nil
