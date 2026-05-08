@@ -1,16 +1,164 @@
 # usbip-go
 
-Pure-Go reimplementation of USB/IP userspace — library (`pkg/usbip`), client CLI (`usbip`), and server daemon (`usbipd`) for Linux.
+[![CI](https://github.com/abilisoft/usbip-go/actions/workflows/ci.yml/badge.svg)](https://github.com/abilisoft/usbip-go/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-see%20testcoverage.yaml-blue)](./.testcoverage.yaml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/abilisoft/usbip-go)](https://goreportcard.com/report/github.com/abilisoft/usbip-go)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+
+Pure-Go reimplementation of USB/IP userspace for Linux. Ships three
+artefacts from a single code base:
+
+- `pkg/usbip` — embeddable library for importers (client) and
+  exporters (server).
+- `usbip` — operator/client CLI (cobra + jsonlines).
+- `usbipd` — production daemon with socket activation, Prometheus
+  metrics, status UDS, and graceful drain.
+
+No cgo, no dependencies on `usbip-utils`. Upstream wire compatibility
+is pinned by conformance tests against real captures.
+
+## Security posture
+
+> **USB/IP is a plaintext, unauthenticated protocol.**
+>
+> Anyone who can TCP-connect to port 3240 can list exported devices
+> and attach them. usbip-go does not wrap the wire in TLS — TLS is out
+> of scope (see [`docs/security.md`](docs/security.md)). Deploy only
+> over already-trusted networks: private LAN, Wireguard, Tailscale,
+> or SSH tunnels. Never expose port 3240 on the public internet.
+>
+> The daemon ships defence-in-depth flags — `--allow-cidr`,
+> `--max-sessions`, `--accept-rate-limit` — but these are enforcement
+> seams, not authentication. Read
+> [`docs/security.md`](docs/security.md) before deploying.
+
+## Install
+
+### Release binaries
+
+Prebuilt binaries, `.deb`, and `.rpm` packages are published to
+[GitHub Releases](https://github.com/abilisoft/usbip-go/releases).
+
+```
+curl -LO https://github.com/abilisoft/usbip-go/releases/latest/download/usbip-go_linux_amd64.tar.gz
+tar xzf usbip-go_linux_amd64.tar.gz
+sudo install -m 0755 usbip usbipd /usr/bin/
+```
+
+### Systemd
+
+The release archive and packages both include systemd units. Drop
+them in place and enable the socket unit:
+
+```
+sudo install -Dm 0644 contrib/systemd/usbipd.service /etc/systemd/system/usbipd.service
+sudo install -Dm 0644 contrib/systemd/usbipd.socket  /etc/systemd/system/usbipd.socket
+sudo systemctl daemon-reload
+sudo systemctl enable --now usbipd.socket
+```
+
+Socket activation means the daemon starts on the first inbound
+connection. See [`docs/ops.md`](docs/ops.md) for the full systemd
+hardening recipe, metrics wiring, and drain procedure.
+
+### `go install`
+
+```
+go install github.com/abilisoft/usbip-go/cmd/usbip@latest
+go install github.com/abilisoft/usbip-go/cmd/usbipd@latest
+```
+
+Requires Go 1.26 or newer.
+
+### Kernel modules
+
+Every host running `usbipd` (exporter) or the `usbip` client needs
+the relevant kernel modules:
+
+```
+sudo modprobe usbip_core vhci-hcd usbip-host
+echo -e 'usbip_core\nvhci_hcd\nusbip_host' \
+  | sudo tee /etc/modules-load.d/usbip-go.conf
+```
+
+## Quickstart
+
+### 1. Embed the library
+
+```go
+package main
+
+import (
+    "context"
+    "log/slog"
+
+    "github.com/abilisoft/usbip-go/pkg/domain"
+    "github.com/abilisoft/usbip-go/pkg/usbip"
+)
+
+func main() {
+    imp, _ := usbip.NewImporter(usbip.WithImporterLogger(slog.Default()))
+    defer imp.Close()
+
+    remote, _ := domain.ParseRemote("10.0.0.5:3240")
+    busid, _ := domain.ParseBusID("1-1.2")
+
+    port, _ := imp.Attach(context.Background(), remote, busid, usbip.AttachOptions{
+        AutoReconnect: true,
+    })
+    _ = port // detach later with imp.Detach(ctx, port.ID)
+}
+```
+
+More patterns under [`examples/`](examples/) — client, server,
+events, reconnect, metrics.
+
+### 2. CLI attach
+
+```
+sudo usbip attach -r 10.0.0.5 -b 1-1.2
+sudo usbip port
+sudo usbip detach 0
+```
+
+### 3. Daemon via systemd
+
+```
+sudo systemctl enable --now usbipd.socket
+sudo usbip bind 1-1.2           # export a local device
+sudo systemctl status usbipd
+```
+
+Metrics, drain, and readiness endpoints are in
+[`docs/ops.md`](docs/ops.md).
+
+## Documentation
+
+- [`docs/architecture.md`](docs/architecture.md) — layering and
+  package responsibilities.
+- [`docs/protocol.md`](docs/protocol.md) — USB/IP wire byte layouts.
+- [`docs/security.md`](docs/security.md) — threat model, privilege,
+  allow-CIDR, `setcap`.
+- [`docs/ops.md`](docs/ops.md) — daemon install, systemd, status UDS,
+  metrics, drain.
+- [`docs/troubleshooting.md`](docs/troubleshooting.md) — decision
+  tree for attach failures.
+- [`docs/wire-trace.md`](docs/wire-trace.md) — pcap recipe for bug
+  reports.
+- [`docs/json-schema.md`](docs/json-schema.md) — v1 JSON schema
+  contract.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup, TDD discipline,
+  commit conventions.
+- [`docs/superpowers/specs/2026-04-18-usbip-go-design.md`](docs/superpowers/specs/2026-04-18-usbip-go-design.md)
+  — the authoritative design spec.
 
 ## Status
 
-Early development. Not yet functional; APIs and on-disk artifacts are unstable.
+v1 surface is under active development. APIs under `pkg/usbip` and
+`pkg/domain` are guarded by `apidiff` baselines and require a
+`BREAKING:` commit for any incompatible change — see
+[`CONTRIBUTING.md`](CONTRIBUTING.md#api-surface-baselines).
 
-## Prerequisites
+## License
 
-- Go 1.26 or newer.
-- The [Task](https://taskfile.dev) runner for the repository's build/test targets. Bootstrap it with:
-
-  ```
-  go install github.com/go-task/task/v3/cmd/task@latest
-  ```
+Apache-2.0. See [`LICENSE`](LICENSE).
