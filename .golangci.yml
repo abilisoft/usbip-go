@@ -61,6 +61,7 @@ linters:
         - 'github.com/abilisoft/usbip-go/pkg/domain\.Event'
         - 'github.com/abilisoft/usbip-go/internal/app\.BackoffStrategy'
         - 'github.com/abilisoft/usbip-go/pkg/usbip\.BackoffStrategy'
+        - 'github.com/prometheus/client_golang/prometheus\.Registerer'
     mnd:
       ignored-functions:
         - 'make'

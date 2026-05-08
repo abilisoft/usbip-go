@@ -1,7 +1,6 @@
 package usbip_test
 
 import (
-	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -18,12 +17,19 @@ import (
 func TestImporterOptionTypeIsFunc(t *testing.T) {
 	t.Parallel()
 
-	// Constructing a nil option is trivially valid — the test's goal
-	// is compile-time surface coverage, not runtime semantics.
-	var opt usbip.ImporterOption = usbip.WithImporterLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
-
-	require.NotNil(t, opt)
+	// Passing the option to a parameter typed as ImporterOption forces
+	// the compile-time check: constructor result is convertible to the
+	// public type.
+	require.NotNil(t, acceptImporterOption(
+		usbip.WithImporterLogger(slog.New(slog.DiscardHandler)),
+	))
 }
+
+// acceptImporterOption forces its argument to the public ImporterOption
+// type — the call site only type-checks when the passed value matches
+// that named function type. Returns the argument so callers can assert
+// non-nil in a single statement.
+func acceptImporterOption(o usbip.ImporterOption) usbip.ImporterOption { return o }
 
 // TestWithImporterLoggerStoresLogger proves NewImporter applied with
 // WithImporterLogger returns an Importer that uses the caller's slog
@@ -33,7 +39,7 @@ func TestImporterOptionTypeIsFunc(t *testing.T) {
 func TestWithImporterLoggerStoresLogger(t *testing.T) {
 	t.Parallel()
 
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 
 	cfg := usbip.NewImporterConfigForTest(usbip.WithImporterLogger(logger))
 
@@ -66,7 +72,7 @@ func TestWithImporterStatusPollIntervalStores(t *testing.T) {
 func TestWithExporterLoggerStores(t *testing.T) {
 	t.Parallel()
 
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 
 	cfg := usbip.NewExporterConfigForTest(usbip.WithExporterLogger(logger))
 
@@ -160,7 +166,8 @@ func TestWithExporterMetricsRegistererStores(t *testing.T) {
 func TestExporterOptionTypeIsFunc(t *testing.T) {
 	t.Parallel()
 
-	var opt usbip.ExporterOption = usbip.WithExporterMaxSessions(1)
-
-	require.NotNil(t, opt)
+	require.NotNil(t, acceptExporterOption(usbip.WithExporterMaxSessions(1)))
 }
+
+// acceptExporterOption mirrors acceptImporterOption for the exporter.
+func acceptExporterOption(o usbip.ExporterOption) usbip.ExporterOption { return o }

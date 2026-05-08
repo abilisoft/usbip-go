@@ -48,7 +48,10 @@ func newDefaultImporter(opts []ImporterOption) (*Importer, error) {
 	)
 	baseOpts = append(baseOpts, extra...)
 
-	return &Importer{inner: internalapp.NewImporter(baseOpts...)}, nil
+	return &Importer{
+		inner: internalapp.NewImporter(baseOpts...),
+		cfg:   cfg,
+	}, nil
 }
 
 // importerBaseOptCount is the number of required-adapter options that
@@ -90,7 +93,7 @@ func newDefaultExporter(opts []ExporterOption) (*Exporter, error) {
 		return nil, fmt.Errorf("construct exporter: %w", err)
 	}
 
-	return &Exporter{inner: inner}, nil
+	return &Exporter{inner: inner, cfg: cfg}, nil
 }
 
 // exporterBaseOptCount mirrors importerBaseOptCount for the exporter.
