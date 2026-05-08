@@ -387,6 +387,56 @@ func TestDiscoverTopology_ClassifyHubBySiblingOrder(t *testing.T) {
 		"higher busnum within a controller must classify as SS regardless of missing speed")
 }
 
+// TestDiscoverTopology_Realistic_MultiController_MissingSpeed chains
+// every hardening fix into a single end-to-end scenario: two
+// controllers (status + status.1 present, status.2 absent), no speed
+// attributes on any usb child, and busnums interleaved across
+// controllers (controller 0 owns buses 2+3, controller 1 owns buses
+// 5+6 — the usb1 and usb4 slots are owned by other HCDs). Hub
+// classification must come from sibling order alone, and the resulting
+// FlatPort math must align with the kernel's flat port numbering.
+func TestDiscoverTopology_Realistic_MultiController_MissingSpeed(t *testing.T) {
+	t.Parallel()
+
+	mfs := topoFS(map[string]string{
+		"/sys/devices/platform/vhci_hcd.0/nports":      "32\n",
+		"/sys/devices/platform/vhci_hcd.0/status":      "",
+		"/sys/devices/platform/vhci_hcd.0/status.1":    "",
+		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
+		"/sys/devices/platform/vhci_hcd.0/usb3/busnum": "3\n",
+		"/sys/devices/platform/vhci_hcd.1/usb5/busnum": "5\n",
+		"/sys/devices/platform/vhci_hcd.1/usb6/busnum": "6\n",
+	})
+
+	topo, err := kernel.DiscoverTopologyForTest(mfs)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, topo.NControllers)
+	require.EqualValues(t, 8, topo.HCPorts)
+	require.EqualValues(t, 16, topo.VHCIPorts)
+	require.Len(t, topo.BusMap, 4)
+
+	// Sibling-order classification per controller: lower-busnum child
+	// is HS, higher-busnum child is SS. Speed attrs are deliberately
+	// absent, so the pre-hardening classifier would have collapsed
+	// everything to HS.
+	require.Equal(t, kernel.VHCILocation{ControllerIdx: 0, Hub: kernel.HubTypeHS}, topo.BusMap[2])
+	require.Equal(t, kernel.VHCILocation{ControllerIdx: 0, Hub: kernel.HubTypeSS}, topo.BusMap[3])
+	require.Equal(t, kernel.VHCILocation{ControllerIdx: 1, Hub: kernel.HubTypeHS}, topo.BusMap[5])
+	require.Equal(t, kernel.VHCILocation{ControllerIdx: 1, Hub: kernel.HubTypeSS}, topo.BusMap[6])
+
+	// FlatPort algebra: ctrl 0 HS starts at 0, ctrl 0 SS at 8, ctrl 1
+	// HS at 16, ctrl 1 SS at 24. A minimal exercise across the four
+	// quadrants confirms hubOffset and per-controller stride.
+	require.Equal(t, domain.PortID(0),
+		topo.FlatPort(topo.BusMap[2], 0))
+	require.Equal(t, domain.PortID(8),
+		topo.FlatPort(topo.BusMap[3], 0))
+	require.Equal(t, domain.PortID(16),
+		topo.FlatPort(topo.BusMap[5], 0))
+	require.Equal(t, domain.PortID(24),
+		topo.FlatPort(topo.BusMap[6], 0))
+}
+
 // countingFS wraps an fs.FS and increments a counter every time Open
 // is called on a name matching the requested path. Used to pin BUG 5:
 // loadTopology must run discoverTopology at most once per adapter
