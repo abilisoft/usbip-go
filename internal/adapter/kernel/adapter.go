@@ -73,11 +73,17 @@ func NewExporterAdapter(opts ...Option) (*ExporterAdapter, error) {
 }
 
 // NewEventsAdapter constructs an EventsAdapter with the same defaults
-// as NewImporterAdapter.
+// as NewImporterAdapter. dispMu is allocated eagerly here — lazy
+// initialisation in Subscribe would race under concurrent first-
+// Subscribers (RANK 4), letting two callers lock different mutexes
+// and nlDial twice (leaking one dispatcher + netlink socket).
 func NewEventsAdapter(opts ...Option) (*EventsAdapter, error) {
 	c := newCommon(opts...)
 
-	return &EventsAdapter{commonAdapter: c}, nil
+	return &EventsAdapter{
+		commonAdapter: c,
+		dispMu:        &sync.Mutex{},
+	}, nil
 }
 
 // newCommon applies the default substrate then each option in order.
