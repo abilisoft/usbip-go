@@ -53,6 +53,14 @@ func (a *ImporterAdapter) AttachRemote(
 		return 0, err
 	}
 
+	// Spec §3.4 serialization: findFreePort reads the status file and
+	// the sysfs attach write advances it. Without this lock two
+	// concurrent callers would both see the same free port and race
+	// on the write. Under the lock the loser's findFreePort observes
+	// the post-winner state and returns ErrNoFreePort.
+	a.attachMu.Lock()
+	defer a.attachMu.Unlock()
+
 	portID, err := a.findFreePort(spec.Speed)
 	if err != nil {
 		return 0, err
