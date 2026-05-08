@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2026 AbiliSoft
+# SPDX-License-Identifier: Apache-2.0
+#
+# Code owners for github.com/abilisoft/usbip-go.
+#
+# GitHub uses this file to (1) auto-request review from the listed
+# owners on every PR that touches a matched path, and (2) gate the
+# branch-protection "require code-owner review" check. OpenSSF
+# Scorecard's Code-Review and Branch-Protection checks both look for
+# a CODEOWNERS file at one of the standard paths
+# (.github/CODEOWNERS, /CODEOWNERS, /docs/CODEOWNERS); this lives
+# at .github/CODEOWNERS so all rules sit under .github/.
+#
+# Ownership policy: a single owner today, mirroring the contributor
+# graph. Add per-area owners (e.g. /internal/adapter/kernel/, /docs/)
+# as the project grows so reviews route by expertise rather than
+# fanning out to one person.
+
+# Default owner for everything not covered by a more specific rule.
+* @silkrad

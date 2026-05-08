@@ -48,14 +48,14 @@ exclude:
     - ^internal/tools/
     - ^internal/testutil/
     - doc\.go$
-    # cmd/usbip-test-killable is a test-only subprocess built and
+    # test/integration/killable is a test-only subprocess built and
     # invoked by the integration-test harness (see
     # test/integration/process_death_test.go); it is never reached
     # by go test -race ./... so it produces 0% coverage and would
     # always fail any per-package threshold. Adding test scaffolding
     # would force the helper's invariants into the unit-test
     # surface, which is the wrong layer.
-    - ^cmd/usbip-test-killable($|/)
+    - ^test/integration/killable($|/)
     # examples/* are documentation-grade demo programs whose main()
     # functions never run in unit tests. The smoke-test files under
     # examples/*/main_test.go already pin run() arg-validation; the

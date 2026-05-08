@@ -216,9 +216,18 @@ func (i *Importer) mergeAttachOptions(opts AttachOptions) AttachOptions {
 // Exporter is the public wrapper around internalapp.Exporter. Method
 // bodies forward after argument translation. Construct via NewExporter;
 // the zero value is not usable.
+//
+// transport is the same TCP adapter the inner Exporter was built
+// with. Storing it on the public wrapper lets ListenAndServe call
+// Transport.Listen with the stored TransportOptions so accepted
+// connections inherit the requested tuning. Serve(ctx, listener)
+// retains its caller-supplied-listener semantics; ListenAndServe is
+// the option-honoring counterpart for callers that do not need
+// systemd-activation or other foreign listener wiring.
 type Exporter struct {
-	inner *internalapp.Exporter
-	cfg   exporterConfig
+	inner     *internalapp.Exporter
+	cfg       exporterConfig
+	transport internalapp.Transport
 }
 
 // NewExporter constructs an Exporter backed by the default Linux
@@ -248,6 +257,31 @@ func (e *Exporter) Unbind(ctx context.Context, busID BusID) error {
 // Serve runs the accept loop until ctx is cancelled or the listener
 // returns a permanent error.
 func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
+	return translateInternalErr(e.inner.Serve(ctx, listener))
+}
+
+// ListenAndServe binds addr through the transport adapter (so accepted
+// connections inherit the WithExporterTransportOptions tuning) and
+// then runs Serve on the resulting listener. It is the option-honoring
+// counterpart to Serve(ctx, listener) for callers that do not need
+// systemd activation or other foreign listener wiring.
+//
+// A Listen failure short-circuits the call: ListenAndServe surfaces
+// the wrapped error and never invokes Serve. The bound listener is
+// closed deterministically on Serve's return — the transport
+// adapter's ctxListener already closes on ctx cancellation, but a
+// Serve early-return path (e.g. startServing rejecting a second
+// concurrent caller, ErrAlreadyShutdown) might exit before any ctx
+// signal lands. ListenAndServe's deferred Close covers that gap so
+// the bound port never outlives the call.
+func (e *Exporter) ListenAndServe(ctx context.Context, addr string) error {
+	listener, err := e.transport.Listen(ctx, addr, e.cfg.transportOptions)
+	if err != nil {
+		return fmt.Errorf("usbip.Exporter.ListenAndServe: %w", err)
+	}
+
+	defer func() { _ = listener.Close() }()
+
 	return translateInternalErr(e.inner.Serve(ctx, listener))
 }
 

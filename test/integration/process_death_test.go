@@ -28,18 +28,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// killHelperBinary is the name of the subprocess cmd/usbip-test-killable
+// killHelperBinary is the name of the subprocess test/integration/killable
 // produces. The test builds it to t.TempDir via `go build` so there is
 // no dependency on the repo root binary being fresh.
 const killHelperBinary = "usbip-test-killable"
 
-// killHelperEnvKillAt mirrors cmd/usbip-test-killable's killEnv.
+// killHelperEnvKillAt mirrors test/integration/killable's killEnv.
 const killHelperEnvKillAt = "USBIP_TEST_KILL_AT"
 
-// killHelperEnvServer mirrors cmd/usbip-test-killable's serverEnv.
+// killHelperEnvServer mirrors test/integration/killable's serverEnv.
 const killHelperEnvServer = "USBIP_TEST_SERVER"
 
-// killHelperEnvBusID mirrors cmd/usbip-test-killable's busIDEnv.
+// killHelperEnvBusID mirrors test/integration/killable's busIDEnv.
 const killHelperEnvBusID = "USBIP_TEST_BUSID"
 
 // killWaitDeadline bounds the per-checkpoint stderr wait and the
@@ -286,7 +286,7 @@ func waitForCheckpoint(t *testing.T, r io.Reader, want string) {
 	}
 }
 
-// buildKillHelper compiles cmd/usbip-test-killable into t.TempDir so
+// buildKillHelper compiles test/integration/killable into t.TempDir so
 // each test run gets a fresh binary that matches the current source.
 // Avoids leaning on the repo-root bin/ layout.
 func buildKillHelper(t *testing.T) string {
@@ -304,7 +304,7 @@ func buildKillHelper(t *testing.T) string {
 	// cannot reach a usable .git tree under the test UID, and the
 	// stamp would abort the build with "error obtaining VCS status".
 	// The helper does not surface version information — no value lost.
-	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", out, "./cmd/usbip-test-killable/")
+	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", out, "./test/integration/killable/")
 	cmd.Dir = repoRoot
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 
