@@ -155,6 +155,17 @@ func (a *commonAdapter) parseStatusFile(body, source string, controllerIdx, vhci
 		out = append(out, row)
 	}
 
+	// Surface any scanner failure (e.g. bufio.ErrTooLong for a row
+	// exceeding the token buffer) instead of treating it as EOF. A
+	// silently-empty result on a real read error would mislead every
+	// downstream consumer — findFreePort would claim no ports exist,
+	// ListPorts would return no attached ports, and the reconnect
+	// watcher's poll backstop would mistake it for "all detached".
+	serr := scanner.Err()
+	if serr != nil {
+		return nil, fmt.Errorf("parseStatusFile %s: %w", source, serr)
+	}
+
 	return out, nil
 }
 
