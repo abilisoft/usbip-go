@@ -86,6 +86,7 @@ func uevent(fields map[string]string) []byte {
 	// Kernel prepends "ACTION@DEVPATH" as the first NUL-terminated
 	// token; include an ignored placeholder for realism.
 	header := fields["ACTION"] + "@" + fields["DEVPATH"]
+
 	out = append(out, []byte(header)...)
 	out = append(out, 0)
 
@@ -115,9 +116,10 @@ func TestSubscribe_DeliversParsedEvent(t *testing.T) {
 	t.Parallel()
 
 	a, sock := newAdapterWithFakeSocket(t)
+
 	defer func() { _ = sock.Close() }()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	ch, unsub, err := a.Subscribe(ctx)
@@ -146,9 +148,10 @@ func TestSubscribe_FanOutToTwoConsumers(t *testing.T) {
 	t.Parallel()
 
 	a, sock := newAdapterWithFakeSocket(t)
+
 	defer func() { _ = sock.Close() }()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	ch1, unsub1, err := a.Subscribe(ctx)
@@ -169,6 +172,7 @@ func TestSubscribe_FanOutToTwoConsumers(t *testing.T) {
 		select {
 		case ev := <-c:
 			require.NotNil(t, ev)
+
 			seenCount++
 		case <-time.After(2 * time.Second):
 			t.Fatal("one subscriber did not receive the event")
@@ -185,9 +189,10 @@ func TestSubscribe_CancelStopsConsumer(t *testing.T) {
 	t.Parallel()
 
 	a, sock := newAdapterWithFakeSocket(t)
+
 	defer func() { _ = sock.Close() }()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	ch, unsub, err := a.Subscribe(ctx)
@@ -216,7 +221,7 @@ func TestSubscribe_DialFailurePropagates(t *testing.T) {
 	))
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	_, _, err = a.Subscribe(ctx)
