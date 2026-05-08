@@ -1,0 +1,357 @@
+#!/usr/bin/env bash
+# capture-wire-fixtures.sh — capture real upstream USBIP wire frames for
+# the internal/adapter/wire fixture set. Replaces the hand-synthesised
+# fixtures from Phase 2 with ground-truth bytes emitted by upstream
+# usbip-utils + a usbip-vudc virtual device.
+#
+# Closes the "synthetic fixtures" deferred item documented in
+# docs/superpowers/plans/2026-04-18-usbip-go-plan.md Phase 2 Task 2.3
+# and acknowledged in commit 707a292's commit message.
+#
+# Requires sudo for:
+#   - modprobe (load usbip_core / usbip_host / vhci_hcd / usbip_vudc)
+#   - configfs writes under /sys/kernel/config
+#   - sysfs writes to bind the vudc device via usbip-host
+#   - starting usbipd
+#   - tcpdump with CAP_NET_RAW
+#
+# Outputs:
+#   - internal/adapter/wire/testdata/real_op_req_devlist.bin
+#   - internal/adapter/wire/testdata/real_op_rep_devlist_1.bin
+#   - internal/adapter/wire/testdata/real_op_req_import.bin
+#   - internal/adapter/wire/testdata/real_op_rep_import.bin
+#   - internal/adapter/wire/testdata/real_capture.pcap (full trace for audit)
+#   - internal/adapter/wire/testdata/real_capture.manifest.json (what each file contains, env, versions)
+#
+# Usage: run from the repo root. Destructive ONLY within /sys/kernel/config/usb_gadget/usbip-fixture-vudc
+# and the transient tcpdump capture file. Cleans up on exit via trap.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+TESTDATA_DIR="${REPO_ROOT}/internal/adapter/wire/testdata"
+CAPTURE_PCAP="${TESTDATA_DIR}/real_capture.pcap"
+MANIFEST="${TESTDATA_DIR}/real_capture.manifest.json"
+
+VUDC_NAME="usbip-fixture-vudc"
+VUDC_ROOT="/sys/kernel/config/usb_gadget/${VUDC_NAME}"
+VUDC_VID="0x0951"    # Kingston
+VUDC_PID="0x1666"    # DataTraveler 100 G3
+VUDC_BCD="0x0110"
+
+USBIPD_PORT=3240
+USBIPD_PIDFILE="/tmp/usbip-fixture-usbipd.pid"
+TCPDUMP_PIDFILE="/tmp/usbip-fixture-tcpdump.pid"
+
+UPSTREAM_USBIP="$(command -v usbip || echo /usr/bin/usbip)"
+UPSTREAM_USBIPD="$(command -v usbipd || echo /usr/bin/usbipd)"
+
+# ----------------------------------------------------------------------
+# Preflight
+# ----------------------------------------------------------------------
+
+if [[ "${EUID}" -eq 0 ]]; then
+  echo "run without sudo; the script prompts for it per-operation" >&2
+  exit 2
+fi
+
+for bin in tcpdump tshark sudo modprobe; do
+  command -v "${bin}" >/dev/null 2>&1 || { echo "missing: ${bin}" >&2; exit 2; }
+done
+
+[[ -x "${UPSTREAM_USBIP}" ]]  || { echo "missing usbip at ${UPSTREAM_USBIP}" >&2; exit 2; }
+[[ -x "${UPSTREAM_USBIPD}" ]] || { echo "missing usbipd at ${UPSTREAM_USBIPD}" >&2; exit 2; }
+
+mkdir -p "${TESTDATA_DIR}"
+
+USBIP_VERSION_STRING="$("${UPSTREAM_USBIP}" version 2>/dev/null | head -1 || true)"
+[[ -z "${USBIP_VERSION_STRING}" ]] && USBIP_VERSION_STRING="unknown"
+
+echo "==> capturing upstream wire fixtures"
+echo "    usbip:  ${UPSTREAM_USBIP} (${USBIP_VERSION_STRING})"
+echo "    usbipd: ${UPSTREAM_USBIPD}"
+echo "    kernel: $(uname -r)"
+echo "    testdata: ${TESTDATA_DIR}"
+
+# ----------------------------------------------------------------------
+# Cleanup trap
+# ----------------------------------------------------------------------
+
+cleanup() {
+  local rc=$?
+  set +e
+  echo "==> cleanup"
+
+  if [[ -f "${TCPDUMP_PIDFILE}" ]]; then
+    sudo kill "$(cat "${TCPDUMP_PIDFILE}")" 2>/dev/null
+    sudo rm -f "${TCPDUMP_PIDFILE}"
+  fi
+
+  if [[ -f "${USBIPD_PIDFILE}" ]]; then
+    sudo kill "$(cat "${USBIPD_PIDFILE}")" 2>/dev/null
+    sudo rm -f "${USBIPD_PIDFILE}"
+  fi
+
+  # Unbind UDC first (writing empty string detaches the gadget).
+  if [[ -f "${VUDC_ROOT}/UDC" ]]; then
+    echo "" | sudo tee "${VUDC_ROOT}/UDC" >/dev/null 2>&1 || true
+  fi
+
+  # Remove symlinks from configs/*/ (function links must go before rmdir).
+  if [[ -d "${VUDC_ROOT}" ]]; then
+    sudo find "${VUDC_ROOT}/configs" -type l -print 2>/dev/null | sudo xargs -r rm -f
+    # configfs dirs must be removed depth-first; rmdir on parents succeeds
+    # only after children are gone.
+    sudo find "${VUDC_ROOT}/configs" -mindepth 2 -maxdepth 2 -type d -exec rmdir {} \; 2>/dev/null
+    sudo find "${VUDC_ROOT}/configs" -mindepth 1 -maxdepth 1 -type d -exec rmdir {} \; 2>/dev/null
+    sudo find "${VUDC_ROOT}/functions" -mindepth 1 -maxdepth 1 -type d -exec rmdir {} \; 2>/dev/null
+    sudo find "${VUDC_ROOT}/strings" -mindepth 1 -maxdepth 1 -type d -exec rmdir {} \; 2>/dev/null
+    sudo rmdir "${VUDC_ROOT}" 2>/dev/null
+  fi
+
+  # Remove any temp backing files.
+  rm -f /tmp/usbip-fixture-*.img 2>/dev/null
+
+  exit "${rc}"
+}
+trap cleanup EXIT
+
+# ----------------------------------------------------------------------
+# Step 1 — load kernel modules
+# ----------------------------------------------------------------------
+
+echo "==> loading kernel modules"
+# libcomposite provides configfs usb_gadget; usb_f_mass_storage provides the
+# function we attach (empty gadgets cannot bind to a UDC).
+for mod in usbip_core vhci_hcd usbip_host usbip_vudc libcomposite usb_f_mass_storage; do
+  if [[ -d "/sys/module/${mod}" ]]; then
+    echo "    ${mod} already loaded"
+  else
+    sudo modprobe "${mod}"
+    echo "    ${mod} loaded"
+  fi
+done
+
+# ----------------------------------------------------------------------
+# Step 2 — mount configfs if needed and create vudc device
+# ----------------------------------------------------------------------
+
+if ! mountpoint -q /sys/kernel/config; then
+  echo "==> mounting configfs"
+  sudo mount -t configfs none /sys/kernel/config
+fi
+
+if [[ ! -d /sys/kernel/config/usb_gadget ]]; then
+  echo "configfs does not expose usb_gadget after libcomposite modprobe" >&2
+  exit 2
+fi
+
+echo "==> creating vudc gadget"
+sudo mkdir -p "${VUDC_ROOT}"
+echo "${VUDC_VID}" | sudo tee "${VUDC_ROOT}/idVendor" >/dev/null
+echo "${VUDC_PID}" | sudo tee "${VUDC_ROOT}/idProduct" >/dev/null
+echo "${VUDC_BCD}" | sudo tee "${VUDC_ROOT}/bcdDevice" >/dev/null
+sudo mkdir -p "${VUDC_ROOT}/strings/0x409"
+echo "abilisoft-fixture" | sudo tee "${VUDC_ROOT}/strings/0x409/serialnumber" >/dev/null
+echo "usbip-go"          | sudo tee "${VUDC_ROOT}/strings/0x409/manufacturer"  >/dev/null
+echo "Fixture Device"    | sudo tee "${VUDC_ROOT}/strings/0x409/product"       >/dev/null
+
+sudo mkdir -p "${VUDC_ROOT}/configs/c.1/strings/0x409"
+echo "default" | sudo tee "${VUDC_ROOT}/configs/c.1/strings/0x409/configuration" >/dev/null
+
+# Add a mass_storage function backed by a tiny in-RAM file. Empty gadgets
+# are rejected by the UDC with EBUSY — the function just needs to exist
+# and be linked into configs/c.1.
+MS_BACKING="$(mktemp /tmp/usbip-fixture-msd.XXXXXX.img)"
+dd if=/dev/zero of="${MS_BACKING}" bs=1M count=1 status=none
+sudo chmod 0644 "${MS_BACKING}"
+sudo mkdir -p "${VUDC_ROOT}/functions/mass_storage.0"
+echo "${MS_BACKING}" | sudo tee "${VUDC_ROOT}/functions/mass_storage.0/lun.0/file" >/dev/null
+sudo ln -sf "${VUDC_ROOT}/functions/mass_storage.0" "${VUDC_ROOT}/configs/c.1/mass_storage.0"
+
+# Bind to the first available usbip-vudc UDC instance.
+UDC_INSTANCE=$(ls /sys/class/udc | grep -E '^usbip-vudc' | head -1 || true)
+if [[ -z "${UDC_INSTANCE}" ]]; then
+  echo "no usbip-vudc UDC instance available; module-param vudc_num may need bumping" >&2
+  exit 2
+fi
+echo "==> binding gadget to ${UDC_INSTANCE}"
+echo "${UDC_INSTANCE}" | sudo tee "${VUDC_ROOT}/UDC" >/dev/null
+
+# ----------------------------------------------------------------------
+# Step 3 — in vudc mode the gadget-to-UDC write above already makes the
+# device exportable (usbip_status flips to "1"). No `usbip bind` needed.
+# The busid advertised on the wire is the platform device name.
+# ----------------------------------------------------------------------
+
+VUDC_BUSID="${UDC_INSTANCE}"
+echo "==> vudc busid: ${VUDC_BUSID}"
+
+# ----------------------------------------------------------------------
+# Step 4 — start tcpdump then usbipd in device (vudc) mode
+# ----------------------------------------------------------------------
+
+echo "==> starting tcpdump (loopback, port ${USBIPD_PORT})"
+sudo tcpdump -i lo -w "${CAPTURE_PCAP}" "tcp port ${USBIPD_PORT}" &
+echo $! | sudo tee "${TCPDUMP_PIDFILE}" >/dev/null
+sleep 1
+
+echo "==> starting usbipd -e (device/vudc mode)"
+USBIPD_LOG="/tmp/usbip-fixture-usbipd.log"
+# usbipd's --pid uses optional_argument, so "-P <file>" or "-PP <file>"
+# (space-separated) parses as "-P" (default pidfile) plus a stray
+# positional and exits silently. Use the long form with = instead,
+# then fall back to pgrep if the pidfile didn't materialise.
+sudo "${UPSTREAM_USBIPD}" -D -e "--pid=${USBIPD_PIDFILE}" 2>"${USBIPD_LOG}" || true
+sleep 2
+
+if [[ ! -f "${USBIPD_PIDFILE}" ]]; then
+  USBIPD_PID="$(pgrep -x usbipd | head -1 || true)"
+  if [[ -z "${USBIPD_PID}" ]]; then
+    echo "usbipd did not start; log:" >&2
+    cat "${USBIPD_LOG}" >&2 2>/dev/null || true
+    exit 2
+  fi
+  echo "${USBIPD_PID}" | sudo tee "${USBIPD_PIDFILE}" >/dev/null
+fi
+echo "    usbipd pid: $(cat "${USBIPD_PIDFILE}")"
+
+# ----------------------------------------------------------------------
+# Step 5 — drive the client so the capture includes OP_REQ_DEVLIST,
+# OP_REP_DEVLIST, OP_REQ_IMPORT, and OP_REP_IMPORT.
+# ----------------------------------------------------------------------
+
+echo "==> client: usbip list -r 127.0.0.1"
+"${UPSTREAM_USBIP}" list -r 127.0.0.1 || true
+sleep 1
+
+# import is issued but we DO NOT keep the resulting vhci attachment —
+# once we have the OP_REP_IMPORT bytes captured we kill the daemon.
+# Upstream's attach would try to write the sockfd into vhci_hcd, which
+# we do not need for fixture purposes.
+echo "==> client: usbip attach -r 127.0.0.1 -b ${VUDC_BUSID} (may fail at vhci handoff — we only care about the reply bytes)"
+"${UPSTREAM_USBIP}" attach -r 127.0.0.1 -b "${VUDC_BUSID}" || true
+sleep 1
+
+# ----------------------------------------------------------------------
+# Step 6 — stop capture; extract raw TCP payloads per direction
+# ----------------------------------------------------------------------
+
+echo "==> stopping usbipd + tcpdump"
+sudo kill "$(cat "${USBIPD_PIDFILE}")" 2>/dev/null
+sudo kill "$(cat "${TCPDUMP_PIDFILE}")" 2>/dev/null
+sleep 1
+
+# Use tshark to extract the raw TCP payload bytes in hex per packet,
+# then pick out the first packet in each direction to split into REQ/REP
+# files. This is the hands-on part — adjust stream indices if the
+# capture has more than one session (the trap in this script means only
+# one client session should be present).
+echo "==> extracting payloads from ${CAPTURE_PCAP}"
+
+# `usbip list` and `usbip attach` are separate invocations and therefore
+# open separate TCP connections (= separate tshark streams). A single
+# USBIP message can span multiple TCP segments, so we must concatenate
+# every segment within a (stream, direction) pair rather than taking
+# the first one.
+
+mapfile -t STREAMS < <(tshark -r "${CAPTURE_PCAP}" \
+  -Y "tcp.port == ${USBIPD_PORT} && tcp.len > 0" \
+  -T fields -e tcp.stream | sort -un)
+
+if [[ "${#STREAMS[@]}" -lt 2 ]]; then
+  echo "expected at least 2 TCP streams on port ${USBIPD_PORT}; got ${#STREAMS[@]}" >&2
+  exit 2
+fi
+
+extract_stream() {
+  local stream="$1"
+  local direction="$2"
+  local filter
+  case "${direction}" in
+    req) filter="tcp.stream == ${stream} && tcp.dstport == ${USBIPD_PORT} && tcp.len > 0" ;;
+    rep) filter="tcp.stream == ${stream} && tcp.srcport == ${USBIPD_PORT} && tcp.len > 0" ;;
+    *)   echo "bad direction: ${direction}" >&2; return 2 ;;
+  esac
+  tshark -r "${CAPTURE_PCAP}" -Y "${filter}" -T fields -e tcp.payload \
+    | tr -d '\n:'
+}
+
+# First stream = `usbip list` (devlist). Second stream = `usbip attach` (import).
+REQ_LIST_HEX="$(extract_stream "${STREAMS[0]}" req)"
+REP_LIST_HEX="$(extract_stream "${STREAMS[0]}" rep)"
+REQ_IMPORT_HEX="$(extract_stream "${STREAMS[1]}" req)"
+REP_IMPORT_HEX="$(extract_stream "${STREAMS[1]}" rep)"
+
+hex_to_bin() {
+  local hex="$1"
+  local out="$2"
+  printf '%s' "${hex}" | xxd -r -p > "${out}"
+}
+
+hex_to_bin "${REQ_LIST_HEX}"   "${TESTDATA_DIR}/real_op_req_devlist.bin"
+hex_to_bin "${REP_LIST_HEX}"   "${TESTDATA_DIR}/real_op_rep_devlist_1.bin"
+hex_to_bin "${REQ_IMPORT_HEX}" "${TESTDATA_DIR}/real_op_req_import.bin"
+hex_to_bin "${REP_IMPORT_HEX}" "${TESTDATA_DIR}/real_op_rep_import.bin"
+
+# Sanity-check expected lengths per spec §6.2.
+req_devlist_sz=$(stat -c%s "${TESTDATA_DIR}/real_op_req_devlist.bin")
+req_import_sz=$(stat -c%s "${TESTDATA_DIR}/real_op_req_import.bin")
+rep_import_sz=$(stat -c%s "${TESTDATA_DIR}/real_op_rep_import.bin")
+rep_devlist_sz=$(stat -c%s "${TESTDATA_DIR}/real_op_rep_devlist_1.bin")
+
+[[ "${req_devlist_sz}" -eq 8 ]]   || echo "WARN: OP_REQ_DEVLIST = ${req_devlist_sz}B (expected 8)" >&2
+[[ "${req_import_sz}" -eq 40 ]]   || echo "WARN: OP_REQ_IMPORT  = ${req_import_sz}B (expected 40)" >&2
+[[ "${rep_import_sz}" -ge 8 ]]    || echo "WARN: OP_REP_IMPORT  = ${rep_import_sz}B (expected ≥8; 320 on success)" >&2
+[[ "${rep_devlist_sz}" -ge 324 ]] || echo "WARN: OP_REP_DEVLIST = ${rep_devlist_sz}B (expected ≥324 for 1 device)" >&2
+
+# ----------------------------------------------------------------------
+# Step 7 — manifest
+# ----------------------------------------------------------------------
+
+cat > "${MANIFEST}" <<JSON
+{
+  "captured_at":   "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "kernel":        "$(uname -r)",
+  "usbip_version": "$(${UPSTREAM_USBIP} --version 2>&1 | head -1 || echo unknown)",
+  "usbipd_path":   "${UPSTREAM_USBIPD}",
+  "vudc": {
+    "busid":       "${VUDC_BUSID}",
+    "idVendor":    "${VUDC_VID}",
+    "idProduct":   "${VUDC_PID}",
+    "bcdDevice":   "${VUDC_BCD}",
+    "product":     "Fixture Device",
+    "manufacturer": "usbip-go",
+    "serial":      "abilisoft-fixture"
+  },
+  "files": {
+    "real_op_req_devlist.bin":   "OP_REQ_DEVLIST from client, $(stat -c%s "${TESTDATA_DIR}/real_op_req_devlist.bin") bytes",
+    "real_op_rep_devlist_1.bin": "OP_REP_DEVLIST with one bound vudc device, $(stat -c%s "${TESTDATA_DIR}/real_op_rep_devlist_1.bin") bytes",
+    "real_op_req_import.bin":    "OP_REQ_IMPORT for the vudc busid, $(stat -c%s "${TESTDATA_DIR}/real_op_req_import.bin") bytes",
+    "real_op_rep_import.bin":    "OP_REP_IMPORT success reply, $(stat -c%s "${TESTDATA_DIR}/real_op_rep_import.bin") bytes",
+    "real_capture.pcap":         "full tcpdump of the session, for audit"
+  }
+}
+JSON
+
+# ----------------------------------------------------------------------
+# Step 8 — drop temp pcap extracts; vudc teardown happens in the cleanup
+# trap (unbinding the UDC detaches the gadget cleanly).
+# ----------------------------------------------------------------------
+
+rm -f "${TESTDATA_DIR}/real_capture.tshark.tsv"
+rm -f "${TESTDATA_DIR}/real_capture.directed.tsv"
+
+echo "==> done. Fixtures in ${TESTDATA_DIR}:"
+ls -la "${TESTDATA_DIR}" | grep -E '^-.*real_' | sed 's/^/    /'
+echo ""
+echo "Next step: run the codec tests against the real fixtures and diff"
+echo "against the synthetic ones to find any byte-level discrepancies:"
+echo ""
+echo "    cd ${REPO_ROOT}"
+echo "    diff <(xxd internal/adapter/wire/testdata/device_hs_kingston.bin) \\"
+echo "         <(xxd internal/adapter/wire/testdata/real_op_rep_import.bin | tail -n +2)"
+echo ""
+echo "If the fixtures differ, review the diff and decide whether the codec"
+echo "needs adjustment (spec drift) or whether the synthetic fixtures"
+echo "were simply wrong (replace them)."
