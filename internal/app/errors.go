@@ -6,15 +6,6 @@ import "errors"
 // public facade (pkg/usbip) re-export a subset; the rest are internal
 // signalling between the service layer and its callers.
 var (
-	// ErrAutoReconnectNotImplemented is returned by Importer.Attach
-	// when AttachOptions.AutoReconnect is true but the watcher
-	// goroutine has not been implemented yet. This is a transient
-	// sentinel: it is wired up in Phase 5.8 and will disappear from
-	// the code-base at that point. Do NOT rely on it from consumer
-	// code; it exists only so the Phase 5 Batch A slice can compile
-	// and test cleanly.
-	ErrAutoReconnectNotImplemented = errors.New("auto-reconnect not implemented; deferred to Task 5.8")
-
 	// ErrAttachInProgress indicates Attach is already running on the
 	// same busid/remote pair. Concurrent Attach calls would race the
 	// fd-passing handoff and corrupt the handle map.
@@ -30,4 +21,10 @@ var (
 	// Close is idempotent (a second Close returns nil), but other
 	// operations on a closed Importer return this sentinel.
 	ErrImporterClosed = errors.New("importer closed")
+
+	// ErrPortDetached is the seed error handed to the reconnect
+	// watcher's OnReconnect callback on the FIRST attempt: the attach
+	// succeeded but the port was subsequently torn down. Wrapped by
+	// the watcher with the port id and detection source context.
+	ErrPortDetached = errors.New("port detached")
 )

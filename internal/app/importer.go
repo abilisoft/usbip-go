@@ -17,9 +17,10 @@ import (
 // value is not usable — NewImporter initialises required state.
 //
 // The handle map tracks every successfully-attached port along with a
-// per-handle cancel signal. Generation-based stale-event filtering per
-// spec §5.5 is deferred to Task 5.8, which will re-introduce the
-// counter alongside the watcher that reads it.
+// per-handle cancel signal and a monotonically increasing generation.
+// The reconnect watcher (spec §5.5) reads the generation to filter
+// stale kernel events whose port id was replaced by a successful
+// reattach.
 type Importer struct {
 	kernel    ImporterKernel
 	events    KernelEvents
@@ -32,23 +33,35 @@ type Importer struct {
 	closed    bool
 	closeOnce sync.Once
 	handles   map[domain.PortID]*portHandle
+	nextGen   uint64
 	wg        sync.WaitGroup
 }
 
 // portHandle is the per-port bookkeeping entry for an active import.
 // The done channel is closed exactly once (guarded by cancelOnce) when
-// Detach or Close fires; the Task 5.8 watcher selects on it to observe
+// Detach or Close fires; the reconnect watcher selects on it to observe
 // termination.
 //
 // Using a channel + sync.Once instead of a context sidesteps the
 // containedctx linter while preserving the same semantics: done is a
 // broadcast signal, a watcher derives its own ctx at launch time and
 // selects on ctx.Done() alongside done.
+//
+// generation is assigned at registerHandle time from Importer.nextGen
+// and stays constant for the lifetime of the handle; it lets the
+// reconnect watcher reject stale uevents whose port id was already
+// replaced by a successful reattach (spec §5.5).
+//
+// watcherDone is closed by the reconnect watcher goroutine when it
+// exits. Non-AutoReconnect handles leave it nil; Detach and Close read
+// it to synchronise with the watcher before issuing the kernel detach.
 type portHandle struct {
-	done       chan struct{}
-	cancelOnce sync.Once
-	busID      domain.BusID
-	remote     domain.RemoteEndpoint
+	done        chan struct{}
+	cancelOnce  sync.Once
+	busID       domain.BusID
+	remote      domain.RemoteEndpoint
+	generation  uint64
+	watcherDone chan struct{}
 }
 
 // cancel closes the done channel exactly once, signalling any watcher
@@ -215,9 +228,9 @@ const deviceIDBusShift = 16
 // vhci port. The local `handedOff` flag implements that split: the
 // deferred cleanup is a no-op once handedOff flips to true.
 //
-// AutoReconnect is stubbed in this batch: when set to true, Attach
-// returns ErrAutoReconnectNotImplemented without any side effects. The
-// watcher goroutine is wired in Task 5.8.
+// When AttachOptions.AutoReconnect is set, the successful-return path
+// also spawns a reconnect watcher goroutine bound to the fresh handle
+// (spec §5.5). The watcher is enrolled in i.wg so Close drains it.
 func (i *Importer) Attach(
 	ctx context.Context,
 	endpoint domain.RemoteEndpoint,
@@ -234,10 +247,6 @@ func (i *Importer) Attach(
 		return domain.Port{}, ErrImporterClosed
 	}
 
-	if opts.AutoReconnect {
-		return domain.Port{}, ErrAutoReconnectNotImplemented
-	}
-
 	endpoint = endpoint.NormalizePort()
 
 	err := i.kernel.ModulesAvailable(ctx)
@@ -245,15 +254,17 @@ func (i *Importer) Attach(
 		return domain.Port{}, fmt.Errorf("vhci modules unavailable: %w", err)
 	}
 
-	return i.attachOverDialed(ctx, endpoint, busID)
+	return i.attachOverDialed(ctx, endpoint, busID, opts)
 }
 
 // Detach tears down a previously-imported port by id. It cancels the
 // handle's context BEFORE issuing the sysfs-backed detach per spec §5.5
-// so any auto-reconnect watcher (Task 5.8) sees cancel ahead of the
-// status transition and does not race a reattempt. When the kernel
-// rejects the detach, the handle is left registered so callers can
-// retry.
+// so any auto-reconnect watcher sees cancel ahead of the status
+// transition and does not race a reattempt, and blocks on the watcher
+// goroutine's done channel before touching the kernel so an in-flight
+// reconnect attempt cannot overlap with the sysfs write. When the
+// kernel rejects the detach, the handle is left registered so callers
+// can retry.
 func (i *Importer) Detach(ctx context.Context, id domain.PortID) error {
 	i.mu.Lock()
 
@@ -280,9 +291,15 @@ func (i *Importer) Detach(ctx context.Context, id domain.PortID) error {
 
 	i.mu.Unlock()
 
-	// Cancel first (spec §5.5) — no watcher today, but the ordering
-	// contract is load-bearing for Task 5.8 and must not drift.
+	// Cancel first (spec §5.5) so any reconnect watcher observes
+	// termination and exits. Waiting on watcherDone guarantees the
+	// watcher has drained before DetachPort runs; a nil watcherDone
+	// means this handle was attached with AutoReconnect=false.
 	h.cancel()
+
+	if h.watcherDone != nil {
+		<-h.watcherDone
+	}
 
 	err := i.kernel.DetachPort(ctx, id)
 	if err != nil {
@@ -355,11 +372,14 @@ func (i *Importer) Watch(ctx context.Context) iter.Seq[domain.Event] {
 
 // attachOverDialed factors out the dial-through-handoff portion of
 // Attach. Splitting it keeps Attach under the project's cyclomatic cap
-// and isolates the fd-passing deferred cleanup per spec §5.4.
+// and isolates the fd-passing deferred cleanup per spec §5.4. opts is
+// forwarded unchanged so registerHandle can hand the resulting handle
+// to a reconnect watcher when AutoReconnect is enabled.
 func (i *Importer) attachOverDialed(
 	ctx context.Context,
 	endpoint domain.RemoteEndpoint,
 	busID domain.BusID,
+	opts AttachOptions,
 ) (domain.Port, error) {
 	conn, err := i.transport.Dial(ctx, endpoint)
 	if err != nil {
@@ -404,7 +424,7 @@ func (i *Importer) attachOverDialed(
 
 	handedOff = true
 
-	err = i.registerHandle(portID, busID, endpoint)
+	h, err := i.registerHandle(portID, busID, endpoint)
 	if err != nil {
 		// Importer closed between AttachRemote and registerHandle.
 		// We hold a live kernel port that no handle tracks, so
@@ -420,6 +440,10 @@ func (i *Importer) attachOverDialed(
 		}
 
 		return domain.Port{}, err
+	}
+
+	if opts.AutoReconnect {
+		i.spawnReconnectWatcher(ctx, h, portID, endpoint, busID, opts)
 	}
 
 	return domain.Port{
@@ -438,29 +462,40 @@ func (i *Importer) attachOverDialed(
 // first so any in-flight consumer sees termination before the new
 // entry appears.
 //
-// Returns ErrImporterClosed when the Importer was closed between
-// AttachRemote's successful return and this register call. The caller
-// MUST release the kernel-owned port it just acquired because no
-// handle was recorded and Close's cancel sweep cannot reach it.
-func (i *Importer) registerHandle(id domain.PortID, busID domain.BusID, endpoint domain.RemoteEndpoint) error {
+// Returns the fresh *portHandle so the caller can spawn a reconnect
+// watcher bound to it, or ErrImporterClosed when the Importer was
+// closed between AttachRemote's successful return and this register
+// call. The caller MUST release the kernel-owned port it just acquired
+// on the closed path because no handle was recorded and Close's cancel
+// sweep cannot reach it.
+func (i *Importer) registerHandle(
+	id domain.PortID,
+	busID domain.BusID,
+	endpoint domain.RemoteEndpoint,
+) (*portHandle, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
 	if i.closed {
-		return ErrImporterClosed
+		return nil, ErrImporterClosed
 	}
 
 	if old, ok := i.handles[id]; ok {
 		old.cancel()
 	}
 
-	i.handles[id] = &portHandle{
-		done:   make(chan struct{}),
-		busID:  busID,
-		remote: endpoint,
+	i.nextGen++
+
+	h := &portHandle{
+		done:       make(chan struct{}),
+		busID:      busID,
+		remote:     endpoint,
+		generation: i.nextGen,
 	}
 
-	return nil
+	i.handles[id] = h
+
+	return h, nil
 }
 
 // emptyEventSeq is the iter.Seq returned by Watch when there is nothing
