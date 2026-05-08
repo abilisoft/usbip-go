@@ -91,6 +91,12 @@ func openRealNetlinkSocket() (*realNetlinkSocket, error) {
 // dispatcher's lifetime is unambiguously independent of any caller's
 // ctx. done closes when run() actually exits, so tearDown can block
 // on orderly teardown.
+//
+// mapper is the topology-aware translator for vhci_hcd devpaths: it
+// resolves each uevent's (usbBus, rootPort) pair into the kernel's
+// flat Port.ID via the cached BusMap. EventsAdapter populates it at
+// dispatcher construction time so the run loop sees a consistent
+// snapshot for its entire lifetime.
 type eventDispatcher struct {
 	mu          sync.Mutex
 	sock        NetlinkSocket
@@ -100,6 +106,7 @@ type eventDispatcher struct {
 	stopOnce    sync.Once
 	done        chan struct{}
 	logger      *slogRef
+	mapper      vhciEventMapper
 }
 
 // slogRef is a tiny alias around *slog.Logger so a nil logger cannot
@@ -173,9 +180,20 @@ func (a *EventsAdapter) Subscribe(ctx context.Context) (<-chan domain.Event, fun
 // Returns firstSubscribe=true on the call that constructed the
 // dispatcher; the caller uses this signal to start the run goroutine
 // AFTER registering the first subscriber.
+//
+// Topology is loaded before the netlink socket so a sysfs error
+// surfaces Subscribe without leaking a socket fd. Without a complete
+// Topology the dispatcher cannot compute the kernel's flat Port.ID
+// and every emitted event would be wrong; refusing the Subscribe is
+// the only safe behaviour.
 func (a *EventsAdapter) ensureDispatcher() (*eventDispatcher, bool, error) {
 	if a.disp != nil {
 		return a.disp, false, nil
+	}
+
+	topo, err := a.loadTopology()
+	if err != nil {
+		return nil, false, fmt.Errorf("load vhci topology: %w", err)
 	}
 
 	sock, err := a.nlDial()
@@ -183,7 +201,7 @@ func (a *EventsAdapter) ensureDispatcher() (*eventDispatcher, bool, error) {
 		return nil, false, fmt.Errorf("dial netlink: %w", err)
 	}
 
-	d := newDispatcher(sock, a.logger)
+	d := newDispatcher(sock, a.logger, newVHCIEventMapper(topo))
 
 	a.disp = d
 
@@ -193,7 +211,7 @@ func (a *EventsAdapter) ensureDispatcher() (*eventDispatcher, bool, error) {
 // newDispatcher constructs an eventDispatcher whose lifetime is
 // controlled by a stop channel (closed by cancel()). No subscriber
 // can shorten the dispatcher's life.
-func newDispatcher(sock NetlinkSocket, logger *slog.Logger) *eventDispatcher {
+func newDispatcher(sock NetlinkSocket, logger *slog.Logger, mapper vhciEventMapper) *eventDispatcher {
 	return &eventDispatcher{
 		sock:        sock,
 		subscribers: make(map[int64]chan domain.Event),
@@ -202,6 +220,7 @@ func newDispatcher(sock NetlinkSocket, logger *slog.Logger) *eventDispatcher {
 		logger: &slogRef{
 			warn: func(msg string, args ...any) { logger.Warn(msg, args...) },
 		},
+		mapper: mapper,
 	}
 }
 
@@ -304,7 +323,9 @@ func (d *eventDispatcher) run() {
 			return
 		}
 
-		ev, ok := parseUevent(payload)
+		fields := parseUeventFields(payload)
+
+		ev, ok := d.mapper.mapEvent(fields)
 		if !ok {
 			continue
 		}
@@ -338,28 +359,8 @@ func (d *eventDispatcher) broadcast(ev domain.Event) {
 	}
 }
 
-// parseUevent tokenises a NUL-separated KEY=VALUE payload and maps it
-// to a domain.Event. Returns ok=false on unrecognised subsystems /
-// unmappable payloads. The interface-typed return is mandatory:
-// domain.Event is a closed union, and this function's job is
-// precisely to produce a value of that union.
-//
-// Deprecated within the package: callers that have a Topology in hand
-// (EventsAdapter.Subscribe) route through vhciEventMapper.mapEvent so
-// the devpath → flat Port.ID translation uses the kernel's port
-// layout. This free function is retained for the transitional window
-// while the Task 3 wiring lands.
-func parseUevent(payload []byte) (domain.Event, bool) {
-	fields := parseUeventFields(payload)
-
-	if !isInterestingUevent(fields) {
-		return nil, false
-	}
-
-	return mapUeventToDomain(fields)
-}
-
-// vhciEventMapper is the stateful counterpart of parseUevent. It holds
+// vhciEventMapper is the stateful translator that the dispatcher uses
+// to turn each parsed uevent fields map into a domain.Event. It holds
 // the cached VHCI topology so mapEvent can translate a uevent's (usb
 // bus, root port) pair into the flat Port.ID the kernel status file
 // emits and the attach/detach sysfs writes consume.
@@ -565,42 +566,6 @@ const (
 // native sysfs location.
 var usbipHostBusIDPattern = regexp.MustCompile(`/(\d+-\d+(?:\.\d+)*)$`)
 
-// mapUeventToDomain maps a parsed uevent fields map into a domain
-// event. Missing ACTION or non-USB paths return ok=false so the caller
-// skips. Time is set from the wall clock — the adapter does not carry
-// a clock for netlink events. SUBSYSTEM=usbip_host produces
-// DeviceBound/DeviceUnbound events (pass-3 RANK 3); other subsystems
-// fall through to the vhci_hcd devpath classifier.
-func mapUeventToDomain(fields map[string]string) (domain.Event, bool) {
-	action := fields["ACTION"]
-
-	devpath, ok := fields["DEVPATH"]
-	if !ok {
-		return nil, false
-	}
-
-	if fields["SUBSYSTEM"] == ueventSubsystemUSBIPHost {
-		return mapUsbipHostEvent(action, devpath)
-	}
-
-	return mapVhciEvent(action, devpath)
-}
-
-// mapVhciEvent handles the vhci_hcd-shaped devpath (remote device
-// attached to the importer side). add/remove/change actions produce
-// PortAttached/PortDetached/PortErrored respectively.
-func mapVhciEvent(action, devpath string) (domain.Event, bool) {
-	match := vhciDevpathPattern.FindStringSubmatch(devpath)
-	if match == nil {
-		return nil, false
-	}
-
-	portBusID := match[vhciDevpathGroupFullBusID]
-	port := extractPortFromBusID(portBusID)
-
-	return vhciActionToEvent(action, port, domain.BusID(portBusID))
-}
-
 // mapUsbipHostEvent handles the usbip_host-shaped devpath (local
 // exporter side bind/unbind). add → DeviceBoundEvent (device became
 // exportable); remove → DeviceUnboundEvent (device returned to its
@@ -629,44 +594,4 @@ func mapUsbipHostEvent(action, devpath string) (domain.Event, bool) {
 	default:
 		return nil, false
 	}
-}
-
-// busIDSplitCount is the expected piece count when splitting a busid
-// on the first '-': "<bus>-<port>" → 2 pieces.
-const busIDSplitCount = 2
-
-// extractPortFromBusID parses a Linux USB busid of the form "B-P" or
-// "B-P.H1.H2..." (hub-chained) and returns the root PortID P as a
-// domain.PortID. The hub suffix is topology path, not port identity —
-// the VHCI root-slot number is always the leading segment before the
-// first '.'. A malformed input falls through to zero; the caller still
-// gets the busid in the event body for correlation.
-//
-// Pass-4 RANK 1: pre-fix the function passed the whole tail ("1.2") to
-// strconv.ParseUint, which rejects the '.' and returned 0 — silently
-// dropping hub-attached detach uevents in the reconnect watcher
-// because d.Port.ID (0) never matched the real p.portID.
-func extractPortFromBusID(busID string) domain.PortID {
-	parts := strings.SplitN(busID, "-", busIDSplitCount)
-
-	if len(parts) != busIDSplitCount {
-		return 0
-	}
-
-	// Reject leading dash ("-1") and empty bus prefix. An empty port
-	// tail ("1-") is caught by the ParseUint step below.
-	if parts[0] == "" {
-		return 0
-	}
-
-	// Split the port tail on the first '.' so hub-chained busids
-	// ("1-1.2", "2-3.4.5") keep only the root-slot segment.
-	portSeg, _, _ := strings.Cut(parts[1], ".")
-
-	v, err := strconv.ParseUint(portSeg, 10, 32)
-	if err != nil {
-		return 0
-	}
-
-	return domain.PortID(v)
 }

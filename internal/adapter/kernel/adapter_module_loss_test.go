@@ -235,15 +235,22 @@ func makeModuleLossPair(t *testing.T) (net.Conn, net.Conn) {
 	return lc, rc
 }
 
-// TestModuleLoss_NetlinkIsOrthogonal confirms netlink Subscribe stays
-// up even when modules are missing (spec §3.4.1: "Watcher goroutines
-// keep running; netlink is oblivious to module presence").
-func TestModuleLoss_NetlinkIsOrthogonal(t *testing.T) {
+// TestModuleLoss_NetlinkCouplesToVHCITopology pins the Task-3 wiring
+// contract against the pre-Task-3 spec §3.4.1 orthogonality claim. The
+// dispatcher needs the vhci_hcd topology (BusMap + HCPorts) to resolve
+// every uevent into the kernel's flat Port.ID — without it every
+// subscriber would observe stale Port.IDs that never match the real
+// status file. Subscribe therefore refuses to come up when vhci_hcd is
+// not loaded (no platform/vhci_hcd.0/nports), surfacing the sysfs
+// error verbatim to the caller.
+//
+// Orthogonality with usbip_core / usbip_host is preserved — those
+// modules are never consulted by the netlink listener — but vhci_hcd
+// is now load-bearing for importer-side reconnect and detach
+// signalling.
+func TestModuleLoss_NetlinkCouplesToVHCITopology(t *testing.T) {
 	t.Parallel()
 
-	// EventsAdapter never reads /sys/module; the dialer is the only
-	// external interaction. Inject a fake that succeeds, then confirm
-	// Subscribe returns an open channel.
 	dialer := func() (kernel.NetlinkSocket, error) {
 		return &orthogonalSocket{}, nil
 	}
@@ -257,12 +264,10 @@ func TestModuleLoss_NetlinkIsOrthogonal(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	ch, unsub, err := a.Subscribe(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, ch)
-	require.NotNil(t, unsub)
-
-	unsub()
+	_, _, err = a.Subscribe(ctx)
+	require.Error(t, err,
+		"Subscribe must fail when the VHCI topology is unavailable — "+
+			"the dispatcher cannot resolve flat Port.IDs without a BusMap")
 }
 
 type orthogonalSocket struct{}
