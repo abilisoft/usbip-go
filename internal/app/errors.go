@@ -38,4 +38,26 @@ var (
 	// loops would fight over the shared session bookkeeping, so the
 	// second call is rejected.
 	ErrServeAlreadyRunning = errors.New("exporter: Serve already running")
+
+	// ErrMaxSessionsExceeded indicates the global session cap is full
+	// (§11.5.3). Returned from the per-session handler before
+	// ExportOnConn so the kernel is never asked to attach past the cap.
+	ErrMaxSessionsExceeded = errors.New("max sessions exceeded")
+
+	// ErrPerPeerLimitExceeded indicates the per-source-IP session cap
+	// is full (§11.5.3).
+	ErrPerPeerLimitExceeded = errors.New("per-peer session limit exceeded")
+
+	// ErrRateLimited indicates the accept-rate token bucket had no
+	// tokens available (§11.5.3). The connection is closed without
+	// invoking the kernel adapter.
+	ErrRateLimited = errors.New("accept rate limit exceeded")
+
+	// ErrHandshakeTooLarge indicates the client sent more than
+	// MaxHandshakeBytes before completing the OP request (§11.5.3).
+	ErrHandshakeTooLarge = errors.New("handshake payload exceeds max bytes")
+
+	// ErrHandshakeTimeout indicates the client failed to complete its
+	// OP request within HandshakeTimeout (§11.5.3).
+	ErrHandshakeTimeout = errors.New("handshake timed out")
 )
