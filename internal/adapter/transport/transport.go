@@ -136,14 +136,14 @@ func isSockoptFatal(err error) bool {
 func (t *NetTransport) Listen(ctx context.Context, addr string) (net.Listener, error) {
 	ctxErr := ctx.Err()
 	if ctxErr != nil {
-		return nil, fmt.Errorf("listen %s: %w", addr, ctxErr)
+		return nil, fmt.Errorf("listen %s: context cancelled before bind: %w", addr, ctxErr)
 	}
 
 	var lc net.ListenConfig
 
 	ln, err := lc.Listen(ctx, "tcp", addr)
 	if err != nil {
-		return nil, fmt.Errorf("listen %s: %w", addr, err)
+		return nil, fmt.Errorf("listen %s: bind failed: %w", addr, err)
 	}
 
 	t.logger.LogAttrs(ctx, slog.LevelDebug, "transport.Listen bound",
