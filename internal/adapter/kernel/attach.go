@@ -91,13 +91,21 @@ func (a *ImporterAdapter) AttachRemote(
 // failure instead of a silent EINVAL. The check is cheap (one map
 // lookup + two uint32 comparisons) and runs ahead of the expensive
 // sysfs write regardless of caller.
+//
+// The bounds check consumes only NControllers + VHCIPorts, so it
+// routes through loadStatusTopology — the BusMap-free projection
+// that survives live-host mid-probe races (Task 2.1 precedent).
+// Wiring attach to the full loadTopology tied every attach to
+// BusMap completeness, producing spurious errTopologyIncomplete
+// failures on a transient shortfall that is irrelevant to the
+// bounds arithmetic.
 func (a *ImporterAdapter) attachAtPort(
 	_ context.Context,
 	conn net.Conn,
 	portID domain.PortID,
 	spec app.RemoteDeviceSpec,
 ) (domain.PortID, error) {
-	topo, err := a.loadTopology()
+	topo, err := a.loadStatusTopology()
 	if err != nil {
 		return 0, err
 	}
@@ -135,8 +143,14 @@ func (a *ImporterAdapter) attachAtPort(
 // produces a diagnosable failure rather than a bare EINVAL.
 //
 // VHCIPorts is guaranteed nonzero by discoverStatusTopology's nports
-// validation, which loadTopology routes through before returning a
-// Topology — so the multiplication below cannot overflow to zero.
+// validation, which loadStatusTopology routes through before
+// returning a StatusTopology — so the multiplication below cannot
+// overflow to zero.
+//
+// The signature is StatusTopology, not Topology: this validator
+// consumes only the flat port arithmetic (NControllers + VHCIPorts)
+// and must survive a BusMap-incomplete snapshot (mirror of the
+// Task 2.1 split that moved status parsing off the full Topology).
 //
 // The decomposition guard is folded into the single range check:
 // port < NControllers*VHCIPorts is equivalent to (controllerIdx =
@@ -147,7 +161,7 @@ func (a *ImporterAdapter) attachAtPort(
 // VHCIPorts = HCPorts*hubsPerController invariant enforced by
 // deriveHCPorts); adding one would only obscure the single
 // boundary actually being policed.
-func validateAttachPort(topo Topology, port domain.PortID) error {
+func validateAttachPort(topo StatusTopology, port domain.PortID) error {
 	nports := topo.NControllers * topo.VHCIPorts
 	if uint32(port) >= nports {
 		return fmt.Errorf("%w: port=%d nports=%d", domain.ErrPortOutOfRange, uint32(port), nports)
