@@ -188,8 +188,11 @@ func TestExporterWatchSessionsForwards(t *testing.T) {
 }
 
 // TestExporterServeRejectsAfterShutdown proves the facade Serve
-// forwards Shutdown-induced ErrAlreadyShutdown without swallowing or
-// re-wrapping it.
+// forwards Shutdown-induced errors classified as
+// usbip.ErrExporterShutdown — the public sentinel the facade
+// translates from internal/app.ErrAlreadyShutdown. The stronger
+// boundary assertion (no internal-sentinel leak) lives in
+// TestExporterServeAfterShutdownYieldsPublicSentinel.
 func TestExporterServeRejectsAfterShutdown(t *testing.T) {
 	t.Parallel()
 
@@ -202,9 +205,10 @@ func TestExporterServeRejectsAfterShutdown(t *testing.T) {
 
 	require.NoError(t, exp.Shutdown(ctx))
 
-	// Serve after Shutdown must return the internal sentinel.
+	// Serve after Shutdown must return the public exporter-shutdown
+	// sentinel (translated from the internal identity).
 	err := exp.Serve(ctx, stubListener{})
-	require.ErrorIs(t, err, internalapp.ErrAlreadyShutdown)
+	require.ErrorIs(t, err, usbip.ErrExporterShutdown)
 }
 
 // shutdownCleanup returns a t.Cleanup func that Shutdowns exp with a
