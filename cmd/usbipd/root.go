@@ -48,11 +48,6 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			err := loadConfig(cfg)
-			if err != nil {
-				return err
-			}
-
 			log, err := buildLogger(*cfg)
 			if err != nil {
 				return err
