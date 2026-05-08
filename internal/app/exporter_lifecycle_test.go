@@ -21,11 +21,17 @@ import (
 // sessionImportCodec is the minimal codec configuration needed to drive
 // one OP_REQ_IMPORT through serveImport. Tests that exercise the
 // session lifecycle share this setup via newSessionImportCodec.
+//
+// serveImport now sends OP_REP_IMPORT before kernel handoff — the mock
+// must accept the success-reply encode call.
 func newSessionImportCodec(busID domain.BusID) *ProtocolCodecMock {
 	return &ProtocolCodecMock{
 		DecodeHeaderFunc: wire.NewCodec().DecodeHeader,
 		DecodeOpReqImportBodyFunc: func(_ io.Reader) (domain.BusID, error) {
 			return busID, nil
+		},
+		EncodeOpRepImportFunc: func(_ io.Writer, _ domain.Device) error {
+			return nil
 		},
 	}
 }
@@ -41,6 +47,12 @@ func startExporterImportSession(
 	releaseExport := make(chan struct{})
 
 	kernel := &ExporterKernelMock{
+		// serveImport now looks the requested device up in the
+		// exported set BEFORE sending OP_REP_IMPORT and handing the
+		// fd to the kernel — return the busid so the lookup succeeds.
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: domain.BusID("3-1")}}, nil
+		},
 		ExportOnConnFunc: func(_ context.Context, c net.Conn, _ domain.BusID) error {
 			// Watch both the test-driven release AND the conn itself so a
 			// Shutdown force-close on drain-exceed unwedges the handler
@@ -261,6 +273,12 @@ func TestExporterShutdown_DeadlineExceededForcesConnClose(t *testing.T) {
 	exportStarted := make(chan struct{}, 1)
 
 	kernel := &ExporterKernelMock{
+		// serveImport now looks the requested device up in the
+		// exported set BEFORE sending OP_REP_IMPORT and handing the
+		// fd to the kernel — return the busid so the lookup succeeds.
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: domain.BusID("3-1")}}, nil
+		},
 		ExportOnConnFunc: func(_ context.Context, c net.Conn, _ domain.BusID) error {
 			select {
 			case exportStarted <- struct{}{}:
@@ -357,6 +375,12 @@ func TestExporterShutdown_ReturnsEvenWhenHandlerIgnoresClose(t *testing.T) {
 	t.Cleanup(func() { close(hang) })
 
 	kernel := &ExporterKernelMock{
+		// serveImport now looks the requested device up in the
+		// exported set BEFORE sending OP_REP_IMPORT and handing the
+		// fd to the kernel — return the busid so the lookup succeeds.
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: domain.BusID("3-1")}}, nil
+		},
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
 			select {
 			case exportStarted <- struct{}{}:
@@ -517,6 +541,12 @@ func TestExporterShutdown_ReusesSessionsWaitGoroutine(t *testing.T) {
 	t.Cleanup(func() { close(hang) })
 
 	kernel := &ExporterKernelMock{
+		// serveImport now looks the requested device up in the
+		// exported set BEFORE sending OP_REP_IMPORT and handing the
+		// fd to the kernel — return the busid so the lookup succeeds.
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: domain.BusID("3-1")}}, nil
+		},
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
 			select {
 			case exportStarted <- struct{}{}:

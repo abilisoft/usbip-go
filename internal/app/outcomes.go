@@ -63,9 +63,10 @@ type DisconnectReason string
 // "graceful" reason: a session that ends without an error always
 // ends because the kernel signalled one of those two events.
 const (
-	DisconnectReasonClientGone  DisconnectReason = "client_gone"
-	DisconnectReasonKernelError DisconnectReason = "kernel_error"
-	DisconnectReasonShutdown    DisconnectReason = "shutdown"
+	DisconnectReasonClientGone    DisconnectReason = "client_gone"
+	DisconnectReasonKernelError   DisconnectReason = "kernel_error"
+	DisconnectReasonShutdown      DisconnectReason = "shutdown"
+	DisconnectReasonProtocolError DisconnectReason = "protocol_error"
 )
 
 // AttachOutcome classifies how an Importer.Attach resolved.

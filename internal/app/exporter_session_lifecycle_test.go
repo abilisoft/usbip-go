@@ -29,6 +29,12 @@ func TestExporterSession_LifecycleFollowsKernelDetachEvent(t *testing.T) {
 	const sessionBusID = domain.BusID("4-1")
 
 	kernel := &ExporterKernelMock{
+		// serveImport now looks the requested device up in the
+		// exported set BEFORE sending OP_REP_IMPORT and handing the
+		// fd to the kernel — return the busid so the lookup succeeds.
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: sessionBusID}}, nil
+		},
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, id domain.BusID) error {
 			require.Equal(t, sessionBusID, id)
 
@@ -115,6 +121,12 @@ func TestExporterSession_ShutdownEndsKernelOwnedSession(t *testing.T) {
 	const sessionBusID = domain.BusID("4-2")
 
 	kernel := &ExporterKernelMock{
+		// serveImport now looks the requested device up in the
+		// exported set BEFORE sending OP_REP_IMPORT and handing the
+		// fd to the kernel — return the busid so the lookup succeeds.
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: sessionBusID}}, nil
+		},
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
 			return nil
 		},

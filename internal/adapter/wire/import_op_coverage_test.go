@@ -38,13 +38,13 @@ func TestDecodeOpRepImport_DeviceBodyError(t *testing.T) {
 		"truncated OP_REP_IMPORT body must surface the decode error verbatim")
 }
 
-// TestDecodeOpRepImport_UnknownStatus_DefaultsToNotFound pins the
-// forward-compatible fallback in mapImportStatus: any status code
-// outside the four upstream usbip_common.h values defaults to
-// ErrDeviceNotFound rather than ErrProtocolError. Without this
-// branch covered, a kernel that introduces a new status code would
-// surface as a wire framing fault and obscure the peer rejection.
-func TestDecodeOpRepImport_UnknownStatus_DefaultsToNotFound(t *testing.T) {
+// TestDecodeOpRepImport_UnknownStatus_SurfacesProtocolError pins the
+// stricter mapping in mapImportStatus: any status code outside the
+// four upstream usbip_common.h values surfaces as ErrProtocolError
+// rather than silently masquerading as ErrDeviceNotFound. The peer
+// is speaking a status code we don't understand — that is a wire-
+// protocol violation, not a device rejection.
+func TestDecodeOpRepImport_UnknownStatus_SurfacesProtocolError(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
@@ -55,6 +55,6 @@ func TestDecodeOpRepImport_UnknownStatus_DefaultsToNotFound(t *testing.T) {
 
 	_, _, err := wire.DecodeOpRepImport(&buf)
 	require.Error(t, err)
-	require.ErrorIs(t, err, domain.ErrDeviceNotFound,
-		"unknown status code must default to ErrDeviceNotFound (forward-compatible fallback)")
+	require.ErrorIs(t, err, domain.ErrProtocolError,
+		"unknown status code must surface as ErrProtocolError (wire violation)")
 }

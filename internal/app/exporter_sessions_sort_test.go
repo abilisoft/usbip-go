@@ -37,6 +37,16 @@ func TestExporterSessions_SortStableOnEqualStartedAt(t *testing.T) {
 	var imports atomic.Int32
 
 	kernel := &ExporterKernelMock{
+		// serveImport now looks the requested device up in the
+		// exported set BEFORE sending OP_REP_IMPORT and handing the
+		// fd to the kernel — return both busids so each lookup
+		// succeeds.
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{
+				{BusID: domain.BusID("1-1")},
+				{BusID: domain.BusID("2-1")},
+			}, nil
+		},
 		ExportOnConnFunc: func(_ context.Context, c net.Conn, _ domain.BusID) error {
 			imports.Add(1)
 
@@ -79,6 +89,11 @@ func TestExporterSessions_SortStableOnEqualStartedAt(t *testing.T) {
 			}
 
 			return domain.BusID("2-1"), nil
+		},
+		// serveImport now sends OP_REP_IMPORT before kernel handoff —
+		// the mock must accept the success-reply encode call.
+		EncodeOpRepImportFunc: func(_ io.Writer, _ domain.Device) error {
+			return nil
 		},
 	}
 

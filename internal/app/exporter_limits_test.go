@@ -68,6 +68,12 @@ func TestExporter_MaxSessions(t *testing.T) {
 	releaseExport := make(chan struct{})
 
 	kernel := &ExporterKernelMock{
+		// serveImport now looks the requested device up in the
+		// exported set BEFORE sending OP_REP_IMPORT and handing the
+		// fd to the kernel — return the busid so the lookup succeeds.
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: domain.BusID("1-1")}}, nil
+		},
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
 			exports.Add(1)
 			<-releaseExport
@@ -84,6 +90,17 @@ func TestExporter_MaxSessions(t *testing.T) {
 		DecodeHeaderFunc: wire.NewCodec().DecodeHeader,
 		DecodeOpReqImportBodyFunc: func(_ io.Reader) (domain.BusID, error) {
 			return domain.BusID("1-1"), nil
+		},
+		// serveImport now sends OP_REP_IMPORT before kernel handoff —
+		// the mock must accept the success-reply encode call.
+		EncodeOpRepImportFunc: func(_ io.Writer, _ domain.Device) error {
+			return nil
+		},
+		// Cap-decline path now sends OP_REP_IMPORT-error before
+		// closing the conn — the mock must accept that encode call so
+		// the second-conn rejection does not panic the codec mock.
+		EncodeOpRepImportErrorFunc: func(_ io.Writer, _ uint32) error {
+			return nil
 		},
 	}
 
@@ -154,6 +171,12 @@ func TestExporter_MaxSessionsPerPeer(t *testing.T) {
 	var exports atomic.Int32
 
 	kernel := &ExporterKernelMock{
+		// serveImport now looks the requested device up in the
+		// exported set BEFORE sending OP_REP_IMPORT and handing the
+		// fd to the kernel — return the busid so the lookup succeeds.
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: domain.BusID("1-1")}}, nil
+		},
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
 			exports.Add(1)
 			<-releaseExport
@@ -170,6 +193,17 @@ func TestExporter_MaxSessionsPerPeer(t *testing.T) {
 		DecodeHeaderFunc: wire.NewCodec().DecodeHeader,
 		DecodeOpReqImportBodyFunc: func(_ io.Reader) (domain.BusID, error) {
 			return domain.BusID("1-1"), nil
+		},
+		// serveImport now sends OP_REP_IMPORT before kernel handoff —
+		// the mock must accept the success-reply encode call.
+		EncodeOpRepImportFunc: func(_ io.Writer, _ domain.Device) error {
+			return nil
+		},
+		// Per-peer-cap decline now sends OP_REP_IMPORT-error before
+		// closing the conn — the mock must accept that encode call so
+		// the over-cap rejection does not panic the codec mock.
+		EncodeOpRepImportErrorFunc: func(_ io.Writer, _ uint32) error {
+			return nil
 		},
 	}
 

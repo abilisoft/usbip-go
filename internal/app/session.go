@@ -271,12 +271,21 @@ func (e *Exporter) serveImport(
 		return
 	}
 
+	// Look up the requested device BEFORE building any session state.
+	// The exporter MUST send an OP_REP_IMPORT reply (success or error)
+	// before the kernel sockfd handoff, otherwise a real client parks
+	// forever waiting for the reply (v1 contract §6.2 + upstream
+	// libsrc/usbip_protocol.c::recv_op_common semantics).
+	dev, lookupErr := e.lookupExportedDevice(ctx, busID)
+	if lookupErr != nil {
+		e.replyImportError(conn, busID, classifyImportLookupStatus(lookupErr), lookupErr)
+
+		return
+	}
+
 	sess, err := e.buildSession(conn, busID)
 	if err != nil {
-		e.logger.Warn("exporter build session",
-			slog.String("op", string(HandshakeOpImport)),
-			slog.String("outcome", string(OutcomeHandshakeFailed)),
-			slog.Any("err", err))
+		e.replyImportError(conn, busID, wire.ImportStatusDevErr, err)
 
 		return
 	}
@@ -291,11 +300,74 @@ func (e *Exporter) serveImport(
 			slog.String("op", string(HandshakeOpImport)),
 			slog.String("outcome", string(classifySessionDeclineOutcome(err))),
 			slog.Any("err", err))
+		// Cap or per-peer-limit decline → ST_DEV_BUSY (server cannot
+		// take another importer for this device right now). Other
+		// register failures fall through to ST_DEV_ERR.
+		status := wire.ImportStatusDevErr
+		if errors.Is(err, ErrMaxSessionsExceeded) || errors.Is(err, ErrPerPeerLimitExceeded) {
+			status = wire.ImportStatusDevBusy
+		}
+
+		if encErr := e.codec.EncodeOpRepImportError(conn, status); encErr != nil {
+			e.logger.Debug("exporter encode import error reply",
+				slog.Any("busid", busID),
+				slog.Any("err", encErr))
+		}
 
 		return
 	}
 
-	e.runRegisteredSession(ctx, conn, busID, handle)
+	e.runRegisteredSession(ctx, conn, busID, handle, dev)
+}
+
+// lookupExportedDevice scans the kernel-reported exported device set
+// for the one matching busID. A miss yields ErrDeviceNotFound; any
+// kernel-side error is wrapped verbatim so classifyImportLookupStatus
+// can pick the appropriate ST_* code.
+func (e *Exporter) lookupExportedDevice(ctx context.Context, busID domain.BusID) (domain.Device, error) {
+	devs, err := e.kernel.ListExportedDevices(ctx)
+	if err != nil {
+		return domain.Device{}, err
+	}
+
+	for i := range devs {
+		if devs[i].BusID == busID {
+			return devs[i], nil
+		}
+	}
+
+	return domain.Device{}, domain.ErrDeviceNotFound
+}
+
+// classifyImportLookupStatus picks the OP_REP_IMPORT ST_* status that
+// matches a lookup failure. ErrDeviceNotFound → ST_NA (device not
+// available); any other error is treated as a stub-side internal
+// failure (ST_DEV_ERR).
+func classifyImportLookupStatus(err error) uint32 {
+	if errors.Is(err, domain.ErrDeviceNotFound) {
+		return wire.ImportStatusNA
+	}
+
+	return wire.ImportStatusDevErr
+}
+
+// replyImportError sends an OP_REP_IMPORT error reply with the given
+// ST_* status and logs the underlying decode/lookup/build failure
+// against the handshake-failed outcome label. Encode failures are
+// best-effort — the connection is closed regardless.
+func (e *Exporter) replyImportError(conn net.Conn, busID domain.BusID, status uint32, cause error) {
+	e.logger.Warn("exporter import declined",
+		slog.Any("busid", busID),
+		slog.Uint64("status", uint64(status)),
+		slog.String("op", string(HandshakeOpImport)),
+		slog.String("outcome", string(OutcomeHandshakeFailed)),
+		slog.Any("err", cause))
+
+	if err := e.codec.EncodeOpRepImportError(conn, status); err != nil {
+		e.logger.Debug("exporter encode import error reply",
+			slog.Any("busid", busID),
+			slog.Any("err", err))
+	}
 }
 
 // classifySessionDeclineOutcome maps a registerSession failure to the
@@ -324,6 +396,7 @@ func (e *Exporter) runRegisteredSession(
 	conn net.Conn,
 	busID domain.BusID,
 	handle *sessionHandle,
+	dev domain.Device,
 ) {
 	// Successful registration: count the accept BEFORE ExportOnConn
 	// because the kernel call may block for the session's entire
@@ -380,7 +453,28 @@ func (e *Exporter) runRegisteredSession(
 
 	defer cancelEvents()
 
-	err := e.kernel.ExportOnConn(ctx, conn, busID)
+	// Send OP_REP_IMPORT (success, with device body) BEFORE the kernel
+	// sockfd handoff. Per upstream libsrc/usbip_protocol.c the client
+	// reads the reply, then writes its own end of the fd to vhci_attach
+	// — without this reply the client parks indefinitely. The reply is
+	// queued in the TCP send buffer; the immediately-following
+	// ExportOnConn hands the same socket to the kernel via sockfd_lookup,
+	// which keeps a kernel-side ref and lets the bytes flush to the
+	// client unaffected.
+	err := e.codec.EncodeOpRepImport(conn, dev)
+	if err != nil {
+		reason := string(DisconnectReasonProtocolError)
+		handle.disconnectReason.Store(&reason)
+
+		e.logger.Warn("exporter encode import reply",
+			slog.Any("busid", busID),
+			slog.String("disconnect_reason", reason),
+			slog.Any("err", err))
+
+		return
+	}
+
+	err = e.kernel.ExportOnConn(ctx, conn, busID)
 	if err != nil {
 		reason := string(classifyDisconnectReason(err))
 		handle.disconnectReason.Store(&reason)
