@@ -110,6 +110,11 @@ func NewExporterWithError(opts ...ExporterOption) (*Exporter, error) {
 		cfg.metrics = MustNewMetrics(nil)
 	}
 
+	if !cfg.buildInfo.empty() {
+		cfg.metrics.SetBuildInfo(
+			cfg.buildInfo.version, cfg.buildInfo.commit, cfg.buildInfo.goVersion)
+	}
+
 	return &Exporter{
 		kernel:    cfg.kernel,
 		events:    cfg.events,
