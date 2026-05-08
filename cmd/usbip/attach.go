@@ -113,11 +113,10 @@ func parseAttachArgs(args []string, af *attachFlags) (attachSpec, error) {
 // selected by --output.
 func renderAttachResult(cmd *cobra.Command, port usbip.Port) error {
 	ctx := cmd.Context()
-	r := pickRenderer(outputFromCtx(ctx))
 	out := cmd.OutOrStdout()
 
 	if outputFromCtx(ctx) == outputJSON {
-		err := r.Ack(out, "attach", map[string]any{"port": newPortView(port)})
+		err := (jsonRenderer{}).AttachAck(out, port)
 		if err != nil {
 			return fmt.Errorf("render ack: %w", err)
 		}
@@ -125,7 +124,7 @@ func renderAttachResult(cmd *cobra.Command, port usbip.Port) error {
 		return nil
 	}
 
-	err := r.Ports(out, []usbip.Port{port})
+	err := (tableRenderer{}).Ports(out, []usbip.Port{port})
 	if err != nil {
 		return fmt.Errorf("render ports: %w", err)
 	}

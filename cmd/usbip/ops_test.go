@@ -20,7 +20,7 @@ func runAckSchemaTest(
 	imp *mockImporter,
 	exp *mockExporter,
 	argv []string,
-) []byte {
+) {
 	t.Helper()
 
 	swapFactories(t, imp, exp)
@@ -39,8 +39,6 @@ func runAckSchemaTest(
 		bytes.HasPrefix(out.Bytes(), []byte(schemaFirstPrefix)),
 		"%v ack must begin with %q, got %s", argv, schemaFirstPrefix, out.String(),
 	)
-
-	return out.Bytes()
 }
 
 // TestAttachAckSchemaFirst — attach ack bytes begin with `{"schema":`.
