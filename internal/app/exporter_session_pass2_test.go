@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -176,6 +177,244 @@ func (k *preHandoffKernelEvents) publishDetach() {
 		default:
 		}
 	}
+}
+
+// TestExporterSession_ClosesAcceptedConnAfterSessionEnd proves the
+// pass-2 RANK 4 fix. Per spec §5.4 the kernel dups the accepted fd on
+// ExportOnConn success and holds its own ref; the app's original ref
+// MUST be closed after the session ends so only the kernel's ref keeps
+// the socket alive. Pre-fix, serveImport's handedOff=true suppresses
+// the deferred close AND no later close fires on the success path,
+// leaking the accepted conn for the full session lifetime plus
+// whatever comes after.
+//
+// The test observes the close by wrapping the accepted conn through
+// the project's countingListener helper: each accepted conn is a
+// countingConn that bumps a counter on Close. A single session driven
+// to a clean end MUST land exactly one close on the accepted conn.
+func TestExporterSession_ClosesAcceptedConnAfterSessionEnd(t *testing.T) {
+	t.Parallel()
+
+	const sessionBusID = domain.BusID("5-2")
+
+	events := make(chan domain.Event, 1)
+
+	kev := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return events, func() {}, nil
+		},
+	}
+
+	exportEntered := make(chan struct{}, 1)
+
+	kernel := &ExporterKernelMock{
+		ExportOnConnFunc: func(_ context.Context, _ net.Conn, id domain.BusID) error {
+			require.Equal(t, sessionBusID, id)
+
+			select {
+			case exportEntered <- struct{}{}:
+			default:
+			}
+
+			return nil
+		},
+	}
+
+	codec := newSessionImportCodec(sessionBusID)
+
+	lis := newCountingListener()
+
+	exp := newExporterForTest(t,
+		app.WithExporterKernel(kernel),
+		app.WithExporterEvents(kev),
+		app.WithExporterCodec(codec),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	serveDone := make(chan error, 1)
+
+	go func() { serveDone <- exp.Serve(ctx, lis) }()
+
+	client, err := lis.dial(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	_, err = client.Write(opHeader(wire.OpReqImport))
+	require.NoError(t, err)
+
+	select {
+	case <-exportEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ExportOnConn was not invoked")
+	}
+
+	// Trigger session end: the kernel-detach-uevent analogue.
+	events <- domain.PortDetachedEvent{
+		At:     time.Now(),
+		Port:   domain.Port{BusID: sessionBusID},
+		Reason: "kernel session-end",
+	}
+
+	require.Eventually(t, func() bool {
+		return len(exp.Sessions(context.Background())) == 0
+	}, 2*time.Second, 10*time.Millisecond,
+		"Sessions() must empty after detach event")
+
+	// Post-fix: the handler closes the accepted conn exactly once
+	// after waitForSessionEnd returns. Pre-fix the handedOff guard
+	// suppresses the deferred close on the success path and no other
+	// close fires — closeCount stays 0.
+	require.Eventually(t, func() bool {
+		snap := lis.snapshot()
+
+		return len(snap) == 1 && snap[0].closeCount() == 1
+	}, 2*time.Second, 10*time.Millisecond,
+		"accepted conn must be closed exactly once after session end")
+
+	cancel()
+
+	<-serveDone
+}
+
+// errSubscribeFailed is the mock sentinel returned by the subscribe-
+// failure KernelEvents stub so the test can assert the handler error
+// path without relying on slog output.
+var errSubscribeFailed = errors.New("subscribe failed (mock)")
+
+// TestExporterSession_ClosesAcceptedConnOnSubscribeFailure exercises
+// the RANK 5 error branch folded into RANK 4: when Subscribe fails in
+// the pre-handoff path the handler returns early. The accepted conn
+// must still be closed on handler exit regardless of handedOff.
+func TestExporterSession_ClosesAcceptedConnOnSubscribeFailure(t *testing.T) {
+	t.Parallel()
+
+	const sessionBusID = domain.BusID("5-3")
+
+	kev := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return nil, nil, errSubscribeFailed
+		},
+	}
+
+	kernel := &ExporterKernelMock{
+		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
+			return nil
+		},
+	}
+
+	codec := newSessionImportCodec(sessionBusID)
+
+	lis := newCountingListener()
+
+	exp := newExporterForTest(t,
+		app.WithExporterKernel(kernel),
+		app.WithExporterEvents(kev),
+		app.WithExporterCodec(codec),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	serveDone := make(chan error, 1)
+
+	go func() { serveDone <- exp.Serve(ctx, lis) }()
+
+	client, err := lis.dial(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	_, err = client.Write(opHeader(wire.OpReqImport))
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		snap := lis.snapshot()
+
+		return len(snap) == 1 && snap[0].closeCount() == 1
+	}, 2*time.Second, 10*time.Millisecond,
+		"accepted conn must close on subscribe-failure path")
+
+	cancel()
+
+	<-serveDone
+}
+
+// TestExporterSession_ClosesAcceptedConnOnEventsChannelClosed covers
+// the second RANK 5 error branch: the KernelEvents source channel
+// closes before any matching event arrives. The handler interprets
+// that as a kernel-side teardown and exits; the accepted conn must
+// still close exactly once.
+func TestExporterSession_ClosesAcceptedConnOnEventsChannelClosed(t *testing.T) {
+	t.Parallel()
+
+	const sessionBusID = domain.BusID("5-4")
+
+	events := make(chan domain.Event)
+
+	kev := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return events, func() {}, nil
+		},
+	}
+
+	exportEntered := make(chan struct{}, 1)
+
+	kernel := &ExporterKernelMock{
+		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
+			select {
+			case exportEntered <- struct{}{}:
+			default:
+			}
+
+			return nil
+		},
+	}
+
+	codec := newSessionImportCodec(sessionBusID)
+
+	lis := newCountingListener()
+
+	exp := newExporterForTest(t,
+		app.WithExporterKernel(kernel),
+		app.WithExporterEvents(kev),
+		app.WithExporterCodec(codec),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	serveDone := make(chan error, 1)
+
+	go func() { serveDone <- exp.Serve(ctx, lis) }()
+
+	client, err := lis.dial(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	_, err = client.Write(opHeader(wire.OpReqImport))
+	require.NoError(t, err)
+
+	select {
+	case <-exportEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ExportOnConn was not invoked")
+	}
+
+	// Source teardown before any event arrives: handler exits via
+	// the "chan closed" branch.
+	close(events)
+
+	require.Eventually(t, func() bool {
+		snap := lis.snapshot()
+
+		return len(snap) == 1 && snap[0].closeCount() == 1
+	}, 2*time.Second, 10*time.Millisecond,
+		"accepted conn must close on events-channel-closed path")
+
+	cancel()
+
+	<-serveDone
 }
 
 // TestExporterShutdown_DisconnectsActiveSessions proves the pass-2
