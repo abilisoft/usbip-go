@@ -55,14 +55,22 @@ func ReadPaddedString(r io.Reader, size int) (string, error) {
 		return "", fmt.Errorf("read padded string (size=%d): %w", size, err)
 	}
 
+	return paddedStringFromBytes(buf), nil
+}
+
+// paddedStringFromBytes interprets buf as a NUL-padded fixed-width
+// string. If no NUL is present the entire buffer is returned and a
+// Warn is emitted to slog.Default. Used for decoding already-read
+// fixed-width payloads (e.g. device descriptor path / busid slices).
+func paddedStringFromBytes(buf []byte) string {
 	before, _, found := bytes.Cut(buf, []byte{0})
 	if !found {
-		slog.Warn("non-NUL-terminated padded string", "size", size)
+		slog.Warn("non-NUL-terminated padded string", "size", len(buf))
 
-		return string(buf), nil
+		return string(buf)
 	}
 
-	return string(before), nil
+	return string(before)
 }
 
 // overflowErr maps a padded-string overflow to the spec's error matrix:
