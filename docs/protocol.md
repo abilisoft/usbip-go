@@ -53,7 +53,11 @@ offset  size  field             notes
 
 A non-zero `status` on a reply header is well-formed but signals a
 server-side failure. The codec surfaces it as `ErrProtocolError`
-with `status` in the `oops` context.
+with `status` in the `oops` context — *except* on `OP_REP_IMPORT`,
+where a non-zero `status` is the protocol's idiomatic way of saying
+"that bus id is unavailable / busy / not present" and the codec
+maps it to `ErrDeviceNotFound` so callers see the canonical
+rejection sentinel rather than a misleading wire-framing class.
 
 ## `OP_REQ_DEVLIST` (client -> server)
 
@@ -76,8 +80,8 @@ offset 8 in the full reply). Each device record is a 312-byte fixed
 descriptor followed by `bNumInterfaces` 4-byte interface descriptors.
 See the descriptor layouts below.
 
-`nDevices = 0` is legal. The codec returns `(nil, nil)` for an empty
-listing.
+`nDevices = 0` is legal. The codec returns
+`(nil, DecodeFlags{}, nil)` for an empty listing.
 
 Extra trailing bytes after all `nDevices` records are logged at warn
 level and silently ignored (permissive on read).

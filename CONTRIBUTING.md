@@ -231,7 +231,10 @@ When reviewing a PR, verify:
 - [ ] `BREAKING:` changes include regenerated `api/*.json`
       baselines.
 - [ ] `CHANGELOG.md` regeneration is not required mid-PR; the
-      release workflow runs `task changelog` at tag time.
+      release commit (the one the v* tag points at) must run
+      `task changelog` so `release-validate.yml`'s
+      `ci:changelog:check` job sees a byte-identical file at the
+      tag.
 
 ## Reporting bugs
 
