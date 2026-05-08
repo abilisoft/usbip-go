@@ -36,7 +36,7 @@ func TestSentinelsReExportedFromDomain(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			require.NotNil(t, tc.u, "usbip.%s must be declared", tc.name)
+			require.Error(t, tc.u, "usbip.%s must be declared", tc.name)
 			require.ErrorIs(t, tc.u, tc.orig,
 				"usbip.%s must satisfy errors.Is against domain.%s", tc.name, tc.name)
 			require.ErrorIs(t, tc.orig, tc.u,
@@ -46,6 +46,11 @@ func TestSentinelsReExportedFromDomain(t *testing.T) {
 	}
 }
 
+// errPeerContext is a static error used to prove sentinel joining
+// preserves errors.Is. err113 forbids ad-hoc errors.New inside test
+// bodies.
+var errPeerContext = errors.New("peer 192.0.2.1")
+
 // TestSentinelsWrappedPreserveErrorsIs proves that code wrapping a
 // usbip sentinel with fmt.Errorf still matches via errors.Is against
 // the domain original — the aliasing guarantee carries through the
@@ -53,7 +58,7 @@ func TestSentinelsReExportedFromDomain(t *testing.T) {
 func TestSentinelsWrappedPreserveErrorsIs(t *testing.T) {
 	t.Parallel()
 
-	wrapped := errors.Join(usbip.ErrDeviceNotFound, errors.New("peer 192.0.2.1"))
+	wrapped := errors.Join(usbip.ErrDeviceNotFound, errPeerContext)
 
 	require.ErrorIs(t, wrapped, domain.ErrDeviceNotFound)
 	require.ErrorIs(t, wrapped, usbip.ErrDeviceNotFound)
