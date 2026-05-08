@@ -46,26 +46,23 @@ func (c *connCloser) close() error {
 //     close conn.
 //     - OP_REQ_IMPORT → long-lived session: decode busid, register the
 //     session under the global + per-peer caps, hand the fd to the
-//     kernel via ExportOnConn, block until ExportOnConn returns.
+//     kernel via ExportOnConn, block until waitForSessionEnd observes
+//     kernel-side session end.
 //
-// fd-passing contract (spec §5.4 item 4): the handler closes the conn
-// on every error path before ExportOnConn returns success. Once
-// ExportOnConn returns (success OR the adapter rejected with the conn
-// already closed), the handler MUST NOT close it itself — the kernel
-// owns the fd on success, and the adapter is documented to have
-// closed it on failure. The handedOff flag implements this split; a
-// connCloser guards close-once for all non-handoff paths so the
-// timeout watcher and the deferred cleanup do not double-close (Fix 4).
+// fd-passing contract (spec §5.4 item 4): the kernel dups the accepted
+// fd on ExportOnConn success and holds its own ref; the app's original
+// ref is released here exactly once via connCloser (sync.Once). Pre
+// pass-2 RANK 4 the handedOff flag suppressed close on the success
+// path entirely, leaking the accepted fd for the full session lifetime
+// plus whatever came after — the kernel's dup kept the socket alive,
+// but the app's userspace ref was never released. Post-fix the
+// deferred close fires on every handler exit regardless of outcome;
+// sync.Once guards against the handshake-timeout watcher's concurrent
+// close and against the adapter's documented self-close on failure.
 func (e *Exporter) handleConn(ctx context.Context, conn net.Conn) {
-	handedOff := false
-
 	closer := &connCloser{conn: conn}
 
 	defer func() {
-		if handedOff {
-			return
-		}
-
 		err := closer.close()
 		if err != nil && !errors.Is(err, net.ErrClosed) {
 			e.logger.Debug("exporter session close",
@@ -102,7 +99,7 @@ func (e *Exporter) handleConn(ctx context.Context, conn net.Conn) {
 			e.clock.Now().Sub(handshakeStart).Seconds(),
 		)
 	case wire.OpReqImport:
-		handedOff = e.serveImport(ctx, reader, conn, stopTimeout)
+		e.serveImport(ctx, reader, conn, stopTimeout)
 		e.metrics.ExporterHandshakeDuration(
 			HandshakeOpImport,
 			e.clock.Now().Sub(handshakeStart).Seconds(),
@@ -189,10 +186,13 @@ func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn)
 
 // serveImport handles the OP_REQ_IMPORT request. It decodes the busid
 // body, registers the session (enforcing MaxSessions + per-peer cap),
-// then calls ExportOnConn. Returns true when the fd was handed off
-// (success path) so handleConn's deferred close skips closing the conn
-// — the kernel owns it at that point. Any error path returns false;
-// the deferred handler closes the conn per spec §5.4 item 4.
+// then calls ExportOnConn. handleConn's deferred connCloser.close()
+// fires on every return path; sync.Once guards against double-close
+// (handshake-timeout watcher, failure-path adapter self-close). The
+// accepted fd is released after ExportOnConn returns regardless of
+// outcome — per spec §5.4 the kernel holds its own dup on success and
+// the app's remaining ref must be released so only the kernel's ref
+// keeps the socket alive (pass-2 RANK 4).
 //
 // stopTimeout is the handshake-timeout disarm callback; it is invoked
 // AFTER DecodeOpReqImport completes so a stalled body-decode still
@@ -202,13 +202,13 @@ func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn)
 // session is still live (RANK 1); the real sysfs write completes
 // immediately and the kernel carries the session for its actual
 // duration. The handler MUST NOT exit yet — an early return would fire
-// the deferred endSession and unregister the session, leaving Sessions()
-// empty while the device is still exported and leaking the accepted
-// conn. waitForSessionEnd blocks until the kernel signals session end
-// via a matching uevent, Shutdown signals handle.done, or ctx cancels.
+// the deferred endSession and unregister the session, leaving
+// Sessions() empty while the device is still exported.
+// waitForSessionEnd blocks until the kernel signals session end via a
+// matching uevent, Shutdown signals handle.done, or ctx cancels.
 func (e *Exporter) serveImport(
 	ctx context.Context, reader io.Reader, conn net.Conn, stopTimeout func(),
-) bool {
+) {
 	busID, err := e.codec.DecodeOpReqImport(reader)
 
 	// Disarm the handshake deadline only once the full handshake read
@@ -222,7 +222,7 @@ func (e *Exporter) serveImport(
 		e.logger.Warn("exporter decode import request",
 			slog.Any("err", err))
 
-		return false
+		return
 	}
 
 	sess, err := e.buildSession(conn, busID)
@@ -231,7 +231,7 @@ func (e *Exporter) serveImport(
 		e.logger.Warn("exporter build session",
 			slog.Any("err", err))
 
-		return false
+		return
 	}
 
 	peerKey := peerKeyFromAddr(conn.RemoteAddr())
@@ -244,13 +244,13 @@ func (e *Exporter) serveImport(
 			slog.String("peer", peerKey),
 			slog.Any("err", err))
 
-		return false
+		return
 	}
 
 	// Successful registration: count the accept BEFORE ExportOnConn
-	// because the kernel call may block for the session's entire lifetime.
-	// Deferring the increment until ExportOnConn returns would hide live
-	// sessions from the accepted_total counter.
+	// because the kernel call may block for the session's entire
+	// lifetime. Deferring the increment until ExportOnConn returns
+	// would hide live sessions from the accepted_total counter.
 	e.metrics.ExporterSessionAccepted(OutcomeHandshakeOK)
 	e.updateSessionsActiveGauge()
 
@@ -284,11 +284,10 @@ func (e *Exporter) serveImport(
 		// Subscribe is the only observation path for session end; if
 		// we cannot open one we must not hand the fd to the kernel
 		// (we would park forever after a successful handoff). Surface
-		// the subscribe failure the same way as a kernel-side error
-		// and let the deferred close tear the conn down.
+		// the subscribe failure the same way as a kernel-side error.
 		e.metrics.ExporterDisconnect(DisconnectReasonKernelError)
 
-		return false
+		return
 	}
 
 	defer cancelEvents()
@@ -303,14 +302,12 @@ func (e *Exporter) serveImport(
 
 		e.metrics.ExporterDisconnect(classifyDisconnectReason(err))
 
-		return false
+		return
 	}
 
 	reason := e.waitForSessionEnd(ctx, busID, handle, events)
 
 	e.metrics.ExporterDisconnect(reason)
-
-	return true
 }
 
 // waitForSessionEnd blocks the post-ExportOnConn handler until the
