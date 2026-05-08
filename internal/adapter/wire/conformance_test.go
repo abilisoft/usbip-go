@@ -11,6 +11,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// upstreamVudcDevice returns the full device descriptor upstream usbipd
+// emits for our vudc-bound gadget. Every field is anchored, so any
+// single-byte decoder drift fails the test.
+func upstreamVudcDevice() domain.Device {
+	return domain.Device{
+		Path:          "/sys/devices/platform/usbip-vudc.0",
+		BusID:         domain.BusID("usbip-vudc.0"),
+		BusNum:        0,
+		DevNum:        0,
+		Speed:         domain.SpeedHigh,
+		VendorID:      0x0951,
+		ProductID:     0x1666,
+		BcdDevice:     0x0110,
+		Class:         0,
+		Subclass:      0,
+		Protocol:      0,
+		ConfigValue:   0,
+		NumConfigs:    1,
+		NumInterfaces: 0,
+		Interfaces:    nil,
+	}
+}
+
 // Upstream-captured fixtures from usbip-utils 2.0 on Linux 6.17.0-20
 // against a usbip-vudc.0 gadget (Kingston DataTraveler 0951:1666).
 // Regenerate via scripts/capture-wire-fixtures.sh.
@@ -99,24 +122,19 @@ func TestConformance_OpRepDevlist(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, trailing)
 	require.Len(t, devices, 1)
+	require.Equal(t, upstreamVudcDevice(), devices[0])
 
-	d := devices[0]
-	require.True(t, strings.HasPrefix(d.Path, "/sys/devices/platform/usbip-vudc.0"))
-	require.Equal(t, domain.BusID("usbip-vudc.0"), d.BusID)
-	require.Equal(t, uint16(0), d.BusNum)
-	require.Equal(t, uint16(0), d.DevNum)
-	require.Equal(t, domain.SpeedHigh, d.Speed)
-	require.Equal(t, uint16(0x0951), d.VendorID)
-	require.Equal(t, uint16(0x1666), d.ProductID)
-	require.Equal(t, uint16(0x0110), d.BcdDevice)
-	// Gadget is attached to vudc but not yet enumerated by a host, so
-	// ConfigValue=0 and NumInterfaces=0 — distinct shape from the
-	// synthetic enumerated-Kingston fixture which exercises the
-	// bNumInterfaces>0 path.
-	require.Equal(t, uint8(0), d.ConfigValue)
-	require.Equal(t, uint8(1), d.NumConfigs)
-	require.Equal(t, uint8(0), d.NumInterfaces)
-	require.Empty(t, d.Interfaces)
+	// Round-trip: re-encoding the decoded devices MUST reproduce the
+	// exact captured bytes. A byte-for-byte match proves (a) the inline
+	// hex has no transcription error, and (b) the codec's encoder and
+	// decoder agree on every field offset, endianness, and padding
+	// choice. Any single-bit drift in either direction would fail this
+	// assertion while the individual field checks above could still
+	// pass.
+	var roundTrip bytes.Buffer
+
+	require.NoError(t, wire.EncodeOpRepDevlist(&roundTrip, devices))
+	require.Equal(t, raw, roundTrip.Bytes())
 }
 
 func TestConformance_OpRepImport(t *testing.T) {
@@ -127,9 +145,36 @@ func TestConformance_OpRepImport(t *testing.T) {
 
 	d, err := wire.DecodeOpRepImport(bytes.NewReader(raw))
 	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(d.Path, "/sys/devices/platform/usbip-vudc.0"))
-	require.Equal(t, domain.BusID("usbip-vudc.0"), d.BusID)
-	require.Equal(t, uint16(0x0951), d.VendorID)
-	require.Equal(t, uint16(0x1666), d.ProductID)
-	require.Equal(t, domain.SpeedHigh, d.Speed)
+	// OP_REP_IMPORT does not carry the interfaces array, so the decoded
+	// Device has a nil Interfaces slice even though NumInterfaces is a
+	// per-device count; the rest of the struct matches the devlist
+	// reply byte-for-byte.
+	require.Equal(t, upstreamVudcDevice(), d)
+
+	var roundTrip bytes.Buffer
+
+	require.NoError(t, wire.EncodeOpRepImport(&roundTrip, d))
+	require.Equal(t, raw, roundTrip.Bytes())
+}
+
+func TestConformance_OpReqImportRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	raw := mustDecodeHex(t, upstreamOpReqImportHex)
+
+	busid, err := wire.DecodeOpReqImport(bytes.NewReader(raw))
+	require.NoError(t, err)
+	require.Equal(t, domain.BusID("usbip-vudc.0"), busid)
+
+	var roundTrip bytes.Buffer
+
+	require.NoError(t, wire.EncodeOpReqImport(&roundTrip, busid))
+	require.Equal(t, raw, roundTrip.Bytes())
+}
+
+func TestConformance_OpReqDevlistRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	raw := mustDecodeHex(t, upstreamOpReqDevlistHex)
+	require.Equal(t, raw, wire.EncodeOpReqDevlist())
 }
