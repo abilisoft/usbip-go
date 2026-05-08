@@ -16,6 +16,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -203,12 +204,19 @@ func serveStatus(
 	// daemon shutdown while ignoring per-request cancellation.
 	drainCtx := context.WithoutCancel(ctx)
 
+	// drainStarted gates handleStatusDrain so concurrent / repeat
+	// POST /drain calls fold into a single goroutine spawn (see
+	// ADR-0012). The variable lives in this closure so its lifetime
+	// matches the status server itself; tests construct their own
+	// server via startStatusTestServer and get a fresh flag per run.
+	var drainStarted atomic.Bool
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		handleStatusGet(w, r, src)
 	})
 	mux.HandleFunc("POST /drain", func(w http.ResponseWriter, _ *http.Request) {
-		handleStatusDrain(drainCtx, w, src)
+		handleStatusDrain(drainCtx, &drainStarted, w, src)
 	})
 
 	server := &http.Server{
@@ -409,7 +417,23 @@ func handleStatusGet(w http.ResponseWriter, r *http.Request, src statusSource) {
 // derived from the daemon's server ctx (see serveStatus), so drain
 // outlives the HTTP client but still stops when the daemon itself
 // is asked to shut down.
-func handleStatusDrain(drainCtx context.Context, w http.ResponseWriter, src statusSource) {
+//
+// started guards against repeat POSTs spawning redundant goroutines.
+// ADR-0012 requires `POST /drain` be idempotent at the handler level:
+// the first POST flips started true via CompareAndSwap and spawns the
+// drain goroutine; subsequent POSTs see started already true and
+// return 200 without spawning. The underlying src.Drain implementation
+// is also idempotent (Exporter.Shutdown wraps in sync.Once); the
+// handler-level guard avoids the wasted goroutines and the duplicate
+// error log noise that would otherwise occur on the rare path where
+// Drain returns non-nil.
+func handleStatusDrain(drainCtx context.Context, started *atomic.Bool, w http.ResponseWriter, src statusSource) {
+	if !started.CompareAndSwap(false, true) {
+		w.WriteHeader(http.StatusOK)
+
+		return
+	}
+
 	go func() {
 		err := src.Drain(drainCtx)
 		if err != nil {

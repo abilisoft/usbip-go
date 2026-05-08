@@ -184,13 +184,37 @@ Output includes:
 The status socket is also the channel for the drain command:
 
 ```
-sudo usbipd-go drain --status-socket /run/usbip-go/status.sock
+sudo usbip drain --status-socket /run/usbip-go/status.sock
 ```
 
 Drain instructs the running daemon to refuse new accepts, wait for
-in-flight sessions up to `--drain-timeout`, and exit cleanly.
-`systemctl restart usbipd-go` then starts the new version against the
-same socket-activated listener without a connect-refused window.
+in-flight sessions to end, and exit cleanly. `systemctl restart usbip`
+then starts the new version against the same socket-activated
+listener without a connect-refused window. See ADR-0012 for the
+mechanism (HTTP-over-UDS) and the rejected alternatives (signals,
+sd_notify, gRPC, custom binary protocol).
+
+### Two timeouts, server-authoritative
+
+Two timeouts coexist:
+
+| Flag | Side | Default | What it bounds |
+|---|---|---|---|
+| `--shutdown-timeout` | `usbip serve` (server) | `30s` | Actual in-flight session drain. AUTHORITATIVE — daemon refuses to wait beyond this. |
+| `--drain-timeout` | `usbip drain` (client) | `60s` | UI-only bound on how long the client polls `GET /` waiting for `sessions == []`. |
+
+Recommended: keep `--drain-timeout > --shutdown-timeout` so the
+operator-visible result reflects the daemon's actual behavior. When
+the daemon hits its cap first, the client's next poll sees
+`ECONNREFUSED` and treats it as drain success. When the client times
+out first (`--drain-timeout < --shutdown-timeout`), the client
+reports failure but the daemon keeps draining and exits when its own
+timeout fires — operator sees a misleading "drain timed out" but
+the daemon completes correctly.
+
+Concurrent / repeated `usbip drain` calls are idempotent: only the
+first POST spawns the drain goroutine; subsequent POSTs return 200
+immediately without re-triggering shutdown.
 
 ## Health endpoints
 

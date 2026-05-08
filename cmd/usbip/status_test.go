@@ -563,3 +563,89 @@ func TestStatusGroupChownResolvesCallerGroup(t *testing.T) {
 	// Mode is untouched by the chown-only helper; 0o600 remains.
 	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }
+
+// TestStatusDrainHandlerIdempotent locks ADR-0012's idempotency
+// guarantee: repeated POST /drain calls return 200 each time but the
+// underlying Drain operation runs at most once. Without the
+// handler-level guard, every POST would spawn a fresh goroutine that
+// calls Drain — wasted goroutines and duplicate error logs on the
+// rare path where Drain returns non-nil.
+func TestStatusDrainHandlerIdempotent(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	sockPath := filepath.Join(dir, "status.sock")
+
+	src := &fakeStatusSource{
+		listenAddr: "0.0.0.0:3240",
+		accepting:  true,
+		modules:    map[string]usbip.ModuleState{"usbip_core": usbip.ModuleStateLoaded},
+	}
+
+	cleanup := startStatusTestServer(t, src, sockPath)
+	t.Cleanup(cleanup)
+
+	client := newUDSHTTPClient(sockPath)
+
+	const drainCalls = 10
+
+	// Fan out concurrent POSTs and collect (status, error) tuples on a
+	// channel. The require-* assertions run in the test goroutine
+	// after the fan-in so testifylint's go-require rule is satisfied.
+	type drainResult struct {
+		status int
+		err    error
+	}
+
+	results := make(chan drainResult, drainCalls)
+
+	var wg sync.WaitGroup
+
+	for range drainCalls {
+		wg.Go(func() {
+			req, reqErr := http.NewRequestWithContext(context.Background(),
+				http.MethodPost, "http://usbipd/drain", nil)
+			if reqErr != nil {
+				results <- drainResult{err: reqErr}
+
+				return
+			}
+
+			resp, doErr := client.Do(req)
+			if doErr != nil {
+				results <- drainResult{err: doErr}
+
+				return
+			}
+
+			defer func() { _ = resp.Body.Close() }()
+
+			results <- drainResult{status: resp.StatusCode}
+		})
+	}
+
+	wg.Wait()
+	close(results)
+
+	for r := range results {
+		require.NoError(t, r.err)
+		require.Equal(t, http.StatusOK, r.status)
+	}
+
+	// Wait for any spawned drain goroutines to settle. Drain is a
+	// no-op fake here so 100ms is generous; the assertion is on the
+	// post-settle counter, not on timing.
+	require.Eventually(t, func() bool {
+		return src.drainCalled.Load() >= 1
+	}, time.Second, 10*time.Millisecond,
+		"at least one Drain invocation must have landed")
+
+	// Hold a small extra window to let any straggler goroutines run;
+	// the guard MUST keep drainCalled at exactly 1 across all 10
+	// concurrent POSTs.
+	time.Sleep(50 * time.Millisecond)
+
+	require.Equalf(t, int32(1), src.drainCalled.Load(),
+		"POST /drain must be idempotent at the handler level — got %d Drain invocations across %d POSTs",
+		src.drainCalled.Load(), drainCalls)
+}
