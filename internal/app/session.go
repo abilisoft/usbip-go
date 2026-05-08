@@ -347,15 +347,22 @@ func (e *Exporter) runRegisteredSession(
 	// is consumed by the first iteration of waitForSessionEnd's select.
 	events, cancelEvents, evErr := e.events.Subscribe(ctx)
 	if evErr != nil {
+		// Subscribe failure is the same observability class as a
+		// kernel-side error; record the typed reason BEFORE returning
+		// so the deferred endSession publishes a kernel_error
+		// classification rather than the "handler exited" fallback.
+		reason := string(DisconnectReasonKernelError)
+		handle.disconnectReason.Store(&reason)
+
 		e.logger.Warn("exporter session-end pre-subscribe failed",
 			slog.Any("busid", busID),
+			slog.String("disconnect_reason", reason),
 			slog.Any("err", evErr))
 
 		// Subscribe is the only observation path for session end; if
 		// we cannot open one we must not hand the fd to the kernel
 		// (we would park forever after a successful handoff). Surface
 		// the subscribe failure the same way as a kernel-side error.
-
 		return
 	}
 

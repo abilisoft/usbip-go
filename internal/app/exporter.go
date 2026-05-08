@@ -502,7 +502,8 @@ func (e *Exporter) acceptLoop(ctx context.Context, listener net.Listener) error 
 
 		if !e.acl.allow(conn.RemoteAddr()) {
 			e.logger.Info("exporter accept rejected by ACL",
-				slog.String("remote", conn.RemoteAddr().String()))
+				slog.String("remote", conn.RemoteAddr().String()),
+				slog.String("outcome", string(OutcomeRejectedACL)))
 
 			closeConnLogging(conn, e.logger)
 
@@ -511,7 +512,8 @@ func (e *Exporter) acceptLoop(ctx context.Context, listener net.Listener) error 
 
 		if !e.acceptLim.allow() {
 			e.logger.Debug("exporter accept rate-limited",
-				slog.String("remote", conn.RemoteAddr().String()))
+				slog.String("remote", conn.RemoteAddr().String()),
+				slog.String("outcome", string(OutcomeRejectedRate)))
 
 			closeConnLogging(conn, e.logger)
 

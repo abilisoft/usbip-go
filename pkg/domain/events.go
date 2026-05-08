@@ -97,6 +97,13 @@ func (PortErroredEvent) EventKind() EventKind { return EventPortErrored }
 // made (not MaxAttempts). LastError is the stringified final attempt
 // error; the domain layer does not carry Go error values across the
 // JSON boundary.
+//
+// LastError is diagnostic free-form text. Wrapping by the importer and
+// kernel adapter typically embeds the peer endpoint, the BusID, and
+// absolute sysfs paths. Downstream JSON consumers MUST treat this
+// field as untrusted display text — do not parse it for control flow,
+// and consider scrubbing it before forwarding to a less-privileged
+// audience that should not see operator-level diagnostic strings.
 type PortReconnectExhaustedEvent struct {
 	At        time.Time
 	Port      Port
