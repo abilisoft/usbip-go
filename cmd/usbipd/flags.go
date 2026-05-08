@@ -53,8 +53,6 @@ type Config struct {
 	HandshakeTimeout time.Duration
 	// ShutdownTimeout is the graceful-shutdown budget before force-close.
 	ShutdownTimeout time.Duration
-	// DrainTimeout is the `usbipd drain` maximum wait before exit 9.
-	DrainTimeout time.Duration
 	// LogLevel selects the slog threshold (error/warn/info/debug/trace).
 	LogLevel string
 	// LogFormat selects the handler (auto/pretty/json).
@@ -91,8 +89,6 @@ func bindFlags(cmd *cobra.Command, cfg *Config) {
 		"deadline for full handshake completion")
 	flags.DurationVar(&cfg.ShutdownTimeout, "shutdown-timeout", defaultShutdownTimeout,
 		"graceful shutdown budget before force-close")
-	flags.DurationVar(&cfg.DrainTimeout, "drain-timeout", defaultDrainTimeout,
-		"`usbipd drain` maximum wait before exit")
 	flags.StringVar(&cfg.LogLevel, "log-level", defaultLogLevel,
 		"log level: error/warn/info/debug/trace")
 	flags.StringVar(&cfg.LogFormat, "log-format", defaultLogFormat,
