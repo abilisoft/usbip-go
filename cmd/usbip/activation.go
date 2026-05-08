@@ -14,7 +14,7 @@ import (
 )
 
 // activationFdName is the expected LISTEN_FDNAMES label for our socket
-// unit. Operators should set FileDescriptorName=usbipd-go on the .socket
+// unit. Operators should set FileDescriptorName=usbip on the .socket
 // unit (v1 contract §7.8); mismatches fail loudly rather than silently bind a
 // neighbouring socket.
 const activationFdName = "usbip"

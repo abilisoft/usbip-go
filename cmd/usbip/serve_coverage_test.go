@@ -234,7 +234,7 @@ func TestBuildLoggerEachFormat(t *testing.T) {
 		t.Run(fmtName, func(t *testing.T) {
 			t.Parallel()
 
-			lg, err := buildServeLogger(ServeConfig{LogFormat: fmtName, LogLevel: "info"})
+			lg, err := buildLogger(globalFlags{LogFormat: fmtName, LogLevel: "info"})
 			require.NoError(t, err)
 			require.NotNil(t, lg)
 		})
@@ -243,14 +243,14 @@ func TestBuildLoggerEachFormat(t *testing.T) {
 	t.Run("invalid format rejected", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := buildServeLogger(ServeConfig{LogFormat: "weird", LogLevel: "info"})
+		_, err := buildLogger(globalFlags{LogFormat: "weird", LogLevel: "info"})
 		require.Error(t, err)
 	})
 
 	t.Run("invalid level rejected", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := buildServeLogger(ServeConfig{LogFormat: "json", LogLevel: "noisy"})
+		_, err := buildLogger(globalFlags{LogFormat: "json", LogLevel: "noisy"})
 		require.Error(t, err)
 	})
 }

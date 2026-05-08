@@ -3,7 +3,7 @@
 #
 [Unit]
 Description=USB/IP (Go) daemon
-Requires=usbipd-go.socket
+Requires=usbip.socket
 # Make sure the kernel modules the daemon needs are loaded. The
 # preferred path is to drop contrib/modules-load.d/usbip-go.conf
 # at /etc/modules-load.d/usbip-go.conf so systemd-modules-load.service
@@ -19,7 +19,7 @@ Type=simple
 # usbip support does not fail unit startup.
 ExecStartPre=-/sbin/modprobe usbip_core
 ExecStartPre=-/sbin/modprobe usbip_host
-ExecStart=/usr/bin/usbipd-go
+ExecStart=/usr/bin/usbip serve
 Restart=on-failure
 RuntimeDirectory=usbip-go
 RuntimeDirectoryMode=0755

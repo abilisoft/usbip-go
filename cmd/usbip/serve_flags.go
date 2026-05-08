@@ -56,12 +56,6 @@ type ServeConfig struct {
 	HandshakeTimeout time.Duration
 	// ShutdownTimeout is the graceful-shutdown budget before force-close.
 	ShutdownTimeout time.Duration
-	// LogLevel selects the slog threshold (error/warn/info/debug/trace).
-	LogLevel string
-	// LogFormat selects the handler (auto/pretty/json).
-	LogFormat string
-	// VerboseCount counts -v occurrences: 1=debug, 2=trace.
-	VerboseCount int
 }
 
 // bindServeFlags registers every usbipd root-command flag on cmd and wires
@@ -92,10 +86,8 @@ func bindServeFlags(cmd *cobra.Command, cfg *ServeConfig) {
 		"deadline for full handshake completion")
 	flags.DurationVar(&cfg.ShutdownTimeout, "shutdown-timeout", defaultShutdownTimeout,
 		"graceful shutdown budget before force-close")
-	flags.StringVar(&cfg.LogLevel, "log-level", defaultLogLevel,
-		"log level: error/warn/info/debug/trace")
-	flags.StringVar(&cfg.LogFormat, "log-format", defaultLogFormat,
-		"log handler: auto/pretty/json")
-	flags.CountVarP(&cfg.VerboseCount, "verbose", "v",
-		"verbose counter: -v=debug, -vv=trace")
+	// Logging flags (--log-level, --log-format, --verbose) live on the
+	// root command as persistent flags. The serve subcommand reads the
+	// pre-built logger via loggerFromCtx; redefining the flags here
+	// would shadow the root's parse + handler choice.
 }

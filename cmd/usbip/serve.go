@@ -45,14 +45,12 @@ func newServeCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			log, err := buildServeLogger(*cfg)
-			if err != nil {
-				return err
-			}
-
-			ctx := context.WithValue(cmd.Context(), loggerCtxKey, log)
-
-			return runDaemon(ctx, cfg)
+			// The root's PersistentPreRunE has already built and stashed
+			// the *slog.Logger from the globalFlags surface; reading it
+			// here keeps the daemon and the importer subcommands on the
+			// SAME log handler choice. Building a second logger would
+			// silently override the operator's --log-format / --verbose.
+			return runDaemon(cmd.Context(), cfg)
 		},
 	}
 

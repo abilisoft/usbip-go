@@ -7,7 +7,7 @@ Description=USB/IP (Go) daemon socket
 [Socket]
 ListenStream=0.0.0.0:3240
 Accept=no
-FileDescriptorName=usbipd-go
+FileDescriptorName=usbip
 
 [Install]
 WantedBy=sockets.target
