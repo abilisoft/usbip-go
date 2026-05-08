@@ -89,6 +89,13 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 		return err
 	}
 
+	// Two-stage LIFO shutdown (Finding 6): the metrics HTTP server must
+	// go down BEFORE exporter drain so /readyz and /metrics cannot hand
+	// out stale "accepting=true" or fresh session counters while the
+	// exporter is winding down. LIFO means the LAST-registered defer
+	// runs FIRST, so we register exp-drain first, then metrics-stop.
+	defer drainExporter(ctx, cfg, exp, log)
+
 	if metricsStop != nil {
 		defer shutdownMetricsServer(ctx, metricsStop, cfg.ShutdownTimeout, log)
 	}
@@ -115,7 +122,28 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 	// observe statusErrCh without racing the drain.
 	cancelStatus()
 
-	return completeShutdown(ctx, serveCtx, cfg, exp, log, serveErr, statusErrCh)
+	return completeShutdown(ctx, serveCtx, cfg, log, serveErr, statusErrCh)
+}
+
+// drainExporter is the deferred Exporter.Shutdown callpoint. Extracted
+// from completeShutdown (Finding 6) so the deferred-stack ordering —
+// metrics HTTP server down FIRST, exporter drain SECOND — is visible in
+// runDaemon without hiding the ordering inside completeShutdown's
+// branch-heavy body.
+func drainExporter(
+	parentCtx context.Context,
+	cfg *Config,
+	exp *usbip.Exporter,
+	log *slog.Logger,
+) {
+	shutdownCtx, cancel := context.WithTimeout(
+		context.WithoutCancel(parentCtx), cfg.ShutdownTimeout)
+	defer cancel()
+
+	err := exp.Shutdown(shutdownCtx)
+	if err != nil {
+		log.Warn("exporter shutdown returned error", slog.Any("err", err))
+	}
 }
 
 // buildExporter constructs the pkg/usbip.Exporter from cfg. The
@@ -309,32 +337,22 @@ func maybeStartStatusServer(
 	return statusErrCh
 }
 
-// completeShutdown drains the exporter under cfg.ShutdownTimeout and
-// then waits for the status server goroutine (if any) to exit. Serve
-// errors that are merely ctx cancellation or closed-listener signals
-// are suppressed; operators see the real cause via context.Cause
-// instead of a noisy "use of closed connection" wrapper.
+// completeShutdown waits for the status server goroutine (if any) to
+// exit and then reports why Serve returned. The exporter drain itself
+// is handled by the deferred drainExporter call in runDaemon (Finding
+// 6) so the metrics HTTP server is guaranteed to stop BEFORE exporter
+// drain: completeShutdown runs inside runDaemon's body, the defers run
+// after completeShutdown returns. Serve errors that are merely ctx
+// cancellation or closed-listener signals are suppressed; operators see
+// the real cause via context.Cause instead of a noisy "use of closed
+// connection" wrapper.
 func completeShutdown(
 	parentCtx, serveCtx context.Context,
 	cfg *Config,
-	exp *usbip.Exporter,
 	log *slog.Logger,
 	serveErr error,
 	statusErrCh <-chan error,
 ) error {
-	// shutdownCtx must outlive the cancelled parent so Shutdown can
-	// actually drain; context.WithoutCancel detaches the cancellation
-	// while keeping values and deadlines we care about.
-	shutdownCtx, cancel := context.WithTimeout(
-		context.WithoutCancel(parentCtx), cfg.ShutdownTimeout)
-	defer cancel()
-
-	drainErr := exp.Shutdown(shutdownCtx)
-	if drainErr != nil {
-		log.Warn("exporter shutdown returned error",
-			slog.Any("err", drainErr))
-	}
-
 	if statusErrCh != nil {
 		select {
 		case <-statusErrCh:
