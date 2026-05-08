@@ -1189,6 +1189,79 @@ func TestImporterAttachConcurrentWithCloseNoPanic(t *testing.T) {
 		"every ErrImporterClosed attach must release its kernel port via DetachPort")
 }
 
+// TestImporterAttachCloseRaceDetachFailureLogged drives the narrow
+// path where Close wins the race with registerHandle AND the kernel
+// rejects the best-effort DetachPort that releases the orphaned port.
+// The attach call must still return ErrImporterClosed; the secondary
+// detach error is logged (not surfaced) so the caller sees the primary
+// close signal, not the release failure.
+func TestImporterAttachCloseRaceDetachFailureLogged(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 42
+
+	gate := make(chan struct{})
+	observedAttachRemote := make(chan struct{}, 1)
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			observedAttachRemote <- struct{}{}
+
+			<-gate
+
+			return portID, nil
+		},
+		DetachPortFunc: func(_ context.Context, _ domain.PortID) error { return errBoom },
+	}
+	transport := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) { return newFakeConn(), nil },
+	}
+	codec := &ProtocolCodecMock{
+		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
+		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
+	}
+
+	imp := newImporterForTest(t,
+		app.WithImporterKernel(kernel),
+		app.WithImporterTransport(transport),
+		app.WithImporterCodec(codec),
+	)
+
+	attachResult := make(chan error, 1)
+
+	go func() {
+		_, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{})
+		attachResult <- err
+	}()
+
+	// Wait for Attach to park inside AttachRemote so Close is guaranteed
+	// to race registerHandle, not ModulesAvailable or Dial.
+	select {
+	case <-observedAttachRemote:
+	case <-time.After(2 * time.Second):
+		t.Fatal("AttachRemote was not entered in time")
+	}
+
+	// Close first — commit closed=true — then release the gate so
+	// registerHandle sees closed and takes the release-and-log branch.
+	require.NoError(t, imp.Close())
+
+	close(gate)
+
+	select {
+	case err := <-attachResult:
+		require.ErrorIs(t, err, app.ErrImporterClosed)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Attach did not return after close race")
+	}
+
+	// DetachPort was invoked (and returned errBoom) so the release +
+	// log path ran. Assert the call actually hit kernel.DetachPort.
+	require.Len(t, kernel.DetachPortCalls(), 1)
+	require.Equal(t, portID, kernel.DetachPortCalls()[0].ID)
+}
+
 // TestImporterCloseWaitsForInflightDetach is the RED for the
 // "Close drains Detach" contract. Detach currently releases the write
 // lock and calls kernel.DetachPort without incrementing the Importer's
