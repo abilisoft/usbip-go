@@ -94,6 +94,7 @@ tasks:
 
   vm:build:         { desc: 'Build microVM closure',   cmds: [{ task: _run, vars: { INNER: 'ci:vm:build' } }] }
   vm:smoke:         { desc: 'Boot microVM, verify USBIP modules load', cmds: [{ task: _run, vars: { INNER: 'ci:vm:smoke' } }] }
+  vm:test:integration: { desc: 'Run go test -tags=integration_linux inside microVM', cmds: [{ task: _run, vars: { INNER: 'ci:vm:test:integration' } }] }
 
   clean:
     desc: Remove build artefacts (preserves tracked build/go.mod marker)
@@ -294,4 +295,38 @@ tasks:
       - chmod +x {{.BUILD_DIR}}/vm/cmd.sh
       # ci:vm:smoke only runs inside the dev container (via _run → compose
       # dispatch), so the src path the runner shares into the VM is /src.
+      - USBIP_GO_VM_SRC=/src {{.BUILD_DIR}}/vm/run/bin/usbip-go-microvm-run
+
+  ci:vm:test:integration:
+    deps: [ci:vm:build]
+    env: { CGO_ENABLED: '1' }
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}/vm
+      # The VM has `-net none`, so the test payload cannot resolve
+      # proxy.golang.org. Pre-warm GOMODCACHE on the host (under the
+      # same /src/build/cache/go-mod that the VM sees via 9p) by
+      # compiling — but not running — the integration suite with the
+      # `integration_linux` build tag. `go test -run=^$ -count=1` runs
+      # no tests but exercises the full dep graph.
+      - go test -race -tags=integration_linux -run '^$' -count=1 ./test/integration/...
+      - |
+        cat > {{.BUILD_DIR}}/vm/cmd.sh <<'EOF'
+        set -euo pipefail
+        export GOTOOLCHAIN=local
+        export GOFLAGS=-trimpath
+        export GOCACHE=/src/build/cache/go-build
+        export GOMODCACHE=/src/build/cache/go-mod
+        export CGO_ENABLED=1
+        cd /src
+        echo "[integration] go $(go env GOVERSION) on $(uname -rs)"
+        echo "[integration] running ./test/integration/..."
+        # -buildvcs=false: the VM does not share the host's .git tree
+        # through 9p (it is under /src but git refuses to read it when
+        # launched by systemd in the VM due to ownership rules), so
+        # the Go build helper cannot stamp VCS info. Turn it off — the
+        # test itself does not depend on version stamping.
+        go test -race -buildvcs=false -tags=integration_linux -timeout=5m ./test/integration/...
+        echo VM_INTEGRATION_OK
+        EOF
+      - chmod +x {{.BUILD_DIR}}/vm/cmd.sh
       - USBIP_GO_VM_SRC=/src {{.BUILD_DIR}}/vm/run/bin/usbip-go-microvm-run
