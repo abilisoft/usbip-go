@@ -85,8 +85,51 @@ type (
 	// on Watch / WatchSessions iterators.
 	Event = domain.Event
 
+	// EventKind is the discriminator of the closed Event union.
+	EventKind = domain.EventKind
+
+	// PortAttachedEvent is emitted when a remote device attaches.
+	PortAttachedEvent = domain.PortAttachedEvent
+
+	// PortDetachedEvent is emitted when a previously-attached port is released.
+	PortDetachedEvent = domain.PortDetachedEvent
+
+	// PortErroredEvent is emitted when the vhci port transitions to error.
+	PortErroredEvent = domain.PortErroredEvent
+
+	// PortReconnectExhaustedEvent is emitted by the importer's reconnect
+	// watcher when MaxAttempts is reached without a successful reattach.
+	// Carries a snapshot of the last successful Port plus attempt count
+	// and stringified last error. See ADR-0009.
+	PortReconnectExhaustedEvent = domain.PortReconnectExhaustedEvent
+
+	// DeviceBoundEvent is emitted when a local device becomes exportable.
+	DeviceBoundEvent = domain.DeviceBoundEvent
+
+	// DeviceUnboundEvent is emitted when a local device is unbound.
+	DeviceUnboundEvent = domain.DeviceUnboundEvent
+
+	// SessionStartedEvent is emitted when a client completes the handshake.
+	SessionStartedEvent = domain.SessionStartedEvent
+
+	// SessionEndedEvent is emitted when a Session closes for any reason.
+	SessionEndedEvent = domain.SessionEndedEvent
+
 	// PortID identifies a vhci port numerically.
 	PortID = domain.PortID
+)
+
+// EventKind constants re-exported for consumers comparing
+// domain.Event values without importing pkg/domain directly.
+const (
+	EventPortAttached           = domain.EventPortAttached
+	EventPortDetached           = domain.EventPortDetached
+	EventPortErrored            = domain.EventPortErrored
+	EventPortReconnectExhausted = domain.EventPortReconnectExhausted
+	EventDeviceBound            = domain.EventDeviceBound
+	EventDeviceUnbound          = domain.EventDeviceUnbound
+	EventSessionStarted         = domain.EventSessionStarted
+	EventSessionEnded           = domain.EventSessionEnded
 )
 
 // AttachOptions configures a single Importer.Attach call. All fields
