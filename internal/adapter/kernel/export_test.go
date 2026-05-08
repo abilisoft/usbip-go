@@ -116,34 +116,33 @@ type ParsedPortForTest struct {
 }
 
 // VHCIEventMapperForTest is the test-side façade over the internal
-// vhciEventMapper. It carries the full Topology the mapper uses so
-// unit tests can drive MapEventForTest against a field map without
-// standing up an EventsAdapter.
+// vhciEventMapper. The inner mapper is held through a pointer so the
+// sync.Once + cached topology mutations made by resolveTopology
+// persist across successive MapEventForTest calls on the same value.
 type VHCIEventMapperForTest struct {
-	inner vhciEventMapper
+	inner *vhciEventMapper
 }
 
 // NewVHCIEventMapperForTest constructs a mapper against the supplied
 // topology snapshot. Mirrors the internal newVHCIEventMapper.
 func NewVHCIEventMapperForTest(topo Topology) VHCIEventMapperForTest {
-	return VHCIEventMapperForTest{inner: newVHCIEventMapper(topo)}
+	inner := newVHCIEventMapper(topo)
+
+	return VHCIEventMapperForTest{inner: &inner}
 }
 
 // NewVHCIEventMapperWithLoaderForTest constructs a mapper whose
-// topology is produced by the supplied loader. Tests drive this to
-// exercise the exporter-only contract the Task-3 BUG-1 fix installs:
+// topology is produced lazily by the supplied loader. Tests drive
+// this to exercise the exporter-only contract the Task-3 BUG-1 fix
+// installs:
 //   - deferred-load: the loader must only fire on the first VHCI-
 //     shaped event, never at construction;
 //   - graceful degradation: a loader that returns an error must not
 //     break usbip_host-path event mapping.
-//
-// Implementation note: while the production mapper retains the
-// Topology-valued constructor for backwards compatibility, the loader
-// form gives tests fine-grained control over invocation count and
-// error injection. The helper delegates to the internal loader-aware
-// entrypoint.
 func NewVHCIEventMapperWithLoaderForTest(loader func() (Topology, error)) VHCIEventMapperForTest {
-	return VHCIEventMapperForTest{inner: newVHCIEventMapperWithLoader(loader)}
+	inner := newVHCIEventMapperWithLoader(loader)
+
+	return VHCIEventMapperForTest{inner: &inner}
 }
 
 // MapEventForTest calls the internal mapEvent and returns its

@@ -359,47 +359,92 @@ func (d *eventDispatcher) broadcast(ev domain.Event) {
 	}
 }
 
-// vhciEventMapper is the stateful translator that the dispatcher uses
-// to turn each parsed uevent fields map into a domain.Event. It holds
-// the cached VHCI topology so mapEvent can translate a uevent's (usb
-// bus, root port) pair into the flat Port.ID the kernel status file
-// emits and the attach/detach sysfs writes consume.
-type vhciEventMapper struct {
-	topo Topology
-}
-
-// newVHCIEventMapper returns a mapper keyed on the supplied topology
-// snapshot. Construction is allocation-free — Topology is a value
-// type — so the adapter can embed one per dispatcher without a
-// dedicated pointer.
-func newVHCIEventMapper(topo Topology) vhciEventMapper {
-	return vhciEventMapper{topo: topo}
-}
-
 // topologyLoader is the deferred-fetch contract the mapper uses to
 // resolve the VHCI topology it needs for flat-Port.ID translation.
-// Used today only by the test-facing newVHCIEventMapperWithLoader —
-// production code routes through newVHCIEventMapper with a pre-loaded
-// Topology. The Pass-3 Task-3.1 BUG-1 fix migrates production to the
-// loader form.
+// The mapper invokes it lazily on the first VHCI-shaped event so
+// exporter-only deployments (no vhci_hcd module loaded) never pay the
+// topology read and never surface a load error on Subscribe; the
+// usbip_host path bypasses the loader entirely.
 type topologyLoader func() (Topology, error)
 
-// newVHCIEventMapperWithLoader constructs a mapper from a topology
-// loader. The loader is invoked eagerly for now — this is the RED
-// implementation pinning the failing-lazy-contract. The subsequent
-// GREEN pass rewires it to be lazy (sync.Once inside mapVhciEvent).
-func newVHCIEventMapperWithLoader(load topologyLoader) vhciEventMapper {
-	topo, _ := load()
+// vhciEventMapper is the stateful translator that the dispatcher uses
+// to turn each parsed uevent fields map into a domain.Event.
+//
+// It is constructed with a topology loader rather than a pre-resolved
+// Topology so exporter-only deployments — which only need usbip_host
+// events and never touch vhci_hcd — can still start the dispatcher
+// without hard-failing on a missing VHCI module. The loader fires
+// lazily on the first VHCI-shaped event; a sync.Once memoises both
+// success and failure for the mapper's lifetime. A loader failure
+// degrades only the VHCI branch: individual VHCI events are dropped
+// with ok=false (the dispatcher logs nothing extra — the drop path is
+// the same one used for non-VHCI buses), while usbip_host events
+// continue unaffected.
+//
+// once is held through a pointer so copies of vhciEventMapper share
+// the same gate and vet's copylocks check never trips — the dispatcher
+// currently runs mapEvent from a single goroutine, but keeping the
+// guard self-synchronising costs nothing and future-proofs fan-in of
+// the mapper if mapEvent is ever invoked from multiple readers.
+type vhciEventMapper struct {
+	load   topologyLoader
+	once   *sync.Once
+	topo   Topology
+	loaded bool
+}
 
-	return vhciEventMapper{topo: topo}
+// newVHCIEventMapper returns a mapper pinned to a fully-resolved
+// topology snapshot. Construction wraps the Topology in an always-
+// succeeding loader so the remainder of the mapper's machinery
+// (sync.Once, lazy resolution) is uniform across the two construction
+// paths.
+func newVHCIEventMapper(topo Topology) vhciEventMapper {
+	return newVHCIEventMapperWithLoader(func() (Topology, error) {
+		return topo, nil
+	})
+}
+
+// newVHCIEventMapperWithLoader returns a mapper that defers topology
+// resolution until the first VHCI-shaped event arrives. The loader is
+// NOT invoked at construction — exporter-only deployments therefore
+// never trigger a vhci_hcd sysfs read just to start the dispatcher.
+func newVHCIEventMapperWithLoader(load topologyLoader) vhciEventMapper {
+	return vhciEventMapper{
+		load: load,
+		once: &sync.Once{},
+	}
+}
+
+// resolveTopology runs the injected loader at most once. On success
+// topo is cached and loaded flips to true; on failure loaded stays
+// false and every subsequent VHCI event drops. The sync.Once keeps
+// the contract race-free if mapEvent is ever called from multiple
+// goroutines (the dispatcher is single-threaded today).
+func (m *vhciEventMapper) resolveTopology() (Topology, bool) {
+	m.once.Do(func() {
+		topo, err := m.load()
+		if err != nil {
+			return
+		}
+
+		m.topo = topo
+		m.loaded = true
+	})
+
+	return m.topo, m.loaded
 }
 
 // mapEvent is the topology-aware entry point used by the dispatcher.
 // It classifies a parsed uevent field map into a domain.Event using
 // the cached Topology for the vhci devpath branch; non-vhci subsystems
 // (usbip_host) bypass the topology entirely and produce device-level
-// bind/unbind events.
-func (m vhciEventMapper) mapEvent(fields map[string]string) (domain.Event, bool) {
+// bind/unbind events — the VHCI topology loader is NOT consulted on
+// the usbip_host path, so exporter-only deployments never fetch the
+// vhci_hcd sysfs tree for their bind/unbind stream.
+//
+// Pointer receiver because mapVhciEvent may mutate the mapper's cached
+// topology via resolveTopology's sync.Once gate.
+func (m *vhciEventMapper) mapEvent(fields map[string]string) (domain.Event, bool) {
 	if !isInterestingUevent(fields) {
 		return nil, false
 	}
@@ -424,7 +469,15 @@ func (m vhciEventMapper) mapEvent(fields map[string]string) (domain.Event, bool)
 // from the BusMap is treated as non-VHCI and skipped — the uevent came
 // from a different HCD. A rootPort of zero violates the kernel's
 // 1-indexed root-hub port numbering and is likewise rejected.
-func (m vhciEventMapper) mapVhciEvent(action, devpath string) (domain.Event, bool) {
+//
+// The topology is resolved lazily here rather than at mapper
+// construction. Exporter-only deployments (no vhci_hcd module) never
+// receive a VHCI-shaped devpath, so the loader is never called; if a
+// VHCI-shaped devpath does arrive and the loader fails (e.g.
+// vhci_hcd sysfs group is absent), the event drops cleanly with
+// ok=false — the Subscribe caller is not impacted, and usbip_host
+// events continue to flow.
+func (m *vhciEventMapper) mapVhciEvent(action, devpath string) (domain.Event, bool) {
 	match := vhciDevpathPattern.FindStringSubmatch(devpath)
 	if match == nil {
 		return nil, false
@@ -440,12 +493,17 @@ func (m vhciEventMapper) mapVhciEvent(action, devpath string) (domain.Event, boo
 		return nil, false
 	}
 
-	loc, mapped := m.topo.BusMap[uint32(usbBus)]
+	topo, ok := m.resolveTopology()
+	if !ok {
+		return nil, false
+	}
+
+	loc, mapped := topo.BusMap[uint32(usbBus)]
 	if !mapped {
 		return nil, false
 	}
 
-	portID := m.topo.FlatPort(loc, uint32(rootPort1)-1)
+	portID := topo.FlatPort(loc, uint32(rootPort1)-1)
 	busID := domain.BusID(match[vhciDevpathGroupFullBusID])
 
 	return vhciActionToEvent(action, portID, busID)
