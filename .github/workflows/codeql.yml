@@ -27,10 +27,22 @@ jobs:
   analyze:
     name: Analyze (Go)
     runs-on: ubuntu-24.04
+    # Skip on private repos until GitHub Advanced Security is enabled.
+    # CodeQL's analyze step uploads SARIF via the code-scanning API,
+    # which requires Advanced Security on private repositories
+    # ("Advanced Security must be enabled for this repository to use
+    # code scanning"). Public repos get code scanning for free, so
+    # this gate flips on automatically when the repo is made public.
+    # To run CodeQL on a private repo, enable Advanced Security in
+    # repo settings and remove this guard.
+    if: github.event.repository.private == false
     permissions:
       security-events: write
       packages: read
       actions: read
+      # id-token: write — required by DeterminateSystems/flakehub-cache-action
+      # to mint a workflow-scoped OIDC token for FlakeHub Cache auth.
+      id-token: write
       contents: read
 
     steps:
@@ -39,7 +51,7 @@ jobs:
           fetch-depth: 0
 
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+      - uses: DeterminateSystems/flakehub-cache-action@e134de896b2302c1584a7b54ff35432708607d44 # v3.18.1
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
