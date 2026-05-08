@@ -8,6 +8,10 @@ vars:
   LDFLAGS: '-s -w -X main.version={{.VERSION}} -X main.commit={{.COMMIT}}'
   BIN_DIR: './bin'
 
+# Release artefacts are built with CGO_ENABLED=0 (spec §10.1). The `go test -race`
+# flag required by spec §8.8 needs the race runtime which currently relies on
+# cgo, so test targets re-enable cgo locally. Build/release targets continue to
+# enforce CGO_ENABLED=0.
 env:
   CGO_ENABLED: '0'
 
@@ -37,11 +41,15 @@ tasks:
 
   test:
     desc: Unit tests (race)
+    env:
+      CGO_ENABLED: '1'
     cmds:
       - go test -race -timeout=60s ./...
 
   test:integration:
     desc: Integration tests
+    env:
+      CGO_ENABLED: '1'
     cmds:
       - go test -race -tags=integration_linux -timeout=5m ./test/integration/...
 
@@ -52,6 +60,8 @@ tasks:
 
   test:cover:
     desc: Coverage report
+    env:
+      CGO_ENABLED: '1'
     cmds:
       - go test -race -coverprofile=coverage.out ./...
       - go tool cover -html=coverage.out -o coverage.html
