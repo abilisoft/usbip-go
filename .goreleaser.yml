@@ -5,7 +5,7 @@
 #
 # Produces:
 #   - linux/{amd64,arm64,arm} binaries for cmd/usbip-go and cmd/usbipd-go
-#   - tar.gz archives including LICENSE, README, CHANGELOG, systemd units
+#   - tar.gz archives including LICENSE, README, systemd units
 #   - deb + rpm packages via nfpms
 #   - SHA-256 checksums file
 #   - SBOM per archive (SPDX) via syft
@@ -84,7 +84,6 @@ archives:
     files:
       - LICENSE
       - README.md
-      - CHANGELOG.md
       - CONTRIBUTING.md
       - contrib/systemd/usbipd-go.service
       - contrib/systemd/usbipd-go.socket
@@ -115,8 +114,6 @@ nfpms:
         dst: /usr/lib/systemd/system/usbipd-go.socket
       - src: README.md
         dst: /usr/share/doc/usbip-go/README.md
-      - src: CHANGELOG.md
-        dst: /usr/share/doc/usbip-go/CHANGELOG.md
       - src: LICENSE
         dst: /usr/share/doc/usbip-go/LICENSE
 
@@ -154,16 +151,20 @@ signs:
     output: true
 
 changelog:
-  # The project maintains CHANGELOG.md via git-cliff (task changelog);
-  # goreleaser's own changelog logic is disabled so release notes do
-  # not diverge from the committed file. The release workflow uploads
-  # CHANGELOG.md as-is through the archive contents.
+  # Goreleaser's own changelog generation is disabled because the
+  # release workflow generates richer notes via git-cliff at tag time
+  # and passes them through `--release-notes`. See
+  # .github/workflows/release.yml's "Generate release notes" step.
   disable: true
 
 release:
-  draft: true
+  # draft:false + mode:replace means goreleaser publishes the release
+  # immediately when the tag fires, replacing whatever placeholder
+  # GitHub may have created. Release notes come from the
+  # `--release-notes` file populated by the workflow's git-cliff step.
+  draft: false
   prerelease: auto
-  mode: keep-existing
+  mode: replace
   name_template: "{{ .ProjectName }} {{ .Tag }}"
   github:
     owner: abilisoft
