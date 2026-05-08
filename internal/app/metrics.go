@@ -124,14 +124,14 @@ type SysfsWritePath string
 
 // SysfsWritePath values.
 const (
-	SysfsWritePathBind         SysfsWritePath = "bind"
-	SysfsWritePathUnbind       SysfsWritePath = "unbind"
-	SysfsWritePathMatchBusID   SysfsWritePath = "match_busid"
-	SysfsWritePathRebind       SysfsWritePath = "rebind"
-	SysfsWritePathAttach       SysfsWritePath = "attach"
-	SysfsWritePathDetach       SysfsWritePath = "detach"
-	SysfsWritePathUsbipSockfd  SysfsWritePath = "usbip_sockfd"
-	SysfsWritePathOther        SysfsWritePath = "other"
+	SysfsWritePathBind        SysfsWritePath = "bind"
+	SysfsWritePathUnbind      SysfsWritePath = "unbind"
+	SysfsWritePathMatchBusID  SysfsWritePath = "match_busid"
+	SysfsWritePathRebind      SysfsWritePath = "rebind"
+	SysfsWritePathAttach      SysfsWritePath = "attach"
+	SysfsWritePathDetach      SysfsWritePath = "detach"
+	SysfsWritePathUsbipSockfd SysfsWritePath = "usbip_sockfd"
+	SysfsWritePathOther       SysfsWritePath = "other"
 )
 
 // SysfsErrno labels usbip_adapter_sysfs_write_failures_total{errno}.
@@ -253,12 +253,12 @@ type Metrics struct {
 	// returns in that case so call sites do not need a pre-call guard.
 	nop bool
 
-	exporterSessionsActive       prometheus.Gauge
+	exporterSessionsActive        prometheus.Gauge
 	exporterSessionsAcceptedTotal *prometheus.CounterVec
-	exporterHandshakeDuration    *prometheus.HistogramVec
-	exporterBindTotal            *prometheus.CounterVec
-	exporterUnbindTotal          *prometheus.CounterVec
-	exporterDisconnectTotal      *prometheus.CounterVec
+	exporterHandshakeDuration     *prometheus.HistogramVec
+	exporterBindTotal             *prometheus.CounterVec
+	exporterUnbindTotal           *prometheus.CounterVec
+	exporterDisconnectTotal       *prometheus.CounterVec
 
 	importerAttachesTotal          *prometheus.CounterVec
 	importerDetachesTotal          *prometheus.CounterVec

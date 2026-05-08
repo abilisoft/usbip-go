@@ -146,4 +146,3 @@ func newCommon(opts ...Option) commonAdapter {
 
 	return c
 }
-

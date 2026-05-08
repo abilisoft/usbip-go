@@ -40,14 +40,14 @@ var errStatusRowZeroVHCIPorts = errors.New("status row parser: vhciPorts must be
 
 // Indexes into a split status-row line.
 const (
-	rowIdxHub     = 0
-	rowIdxPort    = 1
-	rowIdxStatus  = 2
-	rowIdxSpeed   = 3
-	rowIdxDevID = 4
+	rowIdxHub    = 0
+	rowIdxPort   = 1
+	rowIdxStatus = 2
+	rowIdxSpeed  = 3
+	rowIdxDevID  = 4
 	// column 5 is the sockfd; we never need it on the read path — the
 	// kernel owns the fd once attach succeeds, so we skip straight to 6.
-	rowIdxBusID = 6
+	rowIdxBusID   = 6
 	statusRadix10 = 10
 	statusRadix16 = 16
 	statusBits32  = 32
@@ -401,4 +401,3 @@ func (a *ImporterAdapter) ListPorts(ctx context.Context) ([]domain.Port, error) 
 
 	return ports, nil
 }
-

@@ -249,4 +249,3 @@ func awaitPortDetachedEvent(ctx context.Context, ch iter.Seq[usbip.Event], id do
 
 	return out, found
 }
-

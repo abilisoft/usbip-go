@@ -63,17 +63,17 @@ func bindFS(busID string) fstest.MapFS {
 	iface := busID + ":1.0"
 
 	return fstest.MapFS{
-		"sys/module/usbip_core":                               &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host":                               &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host":                      &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host/match_busid":          &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/bind":                 &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/unbind":               &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/rebind":               &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/devices/" + busID:                        &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/devices/" + iface:                        &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/usbip_core":                                &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/usbip_host":                                &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/bus/usb/drivers/usbip-host":                       &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/bus/usb/drivers/usbip-host/match_busid":           &fstest.MapFile{Data: []byte("")},
+		"sys/bus/usb/drivers/usbip-host/bind":                  &fstest.MapFile{Data: []byte("")},
+		"sys/bus/usb/drivers/usbip-host/unbind":                &fstest.MapFile{Data: []byte("")},
+		"sys/bus/usb/drivers/usbip-host/rebind":                &fstest.MapFile{Data: []byte("")},
+		"sys/bus/usb/devices/" + busID:                         &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/bus/usb/devices/" + iface:                         &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + iface + "/driver/driver_name": &fstest.MapFile{Data: []byte("usbhid\n")},
-		"sys/bus/usb/devices/" + iface + "/driver":            &fstest.MapFile{Data: []byte("usbhid\n")},
+		"sys/bus/usb/devices/" + iface + "/driver":             &fstest.MapFile{Data: []byte("usbhid\n")},
 	}
 }
 

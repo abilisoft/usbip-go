@@ -169,4 +169,3 @@ func loggerFromCtx(ctx context.Context) *slog.Logger {
 
 	return v
 }
-
