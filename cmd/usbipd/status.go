@@ -27,7 +27,7 @@ type statusSource interface {
 	BoundDevices(ctx context.Context) []usbip.Device
 	Sessions(ctx context.Context) []usbip.Session
 	Listening() listeningState
-	KernelModules(ctx context.Context) (map[string]string, error)
+	KernelModules(ctx context.Context) (map[string]usbip.ModuleState, error)
 	Drain(ctx context.Context) error
 }
 
@@ -43,14 +43,14 @@ type listeningState struct {
 // as a concrete struct (not map[string]any) so the compiler guards the
 // schema-v1 contract against drift (spec §7.7).
 type statusResponse struct {
-	Schema        string            `json:"schema"`
-	Version       string            `json:"version"`
-	Commit        string            `json:"commit"`
-	UptimeSec     int64             `json:"uptime_sec"`
-	Listening     listeningState    `json:"listening"`
-	BoundDevices  []boundDeviceJSON `json:"bound_devices"`
-	Sessions      []sessionJSON     `json:"sessions"`
-	KernelModules map[string]string `json:"kernel_modules"`
+	Schema        string                        `json:"schema"`
+	Version       string                        `json:"version"`
+	Commit        string                        `json:"commit"`
+	UptimeSec     int64                         `json:"uptime_sec"`
+	Listening     listeningState                `json:"listening"`
+	BoundDevices  []boundDeviceJSON             `json:"bound_devices"`
+	Sessions      []sessionJSON                 `json:"sessions"`
+	KernelModules map[string]usbip.ModuleState  `json:"kernel_modules"`
 }
 
 // boundDeviceJSON is the schema-v1 shape for a bound device row.

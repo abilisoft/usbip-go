@@ -3,11 +3,54 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/abilisoft/usbip-go/pkg/usbip"
 )
+
+// kernelModuleProbeTTL is the age beyond which statusExporter.KernelModules
+// re-invokes the underlying probe. Five seconds is a conservative
+// ceiling: long enough that a GET-flooded status endpoint doesn't
+// hammer /sys/module on every request (Finding 5), short enough that
+// an operator running `modprobe usbip_core` observes the change
+// without restarting the daemon.
+const kernelModuleProbeTTL = 5 * time.Second
+
+// kernelModuleProbeFn is the indirection through which statusExporter
+// queries the tri-state kernel-module map. Production wiring is
+// usbip.ProbeKernelModules; tests replace it to assert call counts and
+// drive the cache TTL deterministically without touching /sys.
+var (
+	kernelModuleProbeFn    = defaultKernelModuleProbe
+	kernelModuleProbeClock = time.Now
+	kernelModuleProbeMu    sync.RWMutex
+)
+
+// defaultKernelModuleProbe wraps usbip.ProbeKernelModules so the
+// package-level hook type stays a named function rather than
+// accidentally pinning the pkg/usbip symbol as a variable initialiser.
+func defaultKernelModuleProbe(ctx context.Context) (map[string]usbip.ModuleState, error) {
+	mods, err := usbip.ProbeKernelModules(ctx)
+	if err != nil {
+		return mods, fmt.Errorf("probe kernel modules: %w", err)
+	}
+
+	return mods, nil
+}
+
+// currentKernelModuleProbe returns the active probe + clock pair under
+// a read lock; tests swapping the hooks serialise with the production
+// reader via kernelModuleProbeMu.
+func currentKernelModuleProbe() (func(context.Context) (map[string]usbip.ModuleState, error), func() time.Time) {
+	kernelModuleProbeMu.RLock()
+	defer kernelModuleProbeMu.RUnlock()
+
+	return kernelModuleProbeFn, kernelModuleProbeClock
+}
 
 // statusExporter adapts *usbip.Exporter to the statusSource interface
 // consumed by serveStatus. It owns the listeningState bookkeeping so
@@ -26,6 +69,15 @@ type statusExporter struct {
 	// atomic.Pointer so tests that construct statusExporter directly
 	// can leave it unset without a nil dereference.
 	drain atomic.Pointer[func()]
+
+	// Kernel-module probe cache (Finding 5). kmMu serialises cache
+	// updates; kmValue/kmExpiry are accessed under the mutex. The
+	// cached map is returned by reference because ModuleState is a
+	// value type — operators reading the status JSON cannot mutate
+	// through the handle.
+	kmMu     sync.Mutex
+	kmValue  map[string]usbip.ModuleState
+	kmExpiry time.Time
 }
 
 // newStatusExporter wires an Exporter + listener into a statusSource.
@@ -83,17 +135,40 @@ func (s *statusExporter) Listening() listeningState {
 	}
 }
 
-// KernelModules reports the §11.5.4 triple via pkg/usbip.ProbeKernelModules.
-// Errors are wrapped with the callsite tag so wrapcheck is satisfied
-// and operators reading logs can distinguish probe failures from other
-// status-handler diagnostics.
-func (s *statusExporter) KernelModules(ctx context.Context) (map[string]string, error) {
-	mods, err := usbip.ProbeKernelModules(ctx)
-	if err != nil {
-		return mods, fmt.Errorf("probe kernel modules: %w", err)
+// KernelModules reports the §11.5.4 triple via usbip.ProbeKernelModules
+// with a kernelModuleProbeTTL cache in front of the probe (Finding 5).
+// A cache hit avoids a sysfs round-trip and the slog warn that EACCES
+// would otherwise log on every poll. Failures from the underlying
+// probe bypass the cache so the next call retries.
+func (s *statusExporter) KernelModules(ctx context.Context) (map[string]usbip.ModuleState, error) {
+	s.kmMu.Lock()
+	defer s.kmMu.Unlock()
+
+	probeFn, clockFn := currentKernelModuleProbe()
+
+	now := clockFn()
+	if s.kmValue != nil && now.Before(s.kmExpiry) {
+		return copyKernelModuleMap(s.kmValue), nil
 	}
 
-	return mods, nil
+	mods, err := probeFn(ctx)
+	if err != nil {
+		return mods, err
+	}
+
+	s.kmValue = mods
+	s.kmExpiry = now.Add(kernelModuleProbeTTL)
+
+	return copyKernelModuleMap(mods), nil
+}
+
+// copyKernelModuleMap returns a shallow copy of the cached map so
+// callers mutating the returned value don't corrupt the cache.
+func copyKernelModuleMap(src map[string]usbip.ModuleState) map[string]usbip.ModuleState {
+	out := make(map[string]usbip.ModuleState, len(src))
+	maps.Copy(out, src)
+
+	return out
 }
 
 // Drain flips accepting=false, asks the Exporter to shut down, and
