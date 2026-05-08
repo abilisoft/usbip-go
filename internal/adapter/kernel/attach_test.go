@@ -131,20 +131,25 @@ func (c *closeCountingConn) SyscallConn() (syscall.RawConn, error) {
 }
 
 // attachFS returns the minimum MapFS AttachRemote + findFreePort need:
-// modules present, a status file describing one free hs port.
+// modules present, a status file describing one free hs port, and the
+// usb* children discoverTopology requires (one HS + one SS sibling per
+// controller). nports=8 on a single controller implies HCPorts=4:
+// HS rows are flat 0..3 and SS rows are flat 4..7.
 func attachFS() fstest.MapFS {
 	return fstest.MapFS{
-		"sys/module/usbip_core": &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/vhci_hcd":   &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/devices/platform/vhci_hcd.0": &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/usbip_core":                  &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/module/vhci_hcd":                    &fstest.MapFile{Mode: fs.ModeDir},
+		"sys/devices/platform/vhci_hcd.0":        &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/devices/platform/vhci_hcd.0/nports": &fstest.MapFile{Data: []byte("8\n")},
 		"sys/devices/platform/vhci_hcd.0/status": &fstest.MapFile{Data: []byte(
 			"hub port sta spd dev      sockfd local_busid\n" +
 				"hs  0000 000 000 00000000 000000 0-0\n" +
 				"hs  0001 000 000 00000000 000000 0-0\n" +
-				"ss  0002 000 000 00000000 000000 0-0\n" +
-				"ss  0003 000 000 00000000 000000 0-0\n",
+				"ss  0004 000 000 00000000 000000 0-0\n" +
+				"ss  0005 000 000 00000000 000000 0-0\n",
 		)},
+		"sys/devices/platform/vhci_hcd.0/usb1/busnum": &fstest.MapFile{Data: []byte("1\n")},
+		"sys/devices/platform/vhci_hcd.0/usb2/busnum": &fstest.MapFile{Data: []byte("2\n")},
 	}
 }
 
@@ -234,15 +239,16 @@ func TestAttachRemote_NoFreePortDoesNotCloseConn(t *testing.T) {
 
 	wrapped := &closeCountingConn{Conn: left}
 
-	// All hs + ss ports busy (status 3 = USED).
+	// All hs + ss ports busy (status 3 = USED). HS flat 0..3 and SS
+	// flat 4..7 under single-controller nports=8 (HCPorts=4).
 	mfs := attachFS()
 
 	mfs["sys/devices/platform/vhci_hcd.0/status"] = &fstest.MapFile{Data: []byte(
 		"hub port sta spd dev      sockfd local_busid\n" +
 			"hs  0000 003 003 01020304 000005 1-1\n" +
 			"hs  0001 003 003 01020304 000005 1-1\n" +
-			"ss  0002 003 005 01020304 000005 1-1\n" +
-			"ss  0003 003 005 01020304 000005 1-1\n",
+			"ss  0004 003 005 01020304 000005 1-1\n" +
+			"ss  0005 003 005 01020304 000005 1-1\n",
 	)}
 
 	a, err := kernel.NewImporterAdapter(
@@ -403,10 +409,12 @@ func TestAttachRemote_SerializedUnderContention(t *testing.T) {
 
 	mfs := &mutableStatusFS{
 		inner: fstest.MapFS{
-			"sys/module/usbip_core":                  &fstest.MapFile{Mode: fs.ModeDir},
-			"sys/module/vhci_hcd":                    &fstest.MapFile{Mode: fs.ModeDir},
-			"sys/devices/platform/vhci_hcd.0":        &fstest.MapFile{Mode: fs.ModeDir},
-			"sys/devices/platform/vhci_hcd.0/nports": &fstest.MapFile{Data: fmt.Appendf(nil, "%d\n", testNPorts)},
+			"sys/module/usbip_core":                       &fstest.MapFile{Mode: fs.ModeDir},
+			"sys/module/vhci_hcd":                         &fstest.MapFile{Mode: fs.ModeDir},
+			"sys/devices/platform/vhci_hcd.0":             &fstest.MapFile{Mode: fs.ModeDir},
+			"sys/devices/platform/vhci_hcd.0/nports":      &fstest.MapFile{Data: fmt.Appendf(nil, "%d\n", testNPorts)},
+			"sys/devices/platform/vhci_hcd.0/usb1/busnum": &fstest.MapFile{Data: []byte("1\n")},
+			"sys/devices/platform/vhci_hcd.0/usb2/busnum": &fstest.MapFile{Data: []byte("2\n")},
 		},
 		state: state,
 	}

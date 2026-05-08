@@ -40,17 +40,34 @@ func statusFS(status string, statusN map[int]string, nports int) fstest.MapFS {
 	// Seed usb* children: one HS + one SS per controller. Bus numbers
 	// are allocated 2*idx+1 (HS) and 2*idx+2 (SS); controller count is
 	// the number of status files present (primary + len(statusN)).
-	ctrlCount := len(statusN) + 1
-	for idx := range ctrlCount {
-		hsBus := 2*idx + 1
-		ssBus := 2*idx + 2
-		m[fmt.Sprintf("sys/devices/platform/vhci_hcd.%d/usb%d/busnum", idx, hsBus)] =
-			&fstest.MapFile{Data: []byte(itoaBytes(hsBus))}
-		m[fmt.Sprintf("sys/devices/platform/vhci_hcd.%d/usb%d/busnum", idx, ssBus)] =
-			&fstest.MapFile{Data: []byte(itoaBytes(ssBus))}
-	}
+	seedUSBChildren(m, len(statusN)+1)
 
 	return m
+}
+
+// seedUSBChildren populates m with the minimum vhci_hcd.<N>/usb*/busnum
+// files discoverTopology expects: exactly two usb children per
+// controller (rank 0 → HS, rank 1 → SS), with bus numbers allocated
+// deterministically so the Busmap is predictable across tests.
+func seedUSBChildren(m fstest.MapFS, ctrlCount int) {
+	for idx := range ctrlCount {
+		seedUSBChildPair(m, idx)
+	}
+}
+
+// seedUSBChildPair writes the HS + SS sibling busnum files for a single
+// vhci_hcd.<idx> controller. Split out to keep seedUSBChildren below the
+// wsl_v5 whitespace lint's tolerance for contiguous map assigns.
+func seedUSBChildPair(m fstest.MapFS, idx int) {
+	hsBus := 2*idx + 1
+	hsPath := fmt.Sprintf("sys/devices/platform/vhci_hcd.%d/usb%d/busnum", idx, hsBus)
+
+	m[hsPath] = &fstest.MapFile{Data: []byte(itoaBytes(hsBus))}
+
+	ssBus := 2*idx + 2
+	ssPath := fmt.Sprintf("sys/devices/platform/vhci_hcd.%d/usb%d/busnum", idx, ssBus)
+
+	m[ssPath] = &fstest.MapFile{Data: []byte(itoaBytes(ssBus))}
 }
 
 // itoaBytes avoids importing strconv in a function used inside a map

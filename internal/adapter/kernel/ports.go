@@ -5,6 +5,7 @@ package kernel
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"strconv"
@@ -13,15 +14,18 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
-// vhciPortsPerController is the upstream VHCI_PORTS (aka VHCI_HC_PORTS)
-// constant — the number of port slots exposed by a single vhci_hcd
-// controller. Used to compute the number of status.N files we must
-// parse beyond the primary status file.
-const vhciPortsPerController = 16
-
 // statusFieldCount is the number of whitespace-separated fields in a
 // vhci status row: hub, port, sta, spd, dev, sockfd, local_busid.
 const statusFieldCount = 7
+
+// errStatusRowControllerMismatch surfaces when a parsed row's declared
+// flat port does not belong to the controller block of the status file
+// it came from (row.port / VHCIPorts != controllerIdx). The kernel
+// writes status.<N> with flat ports confined to the [N*VHCIPorts,
+// (N+1)*VHCIPorts) window; a row outside that window means the sysfs
+// state is inconsistent and any downstream attach/detach math keyed on
+// it would be wrong.
+var errStatusRowControllerMismatch = errors.New("status row's flat port does not belong to its controller file")
 
 // Indexes into a split status-row line.
 const (
@@ -51,19 +55,25 @@ type parsedPort struct {
 }
 
 // readStatusRows parses every status + status.N file into parsedPort
-// rows, skipping malformed rows with a slog.Warn signal. Returns the
-// slice even when a row is malformed; callers that care about strict
-// validation should inspect the warn log.
+// rows. Controller count and per-controller VHCI_PORTS width come from
+// the cached topology snapshot — the kernel already writes the fully
+// flat port identifier in each row, so the parser must trust that
+// value verbatim and use VHCIPorts only to validate that a row
+// belongs to the controller file it was read from.
+//
+// Malformed rows surface a slog.Warn signal and are skipped; a row
+// whose flat port falls outside its controller's window fails the
+// whole call — that is a kernel-state inconsistency the caller must
+// see, not a tokenisation glitch the caller can ignore.
 func (a *commonAdapter) readStatusRows() ([]parsedPort, error) {
-	nports, err := ReadUint(a.fs, path.Join(SysfsVHCIHCD, SysfsVHCINPorts))
+	topo, err := a.loadTopology()
 	if err != nil {
 		return nil, err
 	}
 
-	controllers := controllerCount(nports)
 	rows := make([]parsedPort, 0)
 
-	for i := range controllers {
+	for i := range topo.NControllers {
 		fileName := statusFileName(i)
 
 		raw, rerr := readFileBytes(a.fs, path.Join(SysfsVHCIHCD, fileName))
@@ -71,32 +81,15 @@ func (a *commonAdapter) readStatusRows() ([]parsedPort, error) {
 			return nil, rerr
 		}
 
-		parsed := a.parseStatusFile(string(raw), fileName, i)
+		parsed, perr := a.parseStatusFile(string(raw), fileName, i, topo.VHCIPorts)
+		if perr != nil {
+			return nil, perr
+		}
 
 		rows = append(rows, parsed...)
 	}
 
 	return rows, nil
-}
-
-// controllerCount returns the number of status files to read. nports
-// is the total port count across all controllers; divided by
-// vhciPortsPerController yields the controller count, rounded up.
-func controllerCount(nports uint32) uint32 {
-	if nports == 0 {
-		return 1
-	}
-
-	c := nports / vhciPortsPerController
-	if nports%vhciPortsPerController != 0 {
-		c++
-	}
-
-	if c == 0 {
-		return 1
-	}
-
-	return c
 }
 
 // statusFileName maps a controller index to the status file's
@@ -111,9 +104,12 @@ func statusFileName(idx uint32) string {
 }
 
 // parseStatusFile tokenises every line of a status file. Malformed
-// rows surface a warn log; other rows flow through. controllerIdx is
-// used for the flat port renumbering across status.N files.
-func (a *commonAdapter) parseStatusFile(body, source string, controllerIdx uint32) []parsedPort {
+// rows surface a warn log and are skipped; a row whose flat port does
+// not belong to controllerIdx's block ([controllerIdx*vhciPorts,
+// (controllerIdx+1)*vhciPorts)) is a kernel-state inconsistency and
+// fails the whole call. vhciPorts is the per-controller width
+// (VHCI_PORTS, i.e. HCPorts*2) sourced from the cached topology.
+func (a *commonAdapter) parseStatusFile(body, source string, controllerIdx, vhciPorts uint32) ([]parsedPort, error) {
 	out := make([]parsedPort, 0)
 
 	scanner := bufio.NewScanner(strings.NewReader(body))
@@ -123,7 +119,7 @@ func (a *commonAdapter) parseStatusFile(body, source string, controllerIdx uint3
 			continue
 		}
 
-		row, ok := parseStatusRow(line, controllerIdx)
+		row, ok := parseStatusRow(line)
 		if !ok {
 			a.logger.Warn("skip malformed vhci status row",
 				"source", source, "line", line)
@@ -131,10 +127,15 @@ func (a *commonAdapter) parseStatusFile(body, source string, controllerIdx uint3
 			continue
 		}
 
+		if uint32(row.port)/vhciPorts != controllerIdx {
+			return nil, fmt.Errorf("%w: source=%s port=%d controllerIdx=%d vhciPorts=%d",
+				errStatusRowControllerMismatch, source, uint32(row.port), controllerIdx, vhciPorts)
+		}
+
 		out = append(out, row)
 	}
 
-	return out
+	return out, nil
 }
 
 // skipStatusLine reports whether line should be ignored during row
@@ -158,7 +159,13 @@ func skipStatusLine(line string) bool {
 
 // parseStatusRow applies the sscanf format "%s  %04u %03u %03u %08x %06u %s"
 // to line. Returns ok=false on any tokenisation or parse failure.
-func parseStatusRow(line string, controllerIdx uint32) (parsedPort, bool) {
+//
+// The port column in a vhci status row is already the flat port
+// identifier (see status_show_vhci in drivers/usb/usbip/vhci_sysfs.c:
+// flat = pdev_nr*VHCI_PORTS + hubOffset + rhport). The parser therefore
+// emits the value verbatim and leaves cross-file range validation to
+// parseStatusFile.
+func parseStatusRow(line string) (parsedPort, bool) {
 	fields := strings.Fields(line)
 	if len(fields) != statusFieldCount {
 		return parsedPort{}, false
@@ -176,7 +183,7 @@ func parseStatusRow(line string, controllerIdx uint32) (parsedPort, bool) {
 
 	return parsedPort{
 		hub:    hub,
-		port:   domain.PortID(nums.port + controllerIdx*vhciPortsPerController),
+		port:   domain.PortID(nums.port),
 		status: domain.Status(nums.sta),
 		speed:  domain.Speed(nums.spd),
 		devID:  domain.DeviceID(nums.devID),
