@@ -239,8 +239,16 @@ func serveStatus(
 		ReadHeaderTimeout: statusReadHeaderTimeout,
 	}
 
+	// closeCtx is canceled when serveStatus returns for any reason, not
+	// only on ctx cancellation. Without this scope, the watcher goroutine
+	// leaks if server.Serve returns early due to a non-context error —
+	// it would stay parked on ctx.Done until the wider daemon context
+	// is eventually canceled.
+	closeCtx, closeCancel := context.WithCancel(ctx)
+	defer closeCancel()
+
 	go func() {
-		<-ctx.Done()
+		<-closeCtx.Done()
 		// Force-close the listener; http.Serve returns with the resulting
 		// net.ErrClosed and shuts cleanly.
 		_ = lis.Close()
