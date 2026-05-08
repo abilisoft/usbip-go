@@ -266,6 +266,22 @@ func (e *Exporter) serveImport(
 		return
 	}
 
+	e.runRegisteredSession(ctx, conn, busID, handle, handshakeStart)
+}
+
+// runRegisteredSession executes the post-registration session lifecycle:
+// emit SessionStarted, open the KernelEvents subscription BEFORE handing
+// the fd to the kernel (pass-2 RANK 1), call ExportOnConn, observe the
+// handshake duration (pass-3 RANK 5), then park on waitForSessionEnd.
+// Extracted from serveImport to keep the parent function below the
+// funlen cap while preserving every ordering invariant documented above.
+func (e *Exporter) runRegisteredSession(
+	ctx context.Context,
+	conn net.Conn,
+	busID domain.BusID,
+	handle *sessionHandle,
+	handshakeStart time.Time,
+) {
 	// Successful registration: count the accept BEFORE ExportOnConn
 	// because the kernel call may block for the session's entire
 	// lifetime. Deferring the increment until ExportOnConn returns
@@ -312,7 +328,7 @@ func (e *Exporter) serveImport(
 
 	defer cancelEvents()
 
-	err = e.kernel.ExportOnConn(ctx, conn, busID)
+	err := e.kernel.ExportOnConn(ctx, conn, busID)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			e.logger.Warn("exporter export on conn",

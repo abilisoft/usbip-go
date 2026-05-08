@@ -376,7 +376,9 @@ func TestSubscribe_UsbipHostEmitsDeviceBindEvents(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			a, sock := newAdapterWithFakeSocket(t)
+
 			defer func() { _ = sock.Close() }()
 
 			ctx, cancel := context.WithCancel(t.Context())
@@ -455,7 +457,9 @@ func TestSubscribe_DottedBusIDProducesEvent(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			a, sock := newAdapterWithFakeSocket(t)
+
 			defer func() { _ = sock.Close() }()
 
 			ctx, cancel := context.WithCancel(t.Context())

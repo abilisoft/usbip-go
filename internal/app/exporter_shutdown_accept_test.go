@@ -2,7 +2,6 @@ package app_test
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net"
 	"testing"
@@ -70,9 +69,8 @@ func TestExporterShutdown_RejectsNewConnections(t *testing.T) {
 
 	_, dialErr := lis.dial(dialCtx)
 	require.Error(t, dialErr, "dial after Shutdown must fail — listener must be closed")
-	require.True(t,
-		errors.Is(dialErr, net.ErrClosed),
-		"dial after Shutdown must report net.ErrClosed, got %v", dialErr)
+	require.ErrorIs(t, dialErr, net.ErrClosed,
+		"dial after Shutdown must report net.ErrClosed")
 
 	// Serve must return promptly: Shutdown closed the listener so
 	// acceptLoop unwound via acceptShouldStop. Pre-fix Serve parks on
