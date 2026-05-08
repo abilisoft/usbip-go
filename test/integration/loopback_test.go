@@ -14,14 +14,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// loopbackIntegrationBusIDEnv names a real USB bus id (e.g. "1-1.2")
-// on the runner that tests may bind via usbip-host. When unset, the
-// harness falls back to the vudc device it created — which our current
-// ExporterKernel does NOT enumerate (vudc devices live under
-// /sys/devices/platform, not /sys/bus/usb/devices). The env knob lets
-// operators point the suite at a physical USB device without editing
-// source.
-const loopbackIntegrationBusIDEnv = "USBIPGO_INTEGRATION_BUSID"
+// loopbackIntegrationBusIDEnv aliases integration.RealBusIDEnv so the
+// test file keeps its diagnostic prose; the harness owns the actual env
+// name and the centralised skip helpers (RequireRealBusID,
+// RequireBindable) so no per-test skip strings drift.
+const loopbackIntegrationBusIDEnv = integration.RealBusIDEnv
 
 // loopbackExporterAddr is the loopback address the integration exporter
 // binds to. Port 0 lets the kernel pick a free port so parallel tests
@@ -75,19 +72,7 @@ func TestLoopbackAttachDetach(t *testing.T) {
 		_ = exp.Shutdown(sctx)
 	})
 
-	err = exp.Bind(ctx, busID)
-	if err != nil {
-		t.Skipf("loopback bind skipped (busid=%q): %v — set %s to a real USB busid for full coverage",
-			busID, err, loopbackIntegrationBusIDEnv)
-	}
-
-	t.Cleanup(func() {
-		uctx, ucancel := context.WithTimeout(context.Background(), 2*time.Second)
-
-		defer ucancel()
-
-		_ = exp.Unbind(uctx, busID)
-	})
+	integration.RequireBindable(t, ctx, exp, busID)
 
 	lis, addr := startLoopbackListener(t, exp)
 

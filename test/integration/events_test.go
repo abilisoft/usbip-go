@@ -90,13 +90,7 @@ func TestEventsDeviceBoundUnbound(t *testing.T) {
 func TestEventsPortAttachedDetached(t *testing.T) {
 	integration.SetupVUDC(t)
 
-	rawBusID := os.Getenv(loopbackIntegrationBusIDEnv)
-	if rawBusID == "" {
-		t.Skipf("%s unset: port attach/detach events require a real usbip-host busid",
-			loopbackIntegrationBusIDEnv)
-	}
-
-	busID := domain.BusID(rawBusID)
+	busID := integration.RequireRealBusID(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), eventCollectDeadline)
 	defer cancel()
@@ -104,17 +98,13 @@ func TestEventsPortAttachedDetached(t *testing.T) {
 	exp, err := usbip.NewExporter()
 	require.NoError(t, err)
 
-	err = exp.Bind(ctx, busID)
-	if err != nil {
-		t.Skipf("bind %q skipped: %v", busID, err)
-	}
+	integration.RequireBindable(t, ctx, exp, busID)
 
 	t.Cleanup(func() {
 		uctx, ucancel := context.WithTimeout(context.Background(), 2*time.Second)
 
 		defer ucancel()
 
-		_ = exp.Unbind(uctx, busID)
 		_ = exp.Shutdown(uctx)
 	})
 
