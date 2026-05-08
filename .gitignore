@@ -13,6 +13,10 @@
 *.log
 .task/
 .test-tmp-*/
+# go test creates .t-* / TempDir-* sandbox directories under the
+# package being tested when t.TempDir / t.MkdirTemp opt out of $TMPDIR.
+.t-*/
+TempDir-*/
 
 # `go build ./cmd/*` run without `-o` drops binaries at the repo root.
 /usbip-go

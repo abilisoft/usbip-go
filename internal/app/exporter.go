@@ -128,26 +128,40 @@ func (h *sessionHandle) cancel() {
 	h.closeOnce.Do(func() { close(h.done) })
 }
 
-// tryHandoff atomically marks the session as kernel-owned, returning
-// true if no Shutdown has marked the handle cancelled yet. A false
-// return means Shutdown beat the handler and the caller MUST NOT
-// invoke ExportOnConn — the session never reached the kernel.
-func (h *sessionHandle) tryHandoff() bool {
+// runHandoff invokes fn (the kernel ExportOnConn write) only if no
+// Shutdown has yet cancelled this handle. The handoffMu is held only
+// while flipping the cancelled / handedOff flags, NOT during fn —
+// holding it across a wedgeable kernel sysfs call would deadlock a
+// concurrent signalCancel and prevent Shutdown from returning.
+//
+// The fundamental race that remains: a Shutdown firing AFTER tryHandoff
+// flips handedOff=true but BEFORE fn actually completes can schedule
+// Disconnect against a not-yet-existent kernel export. The kernel
+// cleanup path (force-close in waitSessionsBounded → conn close → kernel
+// drops the export) is the safety net for that orphan-state window;
+// a tighter synchronisation isn't possible without making Shutdown
+// block on potentially-wedged ExportOnConn calls.
+//
+// Returns the fn's error; ran=false means Shutdown won the cancel
+// race and fn was not called.
+func (h *sessionHandle) runHandoff(fn func() error) (ran bool, err error) {
 	h.handoffMu.Lock()
-	defer h.handoffMu.Unlock()
 
 	if h.cancelled {
-		return false
+		h.handoffMu.Unlock()
+
+		return false, nil
 	}
 
 	h.handedOff = true
+	h.handoffMu.Unlock()
 
-	return true
+	return true, fn()
 }
 
 // signalCancel atomically marks the handle cancelled and reports
-// whether ExportOnConn already completed (handedOff). Shutdown uses
-// the return value to decide whether scheduling Disconnect is
+// whether ExportOnConn was at least started (handedOff). Shutdown
+// uses the return value to decide whether scheduling Disconnect is
 // necessary: if handedOff is false the kernel was never given the
 // fd, so Disconnect would write to a non-existent sysfs entry.
 func (h *sessionHandle) signalCancel() (handedOff bool) {
@@ -462,9 +476,21 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 		for _, h := range e.sessions {
 			handles = append(handles, h)
 		}
+
+		// Allocate disconnectDone UNDER e.mu so a concurrent repeat
+		// Shutdown that observes e.shutdown=true and unlocks before
+		// reading e.disconnectDone is guaranteed to see the non-nil
+		// channel (memory ordering is established by the mutex).
+		e.disconnectDoneOnce.Do(func() {
+			e.disconnectDone = make(chan struct{})
+		})
 	}
 
+	disconnectDone := e.disconnectDone
+
 	e.mu.Unlock()
+
+	_ = disconnectDone // captured under lock; passed to waitDisconnectBounded below.
 
 	if firstShutdown && listener != nil {
 		closeErr := listener.Close()
@@ -496,10 +522,6 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 	// drains) lets concurrent / sequential repeat Shutdown calls all
 	// wait on the same completion event.
 	if firstShutdown {
-		e.disconnectDoneOnce.Do(func() {
-			e.disconnectDone = make(chan struct{})
-		})
-
 		for _, h := range handles {
 			handedOff := h.signalCancel()
 
@@ -550,7 +572,7 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 	// or sequential repeat Shutdown calls all wait on the same channel
 	// without spawning a fresh wg.Wait helper that would race the
 	// drainCtx.
-	disconnectErr := e.waitDisconnectBounded(drainCtx)
+	disconnectErr := e.waitDisconnectBounded(drainCtx, disconnectDone)
 
 	// Tear down WatchSessions subscribers last so consumers see every
 	// SessionEnded event published during drain before the channel
@@ -582,8 +604,7 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 // (spawned in the firstShutdown branch) leaks alongside the wedged
 // Disconnect — the same accepted trade-off documented in
 // waitSessionsBounded.
-func (e *Exporter) waitDisconnectBounded(drainCtx context.Context) error {
-	done := e.disconnectDone
+func (e *Exporter) waitDisconnectBounded(drainCtx context.Context, done <-chan struct{}) error {
 	if done == nil {
 		return nil
 	}
