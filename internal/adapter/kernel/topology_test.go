@@ -204,6 +204,35 @@ func TestTopology_FlatPort(t *testing.T) {
 		topo.FlatPort(kernel.VHCILocation{ControllerIdx: 1, Hub: kernel.HubTypeSS}, 1))
 }
 
+// TestDiscoverTopology_ClassifyHubBySiblingOrder pins BUG 1: when the
+// speed attribute is absent or empty, classification must fall back to
+// sibling order (lower busnum = HS, higher busnum = SS) because
+// vhci_hcd_probe registers the HS root hub before the SS root hub for
+// every controller. The pre-fix implementation returned HubTypeHS
+// unconditionally in the missing-speed path, which silently collapsed
+// both hubs to HS and would corrupt every downstream flat-port
+// calculation.
+func TestDiscoverTopology_ClassifyHubBySiblingOrder(t *testing.T) {
+	t.Parallel()
+
+	mfs := topoFS(map[string]string{
+		"/sys/devices/platform/vhci_hcd.0/nports":      "16\n",
+		"/sys/devices/platform/vhci_hcd.0/status":      "",
+		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
+		"/sys/devices/platform/vhci_hcd.0/usb2/speed":  "",
+		"/sys/devices/platform/vhci_hcd.0/usb3/busnum": "3\n",
+		"/sys/devices/platform/vhci_hcd.0/usb3/speed":  "",
+	})
+
+	topo, err := kernel.DiscoverTopologyForTest(mfs)
+	require.NoError(t, err)
+	require.Len(t, topo.BusMap, 2)
+	require.Equal(t, kernel.VHCILocation{ControllerIdx: 0, Hub: kernel.HubTypeHS}, topo.BusMap[2],
+		"lower busnum within a controller must classify as HS regardless of missing speed")
+	require.Equal(t, kernel.VHCILocation{ControllerIdx: 0, Hub: kernel.HubTypeSS}, topo.BusMap[3],
+		"higher busnum within a controller must classify as SS regardless of missing speed")
+}
+
 // TestImporterAdapter_LoadTopology confirms the importer adapter
 // exposes a cached topology post-construction. Task 2 and later consume
 // this cached value rather than re-reading sysfs on every call.
