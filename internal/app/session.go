@@ -73,6 +73,8 @@ func (e *Exporter) handleConn(ctx context.Context, conn net.Conn) {
 		}
 	}()
 
+	handshakeStart := e.clock.Now()
+
 	stopTimeout := e.armHandshakeTimeout(closer)
 	defer stopTimeout()
 
@@ -80,6 +82,7 @@ func (e *Exporter) handleConn(ctx context.Context, conn net.Conn) {
 
 	_, op, _, err := e.codec.DecodeHeader(reader)
 	if err != nil {
+		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
 		e.logger.Debug("exporter decode header",
 			slog.Any("err", err))
 
@@ -94,16 +97,26 @@ func (e *Exporter) handleConn(ctx context.Context, conn net.Conn) {
 	case wire.OpReqDevlist:
 		stopTimeout()
 		e.serveDevlist(ctx, reader, conn)
+		e.metrics.ExporterHandshakeDuration(
+			HandshakeOpDevlist,
+			e.clock.Now().Sub(handshakeStart).Seconds(),
+		)
 	case wire.OpReqImport:
 		handedOff = e.serveImport(ctx, reader, conn, stopTimeout)
+		e.metrics.ExporterHandshakeDuration(
+			HandshakeOpImport,
+			e.clock.Now().Sub(handshakeStart).Seconds(),
+		)
 	case wire.OpRepDevlist, wire.OpRepImport:
 		stopTimeout()
+		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
 		// Reply opcodes arriving on an accepted connection indicate a
 		// misbehaving peer (or a reversed-role misconfiguration).
 		e.logger.Debug("exporter received reply opcode on accept side",
 			slog.Any("opcode", op))
 	default:
 		stopTimeout()
+		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
 		e.logger.Debug("exporter unexpected opcode",
 			slog.Any("opcode", op))
 	}
@@ -196,6 +209,7 @@ func (e *Exporter) serveImport(
 	stopTimeout()
 
 	if err != nil {
+		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
 		e.logger.Warn("exporter decode import request",
 			slog.Any("err", err))
 
@@ -204,6 +218,7 @@ func (e *Exporter) serveImport(
 
 	sess, err := e.buildSession(conn, busID)
 	if err != nil {
+		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
 		e.logger.Warn("exporter build session",
 			slog.Any("err", err))
 
@@ -214,6 +229,7 @@ func (e *Exporter) serveImport(
 
 	handle, err := e.registerSession(sess, peerKey, conn)
 	if err != nil {
+		e.metrics.ExporterSessionAccepted(OutcomeRejectedCap)
 		e.logger.Warn("exporter session declined",
 			slog.Any("busid", busID),
 			slog.String("peer", peerKey),
@@ -221,6 +237,13 @@ func (e *Exporter) serveImport(
 
 		return false
 	}
+
+	// Successful registration: count the accept BEFORE ExportOnConn
+	// because the kernel call may block for the session's entire lifetime.
+	// Deferring the increment until ExportOnConn returns would hide live
+	// sessions from the accepted_total counter.
+	e.metrics.ExporterSessionAccepted(OutcomeHandshakeOK)
+	e.updateSessionsActiveGauge()
 
 	// Publish SessionStarted AFTER register (under its own lock) and
 	// BEFORE ExportOnConn blocks. Using a defer for SessionEnded binds
@@ -240,10 +263,41 @@ func (e *Exporter) serveImport(
 				slog.Any("err", err))
 		}
 
+		e.metrics.ExporterDisconnect(classifyDisconnectReason(err))
+
 		return false
 	}
 
+	e.metrics.ExporterDisconnect(DisconnectReasonGraceful)
+
 	return true
+}
+
+// classifyDisconnectReason maps an ExportOnConn terminator onto the
+// §11.5.5 disconnect_total reason label.
+func classifyDisconnectReason(err error) DisconnectReason {
+	if err == nil {
+		return DisconnectReasonGraceful
+	}
+
+	if errors.Is(err, context.Canceled) {
+		return DisconnectReasonShutdown
+	}
+
+	return DisconnectReasonKernelError
+}
+
+// updateSessionsActiveGauge snapshots the current session-map size and
+// pushes it to usbip_exporter_sessions_active. Called on every
+// transition that moves the count.
+func (e *Exporter) updateSessionsActiveGauge() {
+	e.mu.RLock()
+
+	n := len(e.sessions)
+
+	e.mu.RUnlock()
+
+	e.metrics.ExporterSessionsActive(n)
 }
 
 // endSession unregisters the session and publishes a SessionEnded

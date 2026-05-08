@@ -293,11 +293,14 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 		i.fireOnReconnect(p.opts.OnReconnect, attempt, lastErr)
 
 		if !i.waitBackoff(ctx, p, attempt) {
+			i.metrics.ImporterReconnectAttempt(ReconnectOutcomeCanceled)
+
 			return
 		}
 
 		newPort, err := i.Attach(ctx, p.endpoint, p.busID, p.opts)
 		if err == nil {
+			i.metrics.ImporterReconnectAttempt(ReconnectOutcomeOK)
 			i.removeHandle(p.portID, p.handle)
 			i.logger.Info("reconnect succeeded",
 				slog.Any("old_port_id", p.portID),
@@ -312,8 +315,12 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 		lastErr = err
 
 		if errors.Is(err, ErrImporterClosed) {
+			i.metrics.ImporterReconnectAttempt(ReconnectOutcomeCanceled)
+
 			return
 		}
+
+		i.metrics.ImporterReconnectAttempt(ReconnectOutcomeBackoff)
 
 		i.logger.Warn("reconnect attempt failed",
 			slog.Any("port_id", p.portID),
@@ -323,6 +330,7 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 		)
 	}
 
+	i.metrics.ImporterReconnectAttempt(ReconnectOutcomeExhausted)
 	i.removeHandle(p.portID, p.handle)
 	i.logger.Warn("reconnect giving up after max attempts",
 		slog.Any("port_id", p.portID),
