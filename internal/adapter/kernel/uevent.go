@@ -345,19 +345,13 @@ func (d *eventDispatcher) run() {
 		default:
 		}
 
-		payload, err := d.sock.Receive()
-		if err != nil {
-			if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) {
-				// SO_RCVTIMEO woke us up. Loop back so the top-of-
-				// loop stop check has a chance to fire; then re-enter
-				// Receive. No event was lost — the timeout fires only
-				// when the socket queue is empty.
-				continue
-			}
-
-			d.handleReceiveErr(err)
-
+		payload, keepRunning := d.receiveOne()
+		if !keepRunning {
 			return
+		}
+
+		if payload == nil {
+			continue
 		}
 
 		fields := parseUeventFields(payload)
@@ -379,6 +373,30 @@ func (d *eventDispatcher) handleReceiveErr(err error) {
 	}
 
 	d.logger.warn("netlink receive error", "err", err)
+}
+
+// receiveOne pulls one uevent payload from the netlink socket. It
+// returns (payload, true) for a usable payload, (nil, true) for the
+// benign SO_RCVTIMEO wake that asks run()'s loop to re-check the stop
+// channel, and (nil, false) when the socket errored beyond recovery
+// (EOF, closed fd, etc.) — the caller must exit the run loop in that
+// last case. Extracting the branching keeps run()'s cognitive
+// complexity under the linter cap.
+func (d *eventDispatcher) receiveOne() ([]byte, bool) {
+	payload, err := d.sock.Receive()
+	if err == nil {
+		return payload, true
+	}
+
+	if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) {
+		// SO_RCVTIMEO woke us up. No event was lost — the timeout
+		// fires only when the socket queue is empty.
+		return nil, true
+	}
+
+	d.handleReceiveErr(err)
+
+	return nil, false
 }
 
 // broadcast fan-outs ev to every subscriber. A full buffer triggers a
