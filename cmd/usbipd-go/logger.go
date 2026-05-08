@@ -13,12 +13,12 @@ import (
 	"golang.org/x/term"
 )
 
-// traceLevel matches cmd/usbip's convention — slog.LevelDebug-4 so
-// trace sits below debug. cmd/usbip owns its own constant so the two
+// traceLevel matches cmd/usbip-go's convention — slog.LevelDebug-4 so
+// trace sits below debug. cmd/usbip-go owns its own constant so the two
 // binaries can diverge independently; the numeric value is identical.
 const traceLevel = slog.LevelDebug - 4
 
-// errInvalidLogLevel and errInvalidLogFormat mirror cmd/usbip's
+// errInvalidLogLevel and errInvalidLogFormat mirror cmd/usbip-go's
 // sentinels for the same flag values. Duplicated rather than shared
 // because both binaries treat the error class as part of their own
 // observable CLI contract.
@@ -28,7 +28,7 @@ var (
 )
 
 // buildLogger constructs the daemon's structured logger from cfg. The
-// handler selection mirrors cmd/usbip: auto picks tint on a TTY and
+// handler selection mirrors cmd/usbip-go: auto picks tint on a TTY and
 // JSON otherwise; pretty and json are explicit overrides.
 func buildLogger(cfg Config) (*slog.Logger, error) {
 	lvl, err := parseLevel(cfg.LogLevel, cfg.VerboseCount)
@@ -56,7 +56,7 @@ func buildLogger(cfg Config) (*slog.Logger, error) {
 }
 
 // newTintLogger builds a slog.Logger backed by the lmittmann/tint
-// handler. Matches cmd/usbip.newTintLogger byte-for-byte.
+// handler. Matches cmd/usbip-go.newTintLogger byte-for-byte.
 func newTintLogger(lvl slog.Level, noColor bool) *slog.Logger {
 	return slog.New(tint.NewHandler(os.Stderr, &tint.Options{
 		Level:   lvl,
@@ -72,7 +72,7 @@ func newJSONLogger(lvl slog.Level) *slog.Logger {
 }
 
 // isStderrTTY reports whether os.Stderr is a terminal. The uintptr→int
-// narrowing is guarded for gosec G115 — same shape as cmd/usbip.
+// narrowing is guarded for gosec G115 — same shape as cmd/usbip-go.
 func isStderrTTY() bool {
 	fd := os.Stderr.Fd()
 	if fd > uintptr(^uint(0)>>1) {

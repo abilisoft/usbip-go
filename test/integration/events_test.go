@@ -24,7 +24,7 @@ import (
 // covers slow-VM runners without inviting hangs on a broken setup.
 const eventCollectDeadline = 5 * time.Second
 
-// TestEventsDeviceBoundUnbound proves spec §8.4's "Watch emits
+// TestEventsDeviceBoundUnbound proves v1 contract §8.4's "Watch emits
 // EventDeviceBound on configfs add" contract. The harness's SetupVUDC
 // creates a gadget and writes the UDC attribute, which the kernel
 // translates into a DEVTYPE=usbip-vudc-device uevent. A subscribed
@@ -36,7 +36,7 @@ const eventCollectDeadline = 5 * time.Second
 // parallel tests' gadgets do not pollute the observation.
 //
 // Skips cleanly if SetupVUDC itself skipped (missing modules or
-// exhausted vudc UDCs per spec §8.4).
+// exhausted vudc UDCs per v1 contract §8.4).
 func TestEventsDeviceBoundUnbound(t *testing.T) {
 	dev := integration.SetupVUDC(t)
 

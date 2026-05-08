@@ -14,7 +14,7 @@ import (
 )
 
 // historyCap bounds the number of entries the XDG-state-backed attach
-// history retains. Spec §7.6 locks this to 20 so long-running shells
+// history retains. v1 contract §7.6 locks this to 20 so long-running shells
 // do not amass an unbounded suggestion list.
 const historyCap = 20
 

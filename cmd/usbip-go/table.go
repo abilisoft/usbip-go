@@ -13,7 +13,7 @@ import (
 )
 
 // tableRenderer implements Renderer over a human-readable column
-// layout. Layout is NOT a stable contract (spec §7.5 note); the JSON
+// layout. Layout is NOT a stable contract (v1 contract §7.5 note); the JSON
 // renderer is the stable counterpart.
 type tableRenderer struct{}
 

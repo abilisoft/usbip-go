@@ -16,7 +16,7 @@ import (
 )
 
 // NetTransport is the pure-Go implementation of the app.Transport
-// contract declared in spec §5.1. It wraps net.Dialer / net.ListenConfig
+// contract declared in v1 contract §5.1. It wraps net.Dialer / net.ListenConfig
 // so that every dial and listen observes a caller-supplied context, and
 // flips TCP_NODELAY on dialed connections to minimise USB/IP handshake
 // latency.
@@ -36,7 +36,7 @@ type Option func(*NetTransport)
 // WithLogger installs l as the NetTransport's logger. Passing nil
 // selects a discarding handler so call sites never have to nil-check.
 // This mirrors the Codec option pattern in internal/adapter/wire so
-// both adapters share a single logging convention (spec §3.6).
+// both adapters share a single logging convention (v1 contract §3.6).
 func WithLogger(l *slog.Logger) Option {
 	return func(t *NetTransport) {
 		if l == nil {
@@ -65,7 +65,7 @@ func New(opts ...Option) *NetTransport {
 }
 
 // Dial connects to r over TCP using ctx for cancellation. Port 0 in r
-// is normalised to domain.DefaultPort per spec §3 — the net.Dialer
+// is normalised to domain.DefaultPort per v1 contract §3 — the net.Dialer
 // would otherwise try to connect to port 0 which is a kernel-reserved
 // sentinel. TCP_NODELAY is set on the returned connection so the
 // USB/IP handshake's small frames are not Nagle-delayed.

@@ -13,8 +13,8 @@ import (
 )
 
 // activationFdName is the expected LISTEN_FDNAMES label for our socket
-// unit. Operators should set FileDescriptorName=usbipd on the .socket
-// unit (spec §7.8); mismatches fail loudly rather than silently bind a
+// unit. Operators should set FileDescriptorName=usbipd-go on the .socket
+// unit (v1 contract §7.8); mismatches fail loudly rather than silently bind a
 // neighbouring socket.
 const activationFdName = "usbipd-go"
 
@@ -25,11 +25,11 @@ const activationFdName = "usbipd-go"
 var errAmbiguousSocketNames = errors.New(
 	"LISTEN_FDS passed but no matching FileDescriptorName and multiple fds present")
 
-// listenOrActivation returns the listener usbipd should Serve on. It
+// listenOrActivation returns the listener usbipd-go should Serve on. It
 // prefers systemd-passed named sockets, falls back to an unnamed single
 // fd, and finally falls back to a plain net.Listen on cfg.Listen.
 //
-// The policy matches spec §7.7:
+// The policy matches v1 contract §7.7:
 //   - If LISTEN_FDNAMES contains "usbipd-go" with exactly one fd, use it.
 //   - If LISTEN_FDS=1 and no names are present, accept the single fd.
 //   - If multiple fds are passed without a matching name, refuse to

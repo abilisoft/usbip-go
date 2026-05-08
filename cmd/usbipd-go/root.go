@@ -45,9 +45,9 @@ func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "usbipd-go",
 		Short: "USB/IP server daemon",
-		Long: "usbipd exports local USB devices over the USB/IP protocol. " +
+		Long: "usbipd-go exports local USB devices over the USB/IP protocol. " +
 			"Runs in the foreground; systemd or an equivalent supervisor " +
-			"manages the lifecycle (spec §7.7).",
+			"manages the lifecycle (v1 contract §7.7).",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {

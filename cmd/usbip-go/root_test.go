@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRootHelpPrintsUsage asserts that `usbip --help` runs without error
+// TestRootHelpPrintsUsage asserts that `usbip-go --help` runs without error
 // and emits the root Long/Use description on stdout. Smoke-level check
 // that the cobra command tree is wired.
 func TestRootHelpPrintsUsage(t *testing.T) {
@@ -32,7 +32,7 @@ func TestRootHelpPrintsUsage(t *testing.T) {
 }
 
 // TestRootInvalidOutputFlag ensures cobra rejects --output=bogus via the
-// global flag's validator (spec §7.2 enum). The CLI exits 2 in subprocess
+// global flag's validator (v1 contract §7.2 enum). The CLI exits 2 in subprocess
 // land; here we assert the parse-level error surfaces from Execute.
 func TestRootInvalidOutputFlag(t *testing.T) {
 	t.Parallel()

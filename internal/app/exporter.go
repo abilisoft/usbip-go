@@ -51,7 +51,7 @@ type Exporter struct {
 
 	// sessionsWG tracks per-connection handler goroutines and their
 	// handshake-timeout watchers. Serve deliberately does NOT wait on
-	// sessionsWG (spec §3.4: Serve returns on ctx cancel; Shutdown
+	// sessionsWG (v1 contract §3.4: Serve returns on ctx cancel; Shutdown
 	// drains in-flight sessions bounded by its own ctx).
 	sessionsWG sync.WaitGroup
 
@@ -67,7 +67,7 @@ type Exporter struct {
 
 // sessionHandle is the per-session bookkeeping entry. done is closed
 // exactly once when the session handler returns (graceful or error).
-// Shutdown and WatchSessions (Task 5.12) observe done to synchronise
+// Shutdown and WatchSessions observe done to synchronise
 // with session termination. conn is the accepted net.Conn; Shutdown
 // force-closes it to unwedge a handler parked in kernel.ExportOnConn
 // when the drain deadline expires.
@@ -169,7 +169,7 @@ func requireExporterDeps(cfg *exporterConfig) {
 	}
 }
 
-// Bind delegates to kernel.Bind per spec §5.3. Errors are wrapped with
+// Bind delegates to kernel.Bind per v1 contract §5.3. Errors are wrapped with
 // the busid so callers that bind many devices can identify which failed.
 func (e *Exporter) Bind(ctx context.Context, busID domain.BusID) error {
 	err := e.kernel.Bind(ctx, busID)
@@ -184,7 +184,7 @@ func (e *Exporter) Bind(ctx context.Context, busID domain.BusID) error {
 	return nil
 }
 
-// Unbind delegates to kernel.Unbind per spec §5.3. Errors are wrapped
+// Unbind delegates to kernel.Unbind per v1 contract §5.3. Errors are wrapped
 // with the busid.
 func (e *Exporter) Unbind(ctx context.Context, busID domain.BusID) error {
 	err := e.kernel.Unbind(ctx, busID)
@@ -228,7 +228,7 @@ func classifyUnbindError(err error) UnbindOutcome {
 	return UnbindOutcomeError
 }
 
-// ListAvailable forwards to kernel.ListLocalDevices per spec §5.3. The
+// ListAvailable forwards to kernel.ListLocalDevices per v1 contract §5.3. The
 // kernel adapter is the authoritative source; the Exporter does not
 // maintain a cache of its own.
 func (e *Exporter) ListAvailable(ctx context.Context) ([]domain.Device, error) {
@@ -240,7 +240,7 @@ func (e *Exporter) ListAvailable(ctx context.Context) ([]domain.Device, error) {
 	return devs, nil
 }
 
-// Serve runs the accept loop per spec §5.3. Each accepted connection
+// Serve runs the accept loop per v1 contract §5.3. Each accepted connection
 // is dispatched to a per-connection goroutine via handleConn; the
 // accept loop returns when ctx is cancelled, the listener returns a
 // permanent error, or Shutdown is called. Returns ErrAlreadyShutdown
@@ -270,7 +270,7 @@ func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
 
 	// Wait for the ctx-listener-closer only. Session handlers run on
 	// sessionsWG; Shutdown drains them with a bounded deadline per
-	// spec §3.4. If Serve also waited on sessionsWG here, an in-flight
+	// v1 contract §3.4. If Serve also waited on sessionsWG here, an in-flight
 	// ExportOnConn would block Serve's return past ctx cancel.
 	e.wg.Wait()
 
@@ -278,7 +278,7 @@ func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
 }
 
 // Shutdown stops accepting new connections and drains in-flight
-// session handlers. Per spec §3.4: new accepts are refused, existing
+// session handlers. Per v1 contract §3.4: new accepts are refused, existing
 // handlers are signalled to exit, and the call waits for them bounded
 // by the provided ctx deadline. Returns nil when the drain completes
 // before the deadline; a ctx.Err-wrapped error when it does not.

@@ -4,10 +4,10 @@
 package wire
 
 // OpCode is a USBIP handshake opcode as transmitted in the 8-byte
-// OP header (spec §6.2). Values are big-endian u16 on the wire.
+// OP header (v1 contract §6.2). Values are big-endian u16 on the wire.
 type OpCode uint16
 
-// OpCode constants as defined in spec §6.2.
+// OpCode constants as defined in v1 contract §6.2.
 const (
 	// OpReqDevlist is the client's request to list exportable devices.
 	OpReqDevlist OpCode = 0x8005

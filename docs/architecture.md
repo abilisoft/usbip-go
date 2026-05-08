@@ -40,7 +40,7 @@ The only package external consumers import. It declares `Importer`,
 public backoff strategies, and the sentinel errors. All method bodies
 are 1:1 forwards to `internal/app` after trivial argument translation.
 The facade exists so the internal layer can evolve without breaking
-the public API — see spec §5.7 for the contract.
+the public API — see v1 contract §5.7 for the contract.
 
 ### `pkg/domain`
 
@@ -63,7 +63,7 @@ Implements the use-case services:
   `Close`.
 - `Exporter` — `ListAvailable`, `Bind`, `Unbind`, `Serve`, `Sessions`,
   `WatchSessions`, `Shutdown`.
-- Reconnect watcher with per-port generation tokens (spec §5.5).
+- Reconnect watcher with per-port generation tokens (v1 contract §5.5).
 - Session accounting, ACL enforcement, accept rate limiting (spec
   §11.5.3).
 - Metrics bundle wiring to the optional Prometheus registerer.
@@ -130,7 +130,7 @@ is covered by the `cross-compile` CI job.
 - `goleak.VerifyTestMain` in every test package guards against
   goroutine leaks.
 
-See spec §3.4 for the authoritative lifecycle-semantics list
+See v1 contract §3.4 for the authoritative lifecycle-semantics list
 (double-detach idempotency, Shutdown drain semantics, runtime module
 disappearance, etc.).
 
@@ -144,7 +144,7 @@ automatically in structured output.
 
 Every returned error is classifiable via `errors.Is` against one of
 the sentinels in `pkg/usbip/errors.go`. The kernel-to-domain error
-map is in spec §6.4.
+map is in v1 contract §6.4.
 
 ## Layering rules (enforced)
 

@@ -169,7 +169,7 @@ func attachOptionsWithBackoff() app.AttachOptions {
 }
 
 // TestImporterReconnectUeventTriggersReattach proves the primary
-// detection path per spec §5.5 item 1: a remote-device uevent that maps
+// detection path per v1 contract §5.5 item 1: a remote-device uevent that maps
 // to a PortDetachedEvent for our port triggers one reconnect attempt
 // after the backoff delay, yielding two AttachRemote invocations (the
 // initial attach + the reconnect).
@@ -210,7 +210,7 @@ func TestImporterReconnectUeventTriggersReattach(t *testing.T) {
 }
 
 // TestImporterReconnectPollTriggersReattach covers the backstop path
-// per spec §5.5 item 2: the uevent source stays silent, but a periodic
+// per v1 contract §5.5 item 2: the uevent source stays silent, but a periodic
 // ListPorts poll observes our PortID in StatusNull → watcher reattaches.
 func TestImporterReconnectPollTriggersReattach(t *testing.T) {
 	t.Parallel()
@@ -800,7 +800,7 @@ func TestImporterReconnectZeroBackoffSkipsSleep(t *testing.T) {
 }
 
 // TestImporterReconnectSameSlotStaleEventIgnored proves the generation
-// filter promised by spec §5.5: when the kernel re-uses the SAME PortID
+// filter promised by v1 contract §5.5: when the kernel re-uses the SAME PortID
 // slot after a detach (a legitimate kernel behaviour: vhci_hcd picks the
 // lowest free slot), a late uevent for that id that targets the OLD
 // generation must NOT fire a third reconnect. Id-equality alone is not
@@ -870,7 +870,7 @@ func TestImporterReconnectSameSlotStaleEventIgnored(t *testing.T) {
 }
 
 // TestImporterReconnectOnReconnectPanicRecovered asserts the watcher
-// survives an OnReconnect callback that panics. Per spec §5.5 the
+// survives an OnReconnect callback that panics. Per v1 contract §5.5 the
 // callback is a fire-and-forget notification, so a buggy caller must
 // not crash the process, wedge the watcher's retry cadence, or leak a
 // goroutine (goleak's TestMain hook backs up the assertion).
@@ -1066,7 +1066,7 @@ func TestImporterReconnectCloseShutdownTimeoutDisabled(t *testing.T) {
 // returns within AttachOptions.ShutdownTimeout even when the watcher is
 // wedged (here: the reconnect-path AttachRemote ignores ctx cancellation
 // and blocks forever, so h.watcherDone never closes on its own). Per
-// spec §5.5, Detach's wait on watcherDone is bounded; an unbounded
+// v1 contract §5.5, Detach's wait on watcherDone is bounded; an unbounded
 // wait would hang indefinitely.
 func TestImporterReconnectDetachShutdownTimeoutBounded(t *testing.T) {
 	t.Parallel()

@@ -45,7 +45,7 @@ func WithImporterBackoff(b BackoffStrategy) ImporterOption {
 
 // WithImporterStatusPollInterval sets the reconnect watcher's backstop
 // poll period. Zero picks up the library default (5 seconds); a
-// negative value disables polling entirely. Spec §5.5.
+// negative value disables polling entirely. v1 contract §5.5.
 func WithImporterStatusPollInterval(d time.Duration) ImporterOption {
 	return func(c *importerConfig) { c.statusPollInterval = d }
 }
@@ -83,7 +83,7 @@ func importerConfigToInternal(cfg importerConfig) []internalapp.ImporterOption {
 // exporterConfig carries the option-tunable fields for NewExporter.
 // The split from importerConfig prevents a single Option type from
 // accepting importer-only or exporter-only tunables at the wrong
-// constructor (spec §5.7: role-specific options).
+// constructor (v1 contract §5.7: role-specific options).
 type exporterConfig struct {
 	logger             *slog.Logger
 	maxSessions        int
@@ -127,14 +127,14 @@ func WithExporterLogger(l *slog.Logger) ExporterOption {
 }
 
 // WithExporterMaxSessions caps the total concurrent accepted sessions
-// (spec §11.5.3). Zero picks up the library default; a negative value
+// (v1 contract §11.5.3). Zero picks up the library default; a negative value
 // disables the cap entirely.
 func WithExporterMaxSessions(n int) ExporterOption {
 	return func(c *exporterConfig) { c.maxSessions = n }
 }
 
 // WithExporterMaxSessionsPerPeer caps the concurrent sessions per
-// source IP (spec §11.5.3). Zero picks up the library default; a
+// source IP (v1 contract §11.5.3). Zero picks up the library default; a
 // negative value disables the per-peer cap entirely.
 func WithExporterMaxSessionsPerPeer(n int) ExporterOption {
 	return func(c *exporterConfig) { c.maxSessionsPerPeer = n }
@@ -142,13 +142,13 @@ func WithExporterMaxSessionsPerPeer(n int) ExporterOption {
 
 // WithExporterAcceptRateLimit caps new accepts at rps tokens per
 // second via an internal token bucket with a library-default burst
-// size (spec §11.5.3). rps <= 0 disables rate limiting entirely.
+// size (v1 contract §11.5.3). rps <= 0 disables rate limiting entirely.
 func WithExporterAcceptRateLimit(rps float64) ExporterOption {
 	return func(c *exporterConfig) { c.acceptRateLimit = rps }
 }
 
 // WithExporterAllowCIDR appends CIDR strings to the accept-path allow-
-// list (spec §11.5.2). Multiple calls accumulate. An empty list means
+// list (v1 contract §11.5.2). Multiple calls accumulate. An empty list means
 // "allow every peer" to match upstream usbip-utils behaviour; at least
 // one CIDR opts the exporter into fail-closed ACL enforcement. Invalid
 // CIDR strings surface as NewExporter construction errors.
@@ -159,13 +159,13 @@ func WithExporterAllowCIDR(cidrs ...string) ExporterOption {
 }
 
 // WithExporterMaxHandshakeBytes caps bytes read during the handshake
-// phase (spec §11.5.3). Zero picks up the library default.
+// phase (v1 contract §11.5.3). Zero picks up the library default.
 func WithExporterMaxHandshakeBytes(n int) ExporterOption {
 	return func(c *exporterConfig) { c.maxHandshakeBytes = n }
 }
 
 // WithExporterHandshakeTimeout bounds how long the exporter waits for
-// a client to complete its OP request (spec §11.5.3). Zero picks up
+// a client to complete its OP request (v1 contract §11.5.3). Zero picks up
 // the library default; a negative value disables the timeout.
 func WithExporterHandshakeTimeout(d time.Duration) ExporterOption {
 	return func(c *exporterConfig) { c.handshakeTimeout = d }
@@ -175,7 +175,7 @@ func WithExporterHandshakeTimeout(d time.Duration) ExporterOption {
 // Exporter.Shutdown(ctx) when the caller passes a ctx without its own
 // deadline. A positive value caps the drain; zero disables the
 // backstop; a caller-supplied ctx deadline always wins when tighter.
-// Spec §5.7.
+// v1 contract §5.7.
 func WithExporterShutdownTimeout(d time.Duration) ExporterOption {
 	return func(c *exporterConfig) { c.shutdownTimeout = d }
 }
@@ -249,7 +249,7 @@ func appendExporterLoggerAndLimits(
 
 	if cfg.acceptRateLimit != 0 {
 		// Zero burst picks up the internal default; exposing only rps
-		// on the public API matches spec §5.7 verbatim.
+		// on the public API matches v1 contract §5.7 verbatim.
 		out = append(out, internalapp.WithExporterAcceptRateLimit(cfg.acceptRateLimit, 0))
 	}
 

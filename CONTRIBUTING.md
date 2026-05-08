@@ -127,7 +127,7 @@ every PR. The rule is:
 - A commit that follows a RED commit and adds no implementation
   without a `refactor:` label is rejected at PR review.
 
-Spec §3 Compliance Gates 1-4 define the discipline; the CI workflow
+The v1 contract's compliance gates 1-4 define the discipline; the CI workflow
 enforces gates 1-6, 8, and 12 mechanically.
 
 ## Commit conventions
@@ -152,7 +152,7 @@ enforces gates 1-6, 8, and 12 mechanically.
 - Linter: `golangci-lint` with the config at
   [`.golangci.yml`](.golangci.yml). `default: all` with a minimal,
   justified disable list.
-- Code review applies spec §9 style rules — comments explain WHY,
+- Code review applies v1 contract §9 style rules — comments explain WHY,
   not WHAT; no `//nolint` without a cited rationale; no `t.Skip`
   without a tracked reason; magic numbers named.
 - Lines are bounded at 120 chars (`lll` linter). Cyclomatic complexity
@@ -184,10 +184,10 @@ alongside the `BREAKING:`-prefixed change.
 ## Compliance gates
 
 Every PR is validated against the 12 compliance gates defined in the
-plan header. The CI workflow
+release-readiness policy. The CI workflow
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) enforces
 gates 1-6, 8, and 12 mechanically; the remainder are code-review
-items per the plan's progressive-enforcement policy (Task 0.7 Step 8):
+items per the progressive-enforcement policy:
 
 | Gate | What | Enforcement |
 |---|---|---|
@@ -201,8 +201,8 @@ items per the plan's progressive-enforcement policy (Task 0.7 Step 8):
 | 8 | No cgo anywhere in the tree | CI: `no-cgo` job uses `go list -deps` + source greps for `import "C"`. |
 | 9 | Structured logging: `slog.DebugContext` + `oops.With(...)`, stable attr keys per §11.5.5 | Code review (enforced indirectly by `sloglint` in `task lint`, so rides Gate 1). |
 | 10 | Metrics registration: new app side-effects register a §11.5.5 catalog entry in the same PR | Code review. |
-| 11 | Error mapping: new sysfs/wire paths map to the spec §6.2 + §6.4 sentinels in the same PR | Code review. |
-| 12 | Cross-compile for `linux/{amd64,arm64,arm}` | CI: `cross-compile` job (Phase 0 minimal builds; switches to `goreleaser build --snapshot` when release wiring lands). |
+| 11 | Error mapping: new sysfs/wire paths map to the v1 contract §6.2 + §6.4 sentinels in the same PR | Code review. |
+| 12 | Cross-compile for `linux/{amd64,arm64,arm}` | CI: `cross-compile` job (release builds use `goreleaser build --snapshot` wiring). |
 
 Two additional CI jobs run outside the numbered-gate table:
 `lint-and-vet` also runs `task vuln` (govulncheck) on every PR, and

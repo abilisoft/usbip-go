@@ -33,11 +33,11 @@ const daemonRestartDeadline = 30 * time.Second
 // daemonStartSignal is the substring the daemon logs when its
 // accept-path listener is bound — used as a synchronisation point so
 // the importer's Attach dials only after the daemon is ready. Matches
-// the log line emitted by cmd/usbipd-go/run.go's "usbipd accepting
+// the log line emitted by cmd/usbipd-go/run.go's "usbipd-go accepting
 // connections" info log.
-const daemonStartSignal = "usbipd accepting connections"
+const daemonStartSignal = "usbipd-go accepting connections"
 
-// TestDaemonRestartSessionsSurvive pins spec §5.4 item 7's operator
+// TestDaemonRestartSessionsSurvive pins v1 contract §5.4 item 7's operator
 // recovery sequence: once the daemon dies, the kernel still holds
 // its own ref per bound device so the vhci attachment continues to
 // work, but the daemon's in-memory session table is empty after a
@@ -71,7 +71,7 @@ func TestDaemonRestartSessionsSurvive(t *testing.T) {
 	defer cancel()
 
 	// Build the daemon once per test-run into t.TempDir so there is
-	// no dependency on bin/usbipd being up-to-date.
+	// no dependency on bin/usbipd-go being up-to-date.
 	daemonBinary := buildDaemonBinary(t)
 
 	// Pre-bind the device via a short-lived Exporter. The daemon
@@ -99,7 +99,7 @@ func TestDaemonRestartSessionsSurvive(t *testing.T) {
 	require.NotZero(t, port.ID)
 
 	// SIGKILL daemon #1. The kernel's session ref persists; the
-	// importer's attached port stays alive (spec §5.4 item 7).
+	// importer's attached port stays alive (v1 contract §5.4 item 7).
 	require.NoError(t, daemon1.proc.Signal(syscall.SIGKILL))
 
 	_, err = daemon1.proc.Wait()
@@ -135,7 +135,7 @@ func TestDaemonRestartSessionsSurvive(t *testing.T) {
 	// StatusNull/StatusNotAssigned, to prove the kernel-side session
 	// is still live after the daemon process was killed. StatusNull
 	// would mean the kernel tore the port down on daemon death —
-	// that would contradict spec §5.4 item 7. This is the sysfs-level
+	// that would contradict v1 contract §5.4 item 7. This is the sysfs-level
 	// analogue of a URB round-trip; without a real gadget we can't
 	// push bytes through the attached device but the port flag alone
 	// is sufficient evidence the session is still owned by the kernel.
@@ -339,7 +339,7 @@ func splitHostPortLog(s string) (string, string, error) {
 func buildDaemonBinary(t *testing.T) string {
 	t.Helper()
 
-	out := filepath.Join(t.TempDir(), "usbipd")
+	out := filepath.Join(t.TempDir(), "usbipd-go")
 	repoRoot := findModuleRoot(t)
 
 	// -buildvcs=false: see process_death_test.go buildKillHelper for
@@ -351,7 +351,7 @@ func buildDaemonBinary(t *testing.T) string {
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 
 	output, err := cmd.CombinedOutput()
-	require.NoError(t, err, "build usbipd: %s", output)
+	require.NoError(t, err, "build usbipd-go: %s", output)
 
 	return out
 }

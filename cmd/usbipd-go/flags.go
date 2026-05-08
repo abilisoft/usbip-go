@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Flag defaults — authoritative from spec §7.7. Centralised here so the
+// Flag defaults — authoritative from v1 contract §7.7. Centralised here so the
 // table in --help matches the documented defaults without drift.
 const (
 	defaultListen             = "0.0.0.0:3240"
@@ -65,7 +65,7 @@ type Config struct {
 }
 
 // bindFlags registers every usbipd root-command flag on cmd and wires
-// the parsed values into cfg. Defaults come from the spec §7.7 table;
+// the parsed values into cfg. Defaults come from the v1 contract §7.7 table;
 // any change there must land here first.
 func bindFlags(cmd *cobra.Command, cfg *Config) {
 	flags := cmd.PersistentFlags()

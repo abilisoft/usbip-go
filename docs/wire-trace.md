@@ -98,7 +98,7 @@ replayed against the capture.
 
 ## Size gates
 
-Every payload size is pinned by spec §6.2. Abort any fixture
+Every payload size is pinned by v1 contract §6.2. Abort any fixture
 regeneration where the payload is outside its documented range:
 
 | Frame | Expected size |

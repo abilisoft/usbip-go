@@ -134,7 +134,7 @@ func driverPath(driver, attr string) string {
 // cannot emit symlinks so tests stage a driver_name text file instead;
 // we consult both in order.
 //
-// Error-distinction contract (spec §6.4 + §4.4):
+// Error-distinction contract (v1 contract §6.4 + §4.4):
 //   - Interface directory missing → ErrDeviceNotFound (via classifyErrno
 //     in the sysfs read helpers).
 //   - Interface directory present, but no driver attachment (neither

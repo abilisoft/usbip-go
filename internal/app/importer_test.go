@@ -162,7 +162,7 @@ func TestNewImporterAppliesLoggerAndClock(t *testing.T) {
 
 // fakeConn is an instrumented net.Conn used by importer tests. It
 // records Close, Write, and Read activity so the fd-passing lifecycle
-// per spec §5.4 item 4 can be asserted without spinning up a real
+// per v1 contract §5.4 item 4 can be asserted without spinning up a real
 // network. Read is backed by a buffered byte stream supplied by the
 // test; Write is a no-op that records the payload.
 type fakeConn struct {
@@ -471,7 +471,7 @@ func TestImporterAttachHappyPath(t *testing.T) {
 	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{})
 	require.NoError(t, err)
 
-	// Call order matches the spec §5.2 sequence.
+	// Call order matches the v1 contract §5.2 sequence.
 	require.Equal(t, []string{"ModulesAvailable", "Dial", "EncodeOpReqImport", "DecodeOpRepImport", "AttachRemote"}, call)
 
 	// Port is populated from (request + decoded spec + attach result).
@@ -687,7 +687,7 @@ func attachOnce(t *testing.T, kernel *ImporterKernelMock) (*app.Importer, domain
 
 // TestImporterDetachCancelsThenDelegates asserts Detach invokes the
 // handle's cancel func exactly once AND delegates to kernel.DetachPort
-// with the same id — spec §5.5 says the handle must be released before
+// with the same id — v1 contract §5.5 says the handle must be released before
 // the kernel-side detach so any auto-reconnect watcher sees cancel
 // before a status transition and does not race a reattempt.
 func TestImporterDetachCancelsThenDelegates(t *testing.T) {

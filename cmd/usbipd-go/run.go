@@ -488,12 +488,12 @@ func logShutdownCause(parentCtx, serveCtx context.Context, log *slog.Logger) {
 	}
 
 	if cause == nil || errors.Is(cause, context.Canceled) {
-		log.Info("usbipd shutdown complete")
+		log.Info("usbipd-go shutdown complete")
 
 		return
 	}
 
-	log.Info("usbipd shutdown complete", slog.String("cause", cause.Error()))
+	log.Info("usbipd-go shutdown complete", slog.String("cause", cause.Error()))
 }
 
 // isExpectedServeExit reports whether the Serve return value is a
