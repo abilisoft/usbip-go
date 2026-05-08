@@ -240,8 +240,13 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@ab6bcb2d5af0e904d04aea750e2089e9dc4cbfdd # v13
       - uses: DeterminateSystems/magic-nix-cache-action@87b14cf437d03d37989d87f0fa5ce4f5dc1a330b # v8
       - name: Cross-platform build
+        # CGO_ENABLED=0 for cross-builds: matches the no-cgo policy
+        # gate plus avoids the host-toolchain cgo trap (cross-arch
+        # `gcc` cannot assemble runtime/cgo's per-arch sources;
+        # CGO_ENABLED=0 skips them entirely).
         run: |
           nix develop --command bash -eu -c '
+            export CGO_ENABLED=0
             GOOS=linux GOARCH=amd64 go build ./...
             GOOS=linux GOARCH=arm64 go build ./...
             GOOS=linux GOARCH=arm GOARM=7 go build ./...
