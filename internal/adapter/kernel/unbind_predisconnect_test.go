@@ -37,7 +37,7 @@ func TestUnbind_DisconnectsSockfdBeforeUnbindWrite(t *testing.T) {
 	rec := &writeRecord{}
 
 	a, err := kernel.NewExporterAdapter(
-		kernel.WithFS(bindFS(string(busID))),
+		kernel.WithFS(boundFS(string(busID))),
 		kernel.WithWriteFunc(rec.record()),
 	)
 	require.NoError(t, err)

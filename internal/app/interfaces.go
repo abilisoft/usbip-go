@@ -39,7 +39,16 @@ type ImporterKernel interface {
 // surface). A process that only exports does NOT need vhci_hcd
 // loaded. See v1 contract §5.1.
 type ExporterKernel interface {
+	// ListLocalDevices returns every USB device on the host regardless
+	// of bind state — the CLI's `list -l` view shows the whole bus.
 	ListLocalDevices(ctx context.Context) ([]domain.Device, error)
+
+	// ListExportedDevices returns only devices currently bound to
+	// usbip-host AND not actively claimed by an importer (SDEV_ST_USED
+	// excluded). This is the wire-facing OP_REP_DEVLIST view: peers
+	// only see what they could actually attach.
+	ListExportedDevices(ctx context.Context) ([]domain.Device, error)
+
 	Bind(ctx context.Context, busID domain.BusID) error
 	Unbind(ctx context.Context, busID domain.BusID) error
 	ExportOnConn(ctx context.Context, conn net.Conn, busID domain.BusID) error

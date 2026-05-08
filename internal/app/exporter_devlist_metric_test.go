@@ -37,6 +37,9 @@ func TestExporterServe_DevlistEmitsAccepted(t *testing.T) {
 		ListLocalDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
 			return want, nil
 		},
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return want, nil
+		},
 	}
 
 	replyBody := []byte("REPLY")

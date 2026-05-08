@@ -62,28 +62,31 @@ func fmtInt(n int) string {
 	return string(buf)
 }
 
-// TestBind_RespectsBConfigurationValue pins that Bind reads the
-// device's currently active configuration from sysfs and constructs
-// the interface name accordingly, instead of hardcoding ":1.0".
-//
-// Reproduces the operator-visible failure: a device whose default
-// configuration is 2 has no "<busid>:1.0" interface in sysfs at all.
-// A hardcoded ":1.0" makes Bind ENOENT on the driver_name read and
-// surface ErrDeviceNotFound, even though the device IS present and
-// bindable on its actual interface.
-//
-// Reference: upstream libsrc/usbip_host_driver.c uses
-//
-//	sprintf(busid, "%s:%d.0", dev->busid, dev->bConfigurationValue);
-func TestBind_RespectsBConfigurationValue(t *testing.T) {
+// TestBind_HighConfigurationValue_ProceedsViaBareDeviceUnbind pins
+// that Bind succeeds for devices whose active configuration is not 1
+// (e.g. ASIX AX88179 USB-Ethernet adapter using config 2 with
+// interfaces 3-1:2.0 and 3-1:2.1). Upstream usbip_bind.c uses only
+// bare-device unbind and lets USB core's generic disconnect cascade
+// to interfaces — so a non-1 configValue is irrelevant. Without
+// reading bConfigurationValue at all, this test verifies that we
+// don't regress to the original ":1.0" hardcode by confirming a
+// configValue=2 device still binds with the same three-write
+// sequence.
+func TestBind_HighConfigurationValue_ProceedsViaBareDeviceUnbind(t *testing.T) {
 	t.Parallel()
 
 	busID := domain.BusID("3-1")
-	wantIface := fmtIface(string(busID), 2, 0) // 3-1:2.0
+
+	mfs := bindFSWithConfig(string(busID), 2)
+	// Bare-device driver = "usb" (kernel default). Bind must unbind
+	// it as the FIRST write, not poke the interface at all.
+	mfs["sys/bus/usb/devices/"+string(busID)+"/driver/driver_name"] = &fstest.MapFile{Data: []byte("usb\n")}
+	mfs["sys/bus/usb/devices/"+string(busID)+"/driver"] = &fstest.MapFile{Data: []byte("usb\n")}
+
 	rec := &writeRecord{}
 
 	a, err := kernel.NewExporterAdapter(
-		kernel.WithFS(bindFSWithConfig(string(busID), 2)),
+		kernel.WithFS(mfs),
 		kernel.WithWriteFunc(rec.record()),
 	)
 	require.NoError(t, err)
@@ -93,16 +96,15 @@ func TestBind_RespectsBConfigurationValue(t *testing.T) {
 		"Bind must succeed against a device whose active configuration is 2")
 
 	require.Len(t, rec.calls, 3,
-		"Bind sequence is unbind → match_busid → bind, three writes total")
+		"Bind sequence: bare-device unbind → match_busid add → usbip-host bind")
 
-	// First write: unbind from the actual driver, with the actual iface.
-	require.Equal(t, "/sys/bus/usb/drivers/cdc_ether/unbind", rec.calls[0].Path)
-	require.Equal(t, wantIface, rec.calls[0].Data,
-		"unbind must target the iface derived from bConfigurationValue, not :1.0")
+	// Bare-device unbind first — NOT cdc_ether/<iface>.
+	require.Equal(t, "/sys/bus/usb/drivers/usb/unbind", rec.calls[0].Path,
+		"first write must target the bare-device driver, not cdc_ether/<iface>")
+	require.Equal(t, string(busID), rec.calls[0].Data,
+		"bare-device unbind takes the BARE busid, not iface")
 
-	// Third write: bind to usbip-host with the BARE busid because
-	// usbip-host is a usb_device_driver. This was the deeper bug
-	// hidden by the original ":1.0" hardcode.
+	// Final write: bind to usbip-host with the BARE busid.
 	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/bind", rec.calls[2].Path)
 	require.Equal(t, string(busID), rec.calls[2].Data,
 		"usbip-host is a usb_device_driver — its bind sysfs accepts BARE busid, never iface")
@@ -118,10 +120,17 @@ func TestUnbind_UsesBareBusidNotIface(t *testing.T) {
 	t.Parallel()
 
 	busID := domain.BusID("3-1")
+
+	mfs := bindFSWithConfig(string(busID), 2)
+	// Unbind precheck requires bare driver == usbip-host. Mirrors the
+	// post-Bind kernel state.
+	mfs["sys/bus/usb/devices/"+string(busID)+"/driver/driver_name"] = &fstest.MapFile{Data: []byte("usbip-host\n")}
+	mfs["sys/bus/usb/devices/"+string(busID)+"/driver"] = &fstest.MapFile{Data: []byte("usbip-host\n")}
+
 	rec := &writeRecord{}
 
 	a, err := kernel.NewExporterAdapter(
-		kernel.WithFS(bindFSWithConfig(string(busID), 2)),
+		kernel.WithFS(mfs),
 		kernel.WithWriteFunc(rec.record()),
 	)
 	require.NoError(t, err)

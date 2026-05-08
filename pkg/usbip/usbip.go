@@ -237,9 +237,22 @@ func NewExporter(opts ...ExporterOption) (*Exporter, error) {
 	return newDefaultExporter(opts)
 }
 
-// ListAvailable enumerates locally-exportable devices.
+// ListAvailable enumerates every USB device on the host regardless
+// of bind state — the CLI's `usbip-go list -l` view.
 func (e *Exporter) ListAvailable(ctx context.Context) ([]Device, error) {
 	devs, err := e.inner.ListAvailable(ctx)
+
+	return devs, translateInternalErr(err)
+}
+
+// ListExported returns the currently-bound subset: devices whose
+// driver is usbip-host AND that are not actively claimed by an
+// importer (SDEV_ST_USED excluded). This is what peers see via the
+// OP_REP_DEVLIST wire reply and what the status socket reports as
+// "bound_devices". Distinct from ListAvailable which dumps the full
+// local USB bus.
+func (e *Exporter) ListExported(ctx context.Context) ([]Device, error) {
+	devs, err := e.inner.ListExported(ctx)
 
 	return devs, translateInternalErr(err)
 }

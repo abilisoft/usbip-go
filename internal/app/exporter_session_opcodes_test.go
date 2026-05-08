@@ -131,10 +131,13 @@ func TestExporterServe_UnknownOpcodeClosesConn(t *testing.T) {
 func TestExporterServe_DevlistKernelError(t *testing.T) {
 	t.Parallel()
 
+	listErr := func(_ context.Context) ([]domain.Device, error) {
+		return nil, fmt.Errorf("sysfs read: %w", errBoom)
+	}
+
 	kernel := &ExporterKernelMock{
-		ListLocalDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
-			return nil, fmt.Errorf("sysfs read: %w", errBoom)
-		},
+		ListLocalDevicesFunc:    listErr,
+		ListExportedDevicesFunc: listErr,
 	}
 
 	codec := &ProtocolCodecMock{
@@ -184,7 +187,8 @@ func TestExporterServe_DevlistEncodeError(t *testing.T) {
 	want := []domain.Device{{BusID: domain.BusID("1-1")}}
 
 	kernel := &ExporterKernelMock{
-		ListLocalDevicesFunc: func(_ context.Context) ([]domain.Device, error) { return want, nil },
+		ListLocalDevicesFunc:    func(_ context.Context) ([]domain.Device, error) { return want, nil },
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) { return want, nil },
 	}
 
 	codec := &ProtocolCodecMock{
@@ -215,8 +219,8 @@ func TestExporterServe_DevlistEncodeError(t *testing.T) {
 	// Allow the handler to process.
 	time.Sleep(50 * time.Millisecond)
 
-	require.Len(t, kernel.ListLocalDevicesCalls(), 1,
-		"ListLocalDevices must be called before EncodeOpRepDevlist is attempted")
+	require.Len(t, kernel.ListExportedDevicesCalls(), 1,
+		"ListExportedDevices must be called before EncodeOpRepDevlist is attempted")
 	require.Len(t, codec.EncodeOpRepDevlistCalls(), 1,
 		"EncodeOpRepDevlist must be called even when it errors")
 
@@ -245,10 +249,11 @@ func TestExporterServe_DevlistEncodeError(t *testing.T) {
 func TestExporterServe_DevlistWriteErrorClosesConn(t *testing.T) {
 	t.Parallel()
 
+	devs := []domain.Device{{BusID: "3-1"}}
+
 	kernel := &ExporterKernelMock{
-		ListLocalDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
-			return []domain.Device{{BusID: "3-1"}}, nil
-		},
+		ListLocalDevicesFunc:    func(_ context.Context) ([]domain.Device, error) { return devs, nil },
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) { return devs, nil },
 	}
 
 	// The codec writes some bytes before erroring so the client can

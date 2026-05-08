@@ -32,6 +32,9 @@ func TestExporterACL_Allow(t *testing.T) {
 		ListLocalDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
 			return nil, nil
 		},
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return nil, nil
+		},
 	}
 
 	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 5), Port: 1234})

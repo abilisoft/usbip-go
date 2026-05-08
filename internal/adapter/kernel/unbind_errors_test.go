@@ -35,7 +35,7 @@ func TestUnbind_MatchBusIDErrorIsPrimaryReturn(t *testing.T) {
 	rec := &writeRecord{}
 
 	a, err := kernel.NewExporterAdapter(
-		kernel.WithFS(bindFS(string(busID))),
+		kernel.WithFS(boundFS(string(busID))),
 		kernel.WithWriteFunc(rec.errAt(2, unix.EIO)),
 	)
 	require.NoError(t, err)
@@ -85,7 +85,7 @@ func TestUnbind_MatchBusIDAndRebindErrorLogsSecondary(t *testing.T) {
 	}
 
 	a, err := kernel.NewExporterAdapter(
-		kernel.WithFS(bindFS(string(busID))),
+		kernel.WithFS(boundFS(string(busID))),
 		kernel.WithWriteFunc(kernel.WriteFunc(failAt2and3)),
 	)
 	require.NoError(t, err)
@@ -114,7 +114,7 @@ func TestUnbind_RebindErrorIsPrimaryReturn(t *testing.T) {
 	rec := &writeRecord{}
 
 	a, err := kernel.NewExporterAdapter(
-		kernel.WithFS(bindFS(string(busID))),
+		kernel.WithFS(boundFS(string(busID))),
 		kernel.WithWriteFunc(rec.errAt(3, unix.EIO)),
 	)
 	require.NoError(t, err)

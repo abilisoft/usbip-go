@@ -22,10 +22,14 @@ import (
 // (e.g. range 5 -> range 4) only when a test fails on attempt N+1
 // after N early-return failures. Inject EBUSY on the first four
 // bind writes, success on the fifth.
-// usbipHostBindPath is the kernel sysfs target the retry tests
-// pattern-match against; extracted as a constant so the goconst
-// rule does not flag the duplicated literal across cases.
-const usbipHostBindPath = "/sys/bus/usb/drivers/usbip-host/bind"
+// Sysfs target paths the kernel-adapter tests pattern-match against;
+// extracted as constants so the goconst rule does not flag the
+// duplicated literals across cases.
+const (
+	usbipHostBindPath       = "/sys/bus/usb/drivers/usbip-host/bind"
+	usbipHostMatchBusIDPath = "/sys/bus/usb/drivers/usbip-host/match_busid"
+	driversProbePath        = "/sys/bus/usb/drivers_probe"
+)
 
 func TestBind_UsesAtLeastFiveRetryAttempts(t *testing.T) {
 	t.Parallel()

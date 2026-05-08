@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/abilisoft/usbip-go/internal/app"
+	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
 // commonAdapter holds the shared state injected into every role
@@ -76,8 +77,15 @@ type ImporterAdapter struct {
 
 // ExporterAdapter satisfies app.ExporterKernel. It operates against the
 // usbip_host + usbip_core modules.
+//
+// busidLocks serialises Bind/Unbind per busid so concurrent callers
+// against the same device cannot race on match_busid: without this a
+// loser's rollback (match_busid del) can erase the winner's just-
+// added entry, leaving the kernel in a half-bound state.
 type ExporterAdapter struct {
 	commonAdapter
+
+	busidLocks sync.Map // domain.BusID -> *sync.Mutex
 }
 
 // EventsAdapter satisfies app.KernelEvents. It opens and shares a
@@ -107,6 +115,18 @@ func NewExporterAdapter(opts ...Option) (*ExporterAdapter, error) {
 	c := newCommon(opts...)
 
 	return &ExporterAdapter{commonAdapter: c}, nil
+}
+
+// lockBusID returns a per-busid sync.Mutex, creating it on first use.
+// Mutex is permanent — the entry stays in the map for the lifetime of
+// the adapter; the memory cost is one mutex per ever-bound busid which
+// is bounded by the number of physical USB ports the host has seen.
+func (a *ExporterAdapter) lockBusID(busID domain.BusID) *sync.Mutex {
+	v, _ := a.busidLocks.LoadOrStore(busID, &sync.Mutex{})
+
+	mu, _ := v.(*sync.Mutex)
+
+	return mu
 }
 
 // NewEventsAdapter constructs an EventsAdapter with the same defaults
