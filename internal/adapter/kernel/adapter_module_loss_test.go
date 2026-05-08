@@ -235,19 +235,19 @@ func makeModuleLossPair(t *testing.T) (net.Conn, net.Conn) {
 	return lc, rc
 }
 
-// TestModuleLoss_NetlinkCouplesToVHCITopology pins the Task-3 wiring
-// contract against the pre-Task-3 spec §3.4.1 orthogonality claim. The
-// dispatcher needs the vhci_hcd topology (BusMap + HCPorts) to resolve
-// every uevent into the kernel's flat Port.ID — without it every
-// subscriber would observe stale Port.IDs that never match the real
-// status file. Subscribe therefore refuses to come up when vhci_hcd is
-// not loaded (no platform/vhci_hcd.0/nports), surfacing the sysfs
-// error verbatim to the caller.
+// TestModuleLoss_NetlinkCouplesToVHCITopology pins the corrected
+// orthogonality contract installed by Pass-3 Task-3.1 BUG-1: netlink
+// Subscribe is decoupled from vhci_hcd. The dispatcher starts with no
+// topology loaded; only VHCI-shaped events consult the topology, and
+// only lazily (on first VHCI event). Exporter-only deployments (no
+// vhci_hcd module) must be able to Subscribe and observe usbip_host
+// bind/unbind events unchanged; VHCI-shaped events arriving on such
+// hosts (they cannot, in practice, but the test pins the guard) are
+// dropped cleanly.
 //
-// Orthogonality with usbip_core / usbip_host is preserved — those
-// modules are never consulted by the netlink listener — but vhci_hcd
-// is now load-bearing for importer-side reconnect and detach
-// signalling.
+// Prior contract (reverted): Subscribe hard-failed when vhci_hcd was
+// absent. That stranded every exporter-only server because VHCI is
+// strictly an importer-side concern.
 func TestModuleLoss_NetlinkCouplesToVHCITopology(t *testing.T) {
 	t.Parallel()
 
@@ -264,10 +264,13 @@ func TestModuleLoss_NetlinkCouplesToVHCITopology(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	_, _, err = a.Subscribe(ctx)
-	require.Error(t, err,
-		"Subscribe must fail when the VHCI topology is unavailable — "+
-			"the dispatcher cannot resolve flat Port.IDs without a BusMap")
+	_, unsub, err := a.Subscribe(ctx)
+	require.NoError(t, err,
+		"Subscribe must succeed even when the VHCI topology is "+
+			"unavailable — vhci_hcd is an importer concern and must not "+
+			"gate the usbip_host event stream")
+
+	unsub()
 }
 
 type orthogonalSocket struct{}
