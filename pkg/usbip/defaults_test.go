@@ -64,6 +64,37 @@ func TestNewImporterAppliesOptions(t *testing.T) {
 	require.NoError(t, imp.Close())
 }
 
+// TestNewImporterNilOptionIsSkipped proves a nil ImporterOption in the
+// variadic argument list does not crash NewImporter. Go convention
+// tolerates nil options — see http.Handler composition — so consumers
+// composing With* helpers conditionally can pass `nil` without a
+// runtime panic.
+func TestNewImporterNilOptionIsSkipped(t *testing.T) {
+	t.Parallel()
+
+	require.NotPanics(t, func() {
+		imp, err := usbip.NewImporter(nil)
+		require.NoError(t, err)
+		require.NotNil(t, imp)
+
+		require.NoError(t, imp.Close())
+	})
+}
+
+// TestNewExporterNilOptionIsSkipped mirrors TestNewImporterNilOptionIsSkipped
+// for the exporter role.
+func TestNewExporterNilOptionIsSkipped(t *testing.T) {
+	t.Parallel()
+
+	require.NotPanics(t, func() {
+		exp, err := usbip.NewExporter(nil)
+		require.NoError(t, err)
+		require.NotNil(t, exp)
+
+		require.NoError(t, exp.Shutdown(t.Context()))
+	})
+}
+
 // TestNewExporterAppliesOptions mirrors TestNewImporterAppliesOptions
 // for the exporter role: every ExporterOption is applied so the
 // translation helper covers every branch.
