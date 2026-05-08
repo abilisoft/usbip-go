@@ -75,6 +75,46 @@ func FindFreePortForTest(a *ImporterAdapter, speed domain.Speed) (domain.PortID,
 	return a.findFreePort(speed)
 }
 
+// ParseStatusFileForTest exposes the unexported parseStatusFile so
+// ports-level tests can pin contract edges (e.g. defensive guards
+// against vhciPorts=0) without synthesising a full adapter + sysfs
+// layout. The adapter parameter supplies the logger and fs.FS that
+// parseStatusFile threads through its Warn path.
+func ParseStatusFileForTest(
+	a *ImporterAdapter, body, source string, controllerIdx, vhciPorts uint32,
+) ([]ParsedPortForTest, error) {
+	rows, err := a.parseStatusFile(body, source, controllerIdx, vhciPorts)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]ParsedPortForTest, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ParsedPortForTest{
+			Hub:    r.hub,
+			Port:   r.port,
+			Status: r.status,
+			Speed:  r.speed,
+			DevID:  r.devID,
+			BusID:  r.busID,
+		})
+	}
+
+	return out, nil
+}
+
+// ParsedPortForTest mirrors parsedPort's fields through exported
+// names. The production type stays unexported so callers cannot depend
+// on its representation; tests consume this shape for assertions.
+type ParsedPortForTest struct {
+	Hub    string
+	Port   domain.PortID
+	Status domain.Status
+	Speed  domain.Speed
+	DevID  domain.DeviceID
+	BusID  domain.BusID
+}
+
 // ExtractPortFromBusIDForTest exposes the unexported extractPortFromBusID
 // helper so uevent tests can lock in the parsing table (Pass-4 RANK 1).
 // The function has no dependencies on adapter state — passing it by

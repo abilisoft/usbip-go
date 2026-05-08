@@ -317,6 +317,30 @@ func TestListPorts_NonDefaultHCPorts(t *testing.T) {
 	require.EqualValues(t, 12, ports[3].ID, "non-default VHCI_HC_PORTS=4: status.1 SS at flat 12")
 }
 
+// TestParseStatusFile_GuardsZeroVHCIPorts pins Bug A's defense-in-depth
+// leg: parseStatusFile must never execute `port / vhciPorts` when
+// vhciPorts is zero. Topology-layer enforcement is the first line, but
+// parseStatusFile is the eventual user of the value and must refuse
+// the call with a clear error rather than panic with integer division
+// by zero. The body is a single well-formed row so the test pins the
+// guard itself, not a tokenisation side effect.
+func TestParseStatusFile_GuardsZeroVHCIPorts(t *testing.T) {
+	t.Parallel()
+
+	mfs := statusFS("", nil, 16)
+
+	a, err := kernel.NewImporterAdapter(kernel.WithFS(mfs))
+	require.NoError(t, err)
+
+	body := "hub port sta spd dev      sockfd local_busid\n" +
+		"hs  0000 000 000 00000000 000000 0-0\n"
+
+	require.NotPanics(t, func() {
+		_, perr := kernel.ParseStatusFileForTest(a, body, "status", 0, 0)
+		require.Error(t, perr, "vhciPorts=0 must surface an error, not a division-by-zero panic")
+	}, "parseStatusFile must guard a zero vhciPorts input before dividing by it")
+}
+
 // TestListPorts_RowInWrongFileErrors pins BUG 2b: a row whose declared
 // flat port does not belong to its controller's block (port / VHCIPorts
 // != controllerIdx) is a kernel-state inconsistency. The adapter must
