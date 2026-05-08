@@ -10,6 +10,7 @@ import (
 
 	"github.com/abilisoft/usbip-go/pkg/usbip"
 	"github.com/olekukonko/tablewriter"
+	"github.com/olekukonko/tablewriter/tw"
 )
 
 // tableRenderer implements Renderer over a human-readable column
@@ -17,36 +18,49 @@ import (
 // renderer is the stable counterpart.
 type tableRenderer struct{}
 
+// borderlessOpts returns the option set every tableRenderer method
+// applies: no surrounding border, no auto-wrapping for header or row
+// cells. Centralised so the four render methods can stay terse.
+func borderlessOpts() []tablewriter.Option {
+	return []tablewriter.Option{
+		tablewriter.WithRendition(tw.Rendition{Borders: tw.BorderNone}),
+		tablewriter.WithHeaderAutoWrap(tw.WrapNone),
+		tablewriter.WithRowAutoWrap(tw.WrapNone),
+	}
+}
+
 // Devices writes a table of local/remote devices.
 func (tableRenderer) Devices(w io.Writer, devs []usbip.Device) error {
-	t := tablewriter.NewWriter(w)
-	t.SetHeader([]string{"BUSID", "SPEED", "VID:PID", "CLASS"})
-	t.SetAutoWrapText(false)
-	t.SetBorder(false)
+	t := tablewriter.NewTable(w, borderlessOpts()...)
+	t.Header("BUSID", "SPEED", "VID:PID", "CLASS")
 
 	for _, d := range devs {
-		t.Append([]string{
+		err := t.Append([]string{
 			string(d.BusID),
 			d.Speed.String(),
 			fmt.Sprintf("%04x:%04x", d.VendorID, d.ProductID),
 			strconv.Itoa(int(d.Class)),
 		})
+		if err != nil {
+			return fmt.Errorf("table append device: %w", err)
+		}
 	}
 
-	t.Render()
+	err := t.Render()
+	if err != nil {
+		return fmt.Errorf("table render: %w", err)
+	}
 
 	return nil
 }
 
 // Ports writes a table of attached vhci ports.
 func (tableRenderer) Ports(w io.Writer, ports []usbip.Port) error {
-	t := tablewriter.NewWriter(w)
-	t.SetHeader([]string{"PORT", "STATUS", "SPEED", "REMOTE", "BUSID", "LOCAL"})
-	t.SetAutoWrapText(false)
-	t.SetBorder(false)
+	t := tablewriter.NewTable(w, borderlessOpts()...)
+	t.Header("PORT", "STATUS", "SPEED", "REMOTE", "BUSID", "LOCAL")
 
 	for _, p := range ports {
-		t.Append([]string{
+		err := t.Append([]string{
 			strconv.FormatUint(uint64(p.ID), 10),
 			p.Status.String(),
 			p.Speed.String(),
@@ -54,22 +68,26 @@ func (tableRenderer) Ports(w io.Writer, ports []usbip.Port) error {
 			string(p.BusID),
 			string(p.LocalBusID),
 		})
+		if err != nil {
+			return fmt.Errorf("table append port: %w", err)
+		}
 	}
 
-	t.Render()
+	err := t.Render()
+	if err != nil {
+		return fmt.Errorf("table render: %w", err)
+	}
 
 	return nil
 }
 
 // Sessions writes a table of daemon sessions.
 func (tableRenderer) Sessions(w io.Writer, sessions []usbip.Session) error {
-	t := tablewriter.NewWriter(w)
-	t.SetHeader([]string{"ID", "REMOTE", "BUSID", "STARTED", "IN", "OUT"})
-	t.SetAutoWrapText(false)
-	t.SetBorder(false)
+	t := tablewriter.NewTable(w, borderlessOpts()...)
+	t.Header("ID", "REMOTE", "BUSID", "STARTED", "IN", "OUT")
 
 	for _, s := range sessions {
-		t.Append([]string{
+		err := t.Append([]string{
 			s.ID.String(),
 			s.RemoteAddr.String(),
 			string(s.BusID),
@@ -77,9 +95,15 @@ func (tableRenderer) Sessions(w io.Writer, sessions []usbip.Session) error {
 			strconv.FormatUint(s.BytesIn, 10),
 			strconv.FormatUint(s.BytesOut, 10),
 		})
+		if err != nil {
+			return fmt.Errorf("table append session: %w", err)
+		}
 	}
 
-	t.Render()
+	err := t.Render()
+	if err != nil {
+		return fmt.Errorf("table render: %w", err)
+	}
 
 	return nil
 }
