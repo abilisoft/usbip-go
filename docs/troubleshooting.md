@@ -93,7 +93,7 @@ in log output so you can grep directly.
 | `ErrDeviceAlreadyBound` | Device is already exported. | Server: `usbip-go unbind BUSID` then retry. |
 | `ErrNoFreePort` | All vhci ports are occupied. | Detach a port, or boot the kernel with more vhci ports. |
 | `ErrProtocolMismatch` | Server sent a version byte != `0x0111` or unknown opcode. | Version mismatch or corrupted wire. Capture with tcpdump. |
-| `ErrProtocolError` | Server sent a well-formed OP frame with a non-zero `status`. | Check server logs for the underlying reason. |
+| `ErrProtocolError` | Server sent a well-formed OP frame with a non-zero `status` on a reply other than `OP_REP_IMPORT` (which maps to `ErrDeviceNotFound`). | Check server logs for the underlying reason. |
 | `ErrBusIDInvalid` | Busid does not match `^[0-9]+-[0-9]+(\.[0-9]+)*$`. | Re-read from `usbip-go list --local`; do not edit by hand. |
 | `ErrImporterClosed` | `Importer.Close()` already ran. | Construct a new `Importer`. |
 | `ErrExporterShutdown` | `Exporter.Shutdown()` already ran. | Construct a new `Exporter`. |

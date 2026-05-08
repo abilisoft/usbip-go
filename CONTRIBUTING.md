@@ -195,7 +195,7 @@ items per the progressive-enforcement policy:
 | 2 | `task test` clean with `-race` on linux + macos | CI: `unit-linux` + `unit-macos` jobs run `task ci:test`. A dedicated `conformance` job runs `task ci:test:conformance`; upstream-binary cross-checks inside it skip when `usbip` is not on PATH (the flake closure does not pin usbip-utils). |
 | 3 | RED→GREEN commit chain (every `*_test.go`-adding commit is followed by implementation or a `refactor:` commit) | CI: `test-tdd-discipline` job on pull requests. |
 | 4 | Coverage thresholds per §8.7 (domain 95, app 90, wire 95, kernel 70, transport 80, cmd 60) | CI: `coverage` job runs `task test:cover` + `vladopajic/go-test-coverage` against `.testcoverage.yaml`. |
-| 5 | DDD layering: `pkg/` ↛ `internal/`; `internal/app` ↛ `internal/adapter/` | CI: `ddd-boundary` job greps both directions. |
+| 5 | DDD layering: `pkg/domain` ↛ `internal/`; `internal/app` ↛ `internal/adapter/{kernel,transport}` (wire is allowed because codec value types appear on app interface signatures). `pkg/usbip` is the public facade and intentionally imports `internal/*` to compose defaults. | CI: `ddd-boundary` job greps both directions. |
 | 6 | Public API stability for `pkg/usbip` + `pkg/domain`; breaking changes require a `BREAKING:` commit prefix | CI: `api-surface` job diffs against `api/pkg_usbip.json` + `api/pkg_domain.json` via `apidiff`. |
 | 7 | No magic values (named constants only) | Code review (enforced indirectly by `mnd` + `goconst` in `task lint`, so rides Gate 1). |
 | 8 | No cgo anywhere in the tree | CI: `no-cgo` job uses `go list -deps` + source greps for `import "C"`. |
