@@ -201,13 +201,13 @@ func (i *Importer) waitForDetachTick(
 			return detectTick{Done: true}
 		}
 
-		if isDetachForPort(ev, p.portID) {
+		if i.isDetachSignal(ctx, ev, p) {
 			return detectTick{Source: reconnectSourceUevent, Done: true}
 		}
 
 		return detectTick{NextPoll: pollCh}
 	case <-pollCh:
-		if i.portIsDetached(ctx, p.portID) {
+		if i.portIsDetached(ctx, p.portID) && i.isCurrentHandle(p.portID, p.handle) {
 			return detectTick{Source: reconnectSourcePoll, Done: true}
 		}
 
@@ -215,17 +215,44 @@ func (i *Importer) waitForDetachTick(
 	}
 }
 
-// isDetachForPort returns true iff ev is a PortDetachedEvent whose
-// Port.ID matches id. Generation is checked by the watcher's owning
-// scope (each watcher runs against exactly one port id, so id equality
-// is the source of truth).
-func isDetachForPort(ev domain.Event, id domain.PortID) bool {
+// isDetachSignal returns true iff ev is a legitimate detach signal for
+// the watcher's port: a PortDetachedEvent whose id matches p.portID,
+// whose handle slot still belongs to p.handle (generation check per
+// spec §5.5), AND whose detached status is confirmed by the kernel
+// (defence against stale uevents that arrive after a same-slot reuse).
+// The kernel confirmation step re-runs ListPorts because uevents can
+// be reordered or duplicated relative to the actual sysfs state; if the
+// kernel reports the port is still Used, the event is obsolete.
+func (i *Importer) isDetachSignal(ctx context.Context, ev domain.Event, p reconnectParams) bool {
 	d, ok := ev.(domain.PortDetachedEvent)
 	if !ok {
 		return false
 	}
 
-	return d.Port.ID == id
+	if d.Port.ID != p.portID {
+		return false
+	}
+
+	if !i.isCurrentHandle(p.portID, p.handle) {
+		return false
+	}
+
+	return i.portIsDetached(ctx, p.portID)
+}
+
+// isCurrentHandle returns true when the Importer's handle map still
+// records h as the owner of id. A false return means either (a) the
+// slot was reassigned to a newer generation by a successful reattach,
+// or (b) the handle was torn down entirely. In both cases, any detach
+// signal targeting id is stale from this watcher's perspective — the
+// newer-generation watcher (or no watcher at all) owns that slot now.
+func (i *Importer) isCurrentHandle(id domain.PortID, h *portHandle) bool {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	cur, ok := i.handles[id]
+
+	return ok && cur == h
 }
 
 // portIsDetached returns true when ListPorts cannot find our port id
