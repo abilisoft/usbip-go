@@ -74,4 +74,13 @@ var (
 	// failed to parse. Surfaced at NewExporterWithError time — a Serve-
 	// time failure would be a silent security regression.
 	ErrACLInvalid = errors.New("invalid ACL CIDR")
+
+	// ErrAttachOptionsInvalid indicates an AttachOptions field carried
+	// a value the reconnect machinery cannot interpret (e.g. a
+	// negative MaxAttempts, which the loop gate would silently treat
+	// as "never retry"). Surfaced from Attach before the kernel is
+	// involved so the caller sees a classifiable error at the entry
+	// point rather than a misleading "giving up after max attempts"
+	// log later.
+	ErrAttachOptionsInvalid = errors.New("attach options invalid")
 )
