@@ -421,6 +421,12 @@ func (e *Exporter) waitForSessionEnd(
 				// events subscription has torn down from under us; the
 				// safest thing is to unwind the session as if the kernel
 				// signalled end — otherwise the handler leaks forever.
+				// Log at Warn so operators can distinguish this
+				// disconnect-reason source from a real kernel adapter
+				// failure surfaced by ExportOnConn.
+				e.logger.Warn("session-end events channel closed unexpectedly",
+					slog.Any("busid", busID))
+
 				return DisconnectReasonKernelError
 			}
 
