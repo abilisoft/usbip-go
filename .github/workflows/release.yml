@@ -98,6 +98,17 @@ jobs:
             --output build/release-notes.md
           echo "--- generated release notes ---"
           cat build/release-notes.md
+          # Fail fast if cliff produced an empty file. goreleaser
+          # silently accepts a zero-byte --release-notes payload and
+          # publishes a 1-byte release body (the trailing newline
+          # from the body template), which is exactly the failure
+          # mode we hit before the changelog.disable fix landed.
+          # Asserting size > 0 here converts that silent failure
+          # into a visible CI gate so a regression in cliff's tag
+          # resolution / parser config / commit-filter rules aborts
+          # the release before any artefact is built.
+          test -s build/release-notes.md \
+            || { echo "::error::build/release-notes.md is empty; refusing to release"; exit 1; }
 
       # Scorecard-detection step. OpenSSF Scorecard's Packaging
       # check is static workflow-file analysis: for Go projects its
