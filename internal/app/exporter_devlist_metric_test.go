@@ -64,6 +64,7 @@ func TestExporterServe_DevlistEmitsAccepted(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	serveDone := make(chan error, 1)
+
 	go func() { serveDone <- exp.Serve(ctx, lis) }()
 
 	client, err := lis.dial(ctx)

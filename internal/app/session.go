@@ -184,10 +184,13 @@ func (e *Exporter) armHandshakeTimeout(closer *connCloser) func() {
 // serveDevlist handles the OP_REQ_DEVLIST request. Uses the limit
 // reader as the input source so an attacker cannot send a huge
 // trailing body to the exporter post-header. Conn close is handled by
-// handleConn's deferred cleanup.
+// handleConn's deferred cleanup. Emits the accept counter on every
+// terminal transition so dashboards see the same count for devlist
+// handshakes as for import handshakes.
 func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn) {
 	devs, err := e.kernel.ListLocalDevices(ctx)
 	if err != nil {
+		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
 		e.logger.Warn("exporter list local devices",
 			slog.Any("err", err))
 
@@ -196,9 +199,14 @@ func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn)
 
 	err = e.codec.EncodeOpRepDevlist(conn, devs)
 	if err != nil {
+		e.metrics.ExporterSessionAccepted(OutcomeHandshakeFailed)
 		e.logger.Warn("exporter encode devlist reply",
 			slog.Any("err", err))
+
+		return
 	}
+
+	e.metrics.ExporterSessionAccepted(OutcomeHandshakeOK)
 }
 
 // serveImport handles the OP_REQ_IMPORT request. It decodes the busid
