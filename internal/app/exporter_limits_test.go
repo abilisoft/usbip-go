@@ -170,12 +170,22 @@ func TestExporter_MaxSessionsPerPeer(t *testing.T) {
 
 	var exports atomic.Int32
 
+	// Each session must request a different busid: registerSession
+	// rejects a second concurrent session for the same busid (a real
+	// device can only be exported once). Per-peer-cap is the constraint
+	// under test, so give each connection a unique busid.
+	var importCallNum atomic.Int32
+
+	availableDevs := []domain.Device{
+		{BusID: domain.BusID("1-1")},
+		{BusID: domain.BusID("1-2")},
+		{BusID: domain.BusID("1-3")},
+		{BusID: domain.BusID("1-4")},
+	}
+
 	kernel := &ExporterKernelMock{
-		// serveImport now looks the requested device up in the
-		// exported set BEFORE sending OP_REP_IMPORT and handing the
-		// fd to the kernel — return the busid so the lookup succeeds.
 		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
-			return []domain.Device{{BusID: domain.BusID("1-1")}}, nil
+			return availableDevs, nil
 		},
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
 			exports.Add(1)
@@ -192,7 +202,9 @@ func TestExporter_MaxSessionsPerPeer(t *testing.T) {
 	codec := &ProtocolCodecMock{
 		DecodeHeaderFunc: wire.NewCodec().DecodeHeader,
 		DecodeOpReqImportBodyFunc: func(_ io.Reader) (domain.BusID, error) {
-			return domain.BusID("1-1"), nil
+			n := importCallNum.Add(1) - 1
+
+			return availableDevs[int(n)%len(availableDevs)].BusID, nil
 		},
 		// serveImport now sends OP_REP_IMPORT before kernel handoff —
 		// the mock must accept the success-reply encode call.

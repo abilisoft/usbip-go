@@ -300,11 +300,13 @@ func (e *Exporter) serveImport(
 			slog.String("op", string(HandshakeOpImport)),
 			slog.String("outcome", string(classifySessionDeclineOutcome(err))),
 			slog.Any("err", err))
-		// Cap or per-peer-limit decline → ST_DEV_BUSY (server cannot
-		// take another importer for this device right now). Other
-		// register failures fall through to ST_DEV_ERR.
+		// Cap, per-peer-limit, or busid-collision decline → ST_DEV_BUSY
+		// (server cannot take another importer for this device right
+		// now). Other register failures fall through to ST_DEV_ERR.
 		status := wire.ImportStatusDevErr
-		if errors.Is(err, ErrMaxSessionsExceeded) || errors.Is(err, ErrPerPeerLimitExceeded) {
+		if errors.Is(err, ErrMaxSessionsExceeded) ||
+			errors.Is(err, ErrPerPeerLimitExceeded) ||
+			errors.Is(err, domain.ErrDeviceAlreadyBound) {
 			status = wire.ImportStatusDevBusy
 		}
 
@@ -378,7 +380,9 @@ func (e *Exporter) replyImportError(conn net.Conn, busID domain.BusID, status ui
 // directly at those sites in exporter.go. Anything else falls through
 // to handshake_failed so the closed-set contract is preserved.
 func classifySessionDeclineOutcome(err error) SessionOutcome {
-	if errors.Is(err, ErrMaxSessionsExceeded) || errors.Is(err, ErrPerPeerLimitExceeded) {
+	if errors.Is(err, ErrMaxSessionsExceeded) ||
+		errors.Is(err, ErrPerPeerLimitExceeded) ||
+		errors.Is(err, domain.ErrDeviceAlreadyBound) {
 		return OutcomeRejectedCap
 	}
 
@@ -446,8 +450,15 @@ func (e *Exporter) runRegisteredSession(
 
 		// Subscribe is the only observation path for session end; if
 		// we cannot open one we must not hand the fd to the kernel
-		// (we would park forever after a successful handoff). Surface
-		// the subscribe failure the same way as a kernel-side error.
+		// (we would park forever after a successful handoff). The
+		// importer side has nothing to read otherwise; emit ST_DEV_ERR
+		// so it surfaces the rejection rather than EOF.
+		if encErr := e.codec.EncodeOpRepImportError(conn, wire.ImportStatusDevErr); encErr != nil {
+			e.logger.Debug("exporter encode import error reply on subscribe failure",
+				slog.Any("busid", busID),
+				slog.Any("err", encErr))
+		}
+
 		return
 	}
 

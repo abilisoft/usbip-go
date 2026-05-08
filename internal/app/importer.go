@@ -859,6 +859,24 @@ func (i *Importer) attachOverDialed(
 			endpoint.String(), wireBusIDErr)
 	}
 
+	// BusID match: reject any reply that names a different device than
+	// the one we asked for. Without this check a misbehaving exporter
+	// could attach the wrong USB device under the caller's requested
+	// handle (the kernel would happily wire the returned dev_id to the
+	// vhci port; the caller would then control a device they did not
+	// authorize). v1 contract §6.2: the reply MUST identify the same
+	// busid the request named.
+	if dev.BusID != busID {
+		mismatchErr := fmt.Errorf("%w: requested busid %s but peer replied %s",
+			domain.ErrProtocolError, busID, dev.BusID)
+
+		i.logAttachFailure("attach decode handshake failed",
+			busID, endpoint, AttachOutcomeProtocolMismatch, mismatchErr)
+
+		return domain.Port{}, fmt.Errorf("decode OP_REP_IMPORT from %s: %w",
+			endpoint.String(), mismatchErr)
+	}
+
 	i.logger.Debug("attach: got OP_REP_IMPORT",
 		"busid", dev.BusID, "vid", dev.VendorID, "pid", dev.ProductID, "speed", dev.Speed.String())
 
