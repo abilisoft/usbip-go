@@ -7,10 +7,32 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"sync"
 
 	"github.com/abilisoft/usbip-go/internal/adapter/wire"
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
+
+// connCloser wraps a conn with a sync.Once so the deferred cleanup and
+// the handshake-timeout watcher can both call close() without racing a
+// double-close on the underlying fd.
+type connCloser struct {
+	conn net.Conn
+	once sync.Once
+	err  error
+}
+
+// close invokes conn.Close exactly once across all goroutines. Repeat
+// callers get the same err the first close returned (nil in the happy
+// path). Go's net.Conn tolerates double-close (returns a sentinel), but
+// we must not double-close a handed-off fd — the kernel owns it.
+func (c *connCloser) close() error {
+	c.once.Do(func() {
+		c.err = c.conn.Close()
+	})
+
+	return c.err
+}
 
 // handleConn is the per-connection entry point spawned by the accept
 // loop. The handshake flow per spec §5.3:
@@ -31,23 +53,27 @@ import (
 // ExportOnConn returns (success OR the adapter rejected with the conn
 // already closed), the handler MUST NOT close it itself — the kernel
 // owns the fd on success, and the adapter is documented to have
-// closed it on failure. The handedOff flag implements this split.
+// closed it on failure. The handedOff flag implements this split; a
+// connCloser guards close-once for all non-handoff paths so the
+// timeout watcher and the deferred cleanup do not double-close (Fix 4).
 func (e *Exporter) handleConn(ctx context.Context, conn net.Conn) {
 	handedOff := false
+
+	closer := &connCloser{conn: conn}
 
 	defer func() {
 		if handedOff {
 			return
 		}
 
-		err := conn.Close()
+		err := closer.close()
 		if err != nil && !errors.Is(err, net.ErrClosed) {
 			e.logger.Debug("exporter session close",
 				slog.Any("err", err))
 		}
 	}()
 
-	stopTimeout := e.armHandshakeTimeout(conn)
+	stopTimeout := e.armHandshakeTimeout(closer)
 	defer stopTimeout()
 
 	reader := newHandshakeLimitReader(conn, e.cfg.maxHandshakeBytes)
@@ -83,13 +109,13 @@ func (e *Exporter) handleConn(ctx context.Context, conn net.Conn) {
 	}
 }
 
-// armHandshakeTimeout spawns a watcher that closes conn after the
-// configured HandshakeTimeout elapses on the Exporter's injected Clock.
-// Returns a stop func that disarms the watcher; callers MUST call it
-// exactly once after the handshake completes (or the watcher goroutine
-// leaks until the timeout fires). A non-positive timeout disables the
-// watcher entirely.
-func (e *Exporter) armHandshakeTimeout(conn net.Conn) func() {
+// armHandshakeTimeout spawns a watcher that closes conn (via the
+// shared connCloser) after the configured HandshakeTimeout elapses on
+// the Exporter's injected Clock. Returns a stop func that disarms the
+// watcher; callers MUST call it exactly once after the handshake
+// completes (or the watcher goroutine leaks until the timeout fires).
+// A non-positive timeout disables the watcher entirely.
+func (e *Exporter) armHandshakeTimeout(closer *connCloser) func() {
 	if e.cfg.handshakeTimeout <= 0 {
 		return func() {}
 	}
@@ -105,7 +131,7 @@ func (e *Exporter) armHandshakeTimeout(conn net.Conn) func() {
 			e.logger.Debug("exporter handshake timeout",
 				slog.Duration("timeout", e.cfg.handshakeTimeout))
 
-			err := conn.Close()
+			err := closer.close()
 			if err != nil && !errors.Is(err, net.ErrClosed) {
 				e.logger.Debug("exporter handshake close",
 					slog.Any("err", err))
