@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
@@ -28,9 +29,10 @@ type Exporter struct {
 	logger    *slog.Logger
 	metrics   *Metrics
 
-	cfg       exporterLimits
-	acceptLim acceptLimiter
-	acl       *aclChecker
+	cfg             exporterLimits
+	acceptLim       acceptLimiter
+	acl             *aclChecker
+	shutdownTimeout time.Duration
 
 	mu          sync.RWMutex
 	shutdown    bool
@@ -116,18 +118,19 @@ func NewExporterWithError(opts ...ExporterOption) (*Exporter, error) {
 	}
 
 	return &Exporter{
-		kernel:    cfg.kernel,
-		events:    cfg.events,
-		transport: cfg.transport,
-		codec:     cfg.codec,
-		clock:     cfg.clock,
-		logger:    cfg.logger,
-		metrics:   cfg.metrics,
-		cfg:       resolveExporterLimits(&cfg),
-		acceptLim: newAcceptLimiter(resolveAcceptRate(&cfg), resolveAcceptBurst(&cfg)),
-		acl:       acl,
-		sessions:  make(map[domain.SessionID]*sessionHandle),
-		perPeer:   make(map[string]int),
+		kernel:          cfg.kernel,
+		events:          cfg.events,
+		transport:       cfg.transport,
+		codec:           cfg.codec,
+		clock:           cfg.clock,
+		logger:          cfg.logger,
+		metrics:         cfg.metrics,
+		cfg:             resolveExporterLimits(&cfg),
+		acceptLim:       newAcceptLimiter(resolveAcceptRate(&cfg), resolveAcceptBurst(&cfg)),
+		acl:             acl,
+		shutdownTimeout: cfg.shutdownTimeout,
+		sessions:        make(map[domain.SessionID]*sessionHandle),
+		perPeer:         make(map[string]int),
 	}, nil
 }
 
@@ -258,6 +261,12 @@ func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
 // by the provided ctx deadline. Returns nil when the drain completes
 // before the deadline; a ctx.Err-wrapped error when it does not.
 // Idempotent: a second Shutdown returns nil after another drain.
+//
+// When the caller's ctx carries no deadline and the Exporter was built
+// with WithExporterShutdownTimeout(d>0), the option's value is applied
+// as an internal backstop deadline (RANK 9). Pre-fix an unbounded ctx
+// would let a wedged ExportOnConn block Shutdown forever despite a
+// configured timeout.
 func (e *Exporter) Shutdown(ctx context.Context) error {
 	e.mu.Lock()
 
@@ -279,7 +288,10 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 		h.cancel()
 	}
 
-	waitErr := e.waitSessionsBounded(ctx)
+	drainCtx, cancel := e.applyShutdownBackstop(ctx)
+	defer cancel()
+
+	waitErr := e.waitSessionsBounded(drainCtx)
 
 	// Tear down WatchSessions subscribers last so consumers see every
 	// SessionEnded event published during drain before the channel
@@ -287,6 +299,23 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 	e.closeAllSubscribers()
 
 	return waitErr
+}
+
+// applyShutdownBackstop derives the ctx the drain actually waits on.
+// If the caller's ctx already has a deadline — or the backstop was
+// never configured — the caller's ctx is returned unchanged with a
+// no-op cancel. Otherwise a WithTimeout child caps the drain at
+// shutdownTimeout (RANK 9). The returned cancel is always non-nil.
+func (e *Exporter) applyShutdownBackstop(ctx context.Context) (context.Context, context.CancelFunc) {
+	if e.shutdownTimeout <= 0 {
+		return ctx, func() {}
+	}
+
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+
+	return context.WithTimeout(ctx, e.shutdownTimeout)
 }
 
 // startServing transitions the Exporter from idle → serving. Returns
