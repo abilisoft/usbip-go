@@ -2,12 +2,14 @@ package app_test
 
 import (
 	"context"
+	"io"
 	"net"
 	"testing"
 	"time"
 
 	"github.com/abilisoft/usbip-go/internal/adapter/wire"
 	"github.com/abilisoft/usbip-go/internal/app"
+	"github.com/abilisoft/usbip-go/pkg/domain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,9 +20,16 @@ func TestExporterACL_Allow(t *testing.T) {
 
 	codec := &ProtocolCodecMock{
 		DecodeHeaderFunc: wire.NewCodec().DecodeHeader,
+		EncodeOpRepDevlistFunc: func(_ io.Writer, _ []domain.Device) error {
+			return nil
+		},
 	}
 
-	kernel := &ExporterKernelMock{}
+	kernel := &ExporterKernelMock{
+		ListLocalDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return nil, nil
+		},
+	}
 
 	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 5), Port: 1234})
 

@@ -82,6 +82,8 @@ type exporterConfig struct {
 	acceptBurst        int
 	maxHandshakeBytes  int
 	handshakeTimeout   time.Duration
+
+	aclCIDRs []string
 }
 
 // WithExporterKernel injects the kernel-side adapter (usbip_host
@@ -155,6 +157,18 @@ func WithExporterMaxHandshakeBytes(n int) ExporterOption {
 // up the default; a negative value disables the timeout.
 func WithExporterHandshakeTimeout(d time.Duration) ExporterOption {
 	return func(c *exporterConfig) { c.handshakeTimeout = d }
+}
+
+// WithExporterACL appends CIDR strings to the accept-path allow-list
+// (spec §11.5.2). Multiple calls accumulate. An empty list means
+// "allow every peer" to match upstream usbip-utils behaviour; at
+// least one CIDR opts the exporter into fail-closed ACL enforcement.
+// Invalid CIDR strings surface as NewExporterWithError constructor
+// errors (ErrACLInvalid) rather than deferred Serve-time failures.
+func WithExporterACL(cidrs ...string) ExporterOption {
+	return func(c *exporterConfig) {
+		c.aclCIDRs = append(c.aclCIDRs, cidrs...)
+	}
 }
 
 // AttachOptions configures a single Importer.Attach call. All fields
