@@ -8,10 +8,9 @@ package app_test
 
 import (
 	"context"
-	"sync"
-
 	"github.com/abilisoft/usbip-go/internal/app"
 	"github.com/abilisoft/usbip-go/pkg/domain"
+	"sync"
 )
 
 // Ensure, that KernelEventsMock does implement app.KernelEvents.

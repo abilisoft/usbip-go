@@ -8,11 +8,10 @@ package app_test
 
 import (
 	"context"
-	"net"
-	"sync"
-
 	"github.com/abilisoft/usbip-go/internal/app"
 	"github.com/abilisoft/usbip-go/pkg/domain"
+	"net"
+	"sync"
 )
 
 // Ensure, that ExporterKernelMock does implement app.ExporterKernel.

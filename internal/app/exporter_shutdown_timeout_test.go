@@ -47,7 +47,7 @@ func TestExporterShutdownHonoursConfiguredTimeout(t *testing.T) {
 
 	codec := &ProtocolCodecMock{
 		DecodeHeaderFunc: wire.NewCodec().DecodeHeader,
-		DecodeOpReqImportFunc: func(_ io.Reader) (domain.BusID, error) {
+		DecodeOpReqImportBodyFunc: func(_ io.Reader) (domain.BusID, error) {
 			return domain.BusID("9-9"), nil
 		},
 	}

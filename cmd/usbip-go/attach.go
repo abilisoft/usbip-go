@@ -234,7 +234,16 @@ func renderAttachResult(cmd *cobra.Command, port usbip.Port) error {
 		return nil
 	}
 
-	err := (tableRenderer{}).Ports(out, []usbip.Port{port})
+	// Lead with the styled ack so the operator sees "✓ attached <busid>"
+	// at the same vertical position as bind/unbind/detach, then the
+	// port table for full detail. Without the ack the attach output
+	// alone reads like a list query, not a confirmation.
+	_, err := fmt.Fprintln(styleWriter(out), formatAck("attached", string(port.BusID)))
+	if err != nil {
+		return fmt.Errorf("write attach ack: %w", err)
+	}
+
+	err = (tableRenderer{}).Ports(out, []usbip.Port{port})
 	if err != nil {
 		return fmt.Errorf("render ports: %w", err)
 	}

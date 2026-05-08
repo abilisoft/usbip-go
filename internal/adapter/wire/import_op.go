@@ -28,8 +28,14 @@ func EncodeOpReqImport(w io.Writer, busID domain.BusID) error {
 	return nil
 }
 
-// DecodeOpReqImport reads an OP_REQ_IMPORT request and returns the
-// requested busid.
+// DecodeOpReqImport reads a full OP_REQ_IMPORT request (header +
+// body) and returns the requested busid. Used by callers that own
+// the read of the entire request from raw bytes.
+//
+// Daemons whose dispatcher already consumed the header MUST call
+// DecodeOpReqImportBody instead — calling this function would
+// re-read 8 bytes from the busid region and surface them as a
+// (bogus) version mismatch.
 func DecodeOpReqImport(r io.Reader) (domain.BusID, error) {
 	_, op, _, err := DecodeHeader(r)
 	if err != nil {
@@ -41,6 +47,17 @@ func DecodeOpReqImport(r io.Reader) (domain.BusID, error) {
 			domain.ErrProtocolMismatch, uint16(op))
 	}
 
+	return DecodeOpReqImportBody(r)
+}
+
+// DecodeOpReqImportBody reads ONLY the OP_REQ_IMPORT body (the
+// 32-byte busid) from r. The 8-byte header must already have been
+// consumed by the caller — this function does NOT re-read it.
+//
+// Body-only entry point so the daemon's accept dispatcher (which
+// already decoded the header to route the connection) does not
+// double-read the header and mis-decode the busid as a header.
+func DecodeOpReqImportBody(r io.Reader) (domain.BusID, error) {
 	busid, truncated, err := ReadPaddedString(r, domain.BusIDSize)
 	if err != nil {
 		return "", err

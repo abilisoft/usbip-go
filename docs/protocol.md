@@ -151,7 +151,7 @@ It is validated on decode against the pattern
 | 3 | `SpeedHigh` | 480 Mbit/s |
 | 4 | `SpeedWireless` | wireless (historical) |
 | 5 | `SpeedSuper` | 5 Gbit/s |
-| 6 | `SpeedSuperPlus` | 10 Gbit/s |
+| 6 | `SpeedSuperPlus` | 10 or 20 Gbit/s (USB 3.1 Gen 2 and 3.2 Gen 2x2; the wire protocol does not transmit `udev->ssp_rate` so the kernel collapses both rates onto the same enum value) |
 
 ## Interface descriptor (4 bytes each)
 

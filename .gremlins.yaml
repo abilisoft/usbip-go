@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2026 AbiliSoft
+# SPDX-License-Identifier: Apache-2.0
+#
+# gremlins mutation-test config. Excludes the hermetic build cache
+# (build/cache/go-mod is gigabytes of vendored modules — copying it
+# per worker fills the disk and panics the tool) and any directory
+# unrelated to the mutation surface.
+
+silent: true
+
+excluded-files:
+  - "build/**"
+  - "_examples/**"
+
+# Default coefficient (3) is too tight on CPU-constrained runners and
+# turns legitimate KILLED/LIVED into TIMED OUT noise; bump to 10 so
+# the tool reports the actual mutant verdict.
+timeout-coefficient: 10
+
+# Threshold gates. Current baseline: pkg/domain 97.47% efficacy,
+# internal/adapter/wire 86.54%. Set the floor below current so a
+# regression of one mutant trips the build, but not so tight that
+# transient timeouts on a busy runner false-fail.
+threshold-efficacy: 85
+threshold-mcover: 80

@@ -56,8 +56,15 @@ func errorRegistry() []errorEntry {
 			"usbip-go: operation requires elevated privileges (CAP_SYS_ADMIN). Try: sudo usbip-go",
 		},
 		{
+			// %s pulls the wrapped detail from the kernel adapter,
+			// which already names the SPECIFIC module that was
+			// missing ("run `sudo modprobe vhci_hcd`"). Generic
+			// kitchen-sink suggestions waste an operator's time
+			// telling them to load modules they do not need
+			// (vhci_hcd on a pure server, usbip_host on a pure
+			// client).
 			usbip.ErrKernelModuleMissing, ExitKernelModule,
-			"usbip-go: kernel module not loaded. Try: sudo modprobe usbip_core vhci_hcd usbip_host",
+			"usbip-go: %s",
 		},
 		{
 			usbip.ErrDeviceNotFound, ExitDeviceNotFound,

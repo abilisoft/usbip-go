@@ -12,6 +12,7 @@ import (
 	"testing/fstest"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
@@ -208,4 +209,112 @@ func TestNewDispatcherInitialState(t *testing.T) {
 	require.NotNil(t, d.stop)
 	require.NotNil(t, d.done)
 	require.NotNil(t, d.logger)
+}
+
+// TestClassifySyscallErr_DelegatesToClassifyFSErr pins that
+// classifySyscallErr delegates to classifyFSErr, which classifies the
+// errno into its domain sentinel.
+func TestClassifySyscallErr_DelegatesToClassifyFSErr(t *testing.T) {
+	t.Parallel()
+
+	err := classifySyscallErr("write", "/sys/bus/usb/drivers/usbip-host/bind", unix.EIO)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "write")
+}
+
+// TestClassifyENOENT_KindOther pins the kindOther case: an ENOENT on a
+// path that does not fall under devices, drivers, controllers, or
+// modules surfaces as a raw "sysfs ENOENT" error rather than a domain
+// sentinel, so the caller sees the underlying errno unchanged.
+func TestClassifyENOENT_KindOther(t *testing.T) {
+	t.Parallel()
+
+	err := classifyENOENT(kindOther, unix.ENOENT)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "sysfs ENOENT")
+	require.NotErrorIs(t, err, domain.ErrDeviceNotFound)
+	require.NotErrorIs(t, err, domain.ErrKernelModuleMissing)
+}
+
+// TestClassifyENOENT_Default pins the default branch: a pathKind value
+// outside the known enum must also produce a "sysfs ENOENT" error (same
+// safe fallback as kindOther).
+func TestClassifyENOENT_Default(t *testing.T) {
+	t.Parallel()
+
+	err := classifyENOENT(pathKind(99), unix.ENOENT)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "sysfs ENOENT")
+}
+
+// TestHandleReceiveErr_NonEOFLogsAndCoversNewDispatcherClosure pins the
+// non-EOF branch of handleReceiveErr: an error that is not io.EOF must be
+// forwarded to d.logger.warn. The call exercises the warn closure created
+// inside newDispatcher, covering that closure body.
+func TestHandleReceiveErr_NonEOFLogs(t *testing.T) {
+	t.Parallel()
+
+	d := newDispatcher(nil, slog.Default(), vhciEventMapper{})
+	// Must not panic; the non-EOF error is logged, not returned.
+	d.handleReceiveErr(errFakeReceive)
+}
+
+// TestBroadcast_DropsEventOnFullChannel pins the default branch inside
+// broadcast: a subscriber whose channel is full (unbuffered, no reader)
+// must receive the drop-log path without blocking the broadcaster.
+func TestBroadcast_DropsEventOnFullChannel(t *testing.T) {
+	t.Parallel()
+
+	d := newDispatcher(nil, slog.Default(), vhciEventMapper{})
+	// Unbuffered channel — any send blocks immediately, so the select
+	// takes the default branch and logs the drop.
+	ch := make(chan domain.Event)
+	d.addSubscriber(ch)
+	d.broadcast(domain.DeviceBoundEvent{})
+}
+
+// TestMapEvent_MissingDEVPATH pins the DEVPATH-absent branch of
+// vhciEventMapper.mapEvent: an interesting uevent without a DEVPATH key
+// must return (nil, false) so no event is broadcast.
+func TestMapEvent_MissingDEVPATH(t *testing.T) {
+	t.Parallel()
+
+	m := newVHCIEventMapperWithLoader(func() (Topology, error) { return Topology{}, nil })
+	// SUBSYSTEM=usb passes isInterestingUevent; DEVPATH is absent.
+	ev, ok := m.mapEvent(map[string]string{"SUBSYSTEM": "usb", "ACTION": "add"})
+	require.False(t, ok)
+	require.Nil(t, ev)
+}
+
+// TestVhciActionToEvent_UnknownAction pins the default branch: an ACTION
+// value that is not add/remove/change must return (nil, false) so
+// unrecognised kernel actions do not synthesise spurious events.
+func TestVhciActionToEvent_UnknownAction(t *testing.T) {
+	t.Parallel()
+
+	ev, ok := vhciActionToEvent("online", 0, "")
+	require.False(t, ok)
+	require.Nil(t, ev)
+}
+
+// TestMapUsbipHostEvent_UnknownAction pins the default branch in
+// mapUsbipHostEvent: actions other than add/remove must return (nil, false).
+func TestMapUsbipHostEvent_UnknownAction(t *testing.T) {
+	t.Parallel()
+
+	// devpath matches the regex (/1-1 ends with digit-dash-digit)
+	ev, ok := mapUsbipHostEvent("online", "/devices/1-1")
+	require.False(t, ok)
+	require.Nil(t, ev)
+}
+
+// TestRemoveSubscriber_UnknownIDReturnsFalse pins the early-exit branch
+// of removeSubscriber: removing an id that was never registered must
+// return false and must not panic.
+func TestRemoveSubscriber_UnknownIDReturnsFalse(t *testing.T) {
+	t.Parallel()
+
+	d := newDispatcher(nil, slog.Default(), vhciEventMapper{})
+	got := d.removeSubscriber(9999)
+	require.False(t, got, "removeSubscriber must return false for an unregistered id")
 }

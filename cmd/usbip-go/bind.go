@@ -94,7 +94,7 @@ func writeBindAck(cmd *cobra.Command, op string, busID domain.BusID) error {
 		return nil
 	}
 
-	_, err := fmt.Fprintf(out, "%sed %s\n", op, busID)
+	_, err := fmt.Fprintln(styleWriter(out), formatAck(op+"ed", string(busID)))
 	if err != nil {
 		return fmt.Errorf("write output: %w", err)
 	}
