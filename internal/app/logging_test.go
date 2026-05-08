@@ -233,29 +233,33 @@ func TestReconnectGiveUpRecordCarriesPortIDAndAttempt(t *testing.T) {
 	// loop, fails MaxAttempts times, emits "reconnect giving up".
 	events <- domain.PortDetachedEvent{Port: port}
 
-	// Block the test until the watcher has at least started its retry
-	// loop (OnReconnect fires before waitBackoff).
+	// OnReconnect is a fire-and-forget callback that runs BEFORE the
+	// give-up log is emitted. It's a necessary but not sufficient
+	// sync point: after it fires the watcher still has to fail its
+	// Attach, exit the loop, and write the record. Poll the buffer
+	// rather than calling Close (which would cancel the watcher and
+	// short-circuit the give-up path via ErrImporterClosed).
 	<-giveUpCh
 
-	// Close drains the watcher; by the time Close returns, the give-up
-	// log line is emitted.
+	var giveUp map[string]any
+
+	require.Eventually(t, func() bool {
+		for _, r := range parseJSONRecords(t, bw.Bytes()) {
+			if r["msg"] == "reconnect giving up after max attempts" {
+				giveUp = r
+
+				return true
+			}
+		}
+
+		return false
+	}, 2*time.Second, 10*time.Millisecond,
+		"watcher must emit 'reconnect giving up after max attempts'; got:\n%s",
+		bw.String())
+
 	require.NoError(t, imp.Close())
 
-	records := parseJSONRecords(t, bw.Bytes())
-
-	found := false
-
-	for _, r := range records {
-		if r["msg"] == "reconnect giving up after max attempts" {
-			assertAttrsPresent(t, r, "port_id", "last_err", "max_attempts")
-
-			found = true
-		}
-	}
-
-	require.Truef(t, found,
-		"watcher must emit 'reconnect giving up after max attempts' with port_id+last_err+max_attempts; got:\n%s",
-		bw.String())
+	assertAttrsPresent(t, giveUp, "port_id", "last_err", "max_attempts")
 }
 
 // TestReconnectGiveUpRecordCarriesAttemptAndSource proves the
@@ -345,24 +349,37 @@ func TestReconnectGiveUpRecordCarriesAttemptAndSource(t *testing.T) {
 
 	events <- domain.PortDetachedEvent{Port: port}
 
+	// Synchronise on OnReconnect so the watcher has at least entered
+	// the retry loop; further progress (give-up log emission) is
+	// polled via Eventually below because the watcher's subsequent
+	// Attach races with imp.Close's closed=true flip. Sync on the
+	// fire-and-forget callback alone would let Close cancel the
+	// watcher before it reaches the give-up record, turning the
+	// assertion into a race.
 	<-giveUpCh
+
+	// Poll the buffer until the give-up record lands. The watcher's
+	// loop exit after MaxAttempts=1 + errBoom is deterministic as long
+	// as no external ctx cancellation beats it; calling Close only
+	// AFTER the record is observed guarantees the natural exit.
+	var giveUp map[string]any
+
+	require.Eventually(t, func() bool {
+		for _, r := range parseJSONRecords(t, bw.Bytes()) {
+			if r["msg"] == "reconnect giving up after max attempts" {
+				giveUp = r
+
+				return true
+			}
+		}
+
+		return false
+	}, 2*time.Second, 10*time.Millisecond,
+		"give-up record never landed; buf=%s", bw.String())
 
 	require.NoError(t, imp.Close())
 
-	records := parseJSONRecords(t, bw.Bytes())
-
-	found := false
-
-	for _, r := range records {
-		if r["msg"] == "reconnect giving up after max attempts" {
-			assertAttrsPresent(t, r, "attempt", "source")
-
-			found = true
-		}
-	}
-
-	require.Truef(t, found,
-		"give-up record must carry attempt + source attrs; got:\n%s", bw.String())
+	assertAttrsPresent(t, giveUp, "attempt", "source")
 }
 
 // TestReconnectOnReconnectPanicRecordCarriesPortIDAndSource proves the
