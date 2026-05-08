@@ -51,8 +51,34 @@ func TestReconnect_PortsGaugeStaysAccurateAcrossReconnect(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, domain.PortID(1), port.ID)
 
+	// readPortsGauge is scoped to this test so the file does not add
+	// callers to gaugeOnlyValue that all share a single metric name —
+	// unparam would otherwise flag the helper's `name` parameter as
+	// a constant literal across the package.
+	readPortsGauge := func() float64 {
+		t.Helper()
+
+		fams, gatherErr := reg.Gather()
+		require.NoError(t, gatherErr)
+
+		for _, f := range fams {
+			if f.GetName() != "usbip_importer_ports_active" {
+				continue
+			}
+
+			ms := f.GetMetric()
+			if len(ms) == 0 {
+				return 0
+			}
+
+			return ms[0].GetGauge().GetValue()
+		}
+
+		return 0
+	}
+
 	// Baseline: one live port, gauge should be 1.
-	require.InDelta(t, 1.0, gaugeOnlyValue(t, reg, "usbip_importer_ports_active"), 0.0001,
+	require.InDelta(t, 1.0, readPortsGauge(), 0.0001,
 		"initial Attach must land gauge=1")
 
 	events.waitFor(t, 1)
@@ -77,10 +103,10 @@ func TestReconnect_PortsGaugeStaysAccurateAcrossReconnect(t *testing.T) {
 	// count (1 — the replacement port). Pre-fix this reads 2 because
 	// removeHandle was invoked but updateImporterPortsGauge was not.
 	require.Eventually(t, func() bool {
-		return gaugeOnlyValue(t, reg, "usbip_importer_ports_active") == 1.0
+		return readPortsGauge() == 1.0
 	}, reconnectTestSettleBudget, 5*time.Millisecond,
-		"ports gauge must equal 1 after cross-slot reconnect; "+
-			"got %v", gaugeOnlyValue(t, reg, "usbip_importer_ports_active"))
+		"ports gauge must equal 1 after cross-slot reconnect; got %v",
+		readPortsGauge())
 }
 
 // newReconnectFixtureWithMetrics mirrors newReconnectFixture but lets
