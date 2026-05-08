@@ -167,9 +167,9 @@ func (e *Exporter) closeAllSubscribers() {
 // newSessionEventSeq returns an iter.Seq that yields events from sub.ch
 // until ctx is cancelled, sub.done fires, or yield returns false. The
 // remove callback is invoked on exit so the subscriber is dropped from
-// the Exporter's list. Unlike newEventSeq (used by the Importer), this
-// variant terminates on sub.done rather than on channel close — the
-// publish path never closes sub.ch to avoid the send-on-closed race.
+// the Exporter's list. This variant terminates on sub.done rather than
+// on channel close — the publish path never closes sub.ch to avoid the
+// send-on-closed race.
 func newSessionEventSeq(
 	ctx context.Context,
 	sub *sessionEventSubscriber,

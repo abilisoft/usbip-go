@@ -18,10 +18,9 @@ func TestEventKind_DistinctValues(t *testing.T) {
 		domain.EventPortAttached,
 		domain.EventPortDetached,
 		domain.EventPortErrored,
+		domain.EventPortReconnectExhausted,
 		domain.EventDeviceBound,
 		domain.EventDeviceUnbound,
-		domain.EventRemoteDeviceAdded,
-		domain.EventRemoteDeviceRemoved,
 		domain.EventSessionStarted,
 		domain.EventSessionEnded,
 	}
@@ -35,7 +34,7 @@ func TestEventKind_DistinctValues(t *testing.T) {
 		seen[k] = struct{}{}
 	}
 
-	require.Len(t, seen, 9)
+	require.Len(t, seen, 8)
 }
 
 func TestEventKind_String(t *testing.T) {
@@ -48,10 +47,9 @@ func TestEventKind_String(t *testing.T) {
 		{domain.EventPortAttached, "port_attached"},
 		{domain.EventPortDetached, "port_detached"},
 		{domain.EventPortErrored, "port_errored"},
+		{domain.EventPortReconnectExhausted, "port_reconnect_exhausted"},
 		{domain.EventDeviceBound, "device_bound"},
 		{domain.EventDeviceUnbound, "device_unbound"},
-		{domain.EventRemoteDeviceAdded, "remote_device_added"},
-		{domain.EventRemoteDeviceRemoved, "remote_device_removed"},
 		{domain.EventSessionStarted, "session_started"},
 		{domain.EventSessionEnded, "session_ended"},
 	}
@@ -129,7 +127,6 @@ func TestConcreteEvents_ImplementEvent(t *testing.T) {
 	port := domain.Port{ID: 1}
 	dev := domain.Device{BusID: "1-1"}
 	sess := domain.Session{}
-	remote := domain.RemoteEndpoint{Host: "h"}
 
 	cases := []struct {
 		name string
@@ -139,18 +136,13 @@ func TestConcreteEvents_ImplementEvent(t *testing.T) {
 		{"attached", domain.PortAttachedEvent{At: now, Port: port}, domain.EventPortAttached},
 		{"detached", domain.PortDetachedEvent{At: now, Port: port, Reason: "r"}, domain.EventPortDetached},
 		{"errored", domain.PortErroredEvent{At: now, Port: port, Err: "e"}, domain.EventPortErrored},
+		{
+			"reconnect_exhausted",
+			domain.PortReconnectExhaustedEvent{At: now, Port: port, Attempts: 3, LastError: "io"},
+			domain.EventPortReconnectExhausted,
+		},
 		{"bound", domain.DeviceBoundEvent{At: now, Device: dev}, domain.EventDeviceBound},
 		{"unbound", domain.DeviceUnboundEvent{At: now, Device: dev}, domain.EventDeviceUnbound},
-		{
-			"remote_added",
-			domain.RemoteDeviceAddedEvent{At: now, Remote: remote, Device: dev},
-			domain.EventRemoteDeviceAdded,
-		},
-		{
-			"remote_removed",
-			domain.RemoteDeviceRemovedEvent{At: now, Remote: remote, BusID: "1-1"},
-			domain.EventRemoteDeviceRemoved,
-		},
 		{"session_start", domain.SessionStartedEvent{At: now, Session: sess}, domain.EventSessionStarted},
 		{"session_end", domain.SessionEndedEvent{At: now, Session: sess, Reason: "r"}, domain.EventSessionEnded},
 	}

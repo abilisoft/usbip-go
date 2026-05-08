@@ -57,6 +57,11 @@ type Importer struct {
 	inFlight map[attachKey]struct{}
 	nextGen  uint64
 	wg       sync.WaitGroup
+	// subscribers is the per-call fanout list for app-synthesized port
+	// lifecycle events (PortReconnectExhausted). Watch merges these with
+	// the upstream KernelEvents subscription so consumers see all port
+	// lifecycle events on one stream. Guarded by mu.
+	subscribers []*importerEventSubscriber
 }
 
 // attachKey is the deduplication key used by Importer.inFlight. Remote
@@ -108,6 +113,13 @@ type portHandle struct {
 	watcherDone     chan struct{}
 	shutdownTimeout time.Duration
 	detaching       atomic.Bool
+	// lastKnownPort is the Port snapshot taken at the most recent
+	// successful Attach (initial or reconnect). The reconnect watcher
+	// emits this value inside PortReconnectExhaustedEvent when
+	// MaxAttempts is reached: the kernel slot is gone by that point,
+	// so this is the truthful "last viable" view. Guarded by
+	// Importer.mu (writes happen under the importer lock).
+	lastKnownPort domain.Port
 }
 
 // cancel closes the done channel exactly once, signalling any watcher
@@ -227,6 +239,12 @@ func (i *Importer) Close() error {
 		}
 
 		i.waitGroupBounded(handles)
+
+		// Drop every Watch subscriber so iterators terminate cleanly.
+		// Done after waitGroupBounded so any still-running reconnect
+		// watcher that publishes its terminal exhaustion event has a
+		// live subscriber list to land on.
+		i.closeAllImporterSubscribers()
 	})
 
 	return nil
@@ -472,24 +490,33 @@ func (i *Importer) ListPorts(ctx context.Context) ([]domain.Port, error) {
 // immediately — the handle map is already torn down and there is no
 // upstream to bind to.
 func (i *Importer) Watch(ctx context.Context) iter.Seq[domain.Event] {
-	i.mu.RLock()
+	i.mu.Lock()
 
-	closed := i.closed
+	if i.closed {
+		i.mu.Unlock()
 
-	i.mu.RUnlock()
-
-	if closed {
 		return emptyEventSeq
 	}
+
+	sub := &importerEventSubscriber{
+		ch:   make(chan domain.Event, importerEventBufSize),
+		done: make(chan struct{}),
+	}
+
+	i.subscribers = append(i.subscribers, sub)
+
+	i.mu.Unlock()
 
 	ch, cancel, err := i.events.Subscribe(ctx)
 	if err != nil {
 		i.logger.Warn("watch subscribe failed", slog.Any("err", err))
 
+		i.removeImporterSubscriber(sub)
+
 		return emptyEventSeq
 	}
 
-	return newEventSeq(ctx, ch, cancel)
+	return i.newImporterMergedSeq(ctx, ch, cancel, sub)
 }
 
 // waitWatcherBounded blocks on h.watcherDone up to h.shutdownTimeout,
@@ -749,18 +776,24 @@ func (i *Importer) finishAttach(
 	i.metrics.ImporterAttached(AttachOutcomeOK)
 	i.updateImporterPortsGauge()
 
-	if opts.AutoReconnect {
-		i.spawnReconnectWatcher(ctx, h, portID, endpoint, busID, opts)
-	}
-
-	return domain.Port{
+	port := domain.Port{
 		ID:       portID,
 		Status:   domain.StatusUsed,
 		Speed:    dev.Speed,
 		DeviceID: devID,
 		Remote:   endpoint,
 		BusID:    busID,
-	}, nil
+	}
+
+	i.mu.Lock()
+	h.lastKnownPort = port
+	i.mu.Unlock()
+
+	if opts.AutoReconnect {
+		i.spawnReconnectWatcher(ctx, h, portID, endpoint, busID, opts)
+	}
+
+	return port, nil
 }
 
 // updateImporterPortsGauge snapshots the handle-map size under the
@@ -847,34 +880,3 @@ func resolveShutdownTimeout(t time.Duration) time.Duration {
 // to iterate (Importer closed, Subscribe failed). It terminates
 // immediately without invoking yield.
 func emptyEventSeq(_ func(domain.Event) bool) {}
-
-// newEventSeq returns an iter.Seq that drains ch until ctx is cancelled
-// or ch closes or yield returns false. The unsubscribe cancel is always
-// called on exit so the KernelEvents fan-out releases the buffered
-// channel promptly.
-func newEventSeq(ctx context.Context, ch <-chan domain.Event, cancel func()) iter.Seq[domain.Event] {
-	return func(yield func(domain.Event) bool) {
-		defer cancel()
-
-		for drainOne(ctx, ch, yield) {
-			// loop until drainOne reports termination.
-		}
-	}
-}
-
-// drainOne performs a single select over ctx and ch, delivering one
-// event via yield if one is available. Returns true to continue the
-// loop, false to terminate. Keeping the select in its own function
-// takes the cognitive load off Watch's caller-visible body.
-func drainOne(ctx context.Context, ch <-chan domain.Event, yield func(domain.Event) bool) bool {
-	select {
-	case <-ctx.Done():
-		return false
-	case ev, ok := <-ch:
-		if !ok {
-			return false
-		}
-
-		return yield(ev)
-	}
-}
