@@ -281,10 +281,25 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 
 	e.mu.Unlock()
 
-	// Signal every tracked handle to unblock; in real operation the
-	// handler reacts by asking the kernel to Disconnect the busid,
-	// which triggers the session-end event path.
+	// Graceful: ask the kernel to release each active session's socket
+	// (pass-2 RANK 3). Disconnect writes -1 to usbip_sockfd; the
+	// kernel-side session teardown emits the remove uevent that the
+	// handler's pre-opened subscription observes. Failures are logged
+	// but not fatal — the bounded drain falls through to force-close
+	// + handle.cancel() so a kernel that ignores Disconnect still
+	// unwinds. h.cancel() also fires immediately so a kernel path that
+	// silently accepts Disconnect without emitting the remove uevent
+	// (e.g. unit-test mocks, kernel without full netlink plumbing)
+	// still terminates the parked handler via the Shutdown branch of
+	// waitForSessionEnd.
 	for _, h := range handles {
+		err := e.kernel.Disconnect(ctx, h.session.BusID)
+		if err != nil {
+			e.logger.Warn("shutdown kernel disconnect",
+				slog.Any("busid", h.session.BusID),
+				slog.Any("err", err))
+		}
+
 		h.cancel()
 	}
 
