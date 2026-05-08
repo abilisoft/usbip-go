@@ -25,8 +25,16 @@ type commonAdapter struct {
 
 // ImporterAdapter satisfies app.ImporterKernel. It operates against the
 // vhci_hcd + usbip_core modules.
+//
+// attachMu serializes the findFreePort → sysfs-write critical section
+// of AttachRemote per spec §3.4 "Attach vs Attach race: first acquire
+// wins; loser gets ErrNoFreePort". Without this lock, two concurrent
+// AttachRemote callers could both observe the same free port in the
+// status table and race on the sysfs attach write.
 type ImporterAdapter struct {
 	commonAdapter
+
+	attachMu sync.Mutex
 }
 
 // ExporterAdapter satisfies app.ExporterKernel. It operates against the
