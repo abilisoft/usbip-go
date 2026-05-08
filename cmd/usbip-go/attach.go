@@ -159,10 +159,10 @@ func runAttach(cmd *cobra.Command, args []string, af *attachFlags) error {
 		return err
 	}
 
-	defer func() { _ = imp.Close() }()
-
 	port, err := imp.Attach(ctx, spec.remote, spec.busID, spec.opts)
 	if err != nil {
+		_ = imp.Close()
+
 		return fmt.Errorf("attach: %w", err)
 	}
 
@@ -176,7 +176,30 @@ func runAttach(cmd *cobra.Command, args []string, af *attachFlags) error {
 		}
 	}
 
-	return renderAttachResult(cmd, port)
+	if renderErr := renderAttachResult(cmd, port); renderErr != nil {
+		_ = imp.Close()
+
+		return renderErr
+	}
+
+	// AutoReconnect installs a watcher that detaches/reattaches on
+	// remote drops; that watcher lives inside the Importer. A defer-
+	// Close at function end would cancel it the moment runAttach
+	// returns, defeating the flag. Block on ctx until the user
+	// interrupts (SIGINT/SIGTERM cancellation propagated by cobra)
+	// then close cleanly. Without AutoReconnect the importer can be
+	// closed immediately — the CLI is one-shot.
+	if !spec.opts.AutoReconnect {
+		_ = imp.Close()
+
+		return nil
+	}
+
+	<-ctx.Done()
+
+	_ = imp.Close()
+
+	return nil
 }
 
 // attachSpec bundles the parsed-and-validated inputs to Importer.Attach.
