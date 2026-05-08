@@ -170,7 +170,7 @@ func (e *Exporter) serveImport(ctx context.Context, reader io.Reader, conn net.C
 
 	peerKey := peerKeyFromAddr(conn.RemoteAddr())
 
-	handle, err := e.registerSession(sess, peerKey)
+	handle, err := e.registerSession(sess, peerKey, conn)
 	if err != nil {
 		e.logger.Warn("exporter session declined",
 			slog.Any("busid", busID),
