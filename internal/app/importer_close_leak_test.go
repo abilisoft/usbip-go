@@ -321,7 +321,29 @@ func TestImporterCloseTimeoutBoundedWaiterDoesNotLeak(t *testing.T) {
 	// waiter goroutine. Post-fix even the first timeout-bounded Close
 	// must not leak a waiter. Release the callback BEFORE the final
 	// assertion so the package's goleak harness is happy.
-	require.NoError(t, imp.Close())
+	closeDone := make(chan error, 1)
+
+	go func() {
+		closeDone <- imp.Close()
+	}()
+
+	// Close now has a wg-tracked OnReconnect goroutine (RANK 11 fix);
+	// the FakeClock-driven timeout must fire for the bounded wait to
+	// return. Advance past the 10ms shutdownTimeout on a retry loop
+	// until Close actually returns.
+	require.Eventually(t, func() bool {
+		clk.Advance(opts.ShutdownTimeout)
+
+		select {
+		case err := <-closeDone:
+			require.NoError(t, err)
+
+			return true
+		default:
+			return false
+		}
+	}, 2*time.Second, 5*time.Millisecond,
+		"Close must return after ShutdownTimeout fires")
 
 	// Eventually the post-Close goroutine count must settle within a
 	// fixed bound above baseline even though Close timed out. Pre-fix

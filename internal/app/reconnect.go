@@ -532,6 +532,12 @@ func (i *Importer) removeHandle(id domain.PortID, owned *portHandle) {
 // so operators can correlate the panic with the affected device and
 // the detach-detection source (uevent vs poll) that drove the retry
 // loop.
+//
+// The callback goroutine is enrolled in i.wg so Close's bounded drain
+// observes it (RANK 11). Pre-fix, the raw `go` spawn escaped the wg
+// and a blocking callback could outlive Close indefinitely; post-fix,
+// Close.waitGroupBounded waits up to shutdownTimeout on the tracked
+// goroutine before returning.
 func (i *Importer) fireOnReconnect(
 	cb func(int, error),
 	attempt int,
@@ -543,7 +549,7 @@ func (i *Importer) fireOnReconnect(
 		return
 	}
 
-	go func() {
+	i.wg.Go(func() {
 		defer func() {
 			r := recover()
 			if r == nil {
@@ -559,5 +565,5 @@ func (i *Importer) fireOnReconnect(
 		}()
 
 		cb(attempt, err)
-	}()
+	})
 }
