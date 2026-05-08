@@ -3,7 +3,6 @@
 package kernel_test
 
 import (
-	"errors"
 	"io/fs"
 	"testing"
 	"testing/fstest"
@@ -77,7 +76,9 @@ func TestReadHex16_WithAndWithoutPrefix(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.raw, func(t *testing.T) {
 			t.Parallel()
+
 			mfs := makeFS(map[string]string{"/sys/bus/usb/devices/1-1/idVendor": tc.raw})
+
 			got, err := kernel.ReadHex16(mfs, "/sys/bus/usb/devices/1-1/idVendor")
 			require.NoError(t, err)
 			require.Equal(t, tc.want, got)
@@ -190,13 +191,10 @@ func TestReadHex16_MalformedWraps(t *testing.T) {
 	t.Parallel()
 
 	mfs := makeFS(map[string]string{"/sys/bus/usb/devices/1-1/idVendor": "not-hex\n"})
+
 	_, err := kernel.ReadHex16(mfs, "/sys/bus/usb/devices/1-1/idVendor")
 	require.Error(t, err)
-	// Not a domain sentinel — just a plain parse failure surfaced by
-	// strconv.ParseUint.
-	var numErr error
 	require.ErrorContains(t, err, "idVendor")
-	_ = numErr
 }
 
 // TestReadUint_Negative surfaces a parse-error path explicitly.
@@ -204,7 +202,8 @@ func TestReadUint_Negative(t *testing.T) {
 	t.Parallel()
 
 	mfs := makeFS(map[string]string{"/sys/bus/usb/devices/1-1/busnum": "-1\n"})
+
 	_, err := kernel.ReadUint(mfs, "/sys/bus/usb/devices/1-1/busnum")
 	require.Error(t, err)
-	require.False(t, errors.Is(err, domain.ErrDeviceNotFound))
+	require.NotErrorIs(t, err, domain.ErrDeviceNotFound)
 }
