@@ -171,12 +171,12 @@ type deviceNumbers struct {
 }
 
 func (a *ExporterAdapter) readDeviceNumbers(base string) (deviceNumbers, error) {
-	busnum, err := ReadUint(a.fs, path.Join(base, devAttrBusnum))
+	busnum, err := readU16Attr(a.fs, path.Join(base, devAttrBusnum))
 	if err != nil {
 		return deviceNumbers{}, err
 	}
 
-	devnum, err := ReadUint(a.fs, path.Join(base, devAttrDevnum))
+	devnum, err := readU16Attr(a.fs, path.Join(base, devAttrDevnum))
 	if err != nil {
 		return deviceNumbers{}, err
 	}
@@ -187,10 +187,28 @@ func (a *ExporterAdapter) readDeviceNumbers(base string) (deviceNumbers, error) 
 	}
 
 	return deviceNumbers{
-		bus:   uint16(busnum & u16Max),
-		dev:   uint16(devnum & u16Max),
+		bus:   busnum,
+		dev:   devnum,
 		speed: domain.Speed(speed),
 	}, nil
+}
+
+// readU16Attr reads a decimal sysfs attribute and validates the value
+// fits in uint16. Returns errSysfsValueOutOfRange wrapped on overflow
+// so readDevice fails the whole device rather than silently truncating
+// (RANK 8).
+func readU16Attr(fsys fs.FS, path string) (uint16, error) {
+	v, err := ReadUint(fsys, path)
+	if err != nil {
+		return 0, err
+	}
+
+	if v > u16Max {
+		return 0, fmt.Errorf("%w: %q = %d (exceeds u16)",
+			errSysfsValueOutOfRange, path, v)
+	}
+
+	return uint16(v), nil
 }
 
 type deviceClasses struct {
@@ -203,17 +221,32 @@ type deviceClasses struct {
 }
 
 func (a *ExporterAdapter) readDeviceClasses(base string) (deviceClasses, error) {
-	class, err := ReadHex16(a.fs, path.Join(base, devAttrDeviceClass))
+	classRaw, err := ReadHex16(a.fs, path.Join(base, devAttrDeviceClass))
 	if err != nil {
 		return deviceClasses{}, err
 	}
 
-	subclass, err := ReadHex16(a.fs, path.Join(base, devAttrDeviceSub))
+	class, err := narrowByteErr(devAttrDeviceClass, classRaw)
 	if err != nil {
 		return deviceClasses{}, err
 	}
 
-	protocol, err := ReadHex16(a.fs, path.Join(base, devAttrDeviceProto))
+	subclassRaw, err := ReadHex16(a.fs, path.Join(base, devAttrDeviceSub))
+	if err != nil {
+		return deviceClasses{}, err
+	}
+
+	subclass, err := narrowByteErr(devAttrDeviceSub, subclassRaw)
+	if err != nil {
+		return deviceClasses{}, err
+	}
+
+	protocolRaw, err := ReadHex16(a.fs, path.Join(base, devAttrDeviceProto))
+	if err != nil {
+		return deviceClasses{}, err
+	}
+
+	protocol, err := narrowByteErr(devAttrDeviceProto, protocolRaw)
 	if err != nil {
 		return deviceClasses{}, err
 	}
@@ -234,34 +267,48 @@ func (a *ExporterAdapter) readDeviceClasses(base string) (deviceClasses, error) 
 	}
 
 	return deviceClasses{
-		class:         domain.USBClass(narrowByte(class)),
-		subclass:      domain.USBSubclass(narrowByte(subclass)),
-		protocol:      domain.USBProtocol(narrowByte(protocol)),
+		class:         domain.USBClass(class),
+		subclass:      domain.USBSubclass(subclass),
+		protocol:      domain.USBProtocol(protocol),
 		configValue:   configValue,
 		numConfigs:    numConfigs,
 		numInterfaces: numInterfaces,
 	}, nil
 }
 
-// narrowByte truncates a uint16 attribute to uint8 after range-checking.
-// USB device-level class/subclass/protocol fields are technically u8 on
-// wire; sysfs formats them as two-digit hex so ReadHex16 is the natural
-// read primitive. Values above 0xFF are a sysfs bug and surface as
-// the low 8 bits (matching kernel truncation behaviour).
-func narrowByte(v uint16) uint8 {
-	return uint8(v & byteMax)
+// narrowByteErr range-checks a uint16 sysfs attribute and returns it
+// as uint8. USB device-level class/subclass/protocol fields are u8 on
+// wire; sysfs formats them as two-digit hex so ReadHex16 is the
+// natural read primitive. Values above 0xFF are a malformed sysfs
+// entry and fail the whole device read (RANK 8) rather than silently
+// truncating.
+func narrowByteErr(attr string, v uint16) (uint8, error) {
+	if v > byteMax {
+		return 0, fmt.Errorf("%w: %q = %d (exceeds u8)",
+			errSysfsValueOutOfRange, attr, v)
+	}
+
+	return uint8(v), nil
 }
 
 // readByteAttr reads a decimal sysfs attribute that is semantically a
-// byte (e.g. bConfigurationValue). Clamps to the low 8 bits to keep
-// gosec happy without giving up the readable uint32 path in readUint.
+// byte (e.g. bConfigurationValue). A value exceeding byteMax is a
+// malformed sysfs entry and fails the whole device read rather than
+// silently truncating (RANK 8).
 func (a *ExporterAdapter) readByteAttr(base, attr string) (uint8, error) {
-	v, err := ReadUint(a.fs, path.Join(base, attr))
+	p := path.Join(base, attr)
+
+	v, err := ReadUint(a.fs, p)
 	if err != nil {
 		return 0, err
 	}
 
-	return uint8(v & byteMax), nil
+	if v > byteMax {
+		return 0, fmt.Errorf("%w: %q = %d (exceeds u8)",
+			errSysfsValueOutOfRange, p, v)
+	}
+
+	return uint8(v), nil
 }
 
 // readInterfaces reads each interface descriptor under the device's
@@ -294,31 +341,51 @@ func (a *ExporterAdapter) readInterfaces(busID domain.BusID, count uint8) []doma
 
 // readInterface reads one interface descriptor block.
 func (a *ExporterAdapter) readInterface(base string) (domain.Interface, error) {
-	class, err := ReadHex16(a.fs, path.Join(base, ifaceAttrClass))
+	classRaw, err := ReadHex16(a.fs, path.Join(base, ifaceAttrClass))
 	if err != nil {
 		return domain.Interface{}, err
 	}
 
-	subclass, err := ReadHex16(a.fs, path.Join(base, ifaceAttrSubClass))
+	class, err := narrowByteErr(ifaceAttrClass, classRaw)
 	if err != nil {
 		return domain.Interface{}, err
 	}
 
-	protocol, err := ReadHex16(a.fs, path.Join(base, ifaceAttrProtocol))
+	subclassRaw, err := ReadHex16(a.fs, path.Join(base, ifaceAttrSubClass))
 	if err != nil {
 		return domain.Interface{}, err
 	}
 
-	alt, err := ReadUint(a.fs, path.Join(base, ifaceAttrAltSet))
+	subclass, err := narrowByteErr(ifaceAttrSubClass, subclassRaw)
 	if err != nil {
 		return domain.Interface{}, err
+	}
+
+	protocolRaw, err := ReadHex16(a.fs, path.Join(base, ifaceAttrProtocol))
+	if err != nil {
+		return domain.Interface{}, err
+	}
+
+	protocol, err := narrowByteErr(ifaceAttrProtocol, protocolRaw)
+	if err != nil {
+		return domain.Interface{}, err
+	}
+
+	altRaw, err := ReadUint(a.fs, path.Join(base, ifaceAttrAltSet))
+	if err != nil {
+		return domain.Interface{}, err
+	}
+
+	if altRaw > byteMax {
+		return domain.Interface{}, fmt.Errorf("%w: %q = %d (exceeds u8)",
+			errSysfsValueOutOfRange, ifaceAttrAltSet, altRaw)
 	}
 
 	return domain.Interface{
-		Class:    domain.USBClass(narrowByte(class)),
-		Subclass: domain.USBSubclass(narrowByte(subclass)),
-		Protocol: domain.USBProtocol(narrowByte(protocol)),
-		Alt:      uint8(alt & byteMax),
+		Class:    domain.USBClass(class),
+		Subclass: domain.USBSubclass(subclass),
+		Protocol: domain.USBProtocol(protocol),
+		Alt:      uint8(altRaw),
 	}, nil
 }
 

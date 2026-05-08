@@ -19,6 +19,13 @@ var (
 	// — typically net.Pipe, which provides in-memory piping with no
 	// backing OS fd. Fd-passing fails fast for this caller mistake.
 	errConnNotSyscall = errors.New("conn does not implement syscall.Conn; fd-passing requires a real OS fd")
+
+	// errSysfsValueOutOfRange signals that a sysfs attribute read
+	// successfully but its value exceeds the domain-type width (RANK 8).
+	// readDevice surfaces this rather than silently truncating; callers
+	// (ListLocalDevices) then skip the malformed device instead of
+	// reporting nonsense truncated fields.
+	errSysfsValueOutOfRange = errors.New("sysfs value out of range for target width")
 )
 
 // errorsIsAny returns true iff err chains to any of the supplied
