@@ -803,6 +803,10 @@ func (i *Importer) attachOverDialed(
 
 	i.logger.Debug("attach: awaiting OP_REP_IMPORT")
 
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetReadDeadline(deadline)
+	}
+
 	dev, err := i.codec.DecodeOpRepImport(conn)
 	if err != nil {
 		i.logAttachFailure("attach decode handshake failed", busID, endpoint, classifyDecodeImportErr(err), err)
