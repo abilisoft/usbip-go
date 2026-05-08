@@ -531,6 +531,14 @@ const shutdownResidualGrace = 100 * time.Millisecond
 // Shutdown spawned its own waiter so N repeated Shutdowns leaked N
 // parked goroutines. Post-fix sessionsDrainedOnce gates the spawn so
 // the waiter is allocated at most once per Exporter.
+//
+// After observing ctx.Done, a non-blocking re-check of `done` guards
+// against the select-race where both channels are ready at once and
+// Go picks the ctx branch (pass-5 RANK B). Without the re-check a
+// completed drain can surface a spurious ctx-wrapped error to the
+// caller. The same re-check applies to the post-grace observation
+// so a drain that happened to complete alongside the grace expiry
+// is reported as a successful drain rather than a force-close miss.
 func (e *Exporter) waitSessionsBounded(ctx context.Context) error {
 	done := e.drainFuture()
 
@@ -538,6 +546,16 @@ func (e *Exporter) waitSessionsBounded(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-ctx.Done():
+	}
+
+	// Non-blocking re-check: ctx.Done and done may have become ready
+	// concurrently. Go's select picks randomly among ready cases, so
+	// without this guard a completed drain can still surface a
+	// ctx-wrapped error (pass-5 RANK B).
+	select {
+	case <-done:
+		return nil
+	default:
 	}
 
 	e.forceCloseSessionConns()
@@ -555,13 +573,23 @@ func (e *Exporter) waitSessionsBounded(ctx context.Context) error {
 	case <-done:
 		return fmt.Errorf("exporter shutdown: %w", ctx.Err())
 	case <-grace.C:
-		e.logger.Warn("exporter shutdown residual handlers did not drain",
-			slog.Int("residual_sessions", e.countSessions()),
-			slog.Duration("residual_grace", shutdownResidualGrace),
-		)
-
-		return fmt.Errorf("exporter shutdown: %w", ctx.Err())
 	}
+
+	// Symmetric non-blocking re-check at the grace boundary. If the
+	// drain completed simultaneously with grace expiry, honour the
+	// drain-completed branch.
+	select {
+	case <-done:
+		return fmt.Errorf("exporter shutdown: %w", ctx.Err())
+	default:
+	}
+
+	e.logger.Warn("exporter shutdown residual handlers did not drain",
+		slog.Int("residual_sessions", e.countSessions()),
+		slog.Duration("residual_grace", shutdownResidualGrace),
+	)
+
+	return fmt.Errorf("exporter shutdown: %w", ctx.Err())
 }
 
 // countSessions returns the current session bookkeeping count under
