@@ -23,7 +23,7 @@ import (
 // (1, 2, …) to the contents of the corresponding status.N file.
 //
 // The map is also seeded with the minimal usb* children discoverTopology
-// requires (one HS + one SS sibling per controller), so Task 2's
+// requires (one HS + one SS sibling per controller), so 's
 // topology-driven readStatusRows path finds a valid BusMap. The
 // controller count is inferred from len(statusN)+1.
 func statusFS(status string, statusN map[int]string, nports int) fstest.MapFS {

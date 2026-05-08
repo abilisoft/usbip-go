@@ -175,7 +175,7 @@ func sampleDevice() usbip.Device {
 }
 
 // TestListRequiresOneOfFlags — running `list` with no -r/-l/-p returns
-// a usage error per spec §7.4.1.
+// a usage error per v1 contract §7.4.1.
 func TestListRequiresOneOfFlags(t *testing.T) {
 	t.Parallel()
 
@@ -193,7 +193,7 @@ func TestListRequiresOneOfFlags(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestListRemoteAndLocalMutuallyExclusive — spec §7.4.1 rule.
+// TestListRemoteAndLocalMutuallyExclusive — v1 contract §7.4.1 rule.
 func TestListRemoteAndLocalMutuallyExclusive(t *testing.T) {
 	t.Parallel()
 
@@ -215,7 +215,7 @@ func TestListRemoteAndLocalMutuallyExclusive(t *testing.T) {
 	require.Contains(t, err.Error(), "remote local ports")
 }
 
-// TestListRemoteJSONHasSchemaV1 — spec §7.5 schema envelope.
+// TestListRemoteJSONHasSchemaV1 — v1 contract §7.5 schema envelope.
 func TestListRemoteJSONHasSchemaV1(t *testing.T) {
 	t.Parallel()
 

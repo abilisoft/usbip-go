@@ -27,7 +27,7 @@ import (
 // relying on string matching. err113 requires static sentinels.
 var errReconnectBoom = errors.New("reconnect attempt boom")
 
-// TestAttachFailurePathCarriesSpecRequiredAttrs proves spec §11.5.5's
+// TestAttachFailurePathCarriesSpecRequiredAttrs proves v1 contract §11.5.5's
 // structured-log contract: every log record emitted on the attach path
 // carries busid, remote, and err at minimum, and port_id / attempt on
 // the reconnect-specific lines. The assertion runs against a RAM
@@ -81,7 +81,7 @@ func TestAttachFailurePathCarriesSpecRequiredAttrs(t *testing.T) {
 
 // TestAttachKernelErrorRecordCarriesBusIDAndRemote asserts the
 // importer's Warn log on AttachRemote failure includes busid AND the
-// remote endpoint. The spec §11.5.5 contract lists both as required
+// remote endpoint. The v1 contract §11.5.5 contract lists both as required
 // attrs on attach-path records.
 func TestAttachKernelErrorRecordCarriesBusIDAndRemote(t *testing.T) {
 	t.Parallel()
@@ -479,7 +479,7 @@ func TestReconnectOnReconnectPanicRecordCarriesPortIDAndSource(t *testing.T) {
 
 	// The panic-recovery log runs on the fire-and-forget goroutine
 	// spawned by fireOnReconnect, NOT on the watcher waitgroup that
-	// imp.Close waits for (spec §5.5: the callback is intentionally
+	// imp.Close waits for (v1 contract §5.5: the callback is intentionally
 	// isolated from the retry cadence). Poll the buffer until the
 	// record lands; Eventually is idiomatic here because the record
 	// is guaranteed to be emitted — we only race the timing.

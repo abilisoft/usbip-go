@@ -41,7 +41,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// specFlags lists every flag spec §7.7 requires on the usbipd root
+// specFlags lists every flag v1 contract §7.7 requires on the usbipd root
 // command. The assertion is that `--help` output contains each flag
 // name. --config is intentionally absent: operators configure via
 // flags + systemd drop-ins; YAML config is deferred to v2.
@@ -65,7 +65,7 @@ func specFlags() []string {
 }
 
 // TestRootHelpListsEveryFlag guards that the root `--help` surfaces
-// every flag required by spec §7.7. cobra renders flags as `--foo` in
+// every flag required by v1 contract §7.7. cobra renders flags as `--foo` in
 // --help regardless of short form; the -v counter is detected via the
 // trailing comma in "-v, --verbose".
 func TestRootHelpListsEveryFlag(t *testing.T) {
@@ -127,5 +127,5 @@ func TestVersionSubcommand(t *testing.T) {
 
 	err := cmd.Execute()
 	require.NoError(t, err)
-	require.Contains(t, buf.String(), "usbipd version")
+	require.Contains(t, buf.String(), "usbipd-go version")
 }

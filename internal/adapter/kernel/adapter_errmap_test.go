@@ -15,7 +15,7 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
-// TestErrMapMatrix covers every row of spec §6.4's errno → sentinel
+// TestErrMapMatrix covers every row of v1 contract §6.4's errno → sentinel
 // table plus the path-kind classification from §11.5.4. The test
 // drives the exported ClassifyErrno helper directly so every mapping
 // can be exercised without a real syscall.

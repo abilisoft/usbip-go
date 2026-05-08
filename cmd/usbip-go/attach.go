@@ -19,7 +19,7 @@ import (
 const attachExpectedArgs = 2
 
 // attachCompletionTimeout is the per-call deadline for the second-arg
-// ListRemote dial (spec §7.6). Shell completion must feel instant, so
+// ListRemote dial (v1 contract §7.6). Shell completion must feel instant, so
 // we cap network interaction at 800ms and swallow any failure.
 const attachCompletionTimeout = 800 * time.Millisecond
 
@@ -64,7 +64,7 @@ func newAttachCmd() *cobra.Command {
 // Second arg: empty list unless USBIP_COMPLETE_NETWORK=1 or
 // --complete-network is set, in which case we dial Importer.ListRemote
 // capped at attachCompletionTimeout and return the busid list. All
-// failures are silent per spec §7.6.
+// failures are silent per v1 contract §7.6.
 func completeAttachArgs(
 	cmd *cobra.Command,
 	args []string,

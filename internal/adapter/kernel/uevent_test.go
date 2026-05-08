@@ -278,7 +278,7 @@ func TestSubscribe_DialFailurePropagates(t *testing.T) {
 var errDialFailed = errors.New("fake dial failed")
 
 // TestSubscribe_FirstSubscriberCancelDoesNotStopOthers exercises the
-// spec §5.1 "last Unsubscribe stops it" contract. If the first
+// v1 contract §5.1 "last Unsubscribe stops it" contract. If the first
 // subscriber's ctx cancellation tore down the dispatcher, remaining
 // subscribers would stop receiving events.
 func TestSubscribe_FirstSubscriberCancelDoesNotStopOthers(t *testing.T) {

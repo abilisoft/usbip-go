@@ -12,7 +12,7 @@ import (
 
 // BackoffStrategy computes the sleep interval between reconnect
 // attempts. Concrete implementations are FixedBackoff and
-// ExponentialBackoff. See spec §5.5.
+// ExponentialBackoff. See v1 contract §5.5.
 type BackoffStrategy interface {
 	// Next returns the delay to sleep before attempt number `attempt`
 	// (0-indexed — attempt 0 is the first retry after the initial

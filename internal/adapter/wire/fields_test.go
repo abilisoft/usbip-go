@@ -111,7 +111,7 @@ func TestReadPaddedStringMidBufferNUL(t *testing.T) {
 	require.False(t, truncated, "NUL-terminated frame should not set truncated flag")
 }
 
-// TestReadPaddedStringNonPrintableBeforeEOF: spec §6.2 says a
+// TestReadPaddedStringNonPrintableBeforeEOF: v1 contract §6.2 says a
 // malformed frame should truncate at the first non-printable byte
 // even when no NUL is present. A leading printable prefix followed by
 // a non-printable byte must surface as truncated=true with the prefix

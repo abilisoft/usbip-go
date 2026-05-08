@@ -12,10 +12,10 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
-// headerSize is the OP header byte length (spec §6.2 layout table).
+// headerSize is the OP header byte length (v1 contract §6.2 layout table).
 const headerSize = 8
 
-// Byte offsets inside the OP header (spec §6.2).
+// Byte offsets inside the OP header (v1 contract §6.2).
 const (
 	offHdrVersion = 0
 	offHdrOpCode  = 2
@@ -38,7 +38,7 @@ func EncodeHeader(op OpCode, status uint32) []byte {
 	return buf
 }
 
-// DecodeHeader reads an 8-byte OP header from r. Per spec §6.2 error
+// DecodeHeader reads an 8-byte OP header from r. Per v1 contract §6.2 error
 // matrix:
 //
 //   - Clean EOF before any byte is read → io.EOF (unwrapped).
@@ -71,7 +71,7 @@ func DecodeHeader(r io.Reader) (uint16, OpCode, uint32, error) {
 	return version, op, status, nil
 }
 
-// decodeHeaderAllowStatus performs the spec §6.2 header decode WITHOUT
+// decodeHeaderAllowStatus performs the v1 contract §6.2 header decode WITHOUT
 // the "reply status != 0" rejection. Callers with opcode-specific
 // status semantics (OP_REP_IMPORT) invoke this variant and classify
 // status themselves; every other caller goes through the public
@@ -101,7 +101,7 @@ func decodeHeaderAllowStatus(r io.Reader) (uint16, OpCode, uint32, error) {
 	return version, op, status, nil
 }
 
-// mapHeaderReadErr classifies the io.ReadFull error into the spec §6.2
+// mapHeaderReadErr classifies the io.ReadFull error into the v1 contract §6.2
 // error matrix rows for OP header reads. Clean EOF on byte 0 is
 // returned unwrapped; short read becomes a wrapped ErrUnexpectedEOF.
 func mapHeaderReadErr(n int, err error) error {

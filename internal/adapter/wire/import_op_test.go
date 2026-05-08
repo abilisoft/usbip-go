@@ -66,7 +66,7 @@ func TestOpRepImportRoundTrip(t *testing.T) {
 }
 
 // TestOpRepImportStatusError decodes a reply whose status is non-zero.
-// Per spec §6.2, a non-zero OP_REP_IMPORT status means the peer
+// Per v1 contract §6.2, a non-zero OP_REP_IMPORT status means the peer
 // rejected the import — device unavailable / busy / not found. The
 // decoder surfaces domain.ErrDeviceNotFound so callers classify the
 // rejection as a domain-level signal rather than a wire framing

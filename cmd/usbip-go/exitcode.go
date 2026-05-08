@@ -13,7 +13,7 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/usbip"
 )
 
-// Exit codes — authoritative table from spec §7.4. Consumers may grep
+// Exit codes — authoritative table from v1 contract §7.4. Consumers may grep
 // on these values; they form part of the v1 CLI stability contract.
 const (
 	ExitOK               = 0
@@ -47,7 +47,7 @@ type errorEntry struct {
 }
 
 // errorRegistry returns the authoritative sentinel → (code, template)
-// mapping from spec §7.4. The slice is returned fresh so tests can't
+// mapping from v1 contract §7.4. The slice is returned fresh so tests can't
 // mutate it.
 func errorRegistry() []errorEntry {
 	return []errorEntry{
@@ -76,7 +76,7 @@ func errorRegistry() []errorEntry {
 	}
 }
 
-// MapError classifies err into its exit code per spec §7.4. nil is
+// MapError classifies err into its exit code per v1 contract §7.4. nil is
 // ExitOK; usage-class errors surface ExitUsage; sentinel matches take
 // priority over the generic net/timeout detection.
 func MapError(err error) int {
@@ -103,7 +103,7 @@ func MapError(err error) int {
 }
 
 // FormatError renders err as the single-line `usbip-go: ...` stderr message
-// prescribed by spec §7.4. The returned string has no trailing newline
+// prescribed by v1 contract §7.4. The returned string has no trailing newline
 // (callers pick the newline policy) and no embedded newlines either —
 // errors.Join renders its members newline-separated, so any interior
 // newline in the detail text is collapsed to "; " before formatting.

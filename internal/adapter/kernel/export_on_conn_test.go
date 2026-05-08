@@ -216,7 +216,7 @@ func TestDetachPort_WritesDecimalPortID(t *testing.T) {
 		return nil
 	}
 
-	// Task 5 added a StatusTopology-backed bounds check to DetachPort,
+	// added a StatusTopology-backed bounds check to DetachPort,
 	// so the fixture must expose nports + status (the BusMap-free
 	// projection loadStatusTopology consumes) in addition to the
 	// module-presence entries ModulesAvailable probes. nports=8 comfortably

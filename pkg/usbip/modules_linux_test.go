@@ -79,7 +79,7 @@ func TestProbeOneAtEACCESReturnsUnknown(t *testing.T) {
 
 	// Inject a stat function that always returns EACCES. No chmod
 	// dance, no t.TempDir cleanup hazard — just a direct simulation of
-	// the "probe blocked" signal spec §11.5.4 expects Unknown for.
+	// the "probe blocked" signal v1 contract §11.5.4 expects Unknown for.
 	old := usbip.SwapProbeStatFnForTest(func(_ string) (fs.FileInfo, error) {
 		return nil, syscall.EACCES
 	})

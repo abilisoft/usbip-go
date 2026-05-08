@@ -36,7 +36,7 @@ func (fakeNetError) Timeout() bool { return false }
 // Temporary reports whether the error is transient. Value ignored.
 func (fakeNetError) Temporary() bool { return false }
 
-// TestMapErrorTable walks every sentinel in spec §7.4 and asserts
+// TestMapErrorTable walks every sentinel in v1 contract §7.4 and asserts
 // MapError returns the matching code.
 func TestMapErrorTable(t *testing.T) {
 	t.Parallel()
@@ -74,7 +74,7 @@ func TestMapErrorTable(t *testing.T) {
 }
 
 // TestFormatErrorTable asserts FormatError renders a stable template
-// prefix for every spec §7.4 sentinel.
+// prefix for every v1 contract §7.4 sentinel.
 func TestFormatErrorTable(t *testing.T) {
 	t.Parallel()
 

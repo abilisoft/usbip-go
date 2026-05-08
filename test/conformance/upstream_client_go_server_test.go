@@ -40,7 +40,7 @@ const upstreamUsbipBinary = "usbip"
 //  2. stdout lists the device fixture the ExporterKernel returned.
 //
 // Skips when the usbip binary is not on $PATH; that is the documented
-// env-gated skip per spec §8.9, NOT a flaky-skip shortcut.
+// env-gated skip per v1 contract §8.9, NOT a flaky-skip shortcut.
 func TestConformanceUpstreamListAgainstGoDaemon(t *testing.T) {
 	usbipPath, err := exec.LookPath(upstreamUsbipBinary)
 	if err != nil {

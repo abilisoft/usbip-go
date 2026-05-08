@@ -43,7 +43,7 @@ func newDrainCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:           "drain",
-		Short:         "Request the running usbipd to refuse new accepts and exit",
+		Short:         "Request the running usbipd-go daemon to refuse new accepts and exit",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -57,7 +57,7 @@ func newDrainCmd() *cobra.Command {
 
 	flags := cmd.Flags()
 	flags.StringVar(&socketPath, "status-socket", defaultStatusSocket,
-		"UDS path the running usbipd is serving its status endpoint on")
+		"UDS path the running usbipd-go daemon is serving its status endpoint on")
 	flags.DurationVar(&drainTimeout, "drain-timeout", defaultDrainTimeout,
 		"maximum wait for drain to complete before exit 9")
 	flags.DurationVar(&pollInterval, "poll-interval", drainPollInterval,
@@ -77,7 +77,7 @@ type drainArgs struct {
 // runDrain executes the client-side drain protocol: POST /drain once,
 // then poll GET / until the daemon reports it is idle or the timeout
 // expires. A dial failure after the first POST is treated as success
-// per spec §7.7 (the daemon exited while we were polling).
+// per v1 contract §7.7 (the daemon exited while we were polling).
 func runDrain(cmd *cobra.Command, args drainArgs) error {
 	client := newDrainHTTPClient(args.socketPath)
 

@@ -18,14 +18,14 @@ import (
 var errUnknownEvent = errors.New("render event: unknown concrete type")
 
 // schemaVersion is the top-level envelope value emitted on every
-// JSON output and every jsonlines event record (spec §7.5 stability
+// JSON output and every jsonlines event record (v1 contract §7.5 stability
 // rule). Parsers MUST treat any other string as an incompatible major
 // version.
 const schemaVersion = "v1"
 
 // Renderer abstracts output formatting so each subcommand writes
 // through the same seam regardless of `--output=table|json`. Ack
-// responses are JSON-only (spec §7.4.1) and therefore do not appear on
+// responses are JSON-only (v1 contract §7.4.1) and therefore do not appear on
 // this interface; callers dispatch to jsonRenderer's typed ack methods
 // directly from the JSON branch of each mutating subcommand.
 type Renderer interface {
@@ -52,7 +52,7 @@ func pickRenderer(output string) Renderer {
 type jsonRenderer struct{}
 
 // Devices emits the list of devices wrapped in a schema envelope. The
-// typed struct guarantees "schema" is the first JSON key (spec §7.5
+// typed struct guarantees "schema" is the first JSON key (v1 contract §7.5
 // stability rule) — Go's json.Marshal serialises struct fields in
 // source order, unlike map[string]any which sorts alphabetically.
 func (jsonRenderer) Devices(w io.Writer, devs []usbip.Device) error {
@@ -91,7 +91,7 @@ func (jsonRenderer) Event(w io.Writer, ev usbip.Event) error {
 	return writeJSON(w, rec)
 }
 
-// AttachAck writes the attach operation acknowledgement — spec §7.4.1.
+// AttachAck writes the attach operation acknowledgement — v1 contract §7.4.1.
 // The typed envelope guarantees byte-order (schema → op → ok → port).
 func (jsonRenderer) AttachAck(w io.Writer, port usbip.Port) error {
 	return writeJSON(w, attachAck{

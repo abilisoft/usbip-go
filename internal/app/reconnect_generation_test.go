@@ -20,13 +20,13 @@ import (
 )
 
 // staleEventLogMessage is the exact msg field the watcher MUST emit
-// on the generation-mismatch drop path (spec §5.5). Tests assert
+// on the generation-mismatch drop path (v1 contract §5.5). Tests assert
 // against this string; changing the wording is a user-visible log
 // contract change that must move in lockstep with the test.
 const staleEventLogMessage = "stale event ignored"
 
-// TestReconnectGenerationMismatchDropsStaleEvent is the Task 10.4b
-// unit-level spec §5.5 lock-in: when an initial attach holds
+// TestReconnectGenerationMismatchDropsStaleEvent is the reconnect-generation
+// unit-level v1 contract §5.5 lock-in: when an initial attach holds
 // generation=1 and a successful reconnect bumps the new watcher to
 // generation=2, a delayed uevent that names the OLD port id must be
 // rejected by the current watcher without firing a second reconnect
