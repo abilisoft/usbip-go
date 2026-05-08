@@ -281,7 +281,7 @@ func bindStatusSocket(ctx context.Context, path, group string) (net.Listener, er
 	defer func() { _ = lockFile.Close() }()
 
 	// uintptr→int narrowing guarded inline so gosec G115 sees a
-	// bounded value; same idiom as cmd/usbipd/logger.go's isStderrTTY.
+	// bounded value; same idiom as cmd/usbip-go/logger.go's isStderrTTY.
 	rawFd := lockFile.Fd()
 	if rawFd > uintptr(^uint(0)>>1) {
 		return nil, fmt.Errorf("%w: got %d", errStatusLockFdTooLarge, rawFd)
@@ -340,10 +340,11 @@ func bindStatusSocket(ctx context.Context, path, group string) (net.Listener, er
 
 // applyStatusSocketACL chowns the UDS to the configured group.
 // Lookup / chown failures are logged via slog.Default but do NOT fail
-// startup (v1 contract §7.7: chown is an ops-facing convenience, not a hard
-// gate — a dev machine without a `usbip` group still boots). Mode is
-// set by bindStatusSocket's post-bind os.Chmod call, so this helper is
-// chown-only. Returns nothing: every failure path is best-effort.
+// startup (v1 contract §7.7: chown is an ops-facing convenience, not
+// a hard gate — a dev machine without a `usbip-go` group still boots).
+// Mode is set by bindStatusSocket's post-bind os.Chmod call, so this
+// helper is chown-only. Returns nothing: every failure path is
+// best-effort.
 func applyStatusSocketACL(path string, group string) {
 	if group == "" {
 		return

@@ -27,12 +27,12 @@ exchange.
 
 The handshake for a successful attach consists of two TCP streams:
 
-- `usbip list -r HOST` — `OP_REQ_DEVLIST` then `OP_REP_DEVLIST`.
-- `usbip attach -r HOST -b BUSID` — `OP_REQ_IMPORT` then
+- `usbip-go list -r HOST` — `OP_REQ_DEVLIST` then `OP_REP_DEVLIST`.
+- `usbip-go attach -r HOST -b BUSID` — `OP_REQ_IMPORT` then
   `OP_REP_IMPORT`.
 
 Both requests open their own TCP connection and close it after the
-reply. The reply body is still arriving when `usbip attach` hands
+reply. The reply body is still arriving when `usbip-go attach` hands
 the socket fd to the kernel, so the pcap window must include the
 final reply bytes even if the client process exits immediately.
 
@@ -44,8 +44,8 @@ sudo tcpdump -i any -s 0 -w /tmp/usbip-trace.pcap 'tcp port 3240' &
 TCPDUMP_PID=$!
 
 # 2. Drive the failing client command.
-usbip list -r 10.0.0.5
-usbip attach -r 10.0.0.5 -b 1-1.2
+usbip-go list -r 10.0.0.5
+usbip-go attach -r 10.0.0.5 -b 1-1.2
 
 # 3. Stop tcpdump.
 sudo kill "$TCPDUMP_PID"
@@ -67,7 +67,7 @@ tshark -r /tmp/usbip-trace.pcap -Y 'tcp.port == 3240 && tcp.len > 0' \
   -e ip.src -e tcp.srcport -e ip.dst -e tcp.dstport -e tcp.len
 ```
 
-A single successful `usbip list` + `usbip attach` pair produces four
+A single successful `usbip-go list` + `usbip-go attach` pair produces four
 populated payload frames across two TCP streams. If the list stream
 has more than two, or the attach stream has more than two, something
 re-transmitted and the pcap will need cleaning before the byte-for-
@@ -135,13 +135,13 @@ The script:
 3. Starts upstream `usbipd -e` (device/vudc mode) against port
    3240, checking that no foreign daemon already holds the port.
 4. Starts `tcpdump` on loopback.
-5. Runs `usbip list -r 127.0.0.1` and
-   `usbip attach -r 127.0.0.1 -b $BUSID`.
+5. Runs `usbip-go list -r 127.0.0.1` and
+   `usbip-go attach -r 127.0.0.1 -b $BUSID`.
 6. Stops `tcpdump`, extracts each request and reply payload via
    `tshark`, enforces the size gates, and writes the binaries into
    `internal/adapter/wire/testdata/`.
 7. Emits a JSON manifest (`real_capture.manifest.json`) with
-   capture time, kernel version, usbip version, and per-file size.
+   capture time, kernel version, usbip-go version, and per-file size.
 8. Cleans up the gadget, the daemon, and the tcpdump process via
    `trap`.
 
@@ -156,10 +156,10 @@ For a protocol-path bug report, attach:
 2. Trace-level daemon log from the exporter:
 
    ```
-   sudo usbipd-go --log-level=trace 2>&1 | tee /tmp/usbipd-go.log
+   sudo usbip-go serve --log-level=trace 2>&1 | tee /tmp/usbip-serve.log
    ```
 
-3. Output of `usbipd-go version` (or `cat /proc/version`).
+3. Output of `usbip-go version` (or `cat /proc/version`).
 4. The status-socket snapshot:
 
    ```

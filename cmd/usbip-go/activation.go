@@ -14,13 +14,13 @@ import (
 )
 
 // activationFdName is the expected LISTEN_FDNAMES label for our socket
-// unit. Operators should set FileDescriptorName=usbip on the .socket
-// unit (v1 contract §7.8); mismatches fail loudly rather than silently bind a
-// neighbouring socket.
-const activationFdName = "usbip"
+// unit. Operators should set FileDescriptorName=usbip-go on the .socket
+// unit (v1 contract §7.8); mismatches fail loudly rather than silently
+// bind a neighbouring socket.
+const activationFdName = "usbip-go"
 
 // errAmbiguousSocketNames is returned by pickNamedListener when systemd
-// passes more than one socket but none carry the expected "usbip"
+// passes more than one socket but none carry the expected "usbip-go"
 // FileDescriptorName. The operator must fix their .socket unit; we
 // refuse to guess.
 var errAmbiguousSocketNames = errors.New(
@@ -30,12 +30,12 @@ var errAmbiguousSocketNames = errors.New(
 // in tests to inject errors without manipulating process-level fds.
 var listenersWithNames = activation.ListenersWithNames
 
-// listenOrActivation returns the listener usbipd-go should Serve on. It
-// prefers systemd-passed named sockets, falls back to an unnamed single
-// fd, and finally falls back to a plain net.Listen on cfg.Listen.
+// listenOrActivation returns the listener usbip-go serve should Serve on.
+// It prefers systemd-passed named sockets, falls back to an unnamed
+// single fd, and finally falls back to a plain net.Listen on cfg.Listen.
 //
 // The policy matches v1 contract §7.7:
-//   - If LISTEN_FDNAMES contains "usbip" with exactly one fd, use it.
+//   - If LISTEN_FDNAMES contains "usbip-go" with exactly one fd, use it.
 //   - If LISTEN_FDS=1 and no names are present, accept the single fd.
 //   - If multiple fds are passed without a matching name, refuse to
 //     guess and return an error.
@@ -69,6 +69,12 @@ func listenOrActivation(ctx context.Context, cfg *ServeConfig) (net.Listener, er
 // return disambiguates the "no listener, no error, caller should fall
 // back" state from the "error" state — nil-nil returns are a known
 // trip hazard (nilnil lint) so the tri-state is explicit instead.
+//
+// When a single unnamed fd is accepted whose label does not match
+// activationFdName, a Warn is emitted naming both the observed and
+// expected labels. Operators upgrading from the pre-rename
+// `FileDescriptorName=usbip` socket unit see the warning and can
+// realign their unit without observing a silent fallback.
 func pickNamedListener(named map[string][]net.Listener) (net.Listener, bool, error) {
 	fds, ok := named[activationFdName]
 	if ok && len(fds) == 1 {
@@ -78,6 +84,15 @@ func pickNamedListener(named map[string][]net.Listener) (net.Listener, bool, err
 	total := countListeners(named)
 
 	if total == 1 {
+		observed := firstSingletonListenerName(named)
+		if observed != activationFdName {
+			slog.Default().Warn("systemd activation fd label mismatch; "+
+				"accepting it as singleton fallback — update the socket "+
+				"unit's FileDescriptorName to silence this warning",
+				slog.String("observed", observed),
+				slog.String("expected", activationFdName))
+		}
+
 		return firstSingletonListener(named), true, nil
 	}
 
@@ -88,6 +103,21 @@ func pickNamedListener(named map[string][]net.Listener) (net.Listener, bool, err
 	}
 
 	return nil, false, nil
+}
+
+// firstSingletonListenerName returns the label of the named map's
+// only entry. Precondition: total == 1 (verified by the caller via
+// countListeners). Returns the empty string when the map has no
+// entries — the caller treats that as the same "fall through" path
+// the listener-less branch already covers.
+func firstSingletonListenerName(named map[string][]net.Listener) string {
+	for name, ls := range named {
+		if len(ls) == 1 {
+			return name
+		}
+	}
+
+	return ""
 }
 
 // countListeners sums the total number of listeners across every named

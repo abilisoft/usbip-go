@@ -96,7 +96,7 @@ func main() {
 // run is the testable entrypoint. Separated from main so the helper
 // can be unit-tested if ever needed (currently it is proven only by
 // the integration parent); keeping main as a thin wrapper matches the
-// pattern used across cmd/usbip and cmd/usbip.
+// pattern used across cmd/usbip-go and cmd/usbip-go.
 func run() int {
 	target := checkpoint(os.Getenv(killEnv))
 	if target == "" {

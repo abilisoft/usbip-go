@@ -43,7 +43,7 @@ func newDrainCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:           "drain",
-		Short:         "Request the running usbipd-go daemon to refuse new accepts and exit",
+		Short:         "Request the running usbip-go serve daemon to refuse new accepts and exit",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -57,7 +57,7 @@ func newDrainCmd() *cobra.Command {
 
 	flags := cmd.Flags()
 	flags.StringVar(&socketPath, "status-socket", defaultStatusSocket,
-		"UDS path the running usbipd-go daemon is serving its status endpoint on")
+		"UDS path the running usbip-go serve daemon is serving its status endpoint on")
 	flags.DurationVar(&drainTimeout, "drain-timeout", defaultDrainTimeout,
 		"maximum wait for drain to complete before exit 9")
 	flags.DurationVar(&pollInterval, "poll-interval", drainPollInterval,
@@ -104,7 +104,7 @@ func runDrain(cmd *cobra.Command, args drainArgs) error {
 
 	if errors.Is(err, context.DeadlineExceeded) {
 		// main's renderMainError formats every returned error through
-		// FormatError, which maps errDrainTimeout to "usbip: drain
+		// FormatError, which maps errDrainTimeout to "usbip-go: drain
 		// timed out: %s". Writing a second "drain timed out after X"
 		// line to stderr here would print the message twice — once
 		// from this branch and once from the main-loop renderer.

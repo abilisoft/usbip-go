@@ -4,8 +4,8 @@
 # GoReleaser config for usbip-go per spec §10.3.
 #
 # Produces:
-#   - linux/{amd64,arm64,arm} binary for cmd/usbip (single binary,
-#     ADR-0011 — flat verbs `usbip serve`, `usbip attach`, ...)
+#   - linux/{amd64,arm64,arm} binary for cmd/usbip-go (single binary,
+#     ADR-0011 — flat verbs `usbip-go serve`, `usbip-go attach`, ...)
 #   - tar.gz archives including LICENSE, README, systemd units
 #   - deb + rpm packages via nfpms
 #   - SHA-256 checksums file
@@ -29,9 +29,9 @@ before:
     - go mod download
 
 builds:
-  - id: usbip
-    main: ./cmd/usbip
-    binary: usbip
+  - id: usbip-go
+    main: ./cmd/usbip-go
+    binary: usbip-go
     env:
       - CGO_ENABLED=0
     goos:
@@ -54,7 +54,7 @@ builds:
 archives:
   - id: default
     ids:
-      - usbip
+      - usbip-go
     formats:
       - tar.gz
     name_template: >-
@@ -63,34 +63,35 @@ archives:
       - LICENSE
       - README.md
       - CONTRIBUTING.md
-      - contrib/systemd/usbip.service
-      - contrib/systemd/usbip.socket
+      - contrib/systemd/usbip-go.service
+      - contrib/systemd/usbip-go.socket
       - docs/*.md
 
 nfpms:
   - id: default
     ids:
-      - usbip
+      - usbip-go
     package_name: usbip-go
     vendor: abilisoft
     homepage: https://github.com/abilisoft/usbip-go
     maintainer: abilisoft <oss@abilisoft.com>
     description: |-
       Pure-Go reimplementation of USB/IP userspace for Linux. Single
-      binary `usbip` exposes flat verbs (ADR-0011): `usbip serve`
-      runs the daemon (replaces upstream `usbipd`); `usbip attach`,
-      `usbip detach`, `usbip list`, `usbip bind`, `usbip unbind`,
-      `usbip drain` cover client and operator commands.
+      binary `usbip-go` exposes flat verbs (ADR-0011): `usbip-go serve`
+      runs the daemon (parallel install alongside upstream `usbipd`);
+      `usbip-go attach`, `usbip-go detach`, `usbip-go list`,
+      `usbip-go bind`, `usbip-go unbind`, `usbip-go drain` cover
+      client and operator commands.
     license: Apache-2.0
     formats:
       - deb
       - rpm
     bindir: /usr/bin
     contents:
-      - src: contrib/systemd/usbip.service
-        dst: /usr/lib/systemd/system/usbip.service
-      - src: contrib/systemd/usbip.socket
-        dst: /usr/lib/systemd/system/usbip.socket
+      - src: contrib/systemd/usbip-go.service
+        dst: /usr/lib/systemd/system/usbip-go.service
+      - src: contrib/systemd/usbip-go.socket
+        dst: /usr/lib/systemd/system/usbip-go.socket
       - src: README.md
         dst: /usr/share/doc/usbip-go/README.md
       - src: LICENSE

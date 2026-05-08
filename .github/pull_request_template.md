@@ -29,7 +29,7 @@ the build.
 - [ ] `task lint` → `0 issues.`
 - [ ] `task test` → race-clean
 - [ ] `task vuln` → clean
-- [ ] `task build` → produces `build/bin/usbip-go` + `build/bin/usbipd-go`
+- [ ] `task build` → produces `build/bin/usbip-go`
 - [ ] `go build ./examples/...` → clean
 - [ ] `task test:cover` thresholds met (if `pkg/` or `internal/app` touched)
 - [ ] `task test:integration` run locally (when the change touches

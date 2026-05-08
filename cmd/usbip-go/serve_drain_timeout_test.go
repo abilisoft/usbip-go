@@ -12,12 +12,13 @@ import (
 )
 
 // TestRootCmdHasNoDeadDrainTimeoutFlag pins the invariant that the
-// root usbipd command does not advertise a --drain-timeout flag. The
+// root usbip-go command does not advertise a --drain-timeout flag. The
 // flag was inherited as a persistent entry but nothing in the daemon
 // code path consumes cfg.DrainTimeout; the real --drain-timeout lives
-// on the `usbip drain` subcommand, which shadows the dead persistent
-// flag anyway. Keeping the persistent shadow silently misleads
-// operators who run `usbipd-go --drain-timeout=10s` expecting the daemon
+// on the `usbip-go drain` subcommand, which shadows the dead
+// persistent flag anyway. Keeping the persistent shadow silently
+// misleads operators who run `usbip-go serve --drain-timeout=10s`
+// expecting the daemon
 // to honour it.
 func TestRootCmdHasNoDeadDrainTimeoutFlag(t *testing.T) {
 	t.Parallel()
@@ -25,7 +26,7 @@ func TestRootCmdHasNoDeadDrainTimeoutFlag(t *testing.T) {
 	root := newRootCmd()
 
 	require.Nil(t, root.PersistentFlags().Lookup("drain-timeout"),
-		"root usbipd must not register a persistent --drain-timeout; only the drain subcmd should own it")
+		"root usbip-go must not register a persistent --drain-timeout; only the drain subcmd should own it")
 	require.Nil(t, root.Flags().Lookup("drain-timeout"),
-		"root usbipd must not register a local --drain-timeout either")
+		"root usbip-go must not register a local --drain-timeout either")
 }

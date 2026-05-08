@@ -84,7 +84,7 @@ func TestUSBIPDGoBinary_MissingStatusSocketParent_ExitAndStderr(t *testing.T) {
 }
 
 // TestUSBIPDGoBinary_VersionExitsZeroWithoutDaemonBind pins that
-// `usbipd-go version` runs without hitting the daemon bind path. A
+// `usbip-go version` runs without hitting the daemon bind path. A
 // command-wiring regression where version triggers the listener bind
 // or status-socket setup would either hang the version subcommand or
 // fail with a permission/ENOENT error operators would not expect from
@@ -112,18 +112,18 @@ func TestUSBIPDGoBinary_VersionExitsZeroWithoutDaemonBind(t *testing.T) {
 		"version must return promptly — a hang means version triggered listener bind or status-socket wait")
 
 	out := stdout.String()
-	require.Contains(t, out, "usbip version",
+	require.Contains(t, out, "usbip-go version",
 		"stdout must carry the unified binary's stamped version string")
 	require.Empty(t, stderr.String(),
 		"a clean version invocation must not write anything to stderr")
 }
 
-// buildUsbipdGoBinaryForTest compiles ./cmd/usbip into an
+// buildUsbipdGoBinaryForTest compiles ./cmd/usbip-go into an
 // absolute-path temp binary, returning the path. Thin wrapper over
 // the canonical testutil.BuildBinary so a regression to the build
 // flags lands in one place.
 func buildUsbipdGoBinaryForTest(t *testing.T) string {
 	t.Helper()
 
-	return testutil.BuildBinary(t, "usbip")
+	return testutil.BuildBinary(t, "usbip-go")
 }

@@ -37,7 +37,7 @@ Please include:
 In scope:
 
 - The Go library (`pkg/usbip`, `pkg/domain`).
-- The `usbip-go` and `usbipd-go` binaries shipped in releases.
+- The `usbip-go` binary shipped in releases.
 - The systemd units in `contrib/systemd/`.
 - The kernel-adapter code under `internal/adapter/kernel/`.
 

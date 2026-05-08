@@ -1035,6 +1035,73 @@ func TestImporterWatchSubscribeErrorYieldsEmpty(t *testing.T) {
 	require.Zero(t, count)
 }
 
+// TestImporterWatchDoesNotSubscribeUntilIterated asserts the cost of
+// calling Watch is bounded to the iter.Seq allocation: no kernel
+// Subscribe runs and no fanout subscriber is registered until the
+// caller actually ranges over the returned iter. A caller that
+// constructs the iter and then drops it MUST NOT leak the kernel
+// subscription cancel func or a slot in the Importer's subscriber
+// list. Pins the lazy-init contract introduced after audit found
+// `_ = imp.Watch(ctx)` leaked one KernelEvents subscription per call
+// until Importer.Close.
+func TestImporterWatchDoesNotSubscribeUntilIterated(t *testing.T) {
+	t.Parallel()
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			ch := make(chan domain.Event)
+
+			return ch, func() { close(ch) }, nil
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterEvents(events))
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	_ = imp.Watch(context.Background())
+
+	require.Empty(t, events.SubscribeCalls(),
+		"Watch must defer kernel Subscribe until the iter is ranged over")
+	require.Zero(t, app.ImporterSubscribersLenForTest(imp),
+		"Watch must defer fanout-list registration until the iter is ranged over")
+}
+
+// TestImporterWatchCancelsKernelSubscribeOnIterExit asserts the kernel
+// subscription cancel func returned by KernelEvents.Subscribe IS
+// invoked when the iter terminates — either through ctx cancel,
+// yield-false, or upstream close. Without this guarantee a long-lived
+// daemon that opens many short-lived Watch loops accumulates kernel-
+// adapter subscription handles indefinitely.
+func TestImporterWatchCancelsKernelSubscribeOnIterExit(t *testing.T) {
+	t.Parallel()
+
+	var cancelCount atomic.Int32
+
+	ch := make(chan domain.Event)
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return ch, func() { cancelCount.Add(1) }, nil
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterEvents(events))
+	t.Cleanup(func() {
+		close(ch)
+		require.NoError(t, imp.Close())
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	for range imp.Watch(ctx) {
+		t.Fatal("no events were published; iter should drain immediately on cancelled ctx")
+	}
+
+	require.Equal(t, int32(1), cancelCount.Load(),
+		"iter exit must invoke the kernel Subscribe cancel exactly once")
+}
+
 // TestImporterAttachConcurrentWithCloseNoPanic is the RED for the
 // Attach → registerHandle nil-map race. AttachRemote is gated so the
 // kernel handoff has already succeeded (i.e. we are past the fd-hand-off

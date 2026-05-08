@@ -19,7 +19,7 @@ var (
 	buildDate = "unknown"
 )
 
-// newVersionCmd returns the `usbip version` subcommand which prints
+// newVersionCmd returns the `usbip-go version` subcommand which prints
 // the stamped build metadata.
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
@@ -28,7 +28,7 @@ func newVersionCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := styleWriter(cmd.OutOrStdout())
 
-			line := actionStyle.Render("usbip version") + " " +
+			line := actionStyle.Render("usbip-go version") + " " +
 				subjectStyle.Render(version) +
 				dimStyle.Render(fmt.Sprintf(" (commit %s, built %s, %s)",
 					commit, buildDate, runtime.Version()))

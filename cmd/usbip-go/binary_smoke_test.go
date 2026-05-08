@@ -64,7 +64,7 @@ func TestUSBIPGoBinary_VersionEmitsBuildMetadata(t *testing.T) {
 	require.NoError(t, err, "version must exit 0; got: %s", out)
 
 	got := string(out)
-	require.Contains(t, got, "usbip version")
+	require.Contains(t, got, "usbip-go version")
 	require.Contains(t, got, "commit")
 	require.Contains(t, got, "built")
 	require.Contains(t, got, "go1.")
@@ -121,12 +121,12 @@ func firstN(s string, n int) string {
 	return s[:n]
 }
 
-// buildUsbipGoBinary compiles ./cmd/usbip into an absolute-path
+// buildUsbipGoBinary compiles ./cmd/usbip-go into an absolute-path
 // temp binary, returning the path. Thin wrapper over the canonical
 // testutil.BuildBinary so a regression to the build flags lands in
 // one place.
 func buildUsbipGoBinary(t *testing.T) string {
 	t.Helper()
 
-	return testutil.BuildBinary(t, "usbip")
+	return testutil.BuildBinary(t, "usbip-go")
 }

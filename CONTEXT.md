@@ -6,22 +6,22 @@ consume those devices as if they were locally attached.
 
 ## Operator vocabulary
 
-One binary — `usbip` — exposes flat top-level verbs for every role
-(see ADR-0011). The verb encodes the role; there is no `usbip device …`
-or `usbip server …` group.
+One binary — `usbip-go` — exposes flat top-level verbs for every role
+(see ADR-0011). The verb encodes the role; there is no
+`usbip-go device …` or `usbip-go server …` group.
 
 | Subcommand | Role | Notes |
 |---|---|---|
-| `usbip list` | Importer | `-l` lists local; `-r <host>` lists a remote peer |
-| `usbip attach` | Importer | `-r <host> -b <busid>` |
-| `usbip detach` | Importer | `-p <port>` |
-| `usbip port` | Importer | lists currently-attached vhci ports; `--id <N>` filters to one |
-| `usbip watch` | Importer | streams domain events (jsonlines or table) until interrupted |
-| `usbip bind` | Exporter | `-b <busid>` |
-| `usbip unbind` | Exporter | `-b <busid>` |
-| `usbip serve` | Exporter | runs the daemon (replaces upstream `usbipd`) |
-| `usbip drain` | Operator | tells a running daemon to refuse new sessions and exit |
-| `usbip version` | — | build provenance |
+| `usbip-go list` | Importer | `-l` lists local; `-r <host>` lists a remote peer |
+| `usbip-go attach` | Importer | `-r <host> -b <busid>` |
+| `usbip-go detach` | Importer | `-p <port>` |
+| `usbip-go port` | Importer | lists currently-attached vhci ports; `--id <N>` filters to one |
+| `usbip-go watch` | Importer | streams domain events (jsonlines or table) until interrupted |
+| `usbip-go bind` | Exporter | `-b <busid>` |
+| `usbip-go unbind` | Exporter | `-b <busid>` |
+| `usbip-go serve` | Exporter | runs the daemon (replaces upstream `usbipd`) |
+| `usbip-go drain` | Operator | tells a running daemon to refuse new sessions and exit |
+| `usbip-go version` | — | build provenance |
 
 Kernel module names (`vhci_hcd`, `usbip_host`) are fixed external vocabulary;
 this project does not try to rename them in prose.

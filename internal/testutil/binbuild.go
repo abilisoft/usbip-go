@@ -23,12 +23,14 @@ const binaryBuildTimeout = 5 * time.Minute
 
 // BuildBinary compiles ./cmd/<name>/ to an absolute-path temp binary
 // the test can exec. Caller passes the leaf command directory name
-// (e.g. "usbip-go", "usbipd-go").
+// (today only "usbip-go" — the project ships one binary per
+// ADR-0011, but the helper stays generic in case a future cmd/ leaf
+// needs the same TMPDIR + buildvcs handling).
 //
 // Centralised here so binary-smoke tests across `cmd/.../`_test.go
 // packages share one helper. Two prior duplicates in
-// cmd/usbip/binary_smoke_test.go and
-// cmd/usbip/binary_missing_parent_dir_test.go drifted on TMPDIR
+// cmd/usbip-go/binary_smoke_test.go and
+// cmd/usbip-go/binary_missing_parent_dir_test.go drifted on TMPDIR
 // handling; this is the canonical version.
 //
 // Notes on the absolute-path dance: `t.TempDir()` may return a

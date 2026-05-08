@@ -32,9 +32,10 @@ const historyFileMode os.FileMode = 0o600
 const historyFileName = "history"
 
 // stateDirName is the per-binary subdirectory name under the XDG
-// state root — matches the package module so multiple CLIs can share
-// the same $XDG_STATE_HOME without colliding.
-const stateDirName = "usbip"
+// state root — matches the binary so multiple USB/IP-related CLIs
+// can share the same $XDG_STATE_HOME without colliding (notably
+// upstream `usbip` from linux-tools).
+const stateDirName = "usbip-go"
 
 // readHistory returns the attach-history entries most-recent-first.
 // I/O errors (missing file, permission denied, malformed UTF-8) are

@@ -70,7 +70,7 @@ task fmt      # gofumpt + goimports
 task lint     # golangci-lint (must be "0 issues.")
 task vuln     # govulncheck
 task test     # -race unit tests
-task build    # release-style build of usbip-go + usbipd-go → build/bin/
+task build    # release-style build of usbip-go → build/bin/
 ```
 
 `task check` runs `fmt`, `lint`, `vuln`, `test` in sequence — the
@@ -278,13 +278,13 @@ exist purely to short-circuit CI iteration.
 
 For protocol-path bugs, attach the five artefacts listed in
 [`docs/wire-trace.md`](docs/wire-trace.md) — pcap, trace-level
-daemon log, `usbipd-go version`, status-socket snapshot, relevant
+daemon log, `usbip-go version`, status-socket snapshot, relevant
 `dmesg`. With those, most reports are reproducible from first
 principles.
 
 For everything else, include:
 
-- Exact `usbip-go` / `usbipd-go` version (`usbipd-go version`).
+- Exact `usbip-go` version (`usbip-go version`).
 - Kernel version (`uname -r`) and loaded module versions
   (`modinfo usbip_host`, etc.).
 - Full error output, ideally from a `--log-level=trace` run.

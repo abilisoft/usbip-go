@@ -32,8 +32,8 @@ ignore:
   # main.go in both cmd binaries: 5-line cobra Execute + os.Exit
   # wrapper; covered end-to-end via integration tests rather than
   # the unit suite. Mirrors the .testcoverage.yaml carve-out.
-  - "cmd/usbip/main.go"
-  - "cmd/usbip/main.go"
+  - "cmd/usbip-go/main.go"
+  - "cmd/usbip-go/main.go"
 
   # Real syscall paths in the kernel adapter — sysfs writes and
   # AF_NETLINK socket operations whose error branches cannot be
@@ -42,9 +42,9 @@ ignore:
   - "internal/adapter/kernel/sysfs_real_linux.go"
   - "internal/adapter/kernel/netlink_real_linux.go"
 
-  # cmd/usbip statusExporter methods that pass through to the
+  # cmd/usbip-go statusExporter methods that pass through to the
   # concrete *usbip.Exporter; covered by the integration suite.
-  - "cmd/usbip/status_exporter_concrete.go"
+  - "cmd/usbip-go/status_exporter_concrete.go"
 
   # Auto-generated mocks — moq-emitted *_mock_test.go files live
   # alongside production code but exist solely as test fakes; they

@@ -5,7 +5,6 @@ package app
 
 import (
 	"context"
-	"iter"
 	"log/slog"
 	"sync"
 
@@ -95,9 +94,9 @@ func (i *Importer) closeAllImporterSubscribers() {
 	}
 }
 
-// newImporterMergedSeq returns an iter.Seq that yields events from
-// either the upstream KernelEvents channel or the per-call subscriber
-// channel, whichever delivers next. Iteration ends when:
+// runImporterMergedSeq yields events to the supplied yield function
+// from either the upstream KernelEvents channel or the per-call
+// subscriber channel, whichever delivers next. Iteration ends when:
 //   - ctx is cancelled, or
 //   - the kernel channel is closed (terminal), or
 //   - sub.done is signalled (Importer.Close), or
@@ -116,19 +115,18 @@ func (i *Importer) closeAllImporterSubscribers() {
 // Consumers that require strict "no events after cancel" semantics
 // MUST gate downstream effects on their own ctx.Err() check rather
 // than rely on the iterator stopping at the first opportunity.
-func (i *Importer) newImporterMergedSeq(
+func (i *Importer) runImporterMergedSeq(
 	ctx context.Context,
 	kernelCh <-chan domain.Event,
 	kernelCancel func(),
 	sub *importerEventSubscriber,
-) iter.Seq[domain.Event] {
-	return func(yield func(domain.Event) bool) {
-		defer kernelCancel()
-		defer i.removeImporterSubscriber(sub)
+	yield func(domain.Event) bool,
+) {
+	defer kernelCancel()
+	defer i.removeImporterSubscriber(sub)
 
-		for mergedSelectOnce(ctx, kernelCh, sub, yield) {
-			// loop until mergedSelectOnce reports termination
-		}
+	for mergedSelectOnce(ctx, kernelCh, sub, yield) {
+		// loop until mergedSelectOnce reports termination
 	}
 }
 

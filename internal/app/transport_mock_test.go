@@ -5,10 +5,11 @@ package app_test
 
 import (
 	"context"
-	"github.com/abilisoft/usbip-go/internal/app"
-	"github.com/abilisoft/usbip-go/pkg/domain"
 	"net"
 	"sync"
+
+	"github.com/abilisoft/usbip-go/internal/app"
+	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
 // Ensure, that TransportMock does implement app.Transport.

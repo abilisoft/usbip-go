@@ -462,13 +462,12 @@ func eventEndsSessionForBusID(ev domain.Event, busID domain.BusID) bool {
 	return false
 }
 
-// classifyDisconnectReason maps an ExportOnConn terminator onto the
-// §11.5.5 disconnect_total reason label.
+// classifyDisconnectReason maps an ExportOnConn error terminator onto
+// the §11.5.5 disconnect_total reason label. The caller invokes this
+// only on the non-nil branch — successful ExportOnConn parks on
+// waitForSessionEnd, which classifies via PortDetached / DeviceUnbound
+// kernel events instead.
 func classifyDisconnectReason(err error) DisconnectReason {
-	if err == nil {
-		return DisconnectReasonGraceful
-	}
-
 	if errors.Is(err, context.Canceled) {
 		return DisconnectReasonShutdown
 	}

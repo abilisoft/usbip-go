@@ -23,7 +23,7 @@ var errActivationInjected = errors.New("injected activation error")
 // dup3FdOnto performs the syscall.Dup3(srcFd, target, 0) with the
 // uintptr→int narrowing guarded inline so gosec G115's flow analysis
 // sees a direct overflow comparison (same pattern as
-// cmd/usbip.isStderrTTY's os.Stderr.Fd() guard). External syscall
+// cmd/usbip-go.isStderrTTY's os.Stderr.Fd() guard). External syscall
 // errors are wrapped with fmt.Errorf to satisfy wrapcheck.
 func dup3FdOnto(t *testing.T, srcFd uintptr, target int) error {
 	t.Helper()
@@ -105,7 +105,7 @@ func TestListenOrActivationIgnoresMismatchedPID(t *testing.T) {
 	// PID 1 is init; our tests never run as PID 1.
 	t.Setenv("LISTEN_PID", "1")
 	t.Setenv("LISTEN_FDS", "1")
-	t.Setenv("LISTEN_FDNAMES", "usbip")
+	t.Setenv("LISTEN_FDNAMES", "usbip-go")
 
 	cfg := &ServeConfig{Listen: "127.0.0.1:0"}
 
@@ -148,7 +148,7 @@ func TestListenOrActivationNamedSocket(t *testing.T) {
 
 	t.Setenv("LISTEN_PID", strconv.Itoa(os.Getpid()))
 	t.Setenv("LISTEN_FDS", "1")
-	t.Setenv("LISTEN_FDNAMES", "usbip")
+	t.Setenv("LISTEN_FDNAMES", "usbip-go")
 
 	cfg := &ServeConfig{Listen: "127.0.0.1:1"} // unused
 
@@ -164,7 +164,7 @@ func TestListenOrActivationNamedSocket(t *testing.T) {
 }
 
 // TestListenOrActivationAmbiguousFds covers the §7.7 "no socket named
-// 'usbipd' and multiple fds present" error branch. Two listeners are
+// 'usbip-go' and multiple fds present" error branch. Two listeners are
 // dup'd to fd 3 and fd 4 with non-matching names.
 func TestListenOrActivationAmbiguousFds(t *testing.T) {
 	// Non-parallel: mutates fd 3 and fd 4.
@@ -192,7 +192,7 @@ func TestListenOrActivationAmbiguousFds(t *testing.T) {
 	t.Setenv("LISTEN_PID", strconv.Itoa(os.Getpid()))
 	t.Setenv("LISTEN_FDS", "2")
 	// Non-matching names so the library returns a name map keyed on
-	// "other0" / "other1" — both different from "usbipd".
+	// "other0" / "other1" — both different from "usbip-go".
 	t.Setenv("LISTEN_FDNAMES", "other0:other1")
 
 	cfg := &ServeConfig{Listen: "127.0.0.1:1"}
@@ -200,7 +200,63 @@ func TestListenOrActivationAmbiguousFds(t *testing.T) {
 	lis, err := listenOrActivation(context.Background(), cfg)
 	require.Error(t, err)
 	require.Nil(t, lis)
-	require.Contains(t, err.Error(), "usbip")
+	require.Contains(t, err.Error(), "usbip-go")
+}
+
+// TestListenOrActivation_LegacyFdNameWarns covers the
+// pickNamedListener branch where exactly one fd is supplied under a
+// non-matching FileDescriptorName (the typical "operator upgraded the
+// binary but kept their old socket unit's `FileDescriptorName=usbip`"
+// scenario). The fd MUST be accepted as the singleton fallback so a
+// rename does not yank socket activation out from under deployed
+// systems, but a Warn must fire so the unit can be realigned.
+func TestListenOrActivation_LegacyFdNameWarns(t *testing.T) {
+	// Not parallel: swaps the package-level seam.
+	orig := listenersWithNames
+
+	var lc net.ListenConfig
+
+	srcLis, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = srcLis.Close() })
+
+	legacyName := "usbip"
+
+	listenersWithNames = func() (map[string][]net.Listener, error) {
+		return map[string][]net.Listener{legacyName: {srcLis}}, nil
+	}
+
+	t.Cleanup(func() { listenersWithNames = orig })
+
+	cfg := &ServeConfig{Listen: "127.0.0.1:1"}
+
+	lis, err := listenOrActivation(context.Background(), cfg)
+	require.NoError(t, err,
+		"legacy-name singleton must be accepted, not rejected")
+	require.Same(t, srcLis, lis,
+		"the very listener supplied under the legacy name must be returned")
+}
+
+// TestPickNamedListener_NoFds covers the
+// "no fds at all" branch in pickNamedListener so the fall-through to
+// plain net.Listen on cfg.Listen is exercised even without injecting
+// the listenersWithNames seam.
+func TestPickNamedListener_NoFds(t *testing.T) {
+	t.Parallel()
+
+	lis, activated, err := pickNamedListener(map[string][]net.Listener{})
+	require.NoError(t, err)
+	require.False(t, activated)
+	require.Nil(t, lis)
+}
+
+// TestFirstSingletonListenerName_EmptyMap pins the post-condition:
+// when the named map has no entries, the helper returns the empty
+// string so callers treat it as the "no observed name" sentinel.
+func TestFirstSingletonListenerName_EmptyMap(t *testing.T) {
+	t.Parallel()
+
+	require.Empty(t, firstSingletonListenerName(map[string][]net.Listener{}))
 }
 
 // TestListenOrActivation_ErrorPath covers the err != nil branch in

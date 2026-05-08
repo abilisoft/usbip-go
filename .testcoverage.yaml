@@ -75,17 +75,17 @@ exclude:
     # exit-code interception that the run-loop tests already cover
     # via mainBody / runDaemon. Excluded so the per-package floor
     # reflects real testable surface.
-    - ^cmd/usbip/main\.go$
+    - ^cmd/usbip-go/main\.go$
     # Real syscall paths in the kernel adapter cannot be synthesised
     # under the hermetic dev container; exercised by the integration
     # suite. See refactor commit isolating these to dedicated files.
     - ^internal/adapter/kernel/sysfs_real_linux\.go$
     - ^internal/adapter/kernel/netlink_real_linux\.go$
-    # cmd/usbip statusExporter methods that pass through to the
+    # cmd/usbip-go statusExporter methods that pass through to the
     # concrete *usbip.Exporter (BoundDevices / Sessions / Drain) plus
     # defaultKernelModuleProbe; integration suite owns end-to-end
     # exercise.
-    - ^cmd/usbip/status_exporter_concrete\.go$
+    - ^cmd/usbip-go/status_exporter_concrete\.go$
     # Whole integration test tree only compiles under
     # `integration_linux` build tag; default `go test ./...` skips it
     # so it always reports 0% via the unit-test gate.

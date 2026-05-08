@@ -74,10 +74,10 @@ func newRootCmd() *cobra.Command {
 	gf := &globalFlags{}
 
 	cmd := &cobra.Command{
-		Use:   "usbip",
-		Short: "USB/IP client",
-		Long: "usbip is the USB/IP CLI for the USB/IP protocol: list, attach, " +
-			"detach, bind, unbind, watch, and completion subcommands.",
+		Use:   "usbip-go",
+		Short: "USB/IP client (Go reimplementation)",
+		Long: "usbip-go is the pure-Go USB/IP CLI: list, attach, detach, " +
+			"bind, unbind, watch, serve, drain, and completion subcommands.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {

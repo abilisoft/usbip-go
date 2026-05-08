@@ -25,7 +25,8 @@ import (
 // invisible at the unit-test layer because the existing makeDeviceAttrs
 // fixture used "3\n" (a raw enum integer that never appears in real
 // sysfs). Each row here represents a real Linux device population the
-// upstream usbipd-go must enumerate without protocol mismatch.
+// upstream usbipd (linux/tools/usb/usbip) must enumerate without
+// protocol mismatch.
 func TestListLocalDevices_AllRealSysfsSpeedStrings(t *testing.T) {
 	t.Parallel()
 

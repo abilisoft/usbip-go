@@ -64,8 +64,8 @@ func (s *syncBuffer) String() string {
 //  2. usbip-go list --local --output=json shows the busid in the
 //     enumerated devices.
 //  3. usbip-go bind <busid> succeeds.
-//  4. usbipd-go --listen :<random-port> --status-socket "" runs in
-//     the background; we wait for the port to bind.
+//  4. usbip-go serve --listen :<random-port> --status-socket "" runs
+//     in the background; we wait for the port to bind.
 //  5. usbip-go list -r 127.0.0.1:<port> --output=json returns the
 //     same busid.
 //  6. usbip-go attach 127.0.0.1:<port> <busid> succeeds.
@@ -78,7 +78,6 @@ func TestCLIFullFlow_DummyHCD(t *testing.T) {
 	busID := integration.SetupDummyHCDGadget(t, "usbip_go_integration_full")
 
 	usbipBin := integration.AbsCmdPath(t, "usbip-go")
-	usbipdBin := integration.AbsCmdPath(t, "usbipd-go")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -101,7 +100,7 @@ func TestCLIFullFlow_DummyHCD(t *testing.T) {
 		_ = exec.Command(usbipBin, "unbind", busID).Run()
 	})
 
-	// Step 3: launch usbipd-go on a kernel-picked port. --listen :0
+	// Step 3: launch `usbip-go serve` on a kernel-picked port. --listen :0
 	// hands kernel selection to the daemon so there is no TOCTOU
 	// window between us closing a probe listener and the daemon
 	// binding it. The daemon emits the bound address via slog at
@@ -109,11 +108,12 @@ func TestCLIFullFlow_DummyHCD(t *testing.T) {
 	daemonCtx, daemonCancel := context.WithCancel(ctx)
 	defer daemonCancel()
 
-	daemonCmd := exec.CommandContext(daemonCtx, usbipdBin,
-		"--listen", "127.0.0.1:0",
-		"--status-socket", "",
+	daemonCmd := exec.CommandContext(daemonCtx, usbipBin,
 		"--log-level", "info",
 		"--log-format", "json",
+		"serve",
+		"--listen", "127.0.0.1:0",
+		"--status-socket", "",
 	)
 
 	// Mutex-protected buffer because the daemon subprocess writes
@@ -133,7 +133,7 @@ func TestCLIFullFlow_DummyHCD(t *testing.T) {
 
 	listenAddr := waitForDaemonListenAddr(t, &daemonOut, 5*time.Second)
 	require.NoError(t, waitForListener(listenAddr, 5*time.Second),
-		"usbipd-go must accept on %s within 5s; daemon output: %s", listenAddr, daemonOut.String())
+		"usbip-go serve must accept on %s within 5s; daemon output: %s", listenAddr, daemonOut.String())
 
 	// Step 4: list remote, expect the busid.
 	{
@@ -202,8 +202,8 @@ func mustRunOK(t *testing.T, ctx context.Context, bin string, args ...string) []
 
 // waitForDaemonListenAddr polls the daemon's combined stdout/stderr
 // buffer for the listener-bound log line and extracts the bound
-// addr. usbipd-go logs an info record like
-// `{"level":"INFO","msg":"usbipd-go accepting connections","addr":"127.0.0.1:38291"}`
+// addr. `usbip-go serve` logs an info record like
+// `{"level":"INFO","msg":"usbip-go serve accepting connections","addr":"127.0.0.1:38291"}`
 // once net.Listen returns and the accept loop starts; we extract
 // the addr field via extractAddrFromJSONLog without depending on
 // the msg text (which has changed across daemon revisions).
@@ -324,7 +324,7 @@ func jsonContainsBusID(devices []map[string]any, want string) bool {
 // parseDevicesEnvelope parses the {schema, devices} envelope the
 // jsonRenderer emits and returns the inner devices slice. Centralised
 // because the envelope is the v1 stable contract every list-flavour
-// JSON output ships under (cmd/usbip/output.go: devicesEnvelope).
+// JSON output ships under (cmd/usbip-go/output.go: devicesEnvelope).
 func parseDevicesEnvelope(t *testing.T, raw []byte) []map[string]any {
 	t.Helper()
 

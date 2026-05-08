@@ -24,3 +24,24 @@ func PublishSessionEventForTest(e *Exporter, ev domain.Event) {
 func ArmHandshakeTimeoutForTest(e *Exporter, conn net.Conn) func() {
 	return e.armHandshakeTimeout(&connCloser{conn: conn})
 }
+
+// SessionSubscribersLenForTest reports the live count of WatchSessions
+// fanout subscribers under the exporter's read lock. Black-box tests
+// use it to pin the lazy-registration contract: a Watch caller that
+// constructs the iter and discards it must not occupy a fanout slot.
+func SessionSubscribersLenForTest(e *Exporter) int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	return len(e.subscribers)
+}
+
+// ImporterSubscribersLenForTest is the Importer counterpart of
+// SessionSubscribersLenForTest. Pins the same lazy-registration
+// contract on Importer.Watch.
+func ImporterSubscribersLenForTest(i *Importer) int {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	return len(i.subscribers)
+}

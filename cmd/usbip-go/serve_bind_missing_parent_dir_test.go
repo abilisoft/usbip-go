@@ -18,7 +18,7 @@ import (
 // mode an operator hits when invoking the daemon manually without
 // pre-creating the status-socket parent directory. systemd's
 // RuntimeDirectory=usbip-go directive creates /run/usbip-go on unit
-// start, but a hand-run daemon (`sudo usbipd-go`) bypasses systemd and
+// start, but a hand-run daemon (`sudo usbip-go serve`) bypasses systemd and
 // the default --status-socket=/run/usbip-go/status.sock fails on the
 // flock OpenFile when the parent dir is absent.
 //
