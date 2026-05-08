@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1046,6 +1047,146 @@ func TestImporterWatchSubscribeErrorYieldsEmpty(t *testing.T) {
 	}
 
 	require.Zero(t, count)
+}
+
+// TestImporterAttachConcurrentWithCloseNoPanic is the RED for the
+// Attach → registerHandle nil-map race. AttachRemote is gated so the
+// kernel handoff has already succeeded (i.e. we are past the fd-hand-off
+// commitment point) but the caller has not yet recorded the handle.
+// Close runs concurrently and nils the handle map. With the pre-fix
+// code, registerHandle's unconditional map write panics with
+// "assignment to entry in nil map". With the fix, registerHandle
+// detects the closed state, the kernel port is released via DetachPort,
+// and the Attach returns ErrImporterClosed.
+func TestImporterAttachConcurrentWithCloseNoPanic(t *testing.T) {
+	t.Parallel()
+
+	const parallelAttaches = 16
+
+	var (
+		nextID    atomic.Uint32
+		attachMu  sync.Mutex
+		attachers sync.WaitGroup
+		closeErr  atomic.Value
+	)
+
+	gate := make(chan struct{})
+	observedAttachRemote := make(chan struct{}, parallelAttaches)
+	detached := make(chan domain.PortID, parallelAttaches)
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			id := domain.PortID(nextID.Add(1))
+
+			// Signal that we are past the kernel-commit boundary — the
+			// fd has notionally been handed off — and block until the
+			// test gate opens. Close will fire while every attach is
+			// parked here, deterministically exposing the race.
+			observedAttachRemote <- struct{}{}
+
+			<-gate
+
+			return id, nil
+		},
+		DetachPortFunc: func(_ context.Context, id domain.PortID) error {
+			detached <- id
+
+			return nil
+		},
+	}
+
+	transport := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint) (net.Conn, error) { return newFakeConn(), nil },
+	}
+	codec := &ProtocolCodecMock{
+		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
+		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
+	}
+
+	imp := newImporterForTest(t,
+		app.WithImporterKernel(kernel),
+		app.WithImporterTransport(transport),
+		app.WithImporterCodec(codec),
+	)
+
+	type result struct {
+		port domain.Port
+		err  error
+	}
+
+	results := make([]result, parallelAttaches)
+
+	for i := range parallelAttaches {
+		attachers.Go(func() {
+			port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{})
+
+			attachMu.Lock()
+			results[i] = result{port: port, err: err}
+			attachMu.Unlock()
+		})
+	}
+
+	// Wait until every attach goroutine is parked inside AttachRemote —
+	// past the commitment point but not yet through registerHandle.
+	for range parallelAttaches {
+		select {
+		case <-observedAttachRemote:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for attach goroutines to reach AttachRemote")
+		}
+	}
+
+	// Close in a separate goroutine so it races with the drained
+	// AttachRemote callers once the gate opens.
+	closeDone := make(chan struct{})
+
+	go func() {
+		defer close(closeDone)
+
+		err := imp.Close()
+		if err != nil {
+			closeErr.Store(err)
+		}
+	}()
+
+	// Release AttachRemote. All parallelAttaches goroutines now race
+	// with Close's handle-map nilling.
+	close(gate)
+
+	attachers.Wait()
+	<-closeDone
+	require.Nil(t, closeErr.Load(), "Close must not return an error")
+
+	// Post-fix contract: each attach either returned a live Port (ran
+	// entirely before Close nilled the map) or ErrImporterClosed
+	// (registerHandle saw closed and released the kernel port). No
+	// other outcome is acceptable, and in particular no goroutine may
+	// have panicked.
+	released := 0
+
+	for _, r := range results {
+		switch {
+		case r.err == nil:
+			require.NotZero(t, r.port.ID, "successful attach must carry a port id")
+		case errors.Is(r.err, app.ErrImporterClosed):
+			released++
+		default:
+			t.Fatalf("unexpected attach error: %v", r.err)
+		}
+	}
+
+	// For every attach that resolved to ErrImporterClosed, the kernel
+	// port must have been released via DetachPort.
+	close(detached)
+
+	detachedIDs := map[domain.PortID]struct{}{}
+	for id := range detached {
+		detachedIDs[id] = struct{}{}
+	}
+
+	require.Len(t, detachedIDs, released,
+		"every ErrImporterClosed attach must release its kernel port via DetachPort")
 }
 
 // TestImporterCloseIdempotentAfterAttach asserts Close is idempotent
