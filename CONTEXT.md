@@ -172,16 +172,15 @@ implements Wire encode/decode).
 > SDEV_ST_USED state on the exporter side. The first importer's Handshake won the
 > race; the second one has to poll or watch for the Session to end."
 
-## Flagged ambiguities
+## Term disambiguation
 
-- **"connection"** — used loosely in conversation to mean the TCP socket, the
-  Handshake, the Session, and the Attachment. Resolved: use **Session** for the
-  exporter's named, accounted unit; **Attachment** for the importer's kernel state;
-  **Handshake** for the setup exchange.
-- **"export" (verb)** — sometimes means the whole Exporter role, sometimes just
-  Bind. Resolved: **Bind** is the per-device verb; **Exporter** is the role.
+- **"connection"** — use **Session** for the exporter's named, accounted unit;
+  **Attachment** for the importer's kernel state; **Handshake** for the setup exchange.
+  Do not use "connection" in domain prose.
+- **"export" (verb)** — **Bind** is the per-device operation; **Exporter** is the role.
+  Do not use "export" as a verb.
 - **"attach" / "Attachment"** — `Attach` is the operation; `Attachment` is the
-  resulting state. Both are valid; don't use "attach" as a noun.
-- **"client / server"** — abandoned in favour of **Importer / Exporter** everywhere.
-  USB/IP roles flip depending on perspective (importer is the TCP client but the USB
-  consumer). The kernel terms are canonical.
+  resulting state. Both are valid; do not use "attach" as a noun.
+- **"client / server"** — use **Importer / Exporter** everywhere. USB/IP roles flip
+  depending on perspective (importer is the TCP client but the USB consumer); the
+  kernel terms are canonical.

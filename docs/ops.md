@@ -14,7 +14,7 @@ Three supported install paths:
    ```
    curl -LO https://github.com/abilisoft/usbip-go/releases/download/vX.Y.Z/usbip-go_vX.Y.Z_linux_amd64.tar.gz
    tar xzf usbip-go_vX.Y.Z_linux_amd64.tar.gz
-   sudo install -m 0755 usbip /usr/bin/
+   sudo install -m 0755 usbip-go /usr/local/bin/
    sudo install -Dm 0644 contrib/systemd/usbip-go.service /etc/systemd/system/usbip-go.service
    sudo install -Dm 0644 contrib/systemd/usbip-go.socket  /etc/systemd/system/usbip-go.socket
    ```
