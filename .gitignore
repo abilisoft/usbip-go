@@ -92,6 +92,11 @@ Thumbs.db
 .tabnine/
 .ai/
 /.mcp.json
+# AI-tool convention pointer files. Project workflow lives in
+# docs/agents/ which IS committed; these root-level files are
+# pointer/index artifacts agents can grep for if they want.
+/CLAUDE.md
+/AGENTS.md
 
 # Per-tool log/scratch dumps under the system tmp dir.
 codex-*.log
