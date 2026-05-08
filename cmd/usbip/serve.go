@@ -26,6 +26,19 @@ import (
 // budget logs a warning but does not abort startup.
 const statusReadyTimeout = 3 * time.Second
 
+// logServeStartup emits the daemon's first slog record carrying build
+// provenance (version, commit, build_date, go_version). Extracted so a
+// unit test can assert every field appears without spinning a real
+// listener; an ldflags-stripped build that loses build_date would
+// otherwise silently regress observability.
+func logServeStartup(log *slog.Logger) {
+	log.Info("usbip serve starting",
+		slog.String("version", version),
+		slog.String("commit", commit),
+		slog.String("build_date", buildDate),
+		slog.String("go_version", runtime.Version()))
+}
+
 // newServeCmd returns the `usbip serve` subcommand. The flags bound
 // here mirror the §7.7 daemon catalog; runDaemon is the body. The
 // PersistentPreRunE on the root command does not build a slog.Logger
@@ -76,14 +89,7 @@ func runDaemon(ctx context.Context, cfg *ServeConfig) error {
 		log = slog.Default()
 	}
 
-	// Stamp build provenance into the daemon's first log record so
-	// journald queries can answer "which binary ran this session?"
-	// without grepping a pid for /proc/<pid>/cmdline.
-	log.Info("usbip serve starting",
-		slog.String("version", version),
-		slog.String("commit", commit),
-		slog.String("build_date", buildDate),
-		slog.String("go_version", runtime.Version()))
+	logServeStartup(log)
 
 	activated := systemdActivated()
 
