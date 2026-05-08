@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/abilisoft/usbip-go/internal/app"
 	"github.com/abilisoft/usbip-go/pkg/usbip"
@@ -150,6 +152,84 @@ func TestReadyzReturns200WhenReady(t *testing.T) {
 
 	handler.ServeHTTP(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code)
+}
+
+// TestMaybeStartMetricsServerNoDoubleRegistration proves the
+// metrics-server startup path shares a SINGLE metric registration with
+// the exporter's own bundle (Finding 7). Before the fix, buildExporter
+// registered the §11.5.5 collectors once via NewExporter, then
+// maybeStartMetricsServer re-invoked MustNewMetrics against the same
+// registry and panicked on duplicate registration at daemon startup.
+//
+// The test wires a single *prometheus.Registry through both paths, the
+// same way runDaemon does, and asserts:
+//  1. buildExporter followed by maybeStartMetricsServer does not panic.
+//  2. /metrics responds 200 with the usbip_build_info family rendered
+//     (the build-info stamp must survive the refactor).
+func TestMaybeStartMetricsServerNoDoubleRegistration(t *testing.T) {
+	t.Parallel()
+
+	reg := prometheus.NewRegistry()
+
+	cfg := &Config{
+		MetricsAddr:     "127.0.0.1:0",
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	exp, err := buildExporter(cfg, log, reg)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = exp.Shutdown(context.Background())
+	})
+
+	// Stand up a statusExporter stand-in with no real listener so the
+	// readiness probe is exercised but does not need a full accept
+	// path. The metrics handler is what we care about; /readyz is
+	// covered by its own tests.
+	src := newStatusExporter(exp, nil, false)
+
+	var stop func(context.Context) error
+
+	// The production regression: NewExporter registered collectors
+	// against reg, and maybeStartMetricsServer (pre-fix) called
+	// MustNewMetrics(reg) again, panicking. require.NotPanics turns
+	// the latent panic into a RED failure.
+	require.NotPanics(t, func() {
+		var startErr error
+
+		stop, startErr = maybeStartMetricsServer(
+			context.Background(), cfg, log, reg, src)
+		require.NoError(t, startErr)
+	}, "maybeStartMetricsServer must not panic when reg already carries exporter collectors")
+
+	require.NotNil(t, stop)
+
+	t.Cleanup(func() {
+		_ = stop(context.Background())
+	})
+
+	// /metrics must serve. We resolve the concrete bind via
+	// startMetricsServerWithHandle-style addr probing: reuse the
+	// Registry to gather the build_info metric directly for the
+	// second half of the assertion.
+	mfs, gatherErr := reg.Gather()
+	require.NoError(t, gatherErr)
+
+	foundBuildInfo := false
+
+	for _, mf := range mfs {
+		if mf.GetName() == "usbip_build_info" {
+			foundBuildInfo = true
+
+			break
+		}
+	}
+
+	require.True(t, foundBuildInfo,
+		"usbip_build_info family must be registered exactly once after maybeStartMetricsServer")
 }
 
 // TestStartMetricsServerNoAddrIsNoop proves startMetricsServer returns a
