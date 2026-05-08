@@ -378,6 +378,7 @@ func TestListen_CloseDoesNotDeadlockAfterCtxCancel(t *testing.T) {
 
 	go func() {
 		_ = ln.Close()
+
 		close(done)
 	}()
 
