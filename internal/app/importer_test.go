@@ -1373,3 +1373,48 @@ func TestImporterCloseIdempotentAfterAttach(t *testing.T) {
 	require.NoError(t, imp.Close())
 	require.NoError(t, imp.Close())
 }
+
+// TestImporterWatchOnClosedReturnsEmptyIter pins the post-Close
+// contract on Watch: the returned iter.Seq terminates immediately
+// without invoking yield. A consumer ranging over the result must
+// see zero events. This drives the emptyEventSeq fast-path that the
+// Close-cancellation early-return uses.
+func TestImporterWatchOnClosedReturnsEmptyIter(t *testing.T) {
+	t.Parallel()
+
+	imp := newImporterForTest(t)
+
+	require.NoError(t, imp.Close())
+
+	got := 0
+	for range imp.Watch(context.Background()) {
+		got++
+	}
+
+	require.Zero(t, got, "Watch on closed Importer must yield no events")
+}
+
+// TestImporterWatchSubscribeFailureReturnsEmptyIter covers the OTHER
+// emptyEventSeq path: Subscribe returns an error, the handler logs
+// and returns the empty iter so the caller does not panic on a nil
+// channel.
+func TestImporterWatchSubscribeFailureReturnsEmptyIter(t *testing.T) {
+	t.Parallel()
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return nil, nil, errBoom
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterEvents(events))
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	got := 0
+	for range imp.Watch(context.Background()) {
+		got++
+	}
+
+	require.Zero(t, got, "Watch when Subscribe fails must yield no events, not panic")
+	require.Len(t, events.SubscribeCalls(), 1)
+}
