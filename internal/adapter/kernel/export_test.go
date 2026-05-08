@@ -57,3 +57,12 @@ func commonSnapshot(c commonAdapter) CommonExport {
 func FindFreePortForTest(a *ImporterAdapter, speed domain.Speed) (domain.PortID, error) {
 	return a.findFreePort(speed)
 }
+
+// ExtractPortFromBusIDForTest exposes the unexported extractPortFromBusID
+// helper so uevent tests can lock in the parsing table (Pass-4 RANK 1).
+// The function has no dependencies on adapter state — passing it by
+// name through a thin white-box trampoline keeps the production API
+// surface closed.
+func ExtractPortFromBusIDForTest(busID string) domain.PortID {
+	return extractPortFromBusID(busID)
+}
