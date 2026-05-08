@@ -397,10 +397,20 @@ func (a *ExporterAdapter) readInterface(base string) (domain.Interface, error) {
 	}, nil
 }
 
-// isMissing reports whether err chains to fs.ErrNotExist or to our
-// domain.ErrDeviceNotFound / domain.ErrKernelModuleMissing. Used by
-// readInterfaces to distinguish "file not present in sysfs" (skip)
-// from "read error" (log and skip).
+// isMissing reports whether err chains to fs.ErrNotExist or to the
+// classifier's domain equivalents (domain.ErrDeviceNotFound for device
+// paths, domain.ErrKernelModuleMissing for driver/controller/module
+// paths). The classifier at classifyENOENT replaces the raw unix.ENOENT
+// with a domain-wrapped error that does NOT carry fs.ErrNotExist in
+// its chain, so a helper matching only fs.ErrNotExist would miss every
+// production ENOENT — absent-interface tolerance in readInterfaces
+// (documented above) depended on this helper firing on those wrapped
+// chains. Used by readInterfaces to distinguish "file not present in
+// sysfs" (skip) from "read error" (fatal).
 func isMissing(err error) bool {
-	return errorsIsAny(err, fs.ErrNotExist)
+	return errorsIsAny(err,
+		fs.ErrNotExist,
+		domain.ErrDeviceNotFound,
+		domain.ErrKernelModuleMissing,
+	)
 }
