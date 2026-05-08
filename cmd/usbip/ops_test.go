@@ -11,6 +11,89 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// runAckSchemaTest drives a single ack-producing subcommand end-to-end
+// with --output=json and asserts the resulting bytes start with the
+// `{"schema":` prefix. Factored out because the four call sites (attach,
+// detach, bind, unbind) only differ in mock wiring + argv.
+func runAckSchemaTest(
+	t *testing.T,
+	imp *mockImporter,
+	exp *mockExporter,
+	argv []string,
+) []byte {
+	t.Helper()
+
+	swapFactories(t, imp, exp)
+
+	cmd := newRootCmd()
+
+	var out bytes.Buffer
+
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs(argv)
+
+	require.NoError(t, cmd.Execute())
+	require.True(
+		t,
+		bytes.HasPrefix(out.Bytes(), []byte(schemaFirstPrefix)),
+		"%v ack must begin with %q, got %s", argv, schemaFirstPrefix, out.String(),
+	)
+
+	return out.Bytes()
+}
+
+// TestAttachAckSchemaFirst — attach ack bytes begin with `{"schema":`.
+func TestAttachAckSchemaFirst(t *testing.T) {
+	t.Parallel()
+
+	imp := &mockImporter{
+		attachFn: func(
+			_ context.Context,
+			_ usbip.RemoteEndpoint,
+			_ usbip.BusID,
+			_ usbip.AttachOptions,
+		) (usbip.Port, error) {
+			return usbip.Port{ID: 3, Status: domain.StatusUsed, BusID: "1-1.2"}, nil
+		},
+	}
+	runAckSchemaTest(t, imp, &mockExporter{},
+		[]string{"--output=json", "attach", "10.0.0.5", "1-1.2"})
+}
+
+// TestDetachAckSchemaFirst — detach ack bytes begin with `{"schema":`.
+func TestDetachAckSchemaFirst(t *testing.T) {
+	t.Parallel()
+
+	imp := &mockImporter{
+		detachFn: func(_ context.Context, _ usbip.PortID) error { return nil },
+	}
+	runAckSchemaTest(t, imp, &mockExporter{},
+		[]string{"--output=json", "detach", "3"})
+}
+
+// TestBindAckSchemaFirst — bind ack bytes begin with `{"schema":`.
+func TestBindAckSchemaFirst(t *testing.T) {
+	t.Parallel()
+
+	exp := &mockExporter{
+		bindFn: func(_ context.Context, _ usbip.BusID) error { return nil },
+	}
+	runAckSchemaTest(t, &mockImporter{}, exp,
+		[]string{"--output=json", "bind", "1-1.2"})
+}
+
+// TestUnbindAckSchemaFirst — unbind ack bytes begin with `{"schema":`.
+func TestUnbindAckSchemaFirst(t *testing.T) {
+	t.Parallel()
+
+	exp := &mockExporter{
+		unbindFn: func(_ context.Context, _ usbip.BusID) error { return nil },
+	}
+	runAckSchemaTest(t, &mockImporter{}, exp,
+		[]string{"--output=json", "unbind", "1-1.2"})
+}
+
 // TestAttachMissingBusID — `attach <host>` with no busid → cobra
 // prints usage, returns error.
 func TestAttachMissingBusID(t *testing.T) {
