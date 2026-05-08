@@ -430,6 +430,13 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 		h.cancel()
 	}
 
+	// Derive the backstopped drainCtx FIRST so the per-session
+	// Disconnect goroutines below can carry it. Using the original
+	// caller ctx instead would let a Disconnect outlive the configured
+	// shutdownTimeout backstop even when waitDisconnectBounded fires.
+	drainCtx, cancel := e.applyShutdownBackstop(ctx)
+	defer cancel()
+
 	// Graceful: ask the kernel to release each active session's socket.
 	// Disconnect writes -1 to usbip_sockfd; the kernel-side session
 	// teardown emits the remove uevent that the handler's pre-opened
@@ -447,7 +454,7 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 	var disconnectWG sync.WaitGroup
 	for _, h := range handles {
 		disconnectWG.Go(func() {
-			err := e.kernel.Disconnect(ctx, h.session.BusID)
+			err := e.kernel.Disconnect(drainCtx, h.session.BusID)
 			if err != nil {
 				e.logger.Warn("shutdown kernel disconnect",
 					slog.Any("busid", h.session.BusID),
@@ -463,9 +470,6 @@ func (e *Exporter) Shutdown(ctx context.Context) error {
 	if acceptLoopExited != nil {
 		<-acceptLoopExited
 	}
-
-	drainCtx, cancel := e.applyShutdownBackstop(ctx)
-	defer cancel()
 
 	waitErr := e.waitSessionsBounded(drainCtx)
 
