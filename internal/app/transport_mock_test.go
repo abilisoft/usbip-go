@@ -25,10 +25,10 @@ var _ app.Transport = &TransportMock{}
 //
 //		// make and configure a mocked app.Transport
 //		mockedTransport := &TransportMock{
-//			DialFunc: func(ctx context.Context, endpoint domain.RemoteEndpoint) (net.Conn, error) {
+//			DialFunc: func(ctx context.Context, endpoint domain.RemoteEndpoint, opts app.TransportOptions) (net.Conn, error) {
 //				panic("mock out the Dial method")
 //			},
-//			ListenFunc: func(ctx context.Context, addr string) (net.Listener, error) {
+//			ListenFunc: func(ctx context.Context, addr string, opts app.TransportOptions) (net.Listener, error) {
 //				panic("mock out the Listen method")
 //			},
 //		}
@@ -39,10 +39,10 @@ var _ app.Transport = &TransportMock{}
 //	}
 type TransportMock struct {
 	// DialFunc mocks the Dial method.
-	DialFunc func(ctx context.Context, endpoint domain.RemoteEndpoint) (net.Conn, error)
+	DialFunc func(ctx context.Context, endpoint domain.RemoteEndpoint, opts app.TransportOptions) (net.Conn, error)
 
 	// ListenFunc mocks the Listen method.
-	ListenFunc func(ctx context.Context, addr string) (net.Listener, error)
+	ListenFunc func(ctx context.Context, addr string, opts app.TransportOptions) (net.Listener, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -52,6 +52,8 @@ type TransportMock struct {
 			Ctx context.Context
 			// Endpoint is the endpoint argument value.
 			Endpoint domain.RemoteEndpoint
+			// Opts is the opts argument value.
+			Opts app.TransportOptions
 		}
 		// Listen holds details about calls to the Listen method.
 		Listen []struct {
@@ -59,6 +61,8 @@ type TransportMock struct {
 			Ctx context.Context
 			// Addr is the addr argument value.
 			Addr string
+			// Opts is the opts argument value.
+			Opts app.TransportOptions
 		}
 	}
 	lockDial   sync.RWMutex
@@ -66,21 +70,23 @@ type TransportMock struct {
 }
 
 // Dial calls DialFunc.
-func (mock *TransportMock) Dial(ctx context.Context, endpoint domain.RemoteEndpoint) (net.Conn, error) {
+func (mock *TransportMock) Dial(ctx context.Context, endpoint domain.RemoteEndpoint, opts app.TransportOptions) (net.Conn, error) {
 	if mock.DialFunc == nil {
 		panic("TransportMock.DialFunc: method is nil but Transport.Dial was just called")
 	}
 	callInfo := struct {
 		Ctx      context.Context
 		Endpoint domain.RemoteEndpoint
+		Opts     app.TransportOptions
 	}{
 		Ctx:      ctx,
 		Endpoint: endpoint,
+		Opts:     opts,
 	}
 	mock.lockDial.Lock()
 	mock.calls.Dial = append(mock.calls.Dial, callInfo)
 	mock.lockDial.Unlock()
-	return mock.DialFunc(ctx, endpoint)
+	return mock.DialFunc(ctx, endpoint, opts)
 }
 
 // DialCalls gets all the calls that were made to Dial.
@@ -90,10 +96,12 @@ func (mock *TransportMock) Dial(ctx context.Context, endpoint domain.RemoteEndpo
 func (mock *TransportMock) DialCalls() []struct {
 	Ctx      context.Context
 	Endpoint domain.RemoteEndpoint
+	Opts     app.TransportOptions
 } {
 	var calls []struct {
 		Ctx      context.Context
 		Endpoint domain.RemoteEndpoint
+		Opts     app.TransportOptions
 	}
 	mock.lockDial.RLock()
 	calls = mock.calls.Dial
@@ -102,21 +110,23 @@ func (mock *TransportMock) DialCalls() []struct {
 }
 
 // Listen calls ListenFunc.
-func (mock *TransportMock) Listen(ctx context.Context, addr string) (net.Listener, error) {
+func (mock *TransportMock) Listen(ctx context.Context, addr string, opts app.TransportOptions) (net.Listener, error) {
 	if mock.ListenFunc == nil {
 		panic("TransportMock.ListenFunc: method is nil but Transport.Listen was just called")
 	}
 	callInfo := struct {
 		Ctx  context.Context
 		Addr string
+		Opts app.TransportOptions
 	}{
 		Ctx:  ctx,
 		Addr: addr,
+		Opts: opts,
 	}
 	mock.lockListen.Lock()
 	mock.calls.Listen = append(mock.calls.Listen, callInfo)
 	mock.lockListen.Unlock()
-	return mock.ListenFunc(ctx, addr)
+	return mock.ListenFunc(ctx, addr, opts)
 }
 
 // ListenCalls gets all the calls that were made to Listen.
@@ -126,10 +136,12 @@ func (mock *TransportMock) Listen(ctx context.Context, addr string) (net.Listene
 func (mock *TransportMock) ListenCalls() []struct {
 	Ctx  context.Context
 	Addr string
+	Opts app.TransportOptions
 } {
 	var calls []struct {
 		Ctx  context.Context
 		Addr string
+		Opts app.TransportOptions
 	}
 	mock.lockListen.RLock()
 	calls = mock.calls.Listen
