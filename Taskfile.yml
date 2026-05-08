@@ -1,23 +1,54 @@
 version: '3'
 
+# ------------------------------------------------------------------------------
+# usbip-go Taskfile — two execution tiers.
+#
+#   * Outer tasks (default names) delegate to `ci:<target>` through
+#     `docker compose run dev …` unless we are already inside the Nix
+#     devShell. The compose service in docker-compose.yml owns all the
+#     mount / UID / env-var verbosity; every outer cmd here is a one-liner.
+#
+#   * Inner `ci:*` tasks run the raw command. Safe to invoke from a
+#     `task shell` session or from CI which enters the container itself.
+#
+# All build artefacts live under ./build/ so `task clean` is a single rm.
+# ------------------------------------------------------------------------------
+
 vars:
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
   COMMIT:
     sh: git rev-parse --short HEAD 2>/dev/null || echo "none"
   LDFLAGS: '-s -w -X main.version={{.VERSION}} -X main.commit={{.COMMIT}}'
-  BIN_DIR: './bin'
 
-# Release binaries are pure Go — CGO_ENABLED=0 is the project-wide default
-# so `task build`, `task release`, and any ad-hoc `go build` run through
-# the Taskfile produce static cgo-free artefacts. Test targets override to
-# CGO_ENABLED=1 *only to enable the Go race detector* (-race requires cgo
-# internally; the compiled test binary uses cgo, but the production
-# binaries do not). The no-cgo CI guard scans source for `import "C"`
-# so this split is safe: it is impossible to smuggle real cgo into the
-# release binary without the guard catching it.
+  BUILD_DIR: '{{.ROOT_DIR}}/build'
+  BIN_DIR: '{{.BUILD_DIR}}/bin'
+  COVERAGE_DIR: '{{.BUILD_DIR}}/coverage'
+
+  UID:
+    sh: id -u
+  GID:
+    sh: id -g
+
 env:
   CGO_ENABLED: '0'
+  # Exported so docker-compose.yml's ${UID}/${GID} substitution resolves
+  # regardless of shell (zsh does not export UID by default).
+  UID: '{{.UID}}'
+  GID: '{{.GID}}'
+  # Default /nix volume name includes UID + GID + a CRC of the absolute
+  # workspace path so multi-checkouts on the same machine (and the same
+  # user running concurrent CI jobs on a shared Docker host) never alias
+  # into one volume. Exported so docker-compose.yml's ${USBIP_GO_NIX_VOLUME}
+  # substitution picks it up automatically. Override to share a store
+  # across workspaces.
+  USBIP_GO_NIX_VOLUME:
+    # Hash the absolute workspace path with sha256 (64 bits of output is
+    # collision-resistant enough for this purpose; cksum's CRC-32 is not).
+    # $PWD is the shell's own view of the working directory, so it is
+    # already shell-safe even if the path contains quotes or spaces —
+    # no Taskfile template interpolation of user-controlled strings.
+    sh: printf 'usbip-go-%s-%s-%s-nix-store' "$(id -u)" "$(id -g)" "$(printf '%s' "$PWD" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-16)"
 
 tasks:
   default:
@@ -25,122 +56,197 @@ tasks:
     cmds:
       - task --list
 
-  build:
-    desc: Release-style build (pure Go, trimmed, stripped, reproducible)
-    sources:
-      - cmd/**/*.go
-      - pkg/**/*.go
-      - go.mod
-      - go.sum
-    generates:
-      - '{{.BIN_DIR}}/usbip'
-      - '{{.BIN_DIR}}/usbipd'
+  # ----------------------------------------------------------------------------
+  # Bootstrap: seed the /nix store volume once so subsequent --user runs can
+  # acquire /nix/var/nix/db. Needs root because nixos/nix ships /nix owned
+  # by root and an empty named volume inherits that ownership on first mount.
+  # ----------------------------------------------------------------------------
+  setup:
+    desc: Seed /nix store volume (run once, or after flake.lock changes)
+    cmds:
+      - 'docker compose run --rm setup "git config --global --add safe.directory /src && nix develop --command true && chown -R {{.UID}}:{{.GID}} /nix"'
+
+  shell:
+    desc: Open interactive devShell inside hermetic container
+    deps: [_prep:identity]
+    cmds:
+      - docker compose run --rm -it --entrypoint 'nix develop' dev
+
+  # ----------------------------------------------------------------------------
+  # Outer tasks — each dispatches to `ci:<name>` through `_run`.
+  # ----------------------------------------------------------------------------
+  build:            { desc: 'Release build',          cmds: [{ task: _run, vars: { INNER: 'ci:build' } }] }
+  build:dev:        { desc: 'Dev build (debug info)', cmds: [{ task: _run, vars: { INNER: 'ci:build:dev' } }] }
+  test:             { desc: 'Unit tests -race',       cmds: [{ task: _run, vars: { INNER: 'ci:test' } }] }
+  test:integration: { desc: 'Integration tests',      cmds: [{ task: _run, vars: { INNER: 'ci:test:integration' } }] }
+  test:conformance: { desc: 'Conformance tests',      cmds: [{ task: _run, vars: { INNER: 'ci:test:conformance' } }] }
+  test:cover:       { desc: 'Coverage HTML report',   cmds: [{ task: _run, vars: { INNER: 'ci:test:cover' } }] }
+  test:mutation:    { desc: 'Mutation tests',         cmds: [{ task: _run, vars: { INNER: 'ci:test:mutation' } }] }
+  lint:             { desc: 'golangci-lint',          cmds: [{ task: _run, vars: { INNER: 'ci:lint' } }] }
+  fmt:              { desc: 'Format code',            cmds: [{ task: _run, vars: { INNER: 'ci:fmt' } }] }
+  tidy:             { desc: 'go mod tidy',            cmds: [{ task: _run, vars: { INNER: 'ci:tidy' } }] }
+  vuln:             { desc: 'govulncheck',            cmds: [{ task: _run, vars: { INNER: 'ci:vuln' } }] }
+  check:            { desc: 'Pre-commit gauntlet',    cmds: [{ task: _run, vars: { INNER: 'ci:check' } }] }
+  changelog:        { desc: 'Regenerate CHANGELOG',   cmds: [{ task: _run, vars: { INNER: 'ci:changelog' } }] }
+  changelog:check:  { desc: 'Verify CHANGELOG',       cmds: [{ task: _run, vars: { INNER: 'ci:changelog:check' } }] }
+  release:snapshot: { desc: 'GoReleaser snapshot',    cmds: [{ task: _run, vars: { INNER: 'ci:release:snapshot' } }] }
+  release:          { desc: 'GoReleaser release',     cmds: [{ task: _run, vars: { INNER: 'ci:release' } }] }
+
+  clean:
+    desc: Remove build artefacts (preserves tracked build/go.mod marker)
+    cmds:
+      # build/go.mod is the nested-module escape hatch; deleting it lets
+      # `go test ./...` descend into the regenerated module cache and
+      # break in a non-obvious way. Keep it.
+      - find build -mindepth 1 -maxdepth 1 ! -name go.mod -exec rm -rf {} +
+
+  # ----------------------------------------------------------------------------
+  # Host → container dispatcher. `${IN_NIX_CONTAINER}` is baked into the
+  # compose service env so the inner task runs raw when we are already there.
+  # ----------------------------------------------------------------------------
+  _run:
+    internal: true
+    deps: [_prep:identity]
+    cmds:
+      # IN_NIX_CONTAINER alone is spoofable — a host shell with that env
+      # var set would run `task ci:*` against the host Go/task. Require
+      # ALL four signals: the compose sentinel, a real /.dockerenv, a
+      # working dir of /src (our compose `working_dir`), and a go binary
+      # under /nix/store. Any mismatch re-enters through docker compose.
+      - |
+        if [ "${IN_NIX_CONTAINER:-0}" = "1" ] \
+           && [ -f /.dockerenv ] \
+           && [ "$(pwd)" = "/src" ] \
+           && case "$(command -v go 2>/dev/null)" in /nix/store/*) true;; *) false;; esac
+        then
+          task {{.INNER}}
+        else
+          docker compose run --rm dev task {{.INNER}}
+        fi
+
+  # ----------------------------------------------------------------------------
+  # Synthesise a minimal /etc/passwd and /etc/group for the container to
+  # bind-mount. Host files work on Linux but fail on macOS where the login
+  # user is resolved via Directory Services and may not appear in the
+  # flat file. Two-line records, regenerated on every dispatch.
+  # ----------------------------------------------------------------------------
+  _prep:identity:
+    internal: true
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}/cache
+      - 'printf ''dev:x:%s:%s::/src/build/cache/home:/bin/sh\n'' {{.UID}} {{.GID}} > {{.BUILD_DIR}}/cache/passwd'
+      - 'printf ''dev:x:%s:\n'' {{.GID}} > {{.BUILD_DIR}}/cache/group'
+
+  # ----------------------------------------------------------------------------
+  # Toolchain + cache preamble. Guards against go.mod/devShell drift and
+  # creates the hermetic cache tree. Every ci:* target runs this first.
+  # ----------------------------------------------------------------------------
+  _check:tooling:
+    internal: true
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}/cache/go-build {{.BUILD_DIR}}/cache/go-mod {{.BUILD_DIR}}/cache/go-bin {{.BUILD_DIR}}/cache/golangci-lint
+      - |
+        # Compare the max of the `go X.Y.Z` and optional `toolchain goX.Y.Z`
+        # directives in go.mod against the nixpkgs-provided toolchain. Go
+        # picks whichever is newer under GOTOOLCHAIN=local, so the guard
+        # must too or it misses mismatches that would error at build time.
+        mod=$({ awk '/^go [0-9]/ {print $2; exit}' go.mod;
+                awk '/^toolchain go[0-9]/ {sub(/^go/,"",$2); print $2; exit}' go.mod; } \
+               | sort -V | tail -n1)
+        sh=$(go env GOVERSION | sed 's/^go//')
+        [ "$mod" = "$sh" ] || { echo "go.mod/toolchain=$mod devShell=$sh (mismatch)" >&2; exit 1; }
+
+  # ----------------------------------------------------------------------------
+  # Inner ci:* tasks — assume devShell is active, emit into {{.BUILD_DIR}}.
+  # ----------------------------------------------------------------------------
+  ci:build:
+    deps: [_check:tooling]
+    sources: [cmd/**/*.go, pkg/**/*.go, go.mod, go.sum]
+    generates: ['{{.BIN_DIR}}/usbip', '{{.BIN_DIR}}/usbipd']
     cmds:
       - go build -trimpath -ldflags="{{.LDFLAGS}}" -o {{.BIN_DIR}}/ ./cmd/...
 
-  build:dev:
-    desc: Dev build with full debug info (keeps paths for IDE click-through, disables inlining for delve)
+  ci:build:dev:
+    deps: [_check:tooling]
     cmds:
       - go build -gcflags="all=-N -l" -o {{.BIN_DIR}}/ ./cmd/...
 
-  test:
-    desc: Unit tests with -race (test binary only; release binaries stay cgo-free)
-    env:
-      CGO_ENABLED: '1'
+  ci:test:
+    deps: [_check:tooling]
+    env: { CGO_ENABLED: '1' }
     cmds:
       - go test -race -timeout=60s ./...
 
-  test:integration:
-    desc: Integration tests with -race
-    env:
-      CGO_ENABLED: '1'
+  ci:test:integration:
+    deps: [_check:tooling]
+    env: { CGO_ENABLED: '1' }
     cmds:
       - go test -race -tags=integration_linux -timeout=5m ./test/integration/...
 
-  test:conformance:
-    desc: Conformance tests (no -race — handshake-only byte comparisons)
+  ci:test:conformance:
+    deps: [_check:tooling]
     cmds:
       - go test -tags=conformance_linux -timeout=5m ./test/conformance/...
 
-  test:cover:
-    desc: Coverage report with -race
-    env:
-      CGO_ENABLED: '1'
+  ci:test:cover:
+    deps: [_check:tooling]
+    env: { CGO_ENABLED: '1' }
     cmds:
-      - go test -race -coverprofile=coverage.out ./...
-      - go tool cover -html=coverage.out -o coverage.html
+      - mkdir -p {{.COVERAGE_DIR}}
+      - go test -race -coverprofile={{.COVERAGE_DIR}}/coverage.out ./...
+      - go tool cover -html={{.COVERAGE_DIR}}/coverage.out -o {{.COVERAGE_DIR}}/coverage.html
 
-  test:mutation:
-    desc: Mutation testing
+  ci:test:mutation:
+    deps: [_check:tooling]
     cmds:
-      - gremlins unleash ./pkg/domain/... ./internal/adapter/wire/...
+      # gremlins is not in nixpkgs; install on demand into GOBIN, which
+      # docker-compose.yml pins to /src/build/cache/go-bin (inside the
+      # hermetic cache tree). Using GOBIN directly avoids the GOPATH
+      # colon-segment pitfall that `go env GOPATH | cut -d: -f1` hits.
+      - mkdir -p "$GOBIN"
+      - go install -mod=mod github.com/go-gremlins/gremlins/cmd/gremlins
+      - '"$GOBIN"/gremlins unleash ./pkg/domain/... ./internal/adapter/wire/...'
 
-  changelog:
-    desc: Regenerate CHANGELOG.md from Conventional Commit history via git-cliff
-    cmds:
-      - git-cliff --config cliff.toml --output CHANGELOG.md
+  ci:lint:
+    deps: [_check:tooling]
+    cmds: [golangci-lint run ./...]
 
-  changelog:check:
-    desc: Fail if CHANGELOG.md is out of date relative to current history
-    cmds:
-      - git-cliff --config cliff.toml > /tmp/cliff-expected.md
-      - diff -u CHANGELOG.md /tmp/cliff-expected.md
-
-  lint:
-    desc: golangci-lint
-    cmds:
-      - golangci-lint run ./...
-
-  fmt:
-    desc: Format code
+  ci:fmt:
+    deps: [_check:tooling]
     cmds:
       - gofumpt -w .
       - goimports -w .
 
-  tidy:
-    desc: go mod tidy
-    cmds:
-      - go mod tidy
+  ci:tidy:
+    deps: [_check:tooling]
+    cmds: [go mod tidy]
 
-  vuln:
-    desc: govulncheck
-    cmds:
-      - govulncheck ./...
+  ci:vuln:
+    deps: [_check:tooling]
+    cmds: [govulncheck ./...]
 
-  check:
-    desc: Pre-commit gauntlet
+  ci:check:
+    deps: [_check:tooling]
     cmds:
-      - task: fmt
-      - task: lint
-      - task: vuln
-      - task: test
+      - task: ci:fmt
+      - task: ci:lint
+      - task: ci:vuln
+      - task: ci:test
 
-  clean:
-    desc: Remove build artefacts and cached test results
-    cmds:
-      - rm -rf {{.BIN_DIR}} coverage.out coverage.html dist/
-      - go clean -testcache
+  ci:changelog:
+    deps: [_check:tooling]
+    cmds: [git-cliff --config cliff.toml --output CHANGELOG.md]
 
-  release:snapshot:
-    desc: Full snapshot release (archives + nfpms + checksums). SBOM + cosign sign skipped; those need syft + cosign on PATH and a real tag.
+  ci:changelog:check:
+    deps: [_check:tooling]
     cmds:
-      - goreleaser release --snapshot --clean --skip=sign,sbom,publish
+      - git-cliff --config cliff.toml > {{.BUILD_DIR}}/cliff-expected.md
+      - diff -u CHANGELOG.md {{.BUILD_DIR}}/cliff-expected.md
 
-  release:
-    desc: Tagged release via GoReleaser
-    cmds:
-      - goreleaser release --clean
+  ci:release:snapshot:
+    deps: [_check:tooling]
+    cmds: [goreleaser release --snapshot --clean --skip=sign,sbom,publish]
 
-  install-tools:
-    desc: Install pinned dev tools into $GOBIN (versions from go.mod, not @latest)
-    cmds:
-      # Versions are pinned in go.mod via internal/tools/tools.go blank imports.
-      # Using `-mod=mod` + no version suffix lets `go install` resolve against go.mod.
-      - go install -mod=mod mvdan.cc/gofumpt
-      - go install -mod=mod github.com/golangci/golangci-lint/v2/cmd/golangci-lint
-      - go install -mod=mod golang.org/x/vuln/cmd/govulncheck
-      - go install -mod=mod github.com/goreleaser/goreleaser/v2
-      - go install -mod=mod github.com/matryer/moq
-      - go install -mod=mod github.com/go-gremlins/gremlins/cmd/gremlins
-      - go install -mod=mod golang.org/x/exp/cmd/apidiff
-      - go install -mod=mod golang.org/x/tools/cmd/goimports
+  ci:release:
+    deps: [_check:tooling]
+    cmds: [goreleaser release --clean]

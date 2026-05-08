@@ -41,8 +41,10 @@
               pkgs.go-task
               pkgs.golangci-lint
               pkgs.gofumpt
+              pkgs.gotools          # goimports, stringer, guru, etc.
               pkgs.govulncheck
               pkgs.goreleaser
+              pkgs.moq
               pkgs.nfpm
               pkgs.syft
               pkgs.cosign
@@ -53,37 +55,12 @@
               pkgs.gnumake
             ];
 
-            shellHook = ''
-              export GOTOOLCHAIN=local
-              export GOFLAGS="-trimpath"
-
-              # Pin every Go cache under ./build/ unconditionally so inherited
-              # env vars from the host (or a parent container) cannot redirect
-              # writes outside the repo. Hermeticity requires ownership of
-              # these paths, not merely a default.
-              export GOCACHE="$PWD/build/cache/go-build"
-              export GOMODCACHE="$PWD/build/cache/go-mod"
-              export GOLANGCI_LINT_CACHE="$PWD/build/cache/golangci-lint"
-              mkdir -p "$GOCACHE" "$GOMODCACHE" "$GOLANGCI_LINT_CACHE"
-
-              # Assert that the go.mod `go` directive patch version matches
-              # the toolchain shipped by nixpkgs. GOTOOLCHAIN=local turns any
-              # mismatch into a cryptic build failure later; fail loud here.
-              if [ -f "$PWD/go.mod" ]; then
-                _gomod_go=$(awk '/^go [0-9]/ {print $2; exit}' "$PWD/go.mod")
-                _shell_go=$(${go}/bin/go env GOVERSION | sed 's/^go//')
-                if [ "$_gomod_go" != "$_shell_go" ]; then
-                  echo "flake.nix: go.mod requires go $_gomod_go but devShell provides $_shell_go" >&2
-                  echo "           bump the nixpkgs input or relax go.mod before using this shell." >&2
-                  return 1 2>/dev/null || exit 1
-                fi
-                unset _gomod_go _shell_go
-              fi
-
-              echo "usbip-go devShell ready."
-              echo "  go:      $(${go}/bin/go version | awk '{print $3}')"
-              echo "  task:    $(${pkgs.go-task}/bin/task --version 2>/dev/null | head -1)"
-            '';
+            # Environment-only setup. The hermetic-cache paths and the
+            # go.mod/toolchain parity check were moved into Taskfile.yml
+            # (see the `_check:tooling` precondition) so all imperative
+            # shell logic lives in one place.
+            GOTOOLCHAIN = "local";
+            GOFLAGS = "-trimpath";
           };
         });
 
