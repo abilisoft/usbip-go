@@ -236,6 +236,42 @@ When reviewing a PR, verify:
       `ci:changelog:check` job sees a byte-identical file at the
       tag.
 
+## Running CI locally
+
+Most CI workflows under [`.github/workflows/`](.github/workflows/)
+are replayable on a developer host via
+[`act`](https://github.com/nektos/act), which executes each job
+inside Docker containers shaped like the GitHub-hosted runners. The
+flake devShell ships `act`, but **`task act:*` must run from the
+host shell — not from inside the dev container** — because act
+drives docker-compose itself and the dev container does not mount
+`docker.sock`. From a host with the flake available, run:
+
+```
+nix develop --command task act:list                    # list jobs act would run for push
+nix develop --command task act:job JOB=lint-and-vet    # run one job
+nix develop --command task act:push                    # run every replayable push-event job
+```
+
+(Or install `act` via your package manager / GitHub releases and
+drop the `nix develop --command` prefix.)
+
+The repo-level `.actrc` pins the runner image to
+`catthehacker/ubuntu:act-latest` and architecture to `linux/amd64`.
+
+What does NOT replay locally:
+
+- `unit-macos` (ci.yml) — needs the `macos-14` runner image, which
+  has no act mapping. Use a real macOS host or wait for CI.
+- `integration` (integration.yml) — runs on the self-hosted
+  `kvm`-labelled runner; act cannot match the label.
+- `release` (release.yml) — tag-triggered, requires GitHub OIDC for
+  cosign keyless signing and an authenticated `GITHUB_TOKEN`.
+  GoReleaser will fail under act because the secrets do not exist.
+
+There is no GitHub Actions step that invokes `act` — these targets
+exist purely to short-circuit CI iteration.
+
 ## Reporting bugs
 
 For protocol-path bugs, attach the five artefacts listed in
