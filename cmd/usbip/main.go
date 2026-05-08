@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,12 +15,24 @@ func main() {
 		syscall.SIGINT, syscall.SIGTERM)
 
 	code, err := runCtx(ctx, os.Args[1:])
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-	}
+
+	renderMainError(os.Stderr, err)
 
 	stop()
 	os.Exit(code)
+}
+
+// renderMainError writes the operator-facing stderr line for err. The
+// spec §7.4 template is produced via FormatError so callers grepping
+// on the canonical wording ("usbip: device not found", etc.) see it
+// regardless of how deeply err was wrapped along its call path. nil
+// errors produce no output.
+func renderMainError(w io.Writer, err error) {
+	if err == nil {
+		return
+	}
+
+	_, _ = fmt.Fprintln(w, FormatError(err))
 }
 
 // rootCmdFactory produces the root cobra command runCtx dispatches
