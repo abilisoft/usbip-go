@@ -11,11 +11,11 @@ import (
 )
 
 // TestDecodeOpReqImportRejectsInvalidBusID pins the contract that a
-// peer-supplied busid must satisfy the domain's topology pattern
-// before DecodeOpReqImport returns it. An exporter serving untrusted
-// peers otherwise hands a garbage string to the sysfs layer, which
-// the kernel bind step rejects with a far less useful error well
-// downstream of the protocol entry point.
+// peer-supplied busid must pass ValidateWireBusID's sysfs-safe
+// charset check before DecodeOpReqImport returns it. An exporter
+// serving untrusted peers otherwise hands an ambiguous string to
+// the sysfs layer, which the kernel bind step rejects with a far
+// less useful error well downstream of the protocol entry point.
 func TestDecodeOpReqImportRejectsInvalidBusID(t *testing.T) {
 	t.Parallel()
 
@@ -28,12 +28,10 @@ func TestDecodeOpReqImportRejectsInvalidBusID(t *testing.T) {
 	buf.Write(wire.EncodeHeader(wire.OpReqImport, 0))
 
 	payload := make([]byte, domain.BusIDSize)
-	// Leading whitespace survives ReadPaddedString's printable scan but
-	// yields an ambiguous busid for every downstream helper (sysfs
-	// lookup, log correlation, metrics cardinality). The wire-level
-	// validator must reject it with ErrBusIDInvalid so the peer learns
-	// the input was malformed rather than the request succeeding
-	// against whatever whitespace-prefixed busid happens to match.
+	// A space byte fails the sysfs-safe charset check, which the wire
+	// validator uses to stop the peer from supplying ambiguous busids
+	// the downstream helpers (sysfs lookup, log correlation, metrics
+	// cardinality) could not reason about.
 	copy(payload, " 1-1")
 	buf.Write(payload)
 

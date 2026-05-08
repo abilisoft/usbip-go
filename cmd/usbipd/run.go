@@ -444,9 +444,9 @@ func maybeStartStatusServer(
 
 // completeShutdown waits for the status server goroutine (if any) to
 // exit and then reports why Serve returned. The exporter drain itself
-// is handled by the deferred drainExporter call in runDaemon (Finding
-// 6) so the metrics HTTP server is guaranteed to stop BEFORE exporter
-// drain: completeShutdown runs inside runDaemon's body, the defers run
+// is handled by the deferred drainExporter call in runDaemon so the
+// metrics HTTP server is guaranteed to stop BEFORE exporter drain:
+// completeShutdown runs inside runDaemon's body, the defers run
 // after completeShutdown returns. Serve errors that are merely ctx
 // cancellation or closed-listener signals are suppressed; operators see
 // the real cause via context.Cause instead of a noisy "use of closed
