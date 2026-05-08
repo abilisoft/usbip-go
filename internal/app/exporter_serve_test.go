@@ -198,6 +198,12 @@ func TestExporterServe_ImportHappyPath(t *testing.T) {
 	releaseExport := make(chan struct{})
 
 	kernel := &ExporterKernelMock{
+		// serveImport now looks the requested device up in the
+		// exported set BEFORE sending OP_REP_IMPORT and handing the
+		// fd to the kernel — return the busid so the lookup succeeds.
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: importedBusID}}, nil
+		},
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, id domain.BusID) error {
 			require.Equal(t, importedBusID, id)
 
@@ -228,6 +234,11 @@ func TestExporterServe_ImportHappyPath(t *testing.T) {
 			}
 
 			return importedBusID, nil
+		},
+		// serveImport now sends OP_REP_IMPORT before kernel handoff —
+		// the mock must accept the success-reply encode call.
+		EncodeOpRepImportFunc: func(_ io.Writer, _ domain.Device) error {
+			return nil
 		},
 	}
 

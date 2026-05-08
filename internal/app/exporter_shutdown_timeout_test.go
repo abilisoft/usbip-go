@@ -28,6 +28,12 @@ func TestExporterShutdownHonoursConfiguredTimeout(t *testing.T) {
 	exportStarted := make(chan struct{}, 1)
 
 	kernel := &ExporterKernelMock{
+		// serveImport now looks the requested device up in the
+		// exported set BEFORE sending OP_REP_IMPORT and handing the
+		// fd to the kernel — return the busid so the lookup succeeds.
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: domain.BusID("9-9")}}, nil
+		},
 		ExportOnConnFunc: func(_ context.Context, c net.Conn, _ domain.BusID) error {
 			select {
 			case exportStarted <- struct{}{}:
@@ -49,6 +55,11 @@ func TestExporterShutdownHonoursConfiguredTimeout(t *testing.T) {
 		DecodeHeaderFunc: wire.NewCodec().DecodeHeader,
 		DecodeOpReqImportBodyFunc: func(_ io.Reader) (domain.BusID, error) {
 			return domain.BusID("9-9"), nil
+		},
+		// serveImport now sends OP_REP_IMPORT before kernel handoff —
+		// the mock must accept the success-reply encode call.
+		EncodeOpRepImportFunc: func(_ io.Writer, _ domain.Device) error {
+			return nil
 		},
 	}
 

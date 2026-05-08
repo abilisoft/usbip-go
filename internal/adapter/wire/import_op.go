@@ -107,6 +107,27 @@ func EncodeOpRepImport(w io.Writer, dev domain.Device) error {
 	return nil
 }
 
+// EncodeOpRepImportError writes an error OP_REP_IMPORT reply (status != 0,
+// no device body) per v1 contract §6.2. status MUST be one of the upstream
+// ST_* codes (ST_NA=1, ST_DEV_BUSY=2, ST_DEV_ERR=3, ST_NODEV=4); a zero
+// status here would let the peer decode a body that the wire frame does
+// not carry, so the helper rejects it.
+func EncodeOpRepImportError(w io.Writer, status uint32) error {
+	if status == 0 {
+		return fmt.Errorf("%w: EncodeOpRepImportError requires non-zero status",
+			domain.ErrProtocolError)
+	}
+
+	header := EncodeHeader(OpRepImport, status)
+
+	_, err := w.Write(header)
+	if err != nil {
+		return fmt.Errorf("write OP_REP_IMPORT error header: %w", err)
+	}
+
+	return nil
+}
+
 // DecodeOpRepImport reads an OP_REP_IMPORT reply. Per v1 contract §6.2 the
 // header's status field means "device unavailable / busy / not found"
 // on this opcode — a domain-level rejection, not a wire framing fault.
@@ -145,33 +166,37 @@ func DecodeOpRepImport(r io.Reader) (domain.Device, DecodeFlags, error) {
 }
 
 // OP_REP_IMPORT status codes from upstream tools/usb/usbip/libsrc/
-// usbip_common.h:
+// usbip_common.h. Exported so app-layer code can encode the
+// appropriate error on the exporter side without redeclaring the
+// upstream protocol constants.
 //
-//	ST_OK         = 0  // success
+//	ST_OK         = 0  // success (encoded as the absence of an error)
 //	ST_NA         = 1  // device not exported / unknown
 //	ST_DEV_BUSY   = 2  // already in use by another importer
 //	ST_DEV_ERR    = 3  // stub-side internal error
 //	ST_NODEV      = 4  // no such device on remote
 const (
-	importStatusNA      = 1
-	importStatusDevBusy = 2
-	importStatusDevErr  = 3
-	importStatusNoDev   = 4
+	ImportStatusNA      uint32 = 1
+	ImportStatusDevBusy uint32 = 2
+	ImportStatusDevErr  uint32 = 3
+	ImportStatusNoDev   uint32 = 4
 )
 
 // mapImportStatus converts a non-zero OP_REP_IMPORT status to the
-// matching domain sentinel. Unknown codes default to ErrDeviceNotFound
-// — a forward-compatible fallback that preserves the catch-all
-// behaviour callers historically depended on.
+// matching domain sentinel. An unknown status is a wire-protocol
+// violation — the spec defines exactly four error codes (ST_NA,
+// ST_DEV_BUSY, ST_DEV_ERR, ST_NODEV); anything else surfaces as
+// ErrProtocolError so the caller can distinguish "device not
+// available" from "peer speaks a status code we don't understand".
 func mapImportStatus(status uint32) error {
 	switch status {
-	case importStatusNA, importStatusNoDev:
+	case ImportStatusNA, ImportStatusNoDev:
 		return domain.ErrDeviceNotFound
-	case importStatusDevBusy:
+	case ImportStatusDevBusy:
 		return domain.ErrDeviceAlreadyBound
-	case importStatusDevErr:
+	case ImportStatusDevErr:
 		return domain.ErrDeviceUnavailable
 	default:
-		return domain.ErrDeviceNotFound
+		return domain.ErrProtocolError
 	}
 }

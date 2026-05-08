@@ -103,6 +103,14 @@ func (a *ImporterAdapter) AttachRemote(
 // BusMap completeness, producing spurious errTopologyIncomplete
 // failures on a transient shortfall that is irrelevant to the
 // bounds arithmetic.
+// NOTE: ctx is intentionally not threaded into the sysfs writes below —
+// see the matching note in Unbind. Once attachAtPort starts reading sysfs
+// or writing /sys/.../vhci_hcd.0/attach the kernel offers no userspace
+// cancellation hook, and aborting mid-write would leave VHCI in an
+// inconsistent state (port reserved on the kernel side, no fd attached
+// from ours). Callers that need a hard deadline must rely on OS-level
+// process management or close the conn (the dup'd fd is closed via the
+// defer below regardless of ctx state).
 func (a *ImporterAdapter) attachAtPort(
 	_ context.Context,
 	conn net.Conn,

@@ -44,6 +44,12 @@ func TestExporterSession_SubscribesBeforeHandoff(t *testing.T) {
 	kev := newPreHandoffKernelEvents(sessionBusID)
 
 	kernel := &ExporterKernelMock{
+		// serveImport now looks the requested device up in the
+		// exported set BEFORE sending OP_REP_IMPORT and handing the
+		// fd to the kernel — return the busid so the lookup succeeds.
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: sessionBusID}}, nil
+		},
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, id domain.BusID) error {
 			require.Equal(t, sessionBusID, id)
 
@@ -210,6 +216,12 @@ func TestExporterSession_ClosesAcceptedConnAfterSessionEnd(t *testing.T) {
 	exportEntered := make(chan struct{}, 1)
 
 	kernel := &ExporterKernelMock{
+		// serveImport now looks the requested device up in the
+		// exported set BEFORE sending OP_REP_IMPORT and handing the
+		// fd to the kernel — return the busid so the lookup succeeds.
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: sessionBusID}}, nil
+		},
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, id domain.BusID) error {
 			require.Equal(t, sessionBusID, id)
 
@@ -301,6 +313,12 @@ func TestExporterSession_ClosesAcceptedConnOnSubscribeFailure(t *testing.T) {
 	}
 
 	kernel := &ExporterKernelMock{
+		// serveImport now looks the requested device up in the
+		// exported set BEFORE sending OP_REP_IMPORT and handing the
+		// fd to the kernel — return the busid so the lookup succeeds.
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: sessionBusID}}, nil
+		},
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
 			return nil
 		},
@@ -363,6 +381,12 @@ func TestExporterSession_ClosesAcceptedConnOnEventsChannelClosed(t *testing.T) {
 	exportEntered := make(chan struct{}, 1)
 
 	kernel := &ExporterKernelMock{
+		// serveImport now looks the requested device up in the
+		// exported set BEFORE sending OP_REP_IMPORT and handing the
+		// fd to the kernel — return the busid so the lookup succeeds.
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: sessionBusID}}, nil
+		},
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
 			select {
 			case exportEntered <- struct{}{}:
@@ -449,6 +473,12 @@ func TestExporterShutdown_DisconnectsActiveSessions(t *testing.T) {
 	var disconnected atomic.Int32
 
 	kernel := &ExporterKernelMock{
+		// serveImport now looks the requested device up in the
+		// exported set BEFORE sending OP_REP_IMPORT and handing the
+		// fd to the kernel — return the busid so the lookup succeeds.
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: sessionBusID}}, nil
+		},
 		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
 			select {
 			case exportEntered <- struct{}{}:
@@ -543,6 +573,12 @@ func TestExporterShutdown_TimeoutIsMinOfCtxAndConfig(t *testing.T) {
 	exportStarted := make(chan struct{}, 1)
 
 	kernel := &ExporterKernelMock{
+		// serveImport now looks the requested device up in the
+		// exported set BEFORE sending OP_REP_IMPORT and handing the
+		// fd to the kernel — return the busid so the lookup succeeds.
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: domain.BusID("5-6")}}, nil
+		},
 		ExportOnConnFunc: func(_ context.Context, c net.Conn, _ domain.BusID) error {
 			select {
 			case exportStarted <- struct{}{}:

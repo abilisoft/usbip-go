@@ -80,6 +80,7 @@ type ProtocolCodec interface {
 	EncodeOpReqImport(w io.Writer, busID domain.BusID) error
 	EncodeOpRepDevlist(w io.Writer, devs []domain.Device) error
 	EncodeOpRepImport(w io.Writer, d domain.Device) error
+	EncodeOpRepImportError(w io.Writer, status uint32) error
 	DecodeHeader(r io.Reader) (version uint16, op wire.OpCode, status uint32, err error)
 	DecodeOpRepDevlist(r io.Reader) ([]domain.Device, error)
 	DecodeOpReqImport(r io.Reader) (domain.BusID, error)

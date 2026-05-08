@@ -4,12 +4,11 @@
 package app_test
 
 import (
-	"io"
-	"sync"
-
 	"github.com/abilisoft/usbip-go/internal/adapter/wire"
 	"github.com/abilisoft/usbip-go/internal/app"
 	"github.com/abilisoft/usbip-go/pkg/domain"
+	"io"
+	"sync"
 )
 
 // Ensure, that ProtocolCodecMock does implement app.ProtocolCodec.
@@ -42,6 +41,9 @@ var _ app.ProtocolCodec = &ProtocolCodecMock{}
 //			},
 //			EncodeOpRepImportFunc: func(w io.Writer, d domain.Device) error {
 //				panic("mock out the EncodeOpRepImport method")
+//			},
+//			EncodeOpRepImportErrorFunc: func(w io.Writer, status uint32) error {
+//				panic("mock out the EncodeOpRepImportError method")
 //			},
 //			EncodeOpReqDevlistFunc: func() []byte {
 //				panic("mock out the EncodeOpReqDevlist method")
@@ -76,6 +78,9 @@ type ProtocolCodecMock struct {
 
 	// EncodeOpRepImportFunc mocks the EncodeOpRepImport method.
 	EncodeOpRepImportFunc func(w io.Writer, d domain.Device) error
+
+	// EncodeOpRepImportErrorFunc mocks the EncodeOpRepImportError method.
+	EncodeOpRepImportErrorFunc func(w io.Writer, status uint32) error
 
 	// EncodeOpReqDevlistFunc mocks the EncodeOpReqDevlist method.
 	EncodeOpReqDevlistFunc func() []byte
@@ -124,6 +129,13 @@ type ProtocolCodecMock struct {
 			// D is the d argument value.
 			D domain.Device
 		}
+		// EncodeOpRepImportError holds details about calls to the EncodeOpRepImportError method.
+		EncodeOpRepImportError []struct {
+			// W is the w argument value.
+			W io.Writer
+			// Status is the status argument value.
+			Status uint32
+		}
 		// EncodeOpReqDevlist holds details about calls to the EncodeOpReqDevlist method.
 		EncodeOpReqDevlist []struct {
 		}
@@ -135,15 +147,16 @@ type ProtocolCodecMock struct {
 			BusID domain.BusID
 		}
 	}
-	lockDecodeHeader          sync.RWMutex
-	lockDecodeOpRepDevlist    sync.RWMutex
-	lockDecodeOpRepImport     sync.RWMutex
-	lockDecodeOpReqImport     sync.RWMutex
-	lockDecodeOpReqImportBody sync.RWMutex
-	lockEncodeOpRepDevlist    sync.RWMutex
-	lockEncodeOpRepImport     sync.RWMutex
-	lockEncodeOpReqDevlist    sync.RWMutex
-	lockEncodeOpReqImport     sync.RWMutex
+	lockDecodeHeader           sync.RWMutex
+	lockDecodeOpRepDevlist     sync.RWMutex
+	lockDecodeOpRepImport      sync.RWMutex
+	lockDecodeOpReqImport      sync.RWMutex
+	lockDecodeOpReqImportBody  sync.RWMutex
+	lockEncodeOpRepDevlist     sync.RWMutex
+	lockEncodeOpRepImport      sync.RWMutex
+	lockEncodeOpRepImportError sync.RWMutex
+	lockEncodeOpReqDevlist     sync.RWMutex
+	lockEncodeOpReqImport      sync.RWMutex
 }
 
 // DecodeHeader calls DecodeHeaderFunc.
@@ -375,6 +388,42 @@ func (mock *ProtocolCodecMock) EncodeOpRepImportCalls() []struct {
 	mock.lockEncodeOpRepImport.RLock()
 	calls = mock.calls.EncodeOpRepImport
 	mock.lockEncodeOpRepImport.RUnlock()
+	return calls
+}
+
+// EncodeOpRepImportError calls EncodeOpRepImportErrorFunc.
+func (mock *ProtocolCodecMock) EncodeOpRepImportError(w io.Writer, status uint32) error {
+	if mock.EncodeOpRepImportErrorFunc == nil {
+		panic("ProtocolCodecMock.EncodeOpRepImportErrorFunc: method is nil but ProtocolCodec.EncodeOpRepImportError was just called")
+	}
+	callInfo := struct {
+		W      io.Writer
+		Status uint32
+	}{
+		W:      w,
+		Status: status,
+	}
+	mock.lockEncodeOpRepImportError.Lock()
+	mock.calls.EncodeOpRepImportError = append(mock.calls.EncodeOpRepImportError, callInfo)
+	mock.lockEncodeOpRepImportError.Unlock()
+	return mock.EncodeOpRepImportErrorFunc(w, status)
+}
+
+// EncodeOpRepImportErrorCalls gets all the calls that were made to EncodeOpRepImportError.
+// Check the length with:
+//
+//	len(mockedProtocolCodec.EncodeOpRepImportErrorCalls())
+func (mock *ProtocolCodecMock) EncodeOpRepImportErrorCalls() []struct {
+	W      io.Writer
+	Status uint32
+} {
+	var calls []struct {
+		W      io.Writer
+		Status uint32
+	}
+	mock.lockEncodeOpRepImportError.RLock()
+	calls = mock.calls.EncodeOpRepImportError
+	mock.lockEncodeOpRepImportError.RUnlock()
 	return calls
 }
 

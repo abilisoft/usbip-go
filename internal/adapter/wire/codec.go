@@ -116,6 +116,13 @@ func (*Codec) EncodeOpRepImport(w io.Writer, dev domain.Device) error {
 	return EncodeOpRepImport(w, dev)
 }
 
+// EncodeOpRepImportError forwards to the package-level
+// EncodeOpRepImportError. Used by the exporter to reject an import
+// request with an upstream-defined ST_* status code (no body).
+func (*Codec) EncodeOpRepImportError(w io.Writer, status uint32) error {
+	return EncodeOpRepImportError(w, status)
+}
+
 // DecodeOpRepImport calls the package-level decoder, logs any
 // padded-string truncation signals surfaced in DecodeFlags, and
 // returns the decoded device without the flags.
