@@ -107,13 +107,19 @@ func TestDecodeHeaderUnknownOpcode(t *testing.T) {
 	require.Equal(t, uint32(0), status)
 }
 
-// TestDecodeHeaderReplyStatusNonZero: reply header with status != 0 →
-// ErrProtocolError.
+// TestDecodeHeaderReplyStatusNonZero: a reply header with status != 0
+// surfaces as ErrProtocolError at the generic DecodeHeader layer. The
+// exception is OP_REP_IMPORT (RANK 5) — its non-zero status encodes a
+// domain-level rejection and is handled inside DecodeOpRepImport via
+// decodeHeaderAllowStatus; this test uses OP_REP_DEVLIST (0x0005) to
+// exercise the generic-reply path WITHOUT colliding with the RANK 5
+// carve-out. TestOpRepImportStatusError covers the opcode-specific
+// ErrDeviceNotFound classification.
 func TestDecodeHeaderReplyStatusNonZero(t *testing.T) {
 	t.Parallel()
 
-	// OpRepImport with status=5.
-	buf := []byte{0x01, 0x11, 0x00, 0x03, 0, 0, 0, 5}
+	// OpRepDevlist with status=5.
+	buf := []byte{0x01, 0x11, 0x00, 0x05, 0, 0, 0, 5}
 
 	ver, op, status, err := wire.DecodeHeader(bytes.NewReader(buf))
 	require.ErrorIs(t, err, domain.ErrProtocolError)
