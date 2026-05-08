@@ -2,11 +2,8 @@ package wire_test
 
 import (
 	"bytes"
-	"context"
 	"io"
-	"log/slog"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/abilisoft/usbip-go/internal/adapter/wire"
@@ -25,9 +22,10 @@ func TestPaddedStringRoundTripBusID(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, domain.BusIDSize, buf.Len())
 
-	got, err := wire.ReadPaddedString(&buf, domain.BusIDSize)
+	got, truncated, err := wire.ReadPaddedString(&buf, domain.BusIDSize)
 	require.NoError(t, err)
 	require.Equal(t, "1-1", got)
+	require.False(t, truncated, "NUL-terminated frame should not report truncation")
 }
 
 // TestPaddedStringRoundTripPath verifies path (256-byte) round-trip.
@@ -40,9 +38,10 @@ func TestPaddedStringRoundTripPath(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, domain.SysPathSize, buf.Len())
 
-	got, err := wire.ReadPaddedString(&buf, domain.SysPathSize)
+	got, truncated, err := wire.ReadPaddedString(&buf, domain.SysPathSize)
 	require.NoError(t, err)
 	require.Equal(t, "/sys/devices/pci0000:00/usb1/1-1", got)
+	require.False(t, truncated)
 }
 
 // TestWritePaddedStringBusIDOverflow: writing a string of length >=
@@ -75,103 +74,36 @@ func TestReadPaddedStringShortRead(t *testing.T) {
 
 	partial := make([]byte, domain.BusIDSize-1)
 
-	_, err := wire.ReadPaddedString(bytes.NewReader(partial), domain.BusIDSize)
+	_, _, err := wire.ReadPaddedString(bytes.NewReader(partial), domain.BusIDSize)
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 }
 
 // TestReadPaddedStringNonNULTerminated: a full-size buffer with no NUL
-// byte is truncated at the buffer boundary; no error; slog.Warn emitted.
-// Parallel + slog-default mutation is safe via slogDefaultMu in
-// captureSlogWarn.
+// byte is truncated at the buffer boundary; no error; the truncated
+// flag is set.
+//
+// No shared global state, fully parallelisable.
 func TestReadPaddedStringNonNULTerminated(t *testing.T) {
 	t.Parallel()
 
-	restoreWarn := captureSlogWarn(t)
-
 	buf := bytes.Repeat([]byte{'A'}, domain.BusIDSize)
 
-	got, err := wire.ReadPaddedString(bytes.NewReader(buf), domain.BusIDSize)
+	got, truncated, err := wire.ReadPaddedString(bytes.NewReader(buf), domain.BusIDSize)
 	require.NoError(t, err)
 	require.Equal(t, strings.Repeat("A", domain.BusIDSize), got)
-
-	warns := restoreWarn()
-	require.NotEmpty(t, warns, "expected slog.Warn on non-NUL-terminated buffer")
-	require.Contains(t, warns[0], "non-NUL-terminated padded string")
+	require.True(t, truncated, "non-NUL-terminated buffer must set truncated flag")
 }
 
 // TestReadPaddedStringMidBufferNUL: a mid-buffer NUL truncates the
-// returned string at the first NUL; no warn emitted.
-// Parallel + slog-default mutation is safe via slogDefaultMu in
-// captureSlogWarn.
+// returned string at the first NUL; truncated flag is NOT set.
 func TestReadPaddedStringMidBufferNUL(t *testing.T) {
 	t.Parallel()
-
-	restoreWarn := captureSlogWarn(t)
 
 	buf := make([]byte, domain.BusIDSize)
 	copy(buf, []byte("1-1\x00junk-after-nul"))
 
-	got, err := wire.ReadPaddedString(bytes.NewReader(buf), domain.BusIDSize)
+	got, truncated, err := wire.ReadPaddedString(bytes.NewReader(buf), domain.BusIDSize)
 	require.NoError(t, err)
 	require.Equal(t, "1-1", got)
-	require.Empty(t, restoreWarn(), "no warn expected when NUL is present")
-}
-
-
-// captureSlogWarn replaces the default slog logger with a handler that
-// records Warn messages. It returns a function that restores the prior
-// default and returns captured warning messages. The slogDefaultMu
-// (defined in main_test.go) serializes concurrent tests that all touch
-// the slog default handler.
-func captureSlogWarn(t *testing.T) func() []string {
-	t.Helper()
-
-	slogDefaultMu.Lock()
-
-	prev := slog.Default()
-	captured := &warnCapture{}
-	slog.SetDefault(slog.New(captured))
-
-	t.Cleanup(func() {
-		slog.SetDefault(prev)
-		slogDefaultMu.Unlock()
-	})
-
-	return func() []string {
-		return captured.snapshot()
-	}
-}
-
-// warnCapture is a minimal slog.Handler that records Warn-level
-// messages. Concurrency-safe so parallel tests that each swap the slog
-// default handler do not race on the shared slice.
-type warnCapture struct {
-	mu   sync.Mutex
-	msgs []string
-}
-
-func (w *warnCapture) Enabled(_ context.Context, _ slog.Level) bool { return true }
-
-func (w *warnCapture) Handle(_ context.Context, r slog.Record) error {
-	if r.Level == slog.LevelWarn {
-		w.mu.Lock()
-		w.msgs = append(w.msgs, r.Message)
-		w.mu.Unlock()
-	}
-
-	return nil
-}
-
-func (w *warnCapture) WithAttrs(_ []slog.Attr) slog.Handler { return w }
-
-func (w *warnCapture) WithGroup(_ string) slog.Handler { return w }
-
-func (w *warnCapture) snapshot() []string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	out := make([]string, len(w.msgs))
-	copy(out, w.msgs)
-
-	return out
+	require.False(t, truncated, "NUL-terminated frame should not set truncated flag")
 }

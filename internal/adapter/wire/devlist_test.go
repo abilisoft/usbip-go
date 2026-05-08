@@ -2,10 +2,7 @@ package wire_test
 
 import (
 	"bytes"
-	"context"
 	"io"
-	"log/slog"
-	"sync"
 	"testing"
 
 	"github.com/abilisoft/usbip-go/internal/adapter/wire"
@@ -23,7 +20,7 @@ func TestEncodeOpReqDevlist(t *testing.T) {
 }
 
 // TestDecodeOpRepDevlistZeroDevices is the spec §6.2 edge case:
-// nDevices=0 is a valid response and returns (nil, nil).
+// nDevices=0 is a valid response and returns (nil, false, nil).
 func TestDecodeOpRepDevlistZeroDevices(t *testing.T) {
 	t.Parallel()
 
@@ -32,9 +29,10 @@ func TestDecodeOpRepDevlistZeroDevices(t *testing.T) {
 	buf.Write(wire.EncodeHeader(wire.OpRepDevlist, 0))
 	buf.Write([]byte{0, 0, 0, 0})
 
-	got, err := wire.DecodeOpRepDevlist(&buf)
+	got, trailing, err := wire.DecodeOpRepDevlist(&buf)
 	require.NoError(t, err)
 	require.Nil(t, got)
+	require.False(t, trailing)
 }
 
 // TestDecodeOpRepDevlistOneDeviceZeroInterfaces checks a single device
@@ -59,9 +57,10 @@ func TestDecodeOpRepDevlistOneDeviceZeroInterfaces(t *testing.T) {
 	buf.Write([]byte{0, 0, 0, 1})
 	require.NoError(t, wire.EncodeDevice(&buf, dev))
 
-	got, err := wire.DecodeOpRepDevlist(&buf)
+	got, trailing, err := wire.DecodeOpRepDevlist(&buf)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
+	require.False(t, trailing)
 	require.Equal(t, "/sys/d", got[0].Path)
 	require.Equal(t, domain.BusID("1-1"), got[0].BusID)
 	require.Empty(t, got[0].Interfaces)
@@ -97,9 +96,10 @@ func TestDecodeOpRepDevlistTwoDevicesWithInterfaces(t *testing.T) {
 
 	require.NoError(t, wire.EncodeOpRepDevlist(&buf, []domain.Device{d1, d2}))
 
-	got, err := wire.DecodeOpRepDevlist(&buf)
+	got, trailing, err := wire.DecodeOpRepDevlist(&buf)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
+	require.False(t, trailing)
 	require.Equal(t, d1.BusID, got[0].BusID)
 	require.Len(t, got[0].Interfaces, 2)
 	require.Equal(t, domain.USBClass(0x03), got[0].Interfaces[0].Class)
@@ -130,7 +130,7 @@ func TestDecodeOpRepDevlistTruncatedMidDevice(t *testing.T) {
 	// second device truncated after half the descriptor.
 	buf.Write(make([]byte, wire.DeviceWireSize/2))
 
-	_, err := wire.DecodeOpRepDevlist(&buf)
+	_, _, err := wire.DecodeOpRepDevlist(&buf)
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	require.ErrorContains(t, err, "truncated devlist at index 1")
 }
@@ -155,7 +155,7 @@ func TestDecodeOpRepDevlistTruncatedMidInterface(t *testing.T) {
 	// Only 3 bytes of the first interface descriptor (4 bytes needed).
 	buf.Write([]byte{0x01, 0x02, 0x03})
 
-	_, err := wire.DecodeOpRepDevlist(&buf)
+	_, _, err := wire.DecodeOpRepDevlist(&buf)
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	require.ErrorContains(t, err, "truncated interfaces")
 }
@@ -179,18 +179,16 @@ func TestDecodeOpRepDevlistInterfaceCountOverRemaining(t *testing.T) {
 	require.NoError(t, wire.EncodeDevice(&buf, dev))
 	buf.Write(make([]byte, 4))
 
-	_, err := wire.DecodeOpRepDevlist(&buf)
+	_, _, err := wire.DecodeOpRepDevlist(&buf)
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	require.ErrorContains(t, err, "truncated interfaces")
 }
 
 // TestDecodeOpRepDevlistTrailingBytes: trailing bytes beyond the
-// declared device count are tolerated with a slog.Warn.
-// Parallel-safe via slogDefaultMu in captureSlogAll.
+// declared device count are tolerated and surface via the trailingBytes
+// return flag. No global state; fully parallel.
 func TestDecodeOpRepDevlistTrailingBytes(t *testing.T) {
 	t.Parallel()
-
-	captured := captureSlogAll(t)
 
 	var buf bytes.Buffer
 
@@ -199,13 +197,10 @@ func TestDecodeOpRepDevlistTrailingBytes(t *testing.T) {
 	// Garbage trailing bytes.
 	buf.Write([]byte{0xDE, 0xAD, 0xBE, 0xEF})
 
-	got, err := wire.DecodeOpRepDevlist(&buf)
+	got, trailing, err := wire.DecodeOpRepDevlist(&buf)
 	require.NoError(t, err)
 	require.Nil(t, got)
-
-	msgs := captured()
-	require.NotEmpty(t, msgs, "expected slog.Warn on trailing bytes")
-	require.Contains(t, msgs[0], "trailing bytes after devlist")
+	require.True(t, trailing, "trailing bytes must surface via return flag")
 }
 
 // TestDecodeOpRepDevlistVersionMismatch: wrong version in header surfaces
@@ -216,58 +211,6 @@ func TestDecodeOpRepDevlistVersionMismatch(t *testing.T) {
 	// version=0x0112 instead of 0x0111.
 	buf := []byte{0x01, 0x12, 0x00, 0x05, 0, 0, 0, 0, 0, 0, 0, 0}
 
-	_, err := wire.DecodeOpRepDevlist(bytes.NewReader(buf))
+	_, _, err := wire.DecodeOpRepDevlist(bytes.NewReader(buf))
 	require.ErrorIs(t, err, domain.ErrProtocolMismatch)
-}
-
-// captureSlogAll captures all slog messages (any level). Uses
-// slogDefaultMu (declared in main_test.go) to serialize with other
-// slog-default-mutating tests so parallel execution is safe.
-func captureSlogAll(t *testing.T) func() []string {
-	t.Helper()
-
-	slogDefaultMu.Lock()
-
-	prev := slog.Default()
-	h := &captureHandler{}
-	slog.SetDefault(slog.New(h))
-
-	t.Cleanup(func() {
-		slog.SetDefault(prev)
-		slogDefaultMu.Unlock()
-	})
-
-	return func() []string { return h.snapshot() }
-}
-
-// captureHandler records every log message. Concurrency-safe so tests
-// that run in parallel while the slog default handler is swapped can
-// share the handler without a data race on msgs.
-type captureHandler struct {
-	mu   sync.Mutex
-	msgs []string
-}
-
-func (c *captureHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
-
-func (c *captureHandler) Handle(_ context.Context, r slog.Record) error {
-	c.mu.Lock()
-	c.msgs = append(c.msgs, r.Message)
-	c.mu.Unlock()
-
-	return nil
-}
-
-func (c *captureHandler) WithAttrs(_ []slog.Attr) slog.Handler { return c }
-
-func (c *captureHandler) WithGroup(_ string) slog.Handler { return c }
-
-func (c *captureHandler) snapshot() []string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	out := make([]string, len(c.msgs))
-	copy(out, c.msgs)
-
-	return out
 }

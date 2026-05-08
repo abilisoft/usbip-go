@@ -51,12 +51,14 @@ linters:
       - path: cmd/.+/.+\.go
         linters: [gochecknoglobals]  # cobra cmd vars are unavoidable; scoped here only
       - path: _test\.go
-        # Tests routinely need shared state (synchronization primitives,
-        # fixture registries) that would be noise under gochecknoglobals,
-        # and a mutex-serialized test that swaps global state (slog
-        # default) cannot also be t.Parallel() in a way paralleltest
-        # accepts — so both are scoped off for _test.go files.
-        linters: [funlen, gocyclo, cyclop, gocognit, dupl, mnd, gochecknoglobals, paralleltest]
+        # Test files are exempt from complexity and magic-number linters
+        # because table-driven tests with 10+ cases hit gocyclo / mnd
+        # trivially, and tests routinely assert specific string and
+        # numeric literals that goconst would flag. They are NOT exempt
+        # from gochecknoglobals, paralleltest, or err113 — shared test
+        # state, missing t.Parallel(), and ad-hoc errors.New() are
+        # real smells even in tests.
+        linters: [funlen, gocyclo, cyclop, gocognit, dupl, mnd]
     # Generated files (standard header "Code generated ... DO NOT EDIT.") are
     # auto-detected by golangci-lint and skipped. All other files run against
     # the full linter set; there is no path-based exclusion for live code.
