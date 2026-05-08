@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 
 	"github.com/abilisoft/usbip-go/pkg/usbip"
 )
@@ -22,13 +21,15 @@ var errUnknownEvent = errors.New("render event: unknown concrete type")
 const schemaVersion = "v1"
 
 // Renderer abstracts output formatting so each subcommand writes
-// through the same seam regardless of `--output=table|json`.
+// through the same seam regardless of `--output=table|json`. Ack
+// responses are JSON-only (spec §7.4.1) and therefore do not appear on
+// this interface; callers dispatch to jsonRenderer's typed ack methods
+// directly from the JSON branch of each mutating subcommand.
 type Renderer interface {
 	Devices(w io.Writer, devs []usbip.Device) error
 	Ports(w io.Writer, ports []usbip.Port) error
 	Sessions(w io.Writer, sessions []usbip.Session) error
 	Event(w io.Writer, ev usbip.Event) error
-	Ack(w io.Writer, op string, extra map[string]any) error
 }
 
 // pickRenderer selects the renderer for the output mode. Unknown values
@@ -87,18 +88,37 @@ func (jsonRenderer) Event(w io.Writer, ev usbip.Event) error {
 	return writeJSON(w, rec)
 }
 
-// Ack emits a one-line JSON operation acknowledgement for mutating
-// subcommands (attach/detach/bind/unbind) per spec §7.4.1.
-func (jsonRenderer) Ack(w io.Writer, op string, extra map[string]any) error {
-	rec := map[string]any{
-		"schema": schemaVersion,
-		"op":     op,
-		"ok":     true,
-	}
+// AttachAck writes the attach operation acknowledgement — spec §7.4.1.
+// The typed envelope guarantees byte-order (schema → op → ok → port).
+func (jsonRenderer) AttachAck(w io.Writer, port usbip.Port) error {
+	return writeJSON(w, attachAck{
+		ackEnvelope: newAckEnvelope("attach"),
+		Port:        newPortView(port),
+	})
+}
 
-	maps.Copy(rec, extra)
+// DetachAck writes the detach operation acknowledgement.
+func (jsonRenderer) DetachAck(w io.Writer, portID usbip.PortID) error {
+	return writeJSON(w, detachAck{
+		ackEnvelope: newAckEnvelope("detach"),
+		PortID:      uint64(portID),
+	})
+}
 
-	return writeJSON(w, rec)
+// BindAck writes the bind operation acknowledgement.
+func (jsonRenderer) BindAck(w io.Writer, busID usbip.BusID) error {
+	return writeJSON(w, bindAck{
+		ackEnvelope: newAckEnvelope("bind"),
+		BusID:       string(busID),
+	})
+}
+
+// UnbindAck writes the unbind operation acknowledgement.
+func (jsonRenderer) UnbindAck(w io.Writer, busID usbip.BusID) error {
+	return writeJSON(w, unbindAck{
+		ackEnvelope: newAckEnvelope("unbind"),
+		BusID:       string(busID),
+	})
 }
 
 // writeJSON marshals v (pretty-compact, single-line) and writes it to w

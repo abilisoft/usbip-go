@@ -105,12 +105,3 @@ func (tableRenderer) Event(w io.Writer, ev usbip.Event) error {
 	return nil
 }
 
-// Ack writes a one-line ack message.
-func (tableRenderer) Ack(w io.Writer, op string, extra map[string]any) error {
-	_, err := fmt.Fprintf(w, "ok %s %v\n", op, extra)
-	if err != nil {
-		return fmt.Errorf("render ack: %w", err)
-	}
-
-	return nil
-}
