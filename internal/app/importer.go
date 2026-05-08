@@ -337,6 +337,19 @@ func (i *Importer) ListRemote(ctx context.Context, endpoint domain.RemoteEndpoin
 
 	defer closeConnLogging(conn, i.logger)
 
+	// Close conn on ctx cancellation so a blocked decode is interrupted
+	// even when ctx carries no deadline (pure cancel).
+	watchDone := make(chan struct{})
+	defer close(watchDone)
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-watchDone:
+		}
+	}()
+
 	reqBytes := i.codec.EncodeOpReqDevlist()
 
 	_, err = conn.Write(reqBytes)
@@ -791,6 +804,19 @@ func (i *Importer) attachOverDialed(
 	defer func() {
 		if !handedOff {
 			closeConnLogging(conn, i.logger)
+		}
+	}()
+
+	// Close conn on ctx cancellation so a blocked decode is interrupted
+	// even when ctx carries no deadline (pure cancel).
+	watchDone := make(chan struct{})
+	defer close(watchDone)
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-watchDone:
 		}
 	}()
 
