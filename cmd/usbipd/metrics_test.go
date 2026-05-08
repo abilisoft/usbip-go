@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/abilisoft/usbip-go/internal/app"
 	"github.com/abilisoft/usbip-go/pkg/usbip"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
@@ -23,12 +24,19 @@ func TestMetricsHandlerServesCatalog(t *testing.T) {
 	t.Parallel()
 
 	reg := prometheus.NewRegistry()
-	handler := newMetricsMux(
-		reg, newReadinessChecker(alwaysReady), // not yet exported
-	)
+
+	// Prime the registry with the full §11.5.5 catalog and at least one
+	// observation per vector so the Prometheus text exposition emits
+	// every family name the contract requires. Unobserved CounterVec /
+	// HistogramVec / GaugeVec instances are registered but produce no
+	// samples, so /metrics would omit them without the priming step.
+	m := app.MustNewMetrics(reg)
+	primeMetricsCatalog(m)
+
+	handler := newMetricsMux(reg, newReadinessChecker(alwaysReady))
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/metrics", nil)
 
 	handler.ServeHTTP(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -64,7 +72,7 @@ func TestHealthzAlwaysOK(t *testing.T) {
 	handler := newMetricsMux(reg, newReadinessChecker(alwaysReady))
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/healthz", nil)
 
 	handler.ServeHTTP(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -95,7 +103,7 @@ func TestReadyzReturns503WhenModuleMissing(t *testing.T) {
 	handler := newMetricsMux(reg, checker)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/readyz", nil)
 
 	handler.ServeHTTP(rr, req)
 	require.Equal(t, http.StatusServiceUnavailable, rr.Code)
@@ -123,7 +131,7 @@ func TestReadyzReturns503WhenNotAccepting(t *testing.T) {
 	handler := newMetricsMux(reg, checker)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/readyz", nil)
 
 	handler.ServeHTTP(rr, req)
 	require.Equal(t, http.StatusServiceUnavailable, rr.Code)
@@ -138,7 +146,7 @@ func TestReadyzReturns200WhenReady(t *testing.T) {
 	handler := newMetricsMux(reg, newReadinessChecker(alwaysReady))
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/readyz", nil)
 
 	handler.ServeHTTP(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -157,30 +165,29 @@ func TestStartMetricsServerNoAddrIsNoop(t *testing.T) {
 
 // TestStartMetricsServerServesAndStops drives the full start/stop
 // lifecycle: the server binds to 127.0.0.1:0, serves /metrics, and the
-// returned stop func shuts it down cleanly.
+// returned handle shuts it down cleanly via Shutdown.
 func TestStartMetricsServerServesAndStops(t *testing.T) {
 	t.Parallel()
 
 	reg := prometheus.NewRegistry()
 
-	stop, err := startMetricsServer(context.Background(), "127.0.0.1:0",
+	ms, err := startMetricsServerWithHandle(context.Background(), "127.0.0.1:0",
 		reg, newReadinessChecker(alwaysReady))
 	require.NoError(t, err)
-	require.NotNil(t, stop)
+	require.NotNil(t, ms)
 
 	t.Cleanup(func() {
-		shutdownErr := stop(context.Background())
+		shutdownErr := ms.shutdown(context.Background())
 		require.NoError(t, shutdownErr)
 	})
 
-	// startMetricsServer exposes the bound addr via the returned handle
-	// so tests can hit it without port-scanning. The interface is
-	// deliberately narrow: callers outside the server type only observe
-	// Shutdown and Addr.
-	addr := metricsServerAddr(stop)
-	require.NotEmpty(t, addr)
+	require.NotEmpty(t, ms.addr)
 
-	resp, err := http.Get("http://" + addr + "/healthz") //nolint:noctx,gosec // test-only localhost GET
+	req, err := http.NewRequestWithContext(context.Background(),
+		http.MethodGet, "http://"+ms.addr+"/healthz", nil)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -192,6 +199,25 @@ func TestStartMetricsServerServesAndStops(t *testing.T) {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	require.Equal(t, "ok", strings.TrimSpace(string(body)))
+}
+
+// primeMetricsCatalog touches every typed accessor on m so the next
+// Gather() surface includes a sample per family. Used by /metrics
+// exposition assertions; the production path primes via real workload.
+func primeMetricsCatalog(m *app.Metrics) {
+	m.ExporterSessionsActive(0)
+	m.ExporterSessionAccepted(app.OutcomeHandshakeOK)
+	m.ExporterHandshakeDuration(app.HandshakeOpImport, 0)
+	m.ExporterBind(app.BindOutcomeOK)
+	m.ExporterUnbind(app.UnbindOutcomeOK)
+	m.ExporterDisconnect(app.DisconnectReasonGraceful)
+	m.ImporterAttached(app.AttachOutcomeOK)
+	m.ImporterDetached(app.DetachOutcomeOK)
+	m.ImporterPortsActive(0)
+	m.ImporterReconnectAttempt(app.ReconnectOutcomeOK)
+	m.AdapterSysfsWriteFailure("/sys/x", "EACCES")
+	m.KernelModuleLoaded(app.ModuleUsbipCore, true)
+	m.SetBuildInfo("v", "c", "g")
 }
 
 // alwaysReady is the canonical readiness probe used by tests that only
@@ -210,13 +236,13 @@ func alwaysReady(_ context.Context) readinessState {
 
 // snippet truncates long bodies for failure messages.
 func snippet(s string) string {
-	const max = 512
+	const snippetLimit = 512
 
-	if len(s) <= max {
+	if len(s) <= snippetLimit {
 		return s
 	}
 
-	return s[:max] + "\n..."
+	return s[:snippetLimit] + "\n..."
 }
 
 // Error suppressed intentionally: assertions against the error path of
