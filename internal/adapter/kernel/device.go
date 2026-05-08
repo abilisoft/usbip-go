@@ -111,7 +111,12 @@ func (a *ExporterAdapter) readDevice(busID domain.BusID) (domain.Device, error) 
 		return domain.Device{}, err
 	}
 
-	core.Interfaces = a.readInterfaces(busID, core.NumInterfaces)
+	ifaces, err := a.readInterfaces(busID, core.NumInterfaces)
+	if err != nil {
+		return domain.Device{}, err
+	}
+
+	core.Interfaces = ifaces
 
 	return core, nil
 }
@@ -312,10 +317,14 @@ func (a *ExporterAdapter) readByteAttr(base, attr string) (uint8, error) {
 }
 
 // readInterfaces reads each interface descriptor under the device's
-// primary config (config 1). Unreadable interfaces are skipped with a
-// debug log rather than failing the whole device — some USB peripherals
-// expose only a subset of their configured interfaces under sysfs.
-func (a *ExporterAdapter) readInterfaces(busID domain.BusID, count uint8) []domain.Interface {
+// primary config (config 1). Missing interfaces (ENOENT on optional
+// sysfs attrs) are tolerated — some USB peripherals expose only a
+// subset of their configured interfaces under sysfs — but overflow
+// errors (errSysfsValueOutOfRange) are fatal for the whole device
+// read (pass-2 RANK 8). Surfacing a device with a silently-truncated
+// Interfaces slice when sysfs reports malformed byte-width fields
+// would hide data corruption from downstream consumers.
+func (a *ExporterAdapter) readInterfaces(busID domain.BusID, count uint8) ([]domain.Interface, error) {
 	ifaces := make([]domain.Interface, 0, count)
 
 	for i := range int(count) {
@@ -328,15 +337,14 @@ func (a *ExporterAdapter) readInterfaces(busID domain.BusID, count uint8) []doma
 				continue
 			}
 
-			a.logger.Warn("skip unreadable interface", "busid", busID, "alt", i, "err", err)
-
-			continue
+			return nil, fmt.Errorf("read interface %s:%d.%d: %w",
+				busID, defaultConfigIndex, i, err)
 		}
 
 		ifaces = append(ifaces, iface)
 	}
 
-	return ifaces
+	return ifaces, nil
 }
 
 // readInterface reads one interface descriptor block.
