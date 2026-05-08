@@ -177,8 +177,22 @@ func (s *statusExporter) KernelModules(ctx context.Context) (map[string]usbip.Mo
 	}
 
 	s.kmMu.Lock()
+	// Re-check the cache before writing: another caller's probe may
+	// have completed and landed a fresher map between our unlock and
+	// re-lock above. Without this guard, a probe started at t=0 that
+	// finishes after a probe started at t=1 would overwrite the
+	// newer result with stale data.
+	winnerNow := s.kernelModuleClock()
+	if s.kmValue != nil && winnerNow.Before(s.kmExpiry) {
+		out := copyKernelModuleMap(s.kmValue)
+
+		s.kmMu.Unlock()
+
+		return out, nil
+	}
+
 	s.kmValue = mods
-	s.kmExpiry = s.kernelModuleClock().Add(kernelModuleProbeTTL)
+	s.kmExpiry = winnerNow.Add(kernelModuleProbeTTL)
 	s.kmMu.Unlock()
 
 	return copyKernelModuleMap(mods), nil

@@ -9,6 +9,8 @@ under categories (`usbip device attach`, `usbip server start`, ...).
 | `usbip list` | Importer | `-l` for local, `-r <host>` for remote |
 | `usbip attach` | Importer | `-r <host> -b <busid>` |
 | `usbip detach` | Importer | `-p <port>` |
+| `usbip port` | Importer | list currently-attached vhci ports; `--id <N>` filters |
+| `usbip watch` | Importer | stream domain events until interrupted |
 | `usbip bind` | Exporter | `-b <busid>` |
 | `usbip unbind` | Exporter | `-b <busid>` |
 | `usbip serve` | Exporter | run the daemon (replaces upstream `usbipd`) |
