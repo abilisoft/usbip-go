@@ -13,6 +13,51 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestWithExporterBuildInfoStampsMetricAtConstruction proves the
+// build-info option (Finding 7) wires through to SetBuildInfo at
+// Exporter construction, landing a sample on the metrics bundle
+// before any workload runs. The pre-Finding 7 daemon pattern called
+// SetBuildInfo from main, forcing a second MustNewMetrics call
+// against the same registry — this test locks in the single-shot
+// registration path that replaced it.
+func TestWithExporterBuildInfoStampsMetricAtConstruction(t *testing.T) {
+	t.Parallel()
+
+	reg := prometheus.NewRegistry()
+	metrics := app.MustNewMetrics(reg)
+
+	_ = newExporterForTest(t,
+		app.WithExporterMetrics(metrics),
+		app.WithExporterBuildInfo("v0.0.1", "deadbeef", "go1.26"),
+	)
+
+	mfs, err := reg.Gather()
+	require.NoError(t, err)
+
+	var found bool
+
+	for _, mf := range mfs {
+		if mf.GetName() != "usbip_build_info" {
+			continue
+		}
+
+		labels := map[string]string{}
+
+		for _, lp := range mf.GetMetric()[0].GetLabel() {
+			labels[lp.GetName()] = lp.GetValue()
+		}
+
+		require.Equal(t, "v0.0.1", labels["version"])
+		require.Equal(t, "deadbeef", labels["commit"])
+		require.Equal(t, "go1.26", labels["go_version"])
+
+		found = true
+	}
+
+	require.True(t, found,
+		"usbip_build_info must appear after NewExporter with WithExporterBuildInfo")
+}
+
 // TestImporterAttachIncrementsAttachCounter proves a successful Attach
 // increments usbip_importer_attaches_total{outcome="ok"} and sets the
 // ports_active gauge. Before Phase 9.2 wiring the counter stays zero.
