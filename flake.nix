@@ -266,6 +266,7 @@
               pkgs.cosign
               pkgs.git-cliff
               pkgs.gh
+              pkgs.act           # run GitHub Actions locally (task ci:local)
               pkgs.git
               pkgs.coreutils
               pkgs.gnumake

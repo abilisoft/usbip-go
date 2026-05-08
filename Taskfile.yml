@@ -99,6 +99,32 @@ tasks:
   vm:smoke:         { desc: 'Boot microVM, verify USBIP modules load', cmds: [{ task: _run, vars: { INNER: 'ci:vm:smoke' } }] }
   vm:test:integration: { desc: 'Run go test -tags=integration_linux inside microVM', cmds: [{ task: _run, vars: { INNER: 'ci:vm:test:integration' } }] }
 
+  # ----------------------------------------------------------------------------
+  # Local-only: run GitHub Actions on this host via `act` to avoid burning
+  # CI minutes on iteration. Runs OUTSIDE the dev container because act
+  # drives docker-compose itself; mounting docker.sock recursively from
+  # inside the dev container would deadlock on the same lock.
+  #
+  # Requires: docker CLI on PATH and the act binary (provided by the
+  # devShell — `nix develop --command task act:list`, or a host install
+  # via `brew install act` / your distro / GitHub releases).
+  # ----------------------------------------------------------------------------
+  act:list:
+    desc: 'List actions/jobs that act would run for the push event'
+    cmds:
+      - act -l push
+  act:push:
+    desc: 'Run Linux-only push-event jobs locally (macos-14 + self-hosted KVM jobs skip)'
+    cmds:
+      - act push
+  act:job:
+    desc: 'Run a single job locally; pass JOB=<name>. Example: task act:job JOB=lint-and-vet'
+    preconditions:
+      - sh: '[ -n "{{.JOB}}" ]'
+        msg: 'set JOB=<name>; see `task act:list`'
+    cmds:
+      - act push -j {{.JOB}}
+
   clean:
     desc: Remove build artefacts (preserves tracked build/go.mod marker)
     cmds:
