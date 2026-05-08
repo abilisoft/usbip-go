@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -240,9 +242,18 @@ type statusProbe struct {
 }
 
 // isDaemonGoneError reports whether err from an HTTP Do call looks
-// like the daemon exiting between polls. ECONNREFUSED + ENOENT (dial
-// to a path that no longer exists) + closed-connection errors all
-// count. Any other transport failure is unexpected and propagates.
+// like the daemon exiting between polls. Narrowed by Phase 8 review
+// Finding 3 to exactly three "drained" signals:
+//
+//   - net.ErrClosed: the listener shut while a pooled connection was
+//     in flight
+//   - ECONNREFUSED: the UDS file still exists but nothing is listening
+//     (typical between unbind and unlink)
+//   - ENOENT / fs.ErrNotExist: the UDS path itself has been unlinked
+//
+// Every other transport failure (EACCES, ETIMEDOUT, ECONNRESET,
+// generic i/o failure) propagates so operators can distinguish a true
+// drain from a wedged link.
 func isDaemonGoneError(err error) bool {
 	if err == nil {
 		return false
@@ -252,9 +263,13 @@ func isDaemonGoneError(err error) bool {
 		return true
 	}
 
-	// net.OpError wraps syscall and fs.ErrNotExist chains for UDS dial;
-	// errors.As walks the chain.
-	var netErr *net.OpError
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return true
+	}
 
-	return errors.As(err, &netErr)
+	if errors.Is(err, fs.ErrNotExist) {
+		return true
+	}
+
+	return false
 }
