@@ -23,6 +23,8 @@ import (
 // This reproduction exercises every documented vdev code the kernel
 // writes during normal port lifecycle transitions.
 func TestParseStatusFile_TranslatesKernelVDEVStatus(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name       string
 		kernelSta  string // raw column as the kernel writes it
@@ -36,6 +38,8 @@ func TestParseStatusFile_TranslatesKernelVDEVStatus(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			mfs := statusFS("", nil, 16)
 
 			a, err := kernel.NewImporterAdapter(kernel.WithFS(mfs))
