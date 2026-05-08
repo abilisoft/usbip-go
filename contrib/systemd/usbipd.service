@@ -1,0 +1,12 @@
+[Unit]
+Description=USB/IP (Go) daemon
+Requires=usbipd.socket
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/usbipd
+Restart=on-failure
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
+
+[Install]
+WantedBy=multi-user.target
