@@ -206,11 +206,12 @@ tasks:
 
   ci:test:mutation:
     deps: [_check:tooling]
+    env:
+      GOBIN: '{{.BUILD_DIR}}/cache/go-bin'
     cmds:
-      # gremlins is not in nixpkgs; install on demand into GOBIN, which
-      # docker-compose.yml pins to /src/build/cache/go-bin (inside the
-      # hermetic cache tree). Using GOBIN directly avoids the GOPATH
-      # colon-segment pitfall that `go env GOPATH | cut -d: -f1` hits.
+      # gremlins is not in nixpkgs; install on demand into GOBIN under
+      # the hermetic cache tree. Pinning GOBIN here keeps direct CI
+      # `task ci:*` invocation aligned with docker-compose local runs.
       - mkdir -p "$GOBIN"
       - go install -mod=mod github.com/go-gremlins/gremlins/cmd/gremlins
       - '"$GOBIN"/gremlins unleash ./pkg/domain/... ./internal/adapter/wire/...'
