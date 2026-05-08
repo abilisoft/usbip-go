@@ -1,0 +1,47 @@
+package domain_test
+
+import (
+	"testing"
+
+	"github.com/abilisoft/usbip-go/pkg/domain"
+	"github.com/stretchr/testify/require"
+)
+
+func TestSpeed_String(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   domain.Speed
+		want string
+	}{
+		{"unknown_is_zero", domain.SpeedUnknown, "unknown"},
+		{"low", domain.SpeedLow, "Low-Speed (1.5Mbps)"},
+		{"full", domain.SpeedFull, "Full-Speed (12Mbps)"},
+		{"high", domain.SpeedHigh, "High-Speed (480Mbps)"},
+		{"wireless", domain.SpeedWireless, "Wireless"},
+		{"super", domain.SpeedSuper, "SuperSpeed (5Gbps)"},
+		{"superplus", domain.SpeedSuperPlus, "SuperSpeed+ (10Gbps)"},
+		{"fallback", domain.Speed(42), "speed(42)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, tc.in.String())
+		})
+	}
+}
+
+func TestSpeed_NumericValues(t *testing.T) {
+	t.Parallel()
+
+	// Match kernel enum usb_device_speed order.
+	require.Equal(t, domain.Speed(0), domain.SpeedUnknown)
+	require.Equal(t, domain.Speed(1), domain.SpeedLow)
+	require.Equal(t, domain.Speed(2), domain.SpeedFull)
+	require.Equal(t, domain.Speed(3), domain.SpeedHigh)
+	require.Equal(t, domain.Speed(4), domain.SpeedWireless)
+	require.Equal(t, domain.Speed(5), domain.SpeedSuper)
+	require.Equal(t, domain.Speed(6), domain.SpeedSuperPlus)
+}
