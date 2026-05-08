@@ -151,6 +151,12 @@ func drainExporter(
 // stays focused on lifecycle rather than option plumbing. reg is the
 // Prometheus registry the exporter publishes to; a nil reg opts into
 // the no-op metrics bundle.
+//
+// When reg is non-nil, WithExporterBuildInfo stamps the usbip_build_info
+// gauge during construction. This replaces the pre-Finding 7 pattern of
+// calling Metrics.SetBuildInfo from maybeStartMetricsServer, which
+// built a SECOND bundle against the same registry and panicked on
+// duplicate collector registration.
 func buildExporter(
 	cfg *Config, log *slog.Logger, reg prometheus.Registerer,
 ) (*usbip.Exporter, error) {
@@ -165,7 +171,9 @@ func buildExporter(
 	}
 
 	if reg != nil {
-		opts = append(opts, usbip.WithExporterMetricsRegisterer(reg))
+		opts = append(opts,
+			usbip.WithExporterMetricsRegisterer(reg),
+			usbip.WithExporterBuildInfo(version, commit, runtime.Version()))
 	}
 
 	if len(cfg.AllowCIDR) > 0 {
@@ -198,10 +206,11 @@ func maybeStartMetricsServer(
 		return nil, nil //nolint:nilnil // documented "addr empty = disabled" signal
 	}
 
-	// Stamp build_info on the registry at startup so /metrics returns
-	// version metadata even if no other workload has run yet.
-	metrics := newMetricsBundle(reg)
-	metrics.SetBuildInfo(version, commit, runtime.Version())
+	// Build-info is stamped at Exporter construction via
+	// WithExporterBuildInfo (Finding 7); the metrics-HTTP server just
+	// serves promhttp.HandlerFor(reg) on the already-populated
+	// registry. A second MustNewMetrics call here would re-register
+	// the §11.5.5 collectors and panic on duplicate registration.
 
 	probe := newDaemonReadinessProbe(cfg, src)
 

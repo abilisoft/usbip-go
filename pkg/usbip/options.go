@@ -99,6 +99,18 @@ type exporterConfig struct {
 	// internal/app layer. Phase 9 registers the §11.5.5 collectors
 	// against this registerer.
 	metricsRegisterer prometheus.Registerer
+	// buildInfo labels the usbip_build_info gauge at construction time.
+	// Zero value means "do not stamp"; exporterConfigToInternal skips
+	// the option when all three fields are empty.
+	buildInfo exporterBuildInfo
+}
+
+// exporterBuildInfo mirrors the internal/app buildInfo shape so the
+// public surface does not leak internal types.
+type exporterBuildInfo struct {
+	version   string
+	commit    string
+	goVersion string
 }
 
 // ExporterOption configures an Exporter at construction time. Apply
@@ -187,6 +199,27 @@ func WithExporterMetricsRegisterer(r prometheus.Registerer) ExporterOption {
 	return func(c *exporterConfig) { c.metricsRegisterer = r }
 }
 
+// WithExporterBuildInfo stamps the usbip_build_info gauge (§11.5.5)
+// with the supplied labels at Exporter construction. The labels appear
+// in /metrics immediately, before any workload runs. An all-empty
+// triple is a no-op so callers that leave the option unspecified do
+// not clobber an existing stamp with blanks.
+//
+// Wiring the stamp through the exporter's own metrics bundle keeps
+// metric-collector registration exactly-once per registerer. Callers
+// MUST NOT additionally invoke app.MustNewMetrics or SetBuildInfo on
+// the same registerer — doing so duplicate-registers the §11.5.5
+// catalog and panics at startup (pre-Finding 7 regression).
+func WithExporterBuildInfo(version, commit, goVersion string) ExporterOption {
+	return func(c *exporterConfig) {
+		c.buildInfo = exporterBuildInfo{
+			version:   version,
+			commit:    commit,
+			goVersion: goVersion,
+		}
+	}
+}
+
 // exporterConfigToInternal translates the public-facing exporterConfig
 // into the matching slice of internalapp.ExporterOption values.
 // shutdownTimeout is deliberately dropped here: it has no internal
@@ -231,10 +264,23 @@ func exporterConfigToInternal(cfg exporterConfig) []internalapp.ExporterOption {
 			internalapp.MustNewMetrics(cfg.metricsRegisterer)))
 	}
 
+	if !cfg.buildInfo.isZero() {
+		out = append(out, internalapp.WithExporterBuildInfo(
+			cfg.buildInfo.version, cfg.buildInfo.commit, cfg.buildInfo.goVersion))
+	}
+
 	return out
+}
+
+// isZero reports whether bi carries no build-info labels. Drives the
+// skip-the-option path in exporterConfigToInternal so an unset
+// buildInfo never overwrites an existing stamp with empty labels.
+func (bi exporterBuildInfo) isZero() bool {
+	return bi.version == "" && bi.commit == "" && bi.goVersion == ""
 }
 
 // exporterInternalOptCap is the ceiling used to preallocate the slice
 // returned by exporterConfigToInternal. It matches the number of
-// option branches inside that function.
-const exporterInternalOptCap = 8
+// option branches inside that function (9 including the build-info
+// option wired by Finding 7).
+const exporterInternalOptCap = 9
