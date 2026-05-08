@@ -124,7 +124,8 @@ func TestExporterServe_DevlistRequest(t *testing.T) {
 	}
 
 	kernel := &ExporterKernelMock{
-		ListLocalDevicesFunc: func(_ context.Context) ([]domain.Device, error) { return want, nil },
+		ListLocalDevicesFunc:    func(_ context.Context) ([]domain.Device, error) { return want, nil },
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) { return want, nil },
 	}
 
 	replyBody := []byte("REPLY")

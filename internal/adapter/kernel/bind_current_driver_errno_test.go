@@ -43,26 +43,29 @@ func (p poisonFS) Open(name string) (fs.File, error) {
 // documented contract: "Both paths' reads fail with unexpected
 // (non-ENOENT) errno → surface verbatim." When driver_name is present
 // but unreadable (EACCES), the helper previously concluded
-// ErrDeviceNotBound because the interface directory still existed —
+// ErrDeviceNotBound because the device directory still existed —
 // discarding the permission signal and giving operators the wrong
 // error class. The fix requires distinguishing "absent" (ENOENT-ish,
 // legitimately unbound) from "present-but-unreadable" (real I/O or
 // permission error, must surface).
+//
+// Bind reads the bare-device driver to drive both
+// checkAlreadyExported and unbindCurrentDeviceDriver, so we poison
+// the bare-device driver_name path.
 func TestBind_CurrentDriver_SurfacesPermissionError(t *testing.T) {
 	t.Parallel()
 
 	busID := domain.BusID("1-1.2")
-	iface := string(busID) + ":1.0"
 	base := bindFS(string(busID))
 
-	// Poison the driver_name read with fs.ErrPermission; readLink on
-	// "driver" will still return fs.ErrNotExist via the MapFS fallback
-	// in readLink. ifaceDir itself stays present so the stat branch
-	// succeeds. Bind must surface ErrPermission (not
-	// ErrDeviceNotBound).
+	// Poison the bare-device driver_name read with fs.ErrPermission;
+	// readLink on "driver" will still return fs.ErrNotExist via the
+	// MapFS fallback in readLink. The device directory stays present
+	// so the stat branch succeeds. Bind must surface ErrPermission
+	// (not ErrDeviceNotBound).
 	poisoned := poisonFS{
 		inner:     base,
-		target:    "sys/bus/usb/devices/" + iface + "/driver/driver_name",
+		target:    "sys/bus/usb/devices/" + string(busID) + "/driver/driver_name",
 		injectErr: fs.ErrPermission,
 	}
 

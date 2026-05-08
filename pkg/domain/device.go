@@ -33,6 +33,19 @@ type Device struct {
 	NumConfigs    uint8
 	NumInterfaces uint8
 
+	// Manufacturer is the device-supplied iManufacturer string descriptor
+	// resolved from the kernel via /sys/bus/usb/devices/<busid>/manufacturer.
+	// Empty when the device descriptor's iManufacturer index is 0 or the
+	// device does not implement string descriptors. Meaningful for local
+	// devices only — OP_REP_DEVLIST does not carry these strings on the wire.
+	Manufacturer string
+
+	// Product is the device-supplied iProduct string descriptor (the human
+	// product name, e.g. "AX88179 Gigabit Ethernet"). Distinct from
+	// ProductID which is the numeric idProduct. Empty when not populated.
+	// Meaningful for local devices only.
+	Product string
+
 	// Interfaces is an owned, read-only slice. Consumers MUST NOT mutate
 	// the returned slice; future versions may copy-on-return if mutation
 	// causes bugs.

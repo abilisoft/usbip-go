@@ -21,6 +21,18 @@ const (
 	// SysfsUSBIPHostDriver is the usbip-host driver-level attribute root.
 	SysfsUSBIPHostDriver = "/sys/bus/usb/drivers/usbip-host"
 
+	// SysfsDriversProbe is the global USB-bus probe trigger. Writing a
+	// busid forces the kernel to re-evaluate the driver match-table for
+	// that device, attaching whichever native driver claims it. Used in
+	// Bind's rollback path to restore the original driver after a bind
+	// failure that left the bare device unbound.
+	SysfsDriversProbe = "/sys/bus/usb/drivers_probe"
+
+	// usbipHostDriverName is the basename of the usbip-host driver as it
+	// appears in /sys/bus/usb/devices/<busid>/driver after bind. Used to
+	// short-circuit a re-bind attempt when the device is already exported.
+	usbipHostDriverName = "usbip-host"
+
 	// SysfsDriverBind is the generic driver "bind" attribute filename.
 	SysfsDriverBind = "bind"
 	// SysfsDriverUnbind is the generic driver "unbind" attribute filename.

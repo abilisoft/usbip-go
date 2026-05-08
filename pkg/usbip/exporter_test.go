@@ -82,6 +82,36 @@ func TestExporterListAvailableForwards(t *testing.T) {
 	require.Equal(t, want, got)
 }
 
+// TestExporterListExportedForwards pins the public-facade ListExported
+// method: forwards through the internal Exporter to
+// kernel.ListExportedDevices and returns the wire-side filtered slice.
+// Distinct from ListAvailable (which surfaces every local USB device);
+// status-socket consumers and external tooling that mirror the
+// OP_REP_DEVLIST view import this method.
+func TestExporterListExportedForwards(t *testing.T) {
+	t.Parallel()
+
+	s := newInternalExporterForTest(t)
+
+	want := []domain.Device{{BusID: "1-1"}}
+
+	// stubExporterKernel.ListExportedDevices delegates to the same
+	// listLocalDevicesFn hook; tests that need to distinguish the two
+	// paths can extend the stub. For coverage of the facade method
+	// the same hook is sufficient.
+	s.kernel.listLocalDevicesFn = func(_ context.Context) ([]domain.Device, error) {
+		return want, nil
+	}
+
+	exp := usbip.NewExporterFromInternalForTest(s.inner)
+
+	t.Cleanup(shutdownCleanup(t, exp))
+
+	got, err := exp.ListExported(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+}
+
 // TestExporterBindUnbindForwards exercises the forwarding of Bind and
 // Unbind through the facade.
 func TestExporterBindUnbindForwards(t *testing.T) {

@@ -253,6 +253,22 @@ func (e *Exporter) ListAvailable(ctx context.Context) ([]domain.Device, error) {
 	return devs, nil
 }
 
+// ListExported returns devices currently bound to usbip-host that
+// are not actively claimed by an importer (SDEV_ST_USED excluded).
+// This is the semantic answer to "what devices does this daemon
+// have BOUND right now" — distinct from ListAvailable which dumps
+// every local USB device regardless of bind state. Consumed by the
+// status-socket BoundDevices endpoint and by any caller that needs
+// to mirror the wire-side OP_REP_DEVLIST view.
+func (e *Exporter) ListExported(ctx context.Context) ([]domain.Device, error) {
+	devs, err := e.kernel.ListExportedDevices(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list exported devices: %w", err)
+	}
+
+	return devs, nil
+}
+
 // Serve runs the accept loop per v1 contract §5.3. Each accepted connection
 // is dispatched to a per-connection goroutine via handleConn; the
 // accept loop returns when ctx is cancelled, the listener returns a

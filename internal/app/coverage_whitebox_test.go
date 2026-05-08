@@ -39,6 +39,52 @@ func TestIPFromAddr_Nil(t *testing.T) {
 	require.Nil(t, ipFromAddr(nil))
 }
 
+// TestClassifyDecodeImportErr_AllRejectionSentinels pins the metric
+// classification for every domain-rejection sentinel that can surface
+// from DecodeOpRepImport. ST_DEV_BUSY (→ ErrDeviceAlreadyBound) and
+// ST_DEV_ERR (→ ErrDeviceUnavailable) historically fell through to
+// AttachOutcomeProtocolMismatch, mis-bucketing peer rejections as
+// wire framing faults in observability dashboards.
+func TestClassifyDecodeImportErr_AllRejectionSentinels(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		err  error
+		want AttachOutcome
+	}{
+		{
+			name: "ErrDeviceNotFound -> kernel_error",
+			err:  domain.ErrDeviceNotFound,
+			want: AttachOutcomeKernelError,
+		},
+		{
+			name: "ErrDeviceAlreadyBound -> kernel_error",
+			err:  domain.ErrDeviceAlreadyBound,
+			want: AttachOutcomeKernelError,
+		},
+		{
+			name: "ErrDeviceUnavailable -> kernel_error",
+			err:  domain.ErrDeviceUnavailable,
+			want: AttachOutcomeKernelError,
+		},
+		{
+			name: "wire framing fault -> protocol_mismatch",
+			err:  errSomeOther,
+			want: AttachOutcomeProtocolMismatch,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := classifyDecodeImportErr(tc.err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 // TestIPFromAddr_TCPAddr pins the *net.TCPAddr fast-path: a well-typed
 // addr yields its IP directly without going through string parsing.
 func TestIPFromAddr_TCPAddr(t *testing.T) {

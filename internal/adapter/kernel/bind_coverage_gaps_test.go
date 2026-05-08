@@ -91,7 +91,7 @@ func TestBind_RollbackFailsLogsWarning(t *testing.T) {
 			return unix.EBUSY
 		}
 
-		if p == "/sys/bus/usb/drivers/usbip-host/match_busid" && strings.HasPrefix(d, "del ") {
+		if p == usbipHostMatchBusIDPath && strings.HasPrefix(d, "del ") {
 			return unix.EIO
 		}
 
