@@ -23,7 +23,7 @@ START: usbip attach HOST BUSID fails.
   |     +-- YES -> Are you running as root or with CAP_SYS_ADMIN+CAP_DAC_OVERRIDE?
   |     |           |
   |     |           +-- NO  -> sudo the client OR setcap the binary:
-  |     |           |          sudo setcap 'cap_sys_admin,cap_dac_override=+ep' /usr/bin/usbip
+  |     |           |          sudo setcap 'cap_sys_admin,cap_dac_override=+ep' /usr/bin/usbip-go
   |     |           |
   |     |           +-- YES -> Is SELinux / AppArmor enforcing on /sys/devices/platform/vhci_hcd.0?
   |     |                      Check dmesg + auditd. Adjust policy or set permissive
@@ -63,7 +63,7 @@ START: usbip attach HOST BUSID fails.
   |     |
   |     +-- YES -> curl -v telnet://HOST:3240 (or `nc HOST 3240`) from the client.
   |     |          Succeeds? Daemon is running but rejecting you -> check --allow-cidr on server.
-  |     |          Refused? Daemon is down -> systemctl status usbipd on server.
+  |     |          Refused? Daemon is down -> systemctl status usbipd-go on server.
   |     |          Timeout? Firewall or network path -> check iptables/nftables and route.
   |     |
   |     +-- NO  -> continue.
@@ -89,12 +89,12 @@ in log output so you can grep directly.
 |---|---|---|
 | `ErrKernelModuleMissing` | `vhci-hcd` / `usbip-host` / `usbip-core` not loaded, or no access to `/sys/module/`. | `sudo modprobe vhci-hcd usbip-core usbip-host`. Add to `/etc/modules-load.d/`. |
 | `ErrPermission` | Sysfs write needs `CAP_SYS_ADMIN` + `CAP_DAC_OVERRIDE`. | `sudo` the caller or `setcap` the binary. |
-| `ErrDeviceNotFound` | BusID does not exist on the server, or is not bound. | Server: `usbip list --local`; bind the target with `usbip bind`. |
-| `ErrDeviceAlreadyBound` | Device is already exported. | Server: `usbip unbind BUSID` then retry. |
+| `ErrDeviceNotFound` | BusID does not exist on the server, or is not bound. | Server: `usbip-go list --local`; bind the target with `usbip-go bind`. |
+| `ErrDeviceAlreadyBound` | Device is already exported. | Server: `usbip-go unbind BUSID` then retry. |
 | `ErrNoFreePort` | All vhci ports are occupied. | Detach a port, or boot the kernel with more vhci ports. |
 | `ErrProtocolMismatch` | Server sent a version byte != `0x0111` or unknown opcode. | Version mismatch or corrupted wire. Capture with tcpdump. |
 | `ErrProtocolError` | Server sent a well-formed OP frame with a non-zero `status`. | Check server logs for the underlying reason. |
-| `ErrBusIDInvalid` | Busid does not match `^[0-9]+-[0-9]+(\.[0-9]+)*$`. | Re-read from `usbip list --local`; do not edit by hand. |
+| `ErrBusIDInvalid` | Busid does not match `^[0-9]+-[0-9]+(\.[0-9]+)*$`. | Re-read from `usbip-go list --local`; do not edit by hand. |
 | `ErrImporterClosed` | `Importer.Close()` already ran. | Construct a new `Importer`. |
 | `ErrExporterShutdown` | `Exporter.Shutdown()` already ran. | Construct a new `Exporter`. |
 | `ErrServeAlreadyRunning` | Second `Serve` on the same `Exporter`. | `Serve` instances are single-use. |
@@ -127,7 +127,7 @@ echo -e 'usbip_core\nvhci_hcd\nusbip_host' | sudo tee /etc/modules-load.d/usbip-
 
 ## Recovering from a stuck port
 
-`usbip detach N` fails with `ErrDeviceNotFound` when the kernel
+`usbip-go detach N` fails with `ErrDeviceNotFound` when the kernel
 still owns the port but the daemon lost track. Check the kernel
 view:
 
@@ -136,22 +136,22 @@ $ cat /sys/devices/platform/vhci_hcd.0/status
 ```
 
 Ports in `SDEV_ST_ERROR` or `SDEV_ST_USED` that are not in
-`usbip port` output can be force-detached via sysfs:
+`usbip-go port` output can be force-detached via sysfs:
 
 ```
 $ echo <port_id> | sudo tee /sys/devices/platform/vhci_hcd.0/detach
 ```
 
-This is the last-resort path; prefer `usbip detach` when it works.
+This is the last-resort path; prefer `usbip-go detach` when it works.
 
 ## Daemon not accepting connections
 
 ```
-$ sudo systemctl status usbipd usbipd.socket
-$ sudo journalctl -u usbipd -f
+$ sudo systemctl status usbipd-go usbipd-go.socket
+$ sudo journalctl -u usbipd-go -f
 ```
 
-Socket-activation quirk: `systemctl status usbipd` may show
+Socket-activation quirk: `systemctl status usbipd-go` may show
 "inactive (dead)" between clients. That is normal — the socket unit
 accepts inbound TCP and wakes the daemon on demand.
 
@@ -166,7 +166,7 @@ If the listener is absent, the socket unit failed. Check its
 logs:
 
 ```
-$ sudo journalctl -u usbipd.socket -f
+$ sudo journalctl -u usbipd-go.socket -f
 ```
 
 ## When to capture a wire trace

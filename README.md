@@ -10,8 +10,8 @@ artefacts from a single code base:
 
 - `pkg/usbip` — embeddable library for importers (client) and
   exporters (server).
-- `usbip` — operator/client CLI (cobra + jsonlines).
-- `usbipd` — production daemon with socket activation, Prometheus
+- `usbip-go` — operator/client CLI (cobra + jsonlines).
+- `usbipd-go` — production daemon with socket activation, Prometheus
   metrics, status UDS, and graceful drain.
 
 No cgo, no dependencies on `usbip-utils`. Upstream wire compatibility
@@ -43,7 +43,7 @@ Prebuilt binaries, `.deb`, and `.rpm` packages are published to
 VERSION=0.1.0  # replace with the tag you want; see the Releases page
 curl -LO "https://github.com/abilisoft/usbip-go/releases/download/v${VERSION}/usbip-go_${VERSION}_linux_amd64.tar.gz"
 tar xzf "usbip-go_${VERSION}_linux_amd64.tar.gz"
-sudo install -m 0755 usbip usbipd /usr/bin/
+sudo install -m 0755 usbip-go usbipd-go /usr/bin/
 ```
 
 GoReleaser archive names follow
@@ -57,10 +57,10 @@ The release archive and packages both include systemd units. Drop
 them in place and enable the socket unit:
 
 ```
-sudo install -Dm 0644 contrib/systemd/usbipd.service /etc/systemd/system/usbipd.service
-sudo install -Dm 0644 contrib/systemd/usbipd.socket  /etc/systemd/system/usbipd.socket
+sudo install -Dm 0644 contrib/systemd/usbipd-go.service /etc/systemd/system/usbipd-go.service
+sudo install -Dm 0644 contrib/systemd/usbipd-go.socket  /etc/systemd/system/usbipd-go.socket
 sudo systemctl daemon-reload
-sudo systemctl enable --now usbipd.socket
+sudo systemctl enable --now usbipd-go.socket
 ```
 
 Socket activation means the daemon starts on the first inbound
@@ -70,15 +70,15 @@ hardening recipe, metrics wiring, and drain procedure.
 ### `go install`
 
 ```
-go install github.com/abilisoft/usbip-go/cmd/usbip@latest
-go install github.com/abilisoft/usbip-go/cmd/usbipd@latest
+go install github.com/abilisoft/usbip-go/cmd/usbip-go@latest
+go install github.com/abilisoft/usbip-go/cmd/usbipd-go@latest
 ```
 
 Requires Go 1.26 or newer.
 
 ### Kernel modules
 
-Every host running `usbipd` (exporter) or the `usbip` client needs
+Every host running `usbipd-go` (exporter) or the `usbip-go` client needs
 the relevant kernel modules:
 
 ```
@@ -122,17 +122,17 @@ events, reconnect, metrics.
 ### 2. CLI attach
 
 ```
-sudo usbip attach -r 10.0.0.5 -b 1-1.2
-sudo usbip port
-sudo usbip detach 0
+sudo usbip-go attach -r 10.0.0.5 -b 1-1.2
+sudo usbip-go port
+sudo usbip-go detach 0
 ```
 
 ### 3. Daemon via systemd
 
 ```
-sudo systemctl enable --now usbipd.socket
-sudo usbip bind 1-1.2           # export a local device
-sudo systemctl status usbipd
+sudo systemctl enable --now usbipd-go.socket
+sudo usbip-go bind 1-1.2           # export a local device
+sudo systemctl status usbipd-go
 ```
 
 Metrics, drain, and readiness endpoints are in

@@ -19,7 +19,7 @@ type portFlags struct {
 	ID uint32
 }
 
-// newPortCmd constructs the `usbip port [--id N]` subcommand (spec
+// newPortCmd constructs the `usbip-go port [--id N]` subcommand (spec
 // §7.1).
 func newPortCmd() *cobra.Command {
 	pf := &portFlags{}

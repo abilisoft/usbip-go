@@ -65,19 +65,19 @@ linters:
         - 'github.com/abilisoft/usbip-go/internal/app\.BackoffStrategy'
         - 'github.com/abilisoft/usbip-go/pkg/usbip\.BackoffStrategy'
         - 'github.com/prometheus/client_golang/prometheus\.Registerer'
-        # cmd/usbip exposes the Importer/Exporter/Renderer interfaces as
+        # cmd/usbip-go exposes the Importer/Exporter/Renderer interfaces as
         # the substitution seams tested via mocks; factories and
         # pickers return the interface by design.
-        - 'github.com/abilisoft/usbip-go/cmd/usbip\.Importer'
-        - 'github.com/abilisoft/usbip-go/cmd/usbip\.Exporter'
-        - 'github.com/abilisoft/usbip-go/cmd/usbip\.Renderer'
+        - 'github.com/abilisoft/usbip-go/cmd/usbip-go\.Importer'
+        - 'github.com/abilisoft/usbip-go/cmd/usbip-go\.Exporter'
+        - 'github.com/abilisoft/usbip-go/cmd/usbip-go\.Renderer'
     mnd:
       ignored-functions:
         - 'make'
         - 'strconv.FormatInt'
         - 'strconv.FormatUint'
     tagliatelle:
-      # cmd/usbip emits the public jsonlines schema v1 (spec §7.5) with
+      # cmd/usbip-go emits the public jsonlines schema v1 (spec §7.5) with
       # snake_case field names. The schema is frozen; camelCase would
       # silently break operators grep-ing field names.
       case:
@@ -92,11 +92,11 @@ linters:
         # simulation without chmod (which gosec G302 false-flags on
         # directory traversal bits). Swapped only in export_test.go.
         linters: [gochecknoglobals]
-      - path: cmd/usbipd/main\.go
+      - path: cmd/usbipd-go/main\.go
         # runWithContext threads ctx into cobra via cmd.SetContext +
         # cmd.Execute; contextcheck insists ctx flow through newRootCmd
         # as a parameter but cobra's PersistentPreRunE / RunE signatures
-        # are fixed. cmd/usbip works around this by not having a ctx
+        # are fixed. cmd/usbip-go works around this by not having a ctx
         # parameter in run(); usbipd needs one because signal.NotifyContext
         # wraps the parent in main. The exclusion is scoped to this one
         # file so no other context-propagation smells escape review.
@@ -124,7 +124,7 @@ linters:
         # security primitives.
         text: 'G404:'
         linters: [gosec]
-      - path: cmd/usbip/history\.go
+      - path: cmd/usbip-go/history\.go
         # The attach-history file lives under $XDG_STATE_HOME/usbip-go
         # (or $HOME/.local/state/usbip-go), a user-scoped path not
         # derived from untrusted input. G304 flags every non-constant

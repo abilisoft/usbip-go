@@ -48,7 +48,7 @@ type globalFlags struct {
 	// table renderer, mirroring NO_COLOR=<any> env behaviour.
 	NoColor bool
 	// CompleteNetwork gates network-backed shell completion. When
-	// false (the default), second-arg completion for `usbip attach`
+	// false (the default), second-arg completion for `usbip-go attach`
 	// returns an empty list to avoid silently dialing remotes during
 	// tab-completion. The USBIP_COMPLETE_NETWORK=1 env var is the
 	// equivalent opt-in (spec §7.6).
@@ -66,14 +66,14 @@ var loggerCtxKey = ctxKey{name: "logger"}
 // flagsCtxKey is the context key storing the parsed globalFlags.
 var flagsCtxKey = ctxKey{name: "flags"}
 
-// newRootCmd constructs the top-level `usbip` cobra command with global
+// newRootCmd constructs the top-level `usbip-go` cobra command with global
 // flags, version subcommand, and a PersistentPreRunE that builds the
 // logger and stashes both logger + flags on the context.
 func newRootCmd() *cobra.Command {
 	gf := &globalFlags{}
 
 	cmd := &cobra.Command{
-		Use:   "usbip",
+		Use:   "usbip-go",
 		Short: "USB/IP client",
 		Long: "usbip is the client for the USB/IP protocol: list, attach, " +
 			"detach, bind, unbind, watch, and completion subcommands.",

@@ -102,7 +102,7 @@ func TestListenOrActivationIgnoresMismatchedPID(t *testing.T) {
 	// PID 1 is init; our tests never run as PID 1.
 	t.Setenv("LISTEN_PID", "1")
 	t.Setenv("LISTEN_FDS", "1")
-	t.Setenv("LISTEN_FDNAMES", "usbipd")
+	t.Setenv("LISTEN_FDNAMES", "usbipd-go")
 
 	cfg := &Config{Listen: "127.0.0.1:0"}
 
@@ -145,7 +145,7 @@ func TestListenOrActivationNamedSocket(t *testing.T) {
 
 	t.Setenv("LISTEN_PID", strconv.Itoa(os.Getpid()))
 	t.Setenv("LISTEN_FDS", "1")
-	t.Setenv("LISTEN_FDNAMES", "usbipd")
+	t.Setenv("LISTEN_FDNAMES", "usbipd-go")
 
 	cfg := &Config{Listen: "127.0.0.1:1"} // unused
 
