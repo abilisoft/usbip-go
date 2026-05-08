@@ -53,8 +53,8 @@ like `completion`, `__complete` follow Cobra's defaults.
 
 ## Migration
 
-The existing two-binary tree (`cmd/usbip-go/` for the importer CLI and
-`cmd/usbipd-go/` for the daemon) collapses into `cmd/usbip/`. The
+The existing two-binary tree (`cmd/usbip/` for the importer CLI and
+`cmd/usbip/` for the daemon) collapses into `cmd/usbip/`. The
 daemon's existing logic (`run.go`, `drain.go`, `health.go`,
 `status.go`, etc.) becomes the implementation of `usbip serve` and
 `usbip drain`. Build artefacts, GoReleaser config, and packaging

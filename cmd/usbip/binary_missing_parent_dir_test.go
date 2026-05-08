@@ -49,6 +49,7 @@ func TestUSBIPDGoBinary_MissingStatusSocketParent_ExitAndStderr(t *testing.T) {
 	// the operator-facing error lands on (stderr is the systemd
 	// journal expectation).
 	cmd := exec.CommandContext(ctx, bin,
+		"serve",
 		"--listen", "127.0.0.1:0",
 		"--status-socket", missing,
 		"--log-level", "error",
@@ -111,18 +112,18 @@ func TestUSBIPDGoBinary_VersionExitsZeroWithoutDaemonBind(t *testing.T) {
 		"version must return promptly — a hang means version triggered listener bind or status-socket wait")
 
 	out := stdout.String()
-	require.Contains(t, out, "usbipd-go version",
-		"stdout must carry the daemon's stamped version string")
+	require.Contains(t, out, "usbip version",
+		"stdout must carry the unified binary's stamped version string")
 	require.Empty(t, stderr.String(),
 		"a clean version invocation must not write anything to stderr")
 }
 
-// buildUsbipdGoBinaryForTest compiles ./cmd/usbipd-go into an
+// buildUsbipdGoBinaryForTest compiles ./cmd/usbip into an
 // absolute-path temp binary, returning the path. Thin wrapper over
 // the canonical testutil.BuildBinary so a regression to the build
 // flags lands in one place.
 func buildUsbipdGoBinaryForTest(t *testing.T) string {
 	t.Helper()
 
-	return testutil.BuildBinary(t, "usbipd-go")
+	return testutil.BuildBinary(t, "usbip")
 }

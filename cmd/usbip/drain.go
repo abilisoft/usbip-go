@@ -29,7 +29,7 @@ const drainPollInterval = 200 * time.Millisecond
 // is a signal something is very wrong.
 const drainHTTPTimeout = time.Second
 
-// newDrainCmd returns the `usbipd-go drain` subcommand. It asks the
+// newDrainCmd returns the `usbip drain` subcommand. It asks the
 // running daemon to refuse new accepts and exit once in-flight
 // sessions complete; polling continues until either sessions=[] AND
 // listening.accepting=false (success), the UDS disappears (daemon

@@ -33,7 +33,7 @@ func TestHistoryReadExisting(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", tmp)
 	t.Setenv("HOME", tmp)
 
-	dir := filepath.Join(tmp, "usbip-go")
+	dir := filepath.Join(tmp, "usbip")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 
 	body := []byte("10.0.0.5\n10.0.0.6\n\n192.168.1.1\n")
@@ -52,7 +52,7 @@ func TestHistoryRecordNew(t *testing.T) {
 
 	require.NoError(t, recordHistory("10.0.0.5"))
 
-	info, err := os.Stat(filepath.Join(tmp, "usbip-go"))
+	info, err := os.Stat(filepath.Join(tmp, "usbip"))
 	require.NoError(t, err)
 	require.True(t, info.IsDir())
 	require.Equal(t, os.FileMode(0o700), info.Mode().Perm())

@@ -345,7 +345,7 @@ func TestStatusDrainTriggersShutdown(t *testing.T) {
 }
 
 // TestStatusFileMode0660 verifies the UDS is created with mode 0660.
-// Group chown is best-effort; we check that if the "usbip-go" group
+// Group chown is best-effort; we check that if the "usbip" group
 // exists, the bind succeeds (a stricter chown-applied assertion would
 // require root to be meaningful).
 func TestStatusFileMode0660(t *testing.T) {

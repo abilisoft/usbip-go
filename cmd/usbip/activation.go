@@ -17,10 +17,10 @@ import (
 // unit. Operators should set FileDescriptorName=usbipd-go on the .socket
 // unit (v1 contract §7.8); mismatches fail loudly rather than silently bind a
 // neighbouring socket.
-const activationFdName = "usbipd-go"
+const activationFdName = "usbip"
 
 // errAmbiguousSocketNames is returned by pickNamedListener when systemd
-// passes more than one socket but none carry the expected "usbipd-go"
+// passes more than one socket but none carry the expected "usbip"
 // FileDescriptorName. The operator must fix their .socket unit; we
 // refuse to guess.
 var errAmbiguousSocketNames = errors.New(
@@ -35,12 +35,12 @@ var listenersWithNames = activation.ListenersWithNames
 // fd, and finally falls back to a plain net.Listen on cfg.Listen.
 //
 // The policy matches v1 contract §7.7:
-//   - If LISTEN_FDNAMES contains "usbipd-go" with exactly one fd, use it.
+//   - If LISTEN_FDNAMES contains "usbip" with exactly one fd, use it.
 //   - If LISTEN_FDS=1 and no names are present, accept the single fd.
 //   - If multiple fds are passed without a matching name, refuse to
 //     guess and return an error.
 //   - Otherwise, plain net.ListenConfig on cfg.Listen.
-func listenOrActivation(ctx context.Context, cfg *Config) (net.Listener, error) {
+func listenOrActivation(ctx context.Context, cfg *ServeConfig) (net.Listener, error) {
 	named, err := listenersWithNames()
 	if err != nil {
 		// ListenersWithNames returns a non-nil error when the

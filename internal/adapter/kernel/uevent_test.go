@@ -341,7 +341,7 @@ func TestSubscribe_FirstSubscriberCancelDoesNotStopOthers(t *testing.T) {
 // bind/unbind notification shape. mapUeventToDomain must produce
 // DeviceBoundEvent / DeviceUnboundEvent in addition to the
 // vhci_hcd-shaped Port* events so downstream consumers
-// (cmd/usbip-go/events.go, session.go, importer.go) that branch on those
+// (cmd/usbip/events.go, session.go, importer.go) that branch on those
 // event types are live. SUBSYSTEM=usbip_host ACTION=add →
 // DeviceBoundEvent; ACTION=remove → DeviceUnboundEvent; the bus ID is
 // the trailing path segment matching the domain BusID shape.

@@ -324,7 +324,7 @@ func jsonContainsBusID(devices []map[string]any, want string) bool {
 // parseDevicesEnvelope parses the {schema, devices} envelope the
 // jsonRenderer emits and returns the inner devices slice. Centralised
 // because the envelope is the v1 stable contract every list-flavour
-// JSON output ships under (cmd/usbip-go/output.go: devicesEnvelope).
+// JSON output ships under (cmd/usbip/output.go: devicesEnvelope).
 func parseDevicesEnvelope(t *testing.T, raw []byte) []map[string]any {
 	t.Helper()
 

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 
 	"github.com/abilisoft/usbip-go/pkg/usbip"
@@ -25,18 +26,53 @@ import (
 // budget logs a warning but does not abort startup.
 const statusReadyTimeout = 3 * time.Second
 
+// newServeCmd returns the `usbip serve` subcommand. The flags bound
+// here mirror the §7.7 daemon catalog; runDaemon is the body. The
+// PersistentPreRunE on the root command does not build a slog.Logger
+// for serve mode (the importer side uses globalFlags); instead this
+// subcommand wires its own logger via buildServeLogger and stashes
+// it on the context so downstream daemon code reaches the right
+// configuration.
+func newServeCmd() *cobra.Command {
+	cfg := &ServeConfig{}
+
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Run the USB/IP exporter daemon (replaces upstream `usbipd`)",
+		Long: "Serve runs the foreground daemon that exports local USB " +
+			"devices over the USB/IP protocol. systemd or an equivalent " +
+			"supervisor manages the lifecycle.",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			log, err := buildServeLogger(*cfg)
+			if err != nil {
+				return err
+			}
+
+			ctx := context.WithValue(cmd.Context(), loggerCtxKey, log)
+
+			return runDaemon(ctx, cfg)
+		},
+	}
+
+	bindServeFlags(cmd, cfg)
+
+	return cmd
+}
+
 // errDrainRequested cancels the Serve-ctx when POST /drain fires; the
 // error is surfaced to operators via context.Cause at shutdown so logs
 // distinguish drain from SIGTERM.
 var errDrainRequested = errors.New("drain requested")
 
 // runDaemon composes the full usbipd runtime: pick (or accept) the
-// accept-path listener, build a pkg/usbip.Exporter from Config, start
+// accept-path listener, build a pkg/usbip.Exporter from ServeConfig, start
 // the status UDS server when configured, and block on Serve until ctx
 // is cancelled or drain is requested via the status endpoint. On
 // shutdown a bounded Exporter.Shutdown drains in-flight sessions under
 // cfg.ShutdownTimeout per §7.7.
-func runDaemon(ctx context.Context, cfg *Config) error {
+func runDaemon(ctx context.Context, cfg *ServeConfig) error {
 	log := loggerFromCtx(ctx)
 	if log == nil {
 		log = slog.Default()
@@ -45,7 +81,7 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 	// Stamp build provenance into the daemon's first log record so
 	// journald queries can answer "which binary ran this session?"
 	// without grepping a pid for /proc/<pid>/cmdline.
-	log.Info("usbipd-go starting",
+	log.Info("usbip serve starting",
 		slog.String("version", version),
 		slog.String("commit", commit),
 		slog.String("build_date", buildDate),
@@ -114,7 +150,7 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 		defer func() { _ = os.Remove(cfg.StatusSocket) }()
 	}
 
-	log.Info("usbipd-go accepting connections",
+	log.Info("usbip serve accepting connections",
 		slog.String("addr", listener.Addr().String()),
 		slog.Bool("activation", activated))
 
@@ -128,7 +164,7 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 	src.markAccepting(false)
 
 	// Wind down the status UDS after Serve returns. The server is kept
-	// alive through Serve so `usbipd-go drain` can poll sessions=[] during
+	// alive through Serve so `usbip drain` can poll sessions=[] during
 	// the drain window; cancelling it here lets completeShutdown
 	// observe statusErrCh without racing the drain.
 	cancelStatus()
@@ -194,7 +230,7 @@ func (l *firstAcceptListener) Accept() (net.Conn, error) {
 // body.
 func drainExporter(
 	parentCtx context.Context,
-	cfg *Config,
+	cfg *ServeConfig,
 	exp *usbip.Exporter,
 	log *slog.Logger,
 ) {
@@ -209,10 +245,10 @@ func drainExporter(
 }
 
 // buildExporter constructs the pkg/usbip.Exporter from cfg. The
-// translation of Config fields to With* options lives here so runDaemon
+// translation of ServeConfig fields to With* options lives here so runDaemon
 // stays focused on lifecycle rather than option plumbing.
 func buildExporter(
-	cfg *Config, log *slog.Logger,
+	cfg *ServeConfig, log *slog.Logger,
 ) (*usbip.Exporter, error) {
 	opts := []usbip.ExporterOption{
 		usbip.WithExporterLogger(log),
@@ -246,7 +282,7 @@ func buildExporter(
 // "disabled, treat as writable for the purposes of readiness").
 func maybeStartHealthServer(
 	ctx context.Context,
-	cfg *Config,
+	cfg *ServeConfig,
 	log *slog.Logger,
 	src *statusExporter,
 ) (func(context.Context) error, error) {
@@ -272,7 +308,7 @@ func maybeStartHealthServer(
 // reads the listenerBound + accepting flags from the exporter, and
 // consults syscall.Access(W_OK) on the status socket path. The four
 // inputs mirror the §11.5.5 readiness contract.
-func newDaemonReadinessProbe(cfg *Config, src *statusExporter) readinessProbe {
+func newDaemonReadinessProbe(cfg *ServeConfig, src *statusExporter) readinessProbe {
 	return func(ctx context.Context) readinessState {
 		mods, modErr := src.KernelModules(ctx)
 		if modErr != nil {
@@ -358,7 +394,7 @@ func currentServeStatusFn() func(
 // loses the flock race must not unlink the incumbent peer's file.
 func maybeStartStatusServer(
 	ctx context.Context,
-	cfg *Config,
+	cfg *ServeConfig,
 	log *slog.Logger,
 	src *statusExporter,
 ) (<-chan error, bool, error) {
@@ -416,7 +452,7 @@ func maybeStartStatusServer(
 // connection" wrapper.
 func completeShutdown(
 	parentCtx, serveCtx context.Context,
-	cfg *Config,
+	cfg *ServeConfig,
 	log *slog.Logger,
 	serveErr error,
 	statusErrCh <-chan error,
@@ -448,12 +484,12 @@ func logShutdownCause(parentCtx, serveCtx context.Context, log *slog.Logger) {
 	}
 
 	if cause == nil || errors.Is(cause, context.Canceled) {
-		log.Info("usbipd-go shutdown complete")
+		log.Info("usbip serve shutdown complete")
 
 		return
 	}
 
-	log.Info("usbipd-go shutdown complete", slog.String("cause", cause.Error()))
+	log.Info("usbip serve shutdown complete", slog.String("cause", cause.Error()))
 }
 
 // isExpectedServeExit reports whether the Serve return value is a

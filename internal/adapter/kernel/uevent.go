@@ -698,7 +698,7 @@ var usbipHostBusIDPattern = regexp.MustCompile(`/(\d+-\d+(?:\.\d+)*)$`)
 // exporter side bind/unbind). add → DeviceBoundEvent (device became
 // exportable); remove → DeviceUnboundEvent (device returned to its
 // original driver). Without this classifier every session.go /
-// importer.go / cmd/usbip-go branch that acts on these event types
+// importer.go / cmd/usbip branch that acts on these event types
 // would be unreachable.
 func mapUsbipHostEvent(action, devpath string) (domain.Event, bool) {
 	match := usbipHostBusIDPattern.FindStringSubmatch(devpath)

@@ -27,8 +27,8 @@ const binaryBuildTimeout = 5 * time.Minute
 //
 // Centralised here so binary-smoke tests across `cmd/.../`_test.go
 // packages share one helper. Two prior duplicates in
-// cmd/usbip-go/binary_smoke_test.go and
-// cmd/usbipd-go/binary_missing_parent_dir_test.go drifted on TMPDIR
+// cmd/usbip/binary_smoke_test.go and
+// cmd/usbip/binary_missing_parent_dir_test.go drifted on TMPDIR
 // handling; this is the canonical version.
 //
 // Notes on the absolute-path dance: `t.TempDir()` may return a

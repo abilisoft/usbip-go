@@ -27,6 +27,19 @@ var errInvalidLogFormat = errors.New("invalid --log-format")
 // --log-level value.
 var errInvalidLogLevel = errors.New("invalid --log-level")
 
+// buildServeLogger projects a ServeConfig onto globalFlags and reuses
+// buildLogger so the importer-side and serve-side logger handlers stay
+// in lockstep. The serve subcommand has no --no-color (TTY detection
+// is sufficient on a daemon) and no --output (server mode does not
+// render tables); those globalFlags fields stay at their zero values.
+func buildServeLogger(cfg ServeConfig) (*slog.Logger, error) {
+	return buildLogger(globalFlags{
+		LogLevel:     cfg.LogLevel,
+		LogFormat:    cfg.LogFormat,
+		VerboseCount: cfg.VerboseCount,
+	})
+}
+
 // buildLogger constructs a *slog.Logger whose handler is selected by
 // the format flag and TTY/NO_COLOR state (v1 contract §7.3). An invalid
 // --log-format surfaces as an error so the root PersistentPreRunE can
