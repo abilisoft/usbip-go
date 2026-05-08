@@ -50,3 +50,13 @@ func TestBusID_IsValid_ZeroValue(t *testing.T) {
 	var b domain.BusID
 	require.False(t, b.IsValid())
 }
+
+func TestBusID_IsValid_Branches(t *testing.T) {
+	t.Parallel()
+
+	// Constructed directly (bypassing ParseBusID) to exercise each guard.
+	require.False(t, domain.BusID(strings.Repeat("a", 32)).IsValid())
+	require.False(t, domain.BusID("a\x00b").IsValid())
+	require.False(t, domain.BusID("   ").IsValid())
+	require.True(t, domain.BusID("1-1").IsValid())
+}
