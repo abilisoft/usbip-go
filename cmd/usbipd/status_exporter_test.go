@@ -10,6 +10,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// swapKernelModuleProbeFn replaces the package-level probe hook under
+// lock and returns the previous value so t.Cleanup can restore it.
+// Paired with swapKernelModuleProbeClock, the two helpers let a test
+// drive the cache TTL without real-time sleeps.
+func swapKernelModuleProbeFn(
+	fn func(context.Context) (map[string]usbip.ModuleState, error),
+) func(context.Context) (map[string]usbip.ModuleState, error) {
+	kernelModuleProbeMu.Lock()
+	defer kernelModuleProbeMu.Unlock()
+
+	prev := kernelModuleProbeFn
+
+	kernelModuleProbeFn = fn
+
+	return prev
+}
+
+// swapKernelModuleProbeClock replaces the clock hook used by
+// statusExporter.KernelModules so tests can advance "now" past the
+// cache TTL deterministically.
+func swapKernelModuleProbeClock(fn func() time.Time) func() time.Time {
+	kernelModuleProbeMu.Lock()
+	defer kernelModuleProbeMu.Unlock()
+
+	prev := kernelModuleProbeClock
+
+	kernelModuleProbeClock = fn
+
+	return prev
+}
+
 // TestKernelModulesCachedWithinTTL proves Phase 8 Finding 5's caching
 // contract: statusExporter.KernelModules must NOT call the underlying
 // probe on every GET /. Consecutive calls within the cache TTL serve
@@ -29,6 +60,7 @@ func TestKernelModulesCachedWithinTTL(t *testing.T) {
 			"usbip_core": usbip.ModuleStateLoaded,
 		}, nil
 	})
+
 	t.Cleanup(func() { swapKernelModuleProbeFn(originalFn) })
 
 	s := &statusExporter{}
@@ -71,11 +103,13 @@ func TestKernelModulesReprobesAfterTTL(t *testing.T) {
 			"usbip_core": usbip.ModuleStateLoaded,
 		}, nil
 	})
+
 	t.Cleanup(func() { swapKernelModuleProbeFn(originalFn) })
 
 	originalClock := swapKernelModuleProbeClock(func() time.Time {
 		return time.Unix(0, now.Load())
 	})
+
 	t.Cleanup(func() { swapKernelModuleProbeClock(originalClock) })
 
 	s := &statusExporter{}

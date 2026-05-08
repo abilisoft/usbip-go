@@ -2,11 +2,26 @@ package usbip
 
 import (
 	"log/slog"
+	"runtime"
 	"time"
 
 	internalapp "github.com/abilisoft/usbip-go/internal/app"
 	"github.com/prometheus/client_golang/prometheus"
 )
+
+// ProbeOneAtForTest exposes probeOneAt so tests can point the probe at
+// a tmpdir root and assert the Unknown classification on non-ENOENT
+// stat failures (e.g. EACCES on a chmod-0 directory). The Linux-only
+// probeOneAt lives behind a build tag, so the actual invocation
+// happens in probeOneAtForTestInvoke which has matching tags; this
+// top-level shim keeps the call sites platform-neutral.
+func ProbeOneAtForTest(root, name string) ModuleState {
+	if runtime.GOOS != "linux" {
+		return ModuleStateUnknown
+	}
+
+	return probeOneAtForTestInvoke(root, name)
+}
 
 // BackoffToInternalForTest exposes backoffToInternal so backoff_test.go
 // can assert the translation paths without duplicating the type-switch.

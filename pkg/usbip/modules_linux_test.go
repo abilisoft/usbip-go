@@ -5,36 +5,14 @@ package usbip_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"os"
+	"io/fs"
+	"syscall"
 	"testing"
 
 	"github.com/abilisoft/usbip-go/pkg/usbip"
 	"github.com/stretchr/testify/require"
 )
 
-// chmodZero strips every mode bit from path; used to provoke EACCES on
-// subsequent stat calls under path without relying on root or a real
-// broken sysfs.
-func chmodZero(path string) error {
-	err := os.Chmod(path, 0)
-	if err != nil {
-		return fmt.Errorf("chmod zero %q: %w", path, err)
-	}
-
-	return nil
-}
-
-// chmodRestore undoes chmodZero so t.TempDir's recursive cleanup can
-// walk into the directory.
-func chmodRestore(path string) error {
-	err := os.Chmod(path, 0o700)
-	if err != nil {
-		return fmt.Errorf("chmod restore %q: %w", path, err)
-	}
-
-	return nil
-}
 
 // TestModuleStateMarshalJSON proves the tri-state ModuleState renders
 // as a lowercase string matching the §7.7 status-JSON contract. The
@@ -96,17 +74,16 @@ func TestProbeKernelModulesReturnsTriState(t *testing.T) {
 func TestProbeOneAtEACCESReturnsUnknown(t *testing.T) {
 	t.Parallel()
 
-	// An unreadable directory yields EACCES on the nested stat below.
-	// Chmod 0o000 strips every mode bit including owner read/execute.
-	dir := t.TempDir()
-	require.NoError(t, chmodZero(dir))
-
-	t.Cleanup(func() {
-		// Restore perms so t.TempDir cleanup can recurse in.
-		_ = chmodRestore(dir)
+	// Inject a stat function that always returns EACCES. No chmod
+	// dance, no t.TempDir cleanup hazard — just a direct simulation of
+	// the "probe blocked" signal spec §11.5.4 expects Unknown for.
+	old := usbip.SwapProbeStatFnForTest(func(_ string) (fs.FileInfo, error) {
+		return nil, syscall.EACCES
 	})
 
-	state := usbip.ProbeOneAtForTest(dir, "usbip_core")
+	t.Cleanup(func() { usbip.SwapProbeStatFnForTest(old) })
+
+	state := usbip.ProbeOneAtForTest("/any-root", "usbip_core")
 	require.Equal(t, usbip.ModuleStateUnknown, state,
 		"EACCES under parent must classify as Unknown, got %q", state)
 }
