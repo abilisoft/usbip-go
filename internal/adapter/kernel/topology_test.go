@@ -387,6 +387,101 @@ func TestDiscoverTopology_ClassifyHubBySiblingOrder(t *testing.T) {
 		"higher busnum within a controller must classify as SS regardless of missing speed")
 }
 
+// countingFS wraps an fs.FS and increments a counter every time Open
+// is called on a name matching the requested path. Used to pin BUG 5:
+// loadTopology must run discoverTopology at most once per adapter
+// instance.
+type countingFS struct {
+	inner   fs.FS
+	watch   string
+	counter *int
+}
+
+// Open implements fs.FS. Open calls against the watched name bump the
+// counter atomically by using a single-goroutine test driver so no
+// sync primitive is needed.
+func (c countingFS) Open(name string) (fs.File, error) {
+	if name == c.watch {
+		*c.counter++
+	}
+
+	f, err := c.inner.Open(name)
+	if err != nil {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: err}
+	}
+
+	return f, nil
+}
+
+// TestCommonAdapter_TopologyCached pins BUG 5: calling loadTopology N
+// times on the same adapter must read the sysfs nports attribute once,
+// not N times. Re-reading on every call races a live kernel's topology
+// and, more importantly, makes Task 2+ consumers (attach/detach,
+// status renumbering) pay a full sysfs walk for every port operation.
+func TestCommonAdapter_TopologyCached(t *testing.T) {
+	t.Parallel()
+
+	inner := topoFS(map[string]string{
+		"/sys/devices/platform/vhci_hcd.0/nports":      "16\n",
+		"/sys/devices/platform/vhci_hcd.0/status":      "",
+		"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
+		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
+	})
+
+	var count int
+
+	fake := countingFS{
+		inner:   inner,
+		watch:   "sys/devices/platform/vhci_hcd.0/nports",
+		counter: &count,
+	}
+
+	a, err := kernel.NewImporterAdapter(kernel.WithFS(fake))
+	require.NoError(t, err)
+
+	const calls = 5
+
+	var first kernel.Topology
+
+	for i := range calls {
+		topo, terr := kernel.LoadTopologyForTest(a)
+		require.NoError(t, terr)
+
+		if i == 0 {
+			first = topo
+			continue
+		}
+
+		require.True(t, topologiesEqual(first, topo),
+			"loadTopology must return the same cached value on call %d", i+1)
+	}
+
+	require.Equal(t, 1, count,
+		"loadTopology must open nports exactly once across %d calls", calls)
+}
+
+// topologiesEqual compares two Topology values for deep equality. Used
+// by the cache test to confirm repeated calls yield the identical
+// snapshot without reflecting through the whole reflect package.
+func topologiesEqual(a, b kernel.Topology) bool {
+	if a.NControllers != b.NControllers || a.HCPorts != b.HCPorts || a.VHCIPorts != b.VHCIPorts {
+		return false
+	}
+
+	if len(a.BusMap) != len(b.BusMap) {
+		return false
+	}
+
+	for k, v := range a.BusMap {
+		other, ok := b.BusMap[k]
+		if !ok || other != v {
+			return false
+		}
+	}
+
+	return true
+}
+
 // TestImporterAdapter_LoadTopology confirms the importer adapter
 // exposes a cached topology post-construction. Task 2 and later consume
 // this cached value rather than re-reading sysfs on every call.
