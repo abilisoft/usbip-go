@@ -68,12 +68,19 @@ func EncodeOpRepImport(w io.Writer, dev domain.Device) error {
 	return nil
 }
 
-// DecodeOpRepImport reads an OP_REP_IMPORT reply. The decoder returns
-// ErrProtocolError if the header's status field is non-zero (surfaced
-// by DecodeHeader for reply opcodes). On success the device body is
-// returned.
+// DecodeOpRepImport reads an OP_REP_IMPORT reply. Per spec §6.2 the
+// header's status field means "device unavailable / busy / not found"
+// on this opcode — a domain-level rejection, not a wire framing fault.
+// A non-zero status surfaces as domain.ErrDeviceNotFound so the
+// Importer.Attach caller sees the canonical rejection sentinel (RANK
+// 5). A zero status returns the decoded device body.
+//
+// Because of that opcode-specific semantic, DecodeOpRepImport calls
+// the internal decodeHeaderAllowStatus helper directly — DecodeHeader
+// would convert a non-zero status into ErrProtocolError and hide the
+// rejection behind a misleading classification.
 func DecodeOpRepImport(r io.Reader) (domain.Device, error) {
-	_, op, _, err := DecodeHeader(r)
+	_, op, status, err := decodeHeaderAllowStatus(r)
 	if err != nil {
 		return domain.Device{}, err
 	}
@@ -81,6 +88,11 @@ func DecodeOpRepImport(r io.Reader) (domain.Device, error) {
 	if op != OpRepImport {
 		return domain.Device{}, fmt.Errorf("%w: expected OP_REP_IMPORT got 0x%04x",
 			domain.ErrProtocolMismatch, uint16(op))
+	}
+
+	if status != 0 {
+		return domain.Device{}, fmt.Errorf("%w: OP_REP_IMPORT status=%d",
+			domain.ErrDeviceNotFound, status)
 	}
 
 	dev, err := DecodeDevice(r)

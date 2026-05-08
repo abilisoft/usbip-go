@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"log/slog"
@@ -481,6 +482,23 @@ func longestShutdownTimeout(handles []*portHandle) time.Duration {
 	return longest
 }
 
+// classifyDecodeImportErr maps a DecodeOpRepImport failure onto the
+// closest §11.5.5 AttachOutcome label. A non-zero OP_REP_IMPORT status
+// surfaces as domain.ErrDeviceNotFound (RANK 5) — a domain-level
+// rejection, not a wire framing fault; any other decode error is a
+// genuine protocol mismatch. The closed-set outcome label for "peer
+// rejected the import" stays kernel_error because the spec §11.5.5
+// outcome enum does not yet split "rejected" from "kernel_error"; the
+// important fix is that errors.Is(err, domain.ErrDeviceNotFound) is
+// true on the returned Attach error so callers can distinguish.
+func classifyDecodeImportErr(err error) AttachOutcome {
+	if errors.Is(err, domain.ErrDeviceNotFound) {
+		return AttachOutcomeKernelError
+	}
+
+	return AttachOutcomeProtocolMismatch
+}
+
 // attachOverDialed factors out the dial-through-handoff portion of
 // Attach. Splitting it keeps Attach under the project's cyclomatic cap
 // and isolates the fd-passing deferred cleanup per spec §5.4. opts is
@@ -520,7 +538,7 @@ func (i *Importer) attachOverDialed(
 
 	dev, err := i.codec.DecodeOpRepImport(conn)
 	if err != nil {
-		i.metrics.ImporterAttached(AttachOutcomeProtocolMismatch)
+		i.metrics.ImporterAttached(classifyDecodeImportErr(err))
 
 		return domain.Port{}, fmt.Errorf("decode OP_REP_IMPORT from %s: %w", endpoint.String(), err)
 	}
