@@ -581,3 +581,98 @@ func assertAttrsPresent(t *testing.T, rec map[string]any, attrs ...string) {
 			"record missing required attr %q; record=%v", a, rec)
 	}
 }
+
+// TestAttachKernelHandoffOutcomeClassification asserts that the
+// kernel-handoff slog record carries the right closed-set
+// AttachOutcome label depending on the kernel error sentinel. A
+// regression that collapses every error to "kernel_error" would
+// silently lose the operational distinction between a permission
+// fault (operator must run as root / set CAP_SYS_ADMIN) and a
+// no-free-port fault (vhci slot exhausted, raise vhci_hcd's
+// nports param) — both are real production failure modes the
+// daemon needs to surface separately in journald.
+func TestAttachKernelHandoffOutcomeClassification(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		kernelErr   error
+		wantOutcome string
+	}{
+		{
+			"permission",
+			fmt.Errorf("usbip_sockfd write: %w", domain.ErrPermission),
+			"permission",
+		},
+		{
+			"no free port",
+			fmt.Errorf("vhci attach: %w", domain.ErrNoFreePort),
+			"no_free_port",
+		},
+		{
+			"unclassified falls through to kernel_error",
+			errBoom,
+			"kernel_error",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			buf := &bytes.Buffer{}
+			logger := slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+			kernel := &ImporterKernelMock{
+				ModulesAvailableFunc: func(_ context.Context) error { return nil },
+				AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+					return 0, tc.kernelErr
+				},
+			}
+
+			conn := newFakeConn()
+
+			transport := &TransportMock{
+				DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
+					return conn, nil
+				},
+			}
+			codec := &ProtocolCodecMock{
+				EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
+				DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) { return attachDevice(), nil },
+			}
+
+			imp := newImporterForTest(t,
+				app.WithImporterKernel(kernel),
+				app.WithImporterTransport(transport),
+				app.WithImporterCodec(codec),
+				app.WithImporterLogger(logger),
+			)
+			t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+			_, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{})
+			require.Error(t, err)
+
+			records := parseJSONRecords(t, buf.Bytes())
+
+			var found bool
+
+			for _, r := range records {
+				if r["msg"] != "attach kernel handoff failed" {
+					continue
+				}
+
+				outcome, ok := r["outcome"].(string)
+				require.Truef(t, ok, "outcome attr missing or non-string in %v", r)
+				require.Equal(t, tc.wantOutcome, outcome,
+					"outcome must classify the kernel error precisely; record=%v", r)
+
+				found = true
+			}
+
+			require.Truef(t, found,
+				"expected an attach kernel handoff failed record; got %s",
+				buf.String())
+		})
+	}
+}

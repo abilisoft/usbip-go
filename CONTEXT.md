@@ -15,6 +15,8 @@ or `usbip server …` group.
 | `usbip list` | Importer | `-l` lists local; `-r <host>` lists a remote peer |
 | `usbip attach` | Importer | `-r <host> -b <busid>` |
 | `usbip detach` | Importer | `-p <port>` |
+| `usbip port` | Importer | lists currently-attached vhci ports; `--id <N>` filters to one |
+| `usbip watch` | Importer | streams domain events (jsonlines or table) until interrupted |
 | `usbip bind` | Exporter | `-b <busid>` |
 | `usbip unbind` | Exporter | `-b <busid>` |
 | `usbip serve` | Exporter | runs the daemon (replaces upstream `usbipd`) |
