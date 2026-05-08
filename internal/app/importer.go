@@ -345,7 +345,9 @@ func (i *Importer) ListRemote(ctx context.Context, endpoint domain.RemoteEndpoin
 	}
 
 	if deadline, ok := ctx.Deadline(); ok {
-		_ = conn.SetReadDeadline(deadline)
+		if err = conn.SetReadDeadline(deadline); err != nil {
+			return nil, fmt.Errorf("set read deadline: %w", err)
+		}
 	}
 
 	devs, err := i.codec.DecodeOpRepDevlist(conn)
@@ -804,7 +806,10 @@ func (i *Importer) attachOverDialed(
 	i.logger.Debug("attach: awaiting OP_REP_IMPORT")
 
 	if deadline, ok := ctx.Deadline(); ok {
-		_ = conn.SetReadDeadline(deadline)
+		if err = conn.SetReadDeadline(deadline); err != nil {
+			i.logAttachFailure("attach set read deadline failed", busID, endpoint, AttachOutcomeProtocolMismatch, err)
+			return domain.Port{}, fmt.Errorf("set read deadline: %w", err)
+		}
 	}
 
 	dev, err := i.codec.DecodeOpRepImport(conn)

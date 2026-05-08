@@ -320,6 +320,13 @@ func (a *ExporterAdapter) Unbind(ctx context.Context, busID domain.BusID) error 
 
 	// usbip-host operates at usb_device level, so unbind takes BARE
 	// busid ("1-1"), not iface. See the matching comment in Bind.
+	//
+	// NOTE: this sysfs write can block if the kernel is waiting for an
+	// active importer to drain its socket. ctx is not checked here
+	// because the kernel write API offers no cancellation mechanism —
+	// interrupting mid-unbind would leave the device in a partially-
+	// unbound state. Callers that need a hard deadline should set an
+	// OS-level timeout via signal or process management.
 	unbindErr := a.writeClassified(path.Join(SysfsUSBIPHostDriver, SysfsDriverUnbind), string(busID))
 
 	// match_busid del runs regardless of the unbind result so the
