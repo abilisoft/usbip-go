@@ -304,10 +304,8 @@ func TestDiscoverTopology_SupportsManyControllers(t *testing.T) {
 		hsBus := 2*i + 1
 		ssBus := 2*i + 2
 
-		files[fmt.Sprintf("/sys/devices/platform/vhci_hcd.%d/usb%d/busnum", i, hsBus)] =
-			fmt.Sprintf("%d\n", hsBus)
-		files[fmt.Sprintf("/sys/devices/platform/vhci_hcd.%d/usb%d/busnum", i, ssBus)] =
-			fmt.Sprintf("%d\n", ssBus)
+		files[fmt.Sprintf("/sys/devices/platform/vhci_hcd.%d/usb%d/busnum", i, hsBus)] = fmt.Sprintf("%d\n", hsBus)
+		files[fmt.Sprintf("/sys/devices/platform/vhci_hcd.%d/usb%d/busnum", i, ssBus)] = fmt.Sprintf("%d\n", ssBus)
 	}
 
 	mfs := topoFS(files)
