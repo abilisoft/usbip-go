@@ -41,6 +41,18 @@ linters:
     goconst:
       min-occurrences: 3
       min-len: 3
+    ireturn:
+      # domain.Event and kernel.NetlinkSocket are internal adapter
+      # contracts — their whole purpose is to be returned across package
+      # boundaries. Allow them in addition to ireturn's defaults.
+      allow:
+        - anon
+        - error
+        - empty
+        - stdlib
+        - generic
+        - 'github.com/abilisoft/usbip-go/internal/adapter/kernel\.NetlinkSocket'
+        - 'github.com/abilisoft/usbip-go/pkg/domain\.Event'
     mnd:
       ignored-functions:
         - 'make'
