@@ -503,6 +503,28 @@ func (e *Exporter) runRegisteredSession(
 	// ownership of it.
 	stopTimeout()
 
+	// Pre-handoff cancel check: Shutdown may have set shutdown=true,
+	// snapshotted this handle, called h.cancel() (closing handle.done),
+	// and spawned a Disconnect goroutine — all between registerSession
+	// returning and this point. Without the check here ExportOnConn
+	// would create a kernel export during shutdown, racing the
+	// concurrent Disconnect for the same busid. The check is best-
+	// effort (a Shutdown that fires AFTER this select still races
+	// ExportOnConn), but it closes the common window.
+	select {
+	case <-handle.done:
+		reason := string(DisconnectReasonShutdown)
+		handle.disconnectReason.Store(&reason)
+
+		return
+	case <-ctx.Done():
+		reason := string(DisconnectReasonShutdown)
+		handle.disconnectReason.Store(&reason)
+
+		return
+	default:
+	}
+
 	err = e.kernel.ExportOnConn(ctx, conn, busID)
 	if err != nil {
 		reason := string(classifyDisconnectReason(err))
