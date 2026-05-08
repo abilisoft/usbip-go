@@ -72,9 +72,7 @@ func TestExporterListAvailableForwards(t *testing.T) {
 
 	exp := usbip.NewExporterFromInternalForTest(s.inner)
 
-	t.Cleanup(func() {
-		require.NoError(t, exp.Shutdown(t.Context()))
-	})
+	t.Cleanup(shutdownCleanup(t, exp))
 
 	got, err := exp.ListAvailable(t.Context())
 	require.NoError(t, err)
@@ -107,9 +105,7 @@ func TestExporterBindUnbindForwards(t *testing.T) {
 
 	exp := usbip.NewExporterFromInternalForTest(s.inner)
 
-	t.Cleanup(func() {
-		require.NoError(t, exp.Shutdown(t.Context()))
-	})
+	t.Cleanup(shutdownCleanup(t, exp))
 
 	require.NoError(t, exp.Bind(t.Context(), usbip.BusID("1-1")))
 	require.Equal(t, usbip.BusID("1-1"), boundBus)
@@ -128,9 +124,7 @@ func TestExporterSessionsForwards(t *testing.T) {
 
 	exp := usbip.NewExporterFromInternalForTest(s.inner)
 
-	t.Cleanup(func() {
-		require.NoError(t, exp.Shutdown(t.Context()))
-	})
+	t.Cleanup(shutdownCleanup(t, exp))
 
 	got := exp.Sessions(t.Context())
 	require.Empty(t, got)
@@ -169,6 +163,21 @@ func TestExporterServeRejectsAfterShutdown(t *testing.T) {
 	// Serve after Shutdown must return the internal sentinel.
 	err := exp.Serve(ctx, stubListener{})
 	require.ErrorIs(t, err, internalapp.ErrAlreadyShutdown)
+}
+
+// shutdownCleanup returns a t.Cleanup func that Shutdowns exp with a
+// detached bounded context. t.Context() is already cancelled by the
+// time cleanups run, which would propagate as "exporter shutdown: ctx
+// canceled"; a fresh context keeps the cleanup assertion meaningful.
+func shutdownCleanup(t *testing.T, exp *usbip.Exporter) func() {
+	t.Helper()
+
+	return func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		require.NoError(t, exp.Shutdown(ctx))
+	}
 }
 
 // stubListener is a minimal net.Listener that never accepts a conn;
