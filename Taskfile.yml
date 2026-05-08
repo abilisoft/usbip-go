@@ -8,10 +8,14 @@ vars:
   LDFLAGS: '-s -w -X main.version={{.VERSION}} -X main.commit={{.COMMIT}}'
   BIN_DIR: './bin'
 
-# Release artefacts are built with CGO_ENABLED=0 (spec §10.1). The `go test -race`
-# flag required by spec §8.8 needs the race runtime which currently relies on
-# cgo, so test targets re-enable cgo locally. Build/release targets continue to
-# enforce CGO_ENABLED=0.
+# Release binaries are pure Go — CGO_ENABLED=0 is the project-wide default
+# so `task build`, `task release`, and any ad-hoc `go build` run through
+# the Taskfile produce static cgo-free artefacts. Test targets override to
+# CGO_ENABLED=1 *only to enable the Go race detector* (-race requires cgo
+# internally; the compiled test binary uses cgo, but the production
+# binaries do not). The no-cgo CI guard scans source for `import "C"`
+# so this split is safe: it is impossible to smuggle real cgo into the
+# release binary without the guard catching it.
 env:
   CGO_ENABLED: '0'
 
@@ -22,7 +26,7 @@ tasks:
       - task --list
 
   build:
-    desc: Release-style build (trimmed, stripped, reproducible)
+    desc: Release-style build (pure Go, trimmed, stripped, reproducible)
     sources:
       - cmd/**/*.go
       - pkg/**/*.go
@@ -40,26 +44,26 @@ tasks:
       - go build -gcflags="all=-N -l" -o {{.BIN_DIR}}/ ./cmd/...
 
   test:
-    desc: Unit tests (race)
+    desc: Unit tests with -race (test binary only; release binaries stay cgo-free)
     env:
       CGO_ENABLED: '1'
     cmds:
       - go test -race -timeout=60s ./...
 
   test:integration:
-    desc: Integration tests
+    desc: Integration tests with -race
     env:
       CGO_ENABLED: '1'
     cmds:
       - go test -race -tags=integration_linux -timeout=5m ./test/integration/...
 
   test:conformance:
-    desc: Conformance tests
+    desc: Conformance tests (no -race — handshake-only byte comparisons)
     cmds:
       - go test -tags=conformance_linux -timeout=5m ./test/conformance/...
 
   test:cover:
-    desc: Coverage report
+    desc: Coverage report with -race
     env:
       CGO_ENABLED: '1'
     cmds:
