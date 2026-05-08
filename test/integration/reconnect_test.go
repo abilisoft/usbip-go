@@ -4,7 +4,6 @@ package integration_test
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -42,13 +41,7 @@ const reconnectIntegrationDeadline = 15 * time.Second
 func TestReconnectIntegrationEndToEnd(t *testing.T) {
 	integration.SetupVUDC(t)
 
-	rawBusID := os.Getenv(loopbackIntegrationBusIDEnv)
-	if rawBusID == "" {
-		t.Skipf("%s unset: reconnect integration requires a real usbip-host busid",
-			loopbackIntegrationBusIDEnv)
-	}
-
-	busID := domain.BusID(rawBusID)
+	busID := integration.RequireRealBusID(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), reconnectIntegrationDeadline)
 	defer cancel()
@@ -134,18 +127,7 @@ func startExporterForReconnect(
 	exp, err := usbip.NewExporter()
 	require.NoError(t, err)
 
-	err = exp.Bind(ctx, busID)
-	if err != nil {
-		t.Skipf("bind %q: %v", busID, err)
-	}
-
-	t.Cleanup(func() {
-		uctx, ucancel := context.WithTimeout(context.Background(), 2*time.Second)
-
-		defer ucancel()
-
-		_ = exp.Unbind(uctx, busID)
-	})
+	integration.RequireBindable(t, ctx, exp, busID)
 
 	lis, addr, err := integration.TCPListen(loopbackExporterAddr)
 	require.NoError(t, err)
