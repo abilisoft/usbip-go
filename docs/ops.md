@@ -118,7 +118,7 @@ listener.
 
 ## Daemon flags
 
-Authoritative list in v1 contract §7.7. Most operators only touch:
+Authoritative list in v1 contract §7.7. Full flag set:
 
 | Flag | Default | When to change |
 |---|---|---|
@@ -127,13 +127,17 @@ Authoritative list in v1 contract §7.7. Most operators only touch:
 | `--max-sessions` | `128` | Bump for high-fanout scenarios. |
 | `--max-sessions-per-peer` | `8` | Lower for strict isolation. |
 | `--accept-rate-limit` | `10/s` | Lower for probe-heavy networks. |
+| `--max-handshake-bytes` | `64 KiB` | Hard cap per OP request/response; raise only for non-standard peers. |
+| `--handshake-timeout` | `10s` | Slowloris defence; drop a peer that stalls mid-handshake. |
+| `--shutdown-timeout` | `30s` | Graceful drain budget before force-close. |
 | `--status-socket` | `/run/usbip-go/status.sock` | Change to an alternate runtime dir or `""` to disable. |
 | `--status-socket-group` | `usbip-go` | Match your operator group. |
 | `--metrics-addr` | `""` | Set to `127.0.0.1:9240` (or similar) to enable scraping. |
 | `--log-level` | `info` | `debug` or `trace` during incident response. |
 | `--log-format` | `auto` | `json` for log-aggregation pipelines. |
+| `--verbose` / `-v` | `0` | Count flag: `-v` raises log level to `debug`, `-vv` to `trace`. Wins over `--log-level` when set. |
 
-Run `usbipd-go --help` for the full list.
+Run `usbipd-go --help` for the up-to-date set.
 
 ## Status UDS
 
@@ -178,11 +182,13 @@ The endpoint exposes three paths:
 
 - `GET /metrics` — Prometheus text format, with the v1 contract §11.5.5
   metric catalog.
-- `GET /healthz` — 200 while the process is up and the accept loop
-  is running. Liveness only.
+- `GET /healthz` — unconditional 200 OK while the metrics HTTP
+  server is reachable. Pure liveness — does NOT inspect the accept
+  loop, kernel modules, or status socket; the readiness signals
+  belong to `/readyz`.
 - `GET /readyz` — 200 only when: process up, required kernel
-  modules loaded, listener bound, status socket writable. Readiness
-  gate for Kubernetes-style orchestrators.
+  modules loaded, listener bound, accept loop armed, status socket
+  writable. Readiness gate for Kubernetes-style orchestrators.
 
 Prometheus scrape configuration:
 

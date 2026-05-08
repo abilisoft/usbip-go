@@ -39,7 +39,7 @@ referenced by every envelope below.
 | `busid` | string | `domain.BusID` | Linux USB topology identifier, e.g. `"1-1.2"`. |
 | `busnum` | integer (u16) | `domain.Device.BusNum` | |
 | `devnum` | integer (u16) | `domain.Device.DevNum` | |
-| `speed` | string | `domain.Speed.String()` | One of `unknown`, `low`, `full`, `high`, `wireless`, `super`, `super+`. |
+| `speed` | string | `domain.Speed.String()` | Long-form: `unknown`, `Low-Speed (1.5Mbps)`, `Full-Speed (12Mbps)`, `High-Speed (480Mbps)`, `Wireless`, `SuperSpeed (5Gbps)`, `SuperSpeed+ (10Gbps)`, or `speed(N)` for unknown wire values. |
 | `vendor_id` | string | `domain.Device.VendorID` | Lowercase 4-digit hex, e.g. `"0951"` — matches `lsusb` convention. |
 | `product_id` | string | `domain.Device.ProductID` | Same format as `vendor_id`. |
 
@@ -48,7 +48,7 @@ referenced by every envelope below.
 | Field | Type | Source | Notes |
 |---|---|---|---|
 | `id` | integer (u32) | `domain.Port.ID` | Numeric vhci port id. |
-| `status` | string | `domain.Status.String()` | `available`, `notassigned`, `used`, `error`, `suspended`, `unavailable`. |
+| `status` | string | `domain.Status.String()` | `null`, `not-assigned`, `available`, `used`, `error`, or `status(N)` for unknown wire values. |
 | `speed` | string | `domain.Port.Speed.String()` | Same enum as `deviceView.speed`. |
 | `remote` | string | `domain.Port.Remote.String()` | `host:port`, IPv6 literals bracketed. |
 | `busid` | string | `domain.Port.BusID` | Remote busid as reported by the exporter. |
@@ -92,8 +92,8 @@ Returned by `usbip-go port --output=json`.
 
 ### Sessions list (status socket path)
 
-Returned by the daemon status UDS and by
-`usbip-go status --output=json`:
+Returned by the daemon status UDS — `GET /` over the path configured
+with `--status-socket` (the CLI does not have a `status` subcommand).
 
 ```json
 {
@@ -261,7 +261,7 @@ Shape is `statusResponse` in
     "accepting": true
   },
   "bound_devices": [
-    { "busid": "1-1.2", "vid": "0951", "pid": "1666" },
+    { "busid": "1-1.2", "vid": "0x0951", "pid": "0x1666" },
     ...
   ],
   "sessions": [ sessionJSON, ... ],
@@ -278,10 +278,11 @@ Shape is `statusResponse` in
 a plain `--listen` bind — operators can verify deploy-time
 expectations without reading logs.
 
-`listening.accepting` stays `false` until the first successful
-`Accept` returns. This is intentional: it means `/readyz` can
-distinguish a listener that is merely bound from one that has
-actually armed the accept loop.
+`listening.accepting` flips to `true` the moment the daemon's
+accept loop enters its first `Accept` call (before any client
+connects), and back to `false` when `Serve` returns. This lets
+`/readyz` distinguish a listener that is merely bound from one
+that has actually armed the accept loop.
 
 `kernel_modules` values are one of `"loaded"`, `"missing"`,
 `"unknown"`. They map 1:1 to the `usbip_kernel_modules_loaded`

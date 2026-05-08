@@ -122,7 +122,7 @@ events, reconnect, metrics.
 ### 2. CLI attach
 
 ```
-sudo usbip-go attach -r 10.0.0.5 -b 1-1.2
+sudo usbip-go attach 10.0.0.5 1-1.2
 sudo usbip-go port
 sudo usbip-go detach 0
 ```
