@@ -300,9 +300,11 @@ func wrapUnexpectedEOF(ctx string, err error) error {
 	return fmt.Errorf("%s: %w", ctx, err)
 }
 
-// hasTrailingBytes reports whether br still has at least one byte
-// buffered. Callers (typically the Codec) use this to surface a
-// permissive-read signal to an injected logger (v1 contract §6.2).
+// hasTrailingBytes reports whether at least one byte remains beyond the
+// declared frame (v1 contract §6.2 permissive-read signal). Peek(1)
+// may read from the underlying reader if the bufio buffer is empty; callers
+// should ensure the connection carries a read deadline so a stalled peer
+// cannot cause an indefinite block here.
 func hasTrailingBytes(br *bufio.Reader) bool {
 	_, err := br.Peek(1)
 

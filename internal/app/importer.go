@@ -344,6 +344,10 @@ func (i *Importer) ListRemote(ctx context.Context, endpoint domain.RemoteEndpoin
 		return nil, fmt.Errorf("write OP_REQ_DEVLIST to %s: %w", endpoint.String(), err)
 	}
 
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetReadDeadline(deadline)
+	}
+
 	devs, err := i.codec.DecodeOpRepDevlist(conn)
 	if err != nil {
 		return nil, fmt.Errorf("decode OP_REP_DEVLIST from %s: %w", endpoint.String(), err)

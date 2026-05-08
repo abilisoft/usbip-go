@@ -90,8 +90,11 @@ func (e *Exporter) handleConn(ctx context.Context, conn net.Conn) {
 	// DecodeOpReqImport body-decode stall uncovered.
 	switch op {
 	case wire.OpReqDevlist:
-		stopTimeout()
-		e.serveDevlist(ctx, reader, conn)
+		// Do NOT disarm the handshake timeout here — keep it armed during
+		// the EncodeOpRepDevlist write so a client that stops reading is
+		// torn down by the timeout rather than stalling the handler forever.
+		// serveDevlist disarms the timeout after the write completes.
+		e.serveDevlist(ctx, reader, conn, stopTimeout)
 	case wire.OpReqImport:
 		e.serveImport(ctx, reader, conn, stopTimeout)
 	case wire.OpRepDevlist, wire.OpRepImport:
@@ -173,9 +176,15 @@ func (e *Exporter) armHandshakeTimeout(closer *connCloser) func() {
 // handleConn's deferred cleanup. Emits the accept counter on every
 // terminal transition so dashboards see the same count for devlist
 // handshakes as for import handshakes.
-func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn) {
+// serveDevlist handles the OP_REQ_DEVLIST request. stopTimeout is the
+// handshake-timeout disarm callback from armHandshakeTimeout; it is
+// called after EncodeOpRepDevlist completes so the timeout stays armed
+// during the write and tears down a client that stops reading.
+func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn, stopTimeout func()) {
 	devs, err := e.kernel.ListExportedDevices(ctx)
 	if err != nil {
+		stopTimeout()
+
 		e.logger.Warn("exporter list exported devices",
 			slog.String("op", string(HandshakeOpDevlist)),
 			slog.String("outcome", string(OutcomeHandshakeFailed)),
@@ -185,6 +194,12 @@ func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn)
 	}
 
 	err = e.codec.EncodeOpRepDevlist(conn, devs)
+
+	// Disarm the timeout after the write — success or failure. Leaving
+	// the watcher armed past this point would close a conn that has
+	// already finished its devlist exchange.
+	stopTimeout()
+
 	if err != nil {
 		e.logger.Warn("exporter encode devlist reply",
 			slog.String("op", string(HandshakeOpDevlist)),
