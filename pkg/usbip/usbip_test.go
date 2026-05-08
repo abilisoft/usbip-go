@@ -21,14 +21,14 @@ func TestTypeAliasesAreIdentical(t *testing.T) {
 		name      string
 		domain, u reflect.Type
 	}{
-		{"Device", reflect.TypeOf(domain.Device{}), reflect.TypeOf(usbip.Device{})},
-		{"Port", reflect.TypeOf(domain.Port{}), reflect.TypeOf(usbip.Port{})},
-		{"Session", reflect.TypeOf(domain.Session{}), reflect.TypeOf(usbip.Session{})},
-		{"RemoteEndpoint", reflect.TypeOf(domain.RemoteEndpoint{}), reflect.TypeOf(usbip.RemoteEndpoint{})},
-		{"BusID", reflect.TypeOf(domain.BusID("")), reflect.TypeOf(usbip.BusID(""))},
-		{"Speed", reflect.TypeOf(domain.Speed(0)), reflect.TypeOf(usbip.Speed(0))},
-		{"Status", reflect.TypeOf(domain.Status(0)), reflect.TypeOf(usbip.Status(0))},
-		{"PortID", reflect.TypeOf(domain.PortID(0)), reflect.TypeOf(usbip.PortID(0))},
+		{"Device", reflect.TypeFor[domain.Device](), reflect.TypeFor[usbip.Device]()},
+		{"Port", reflect.TypeFor[domain.Port](), reflect.TypeFor[usbip.Port]()},
+		{"Session", reflect.TypeFor[domain.Session](), reflect.TypeFor[usbip.Session]()},
+		{"RemoteEndpoint", reflect.TypeFor[domain.RemoteEndpoint](), reflect.TypeFor[usbip.RemoteEndpoint]()},
+		{"BusID", reflect.TypeFor[domain.BusID](), reflect.TypeFor[usbip.BusID]()},
+		{"Speed", reflect.TypeFor[domain.Speed](), reflect.TypeFor[usbip.Speed]()},
+		{"Status", reflect.TypeFor[domain.Status](), reflect.TypeFor[usbip.Status]()},
+		{"PortID", reflect.TypeFor[domain.PortID](), reflect.TypeFor[usbip.PortID]()},
 	}
 
 	for _, tc := range cases {
@@ -43,21 +43,28 @@ func TestTypeAliasesAreIdentical(t *testing.T) {
 
 // TestBusIDValuesInterchangeable proves that a value built via
 // usbip.BusID and another via domain.BusID are interchangeable at the
-// use site — not just the same reflect.Type.
+// use site — not just the same reflect.Type. A direct assignment in
+// either direction only compiles when both names resolve to the same
+// underlying type.
 func TestBusIDValuesInterchangeable(t *testing.T) {
 	t.Parallel()
 
-	var fromDomain domain.BusID = "1-1"
-	var fromUsbip usbip.BusID = "1-1"
-
-	// Direct assignment both directions must compile: only true when
-	// both names are aliases of the same underlying type.
-	fromDomain = fromUsbip
-	fromUsbip = fromDomain
-
-	require.Equal(t, "1-1", fromDomain.String())
-	require.Equal(t, "1-1", fromUsbip.String())
+	// A usbip.BusID literal assigns directly into a domain.BusID-typed
+	// variable with no explicit conversion. That only type-checks when
+	// the two names resolve to the same underlying type — the core
+	// alias guarantee. The explicit parameter type on accept forces
+	// the check at the call site.
+	require.Equal(t, "1-1", acceptDomainBusID(usbip.BusID("1-1")))
+	require.Equal(t, "1-1", acceptUsbipBusID(domain.BusID("1-1")))
 }
+
+// acceptDomainBusID returns b.String(). Accepting a domain.BusID-typed
+// parameter at the use site forces the aliasing check when the caller
+// passes a usbip.BusID.
+func acceptDomainBusID(b domain.BusID) string { return b.String() }
+
+// acceptUsbipBusID mirrors acceptDomainBusID with the roles swapped.
+func acceptUsbipBusID(b usbip.BusID) string { return b.String() }
 
 // TestEventInterfaceIsAliased proves usbip.Event is the same interface
 // type as domain.Event. A domain event value must satisfy usbip.Event
@@ -65,10 +72,18 @@ func TestBusIDValuesInterchangeable(t *testing.T) {
 func TestEventInterfaceIsAliased(t *testing.T) {
 	t.Parallel()
 
-	var ev domain.Event = domain.DeviceBoundEvent{}
+	// A domain.Event concrete value assigned into a usbip.Event-typed
+	// parameter only type-checks when the two are the same interface.
+	ev := domain.Event(domain.DeviceBoundEvent{})
 
-	var asUsbip usbip.Event = ev
-
-	require.NotNil(t, asUsbip)
-	require.Equal(t, domain.EventDeviceBound, asUsbip.EventKind())
+	require.Equal(t, domain.EventDeviceBound, acceptUsbipEvent(ev))
+	require.Equal(t,
+		reflect.TypeFor[usbip.Event](),
+		reflect.TypeFor[domain.Event](),
+		"usbip.Event must alias domain.Event")
 }
+
+// acceptUsbipEvent forces the parameter's type to usbip.Event so the
+// call site only type-checks when the caller's domain.Event value
+// satisfies usbip.Event — proving the interface identity.
+func acceptUsbipEvent(e usbip.Event) domain.EventKind { return e.EventKind() }

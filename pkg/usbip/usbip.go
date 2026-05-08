@@ -1,6 +1,14 @@
 package usbip
 
-import "github.com/abilisoft/usbip-go/pkg/domain"
+import (
+	"context"
+	"iter"
+	"net"
+	"time"
+
+	internalapp "github.com/abilisoft/usbip-go/internal/app"
+	"github.com/abilisoft/usbip-go/pkg/domain"
+)
 
 // Pure-data types are aliased to pkg/domain so consumers referencing
 // usbip.Device and domain.Device get the same type. Aliasing instead of
@@ -35,3 +43,149 @@ type (
 	// PortID identifies a vhci port numerically.
 	PortID = domain.PortID
 )
+
+// AttachOptions configures a single Importer.Attach call. All fields
+// are optional; zero values produce the documented defaults.
+type AttachOptions struct {
+	// AutoReconnect enables the reconnect watcher. When true, Attach
+	// spawns a watcher goroutine that re-establishes the attach after
+	// uevent- or poll-detected detach.
+	AutoReconnect bool
+
+	// Backoff computes delays between reconnect attempts. nil selects
+	// the library default of ExponentialBackoff{Min:1s, Max:60s, Jitter:0.2}.
+	Backoff BackoffStrategy
+
+	// MaxAttempts caps the number of reconnect retries. Zero means
+	// infinite.
+	MaxAttempts int
+
+	// OnReconnect is invoked before every retry with the 1-indexed
+	// attempt number and the error that triggered the retry. nil
+	// disables the callback. Panics from the callback are recovered
+	// and logged via the Importer's logger.
+	OnReconnect func(attempt int, err error)
+
+	// StatusPollInterval controls the backstop poll period. Zero picks
+	// up the library default (5 seconds); a negative value disables
+	// polling entirely.
+	StatusPollInterval time.Duration
+}
+
+// toInternal translates the public AttachOptions shape to the internal
+// app.AttachOptions. Centralising the translation keeps the public
+// shape decoupled from internal evolutions.
+func (a AttachOptions) toInternal() internalapp.AttachOptions {
+	return internalapp.AttachOptions{
+		AutoReconnect:      a.AutoReconnect,
+		Backoff:            backoffToInternal(a.Backoff),
+		MaxAttempts:        a.MaxAttempts,
+		OnReconnect:        a.OnReconnect,
+		StatusPollInterval: a.StatusPollInterval,
+	}
+}
+
+// Importer is the public wrapper around internalapp.Importer. Method
+// bodies forward after argument translation so the internal shape can
+// evolve without breaking consumers. Construct via NewImporter; the
+// zero value is not usable.
+type Importer struct {
+	inner *internalapp.Importer
+}
+
+// NewImporter constructs an Importer backed by the default Linux
+// kernel, uevent, transport, and codec adapters. Options apply in
+// declaration order; the last option wins for any field. Non-Linux
+// callers receive ErrKernelModuleMissing — adapter injection is
+// deliberately hidden from the public surface (spec §5.7).
+func NewImporter(opts ...ImporterOption) (*Importer, error) {
+	return newDefaultImporter(opts)
+}
+
+// ListRemote dials endpoint and returns its device list.
+func (i *Importer) ListRemote(ctx context.Context, r RemoteEndpoint) ([]Device, error) {
+	return i.inner.ListRemote(ctx, r)
+}
+
+// Attach runs the USB/IP import handshake for busID at r and returns
+// the attached Port. AttachOptions is translated to the internal form
+// before forwarding.
+func (i *Importer) Attach(ctx context.Context, r RemoteEndpoint, busID BusID, opts AttachOptions) (Port, error) {
+	return i.inner.Attach(ctx, r, busID, opts.toInternal())
+}
+
+// Detach tears down a previously-attached port.
+func (i *Importer) Detach(ctx context.Context, id PortID) error {
+	return i.inner.Detach(ctx, id)
+}
+
+// ListPorts returns the kernel's view of currently-attached ports.
+func (i *Importer) ListPorts(ctx context.Context) ([]Port, error) {
+	return i.inner.ListPorts(ctx)
+}
+
+// Watch returns an iter.Seq yielding domain events while ctx is live.
+// Iteration terminates when the upstream source closes, ctx is
+// cancelled, or yield returns false.
+func (i *Importer) Watch(ctx context.Context) iter.Seq[Event] {
+	return i.inner.Watch(ctx)
+}
+
+// Close cancels every active port handle, drains background goroutines,
+// and marks the Importer closed. Idempotent via the internal sync.Once.
+func (i *Importer) Close() error {
+	return i.inner.Close()
+}
+
+// Exporter is the public wrapper around internalapp.Exporter. Method
+// bodies forward after argument translation. Construct via NewExporter;
+// the zero value is not usable.
+type Exporter struct {
+	inner *internalapp.Exporter
+}
+
+// NewExporter constructs an Exporter backed by the default Linux
+// kernel, uevent, transport, and codec adapters. Options apply in
+// declaration order. Non-Linux callers receive ErrKernelModuleMissing.
+func NewExporter(opts ...ExporterOption) (*Exporter, error) {
+	return newDefaultExporter(opts)
+}
+
+// ListAvailable enumerates locally-exportable devices.
+func (e *Exporter) ListAvailable(ctx context.Context) ([]Device, error) {
+	return e.inner.ListAvailable(ctx)
+}
+
+// Bind makes a local device exportable (binds usbip-host).
+func (e *Exporter) Bind(ctx context.Context, busID BusID) error {
+	return e.inner.Bind(ctx, busID)
+}
+
+// Unbind returns a previously-bound device to its original driver.
+func (e *Exporter) Unbind(ctx context.Context, busID BusID) error {
+	return e.inner.Unbind(ctx, busID)
+}
+
+// Serve runs the accept loop until ctx is cancelled or the listener
+// returns a permanent error.
+func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
+	return e.inner.Serve(ctx, listener)
+}
+
+// Sessions returns a snapshot of currently-accepted sessions, sorted
+// by start time.
+func (e *Exporter) Sessions(ctx context.Context) []Session {
+	return e.inner.Sessions(ctx)
+}
+
+// WatchSessions returns an iter.Seq yielding SessionStartedEvent and
+// SessionEndedEvent values while ctx is live.
+func (e *Exporter) WatchSessions(ctx context.Context) iter.Seq[Event] {
+	return e.inner.WatchSessions(ctx)
+}
+
+// Shutdown stops accepting new connections and drains in-flight
+// sessions bounded by the provided ctx deadline.
+func (e *Exporter) Shutdown(ctx context.Context) error {
+	return e.inner.Shutdown(ctx)
+}
