@@ -14,7 +14,7 @@ import (
 // LISTEN_* env vars, listenOrActivation falls back to a plain TCP
 // listen on cfg.Listen.
 func TestListenOrActivationFallsBackWhenNoEnv(t *testing.T) {
-	t.Parallel()
+	// t.Setenv incompatible with t.Parallel — env is process state.
 
 	// Setenv with empty values to ensure inheritance from parent doesn't
 	// accidentally trigger the activation path.
@@ -40,7 +40,7 @@ func TestListenOrActivationFallsBackWhenNoEnv(t *testing.T) {
 // library's LISTEN_PID check — a PID pointing elsewhere must not be
 // consumed. listenOrActivation must fall back to plain listen.
 func TestListenOrActivationIgnoresMismatchedPID(t *testing.T) {
-	t.Parallel()
+	// t.Setenv incompatible with t.Parallel.
 
 	// PID 1 is init; our tests never run as PID 1.
 	t.Setenv("LISTEN_PID", "1")
