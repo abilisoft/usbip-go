@@ -3,6 +3,7 @@ package usbip
 import (
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	internalapp "github.com/abilisoft/usbip-go/internal/app"
@@ -83,6 +84,8 @@ func (cfg ExponentialBackoffConfig) Validate() error {
 		return fmt.Errorf("%w: Max %s must be non-negative", errExponentialBackoffConfig, cfg.Max)
 	case cfg.Max < cfg.Min:
 		return fmt.Errorf("%w: Max %s is below Min %s", errExponentialBackoffConfig, cfg.Max, cfg.Min)
+	case math.IsNaN(cfg.Jitter):
+		return fmt.Errorf("%w: Jitter must not be NaN", errExponentialBackoffConfig)
 	case cfg.Jitter < 0 || cfg.Jitter >= 1:
 		return fmt.Errorf("%w: Jitter %g must be in [0, 1)", errExponentialBackoffConfig, cfg.Jitter)
 	}
