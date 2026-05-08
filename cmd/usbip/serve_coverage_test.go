@@ -4,7 +4,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -269,4 +271,30 @@ func TestIsStderrTTYReturnsBool(t *testing.T) {
 	t.Parallel()
 
 	_ = isStderrTTY()
+}
+
+// TestLogServeStartupCarriesBuildProvenance pins that the daemon's
+// first slog record exposes every build-provenance field operators
+// rely on for "which binary ran this session?" journald queries.
+// A regression that strips the -ldflags stamping or removes a field
+// from logServeStartup would silently lose that observability;
+// asserting field presence here surfaces the regression in CI.
+func TestLogServeStartupCarriesBuildProvenance(t *testing.T) {
+	t.Parallel()
+
+	buf := &bytes.Buffer{}
+	log := slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	logServeStartup(log)
+
+	var rec map[string]any
+
+	err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &rec)
+	require.NoError(t, err, "startup log must be a JSON record; got %s", buf.String())
+	require.Equal(t, "usbip serve starting", rec["msg"])
+
+	for _, key := range []string{"version", "commit", "build_date", "go_version"} {
+		_, ok := rec[key]
+		require.Truef(t, ok, "startup log missing %q field; record=%v", key, rec)
+	}
 }

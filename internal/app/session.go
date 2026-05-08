@@ -284,17 +284,14 @@ func (e *Exporter) serveImport(
 }
 
 // classifySessionDeclineOutcome maps a registerSession failure to the
-// closed SessionOutcome set. ErrACLRejected, ErrRateLimited, and the
-// MaxSessions / per-peer caps are domain sentinels exposed by the
-// registration path; anything else falls through to handshake_failed
-// so the closed-set contract is preserved.
+// closed SessionOutcome set. The cap sentinels are the only errors
+// registerSession can return at the failure branch this helper feeds;
+// ACL and rate-limit declines happen earlier in acceptLoop, before
+// registerSession runs, and emit OutcomeRejectedACL / OutcomeRejectedRate
+// directly at those sites in exporter.go. Anything else falls through
+// to handshake_failed so the closed-set contract is preserved.
 func classifySessionDeclineOutcome(err error) SessionOutcome {
-	switch {
-	case errors.Is(err, ErrACLRejected):
-		return OutcomeRejectedACL
-	case errors.Is(err, ErrRateLimited):
-		return OutcomeRejectedRate
-	case errors.Is(err, ErrMaxSessionsExceeded), errors.Is(err, ErrPerPeerLimitExceeded):
+	if errors.Is(err, ErrMaxSessionsExceeded) || errors.Is(err, ErrPerPeerLimitExceeded) {
 		return OutcomeRejectedCap
 	}
 
