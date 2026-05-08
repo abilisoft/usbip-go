@@ -162,6 +162,39 @@ func TestWithExporterMetricsRegistererStores(t *testing.T) {
 	require.Same(t, reg, cfg.MetricsRegistererForTest())
 }
 
+// TestWithExporterBuildInfoStores proves the build-info option stores
+// the version / commit / goVersion triple on the public config. The
+// downstream consumer is internal/app Exporter construction, which
+// stamps the usbip_build_info gauge at that point (Finding 7); the
+// public field is stable across that wiring.
+func TestWithExporterBuildInfoStores(t *testing.T) {
+	t.Parallel()
+
+	cfg := usbip.NewExporterConfigForTest(
+		usbip.WithExporterBuildInfo("v1.2.3", "abcdef", "go1.26"))
+
+	bi := cfg.BuildInfoForTest()
+	require.Equal(t, "v1.2.3", bi.Version)
+	require.Equal(t, "abcdef", bi.Commit)
+	require.Equal(t, "go1.26", bi.GoVersion)
+}
+
+// TestWithExporterBuildInfoZeroIsNoop proves the unset (zero-value)
+// option case. exporterConfigToInternal must skip the build-info
+// internal option when every label is empty so a caller that never
+// invoked WithExporterBuildInfo does not end up clobbering an
+// existing stamp with blanks.
+func TestWithExporterBuildInfoZeroIsNoop(t *testing.T) {
+	t.Parallel()
+
+	cfg := usbip.NewExporterConfigForTest()
+
+	bi := cfg.BuildInfoForTest()
+	require.Empty(t, bi.Version)
+	require.Empty(t, bi.Commit)
+	require.Empty(t, bi.GoVersion)
+}
+
 // TestExporterOptionTypeIsFunc pins the public ExporterOption shape.
 func TestExporterOptionTypeIsFunc(t *testing.T) {
 	t.Parallel()
