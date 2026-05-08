@@ -125,6 +125,27 @@ func TestTranslateInternalErrCovers(t *testing.T) {
 	)
 }
 
+// TestFacadeAttachInProgressIsPublicallyMatchable proves the pass-2
+// RANK 6 fix. The internal acquireAttachSlot rejects concurrent
+// Attach calls for the same (remote, busid) with ErrAttachInProgress;
+// the public facade MUST expose an errors.Is-compatible sentinel so
+// callers can classify the rejection without reaching into
+// internal/app.
+func TestFacadeAttachInProgressIsPublicallyMatchable(t *testing.T) {
+	t.Parallel()
+
+	require.Error(t, usbip.ErrAttachInProgress,
+		"usbip.ErrAttachInProgress must be declared as a public sentinel")
+
+	require.ErrorIs(t,
+		internalapp.ErrAttachInProgress,
+		usbip.ErrAttachInProgress,
+		"internal/app.ErrAttachInProgress must match against the "+
+			"public facade's usbip.ErrAttachInProgress so consumers "+
+			"can classify concurrent-Attach rejection without "+
+			"importing internal/app")
+}
+
 // TestExporterServeAfterShutdownYieldsPublicSentinel mirrors the
 // importer case for Serve post-Shutdown: the public facade must return
 // a public sentinel (usbip.ErrExporterShutdown) not the internal
