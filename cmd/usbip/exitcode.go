@@ -101,7 +101,9 @@ func MapError(err error) int {
 
 // FormatError renders err as the single-line `usbip: ...` stderr message
 // prescribed by spec §7.4. The returned string has no trailing newline
-// (callers pick the newline policy).
+// (callers pick the newline policy) and no embedded newlines either —
+// errors.Join renders its members newline-separated, so any interior
+// newline in the detail text is collapsed to "; " before formatting.
 func FormatError(err error) string {
 	if err == nil {
 		return ""
@@ -110,7 +112,7 @@ func FormatError(err error) string {
 	// Usage errors are handled by cobra directly; we return the raw
 	// error message verbatim to match "we do not override" in §7.4.
 	if isUsageError(err) {
-		return err.Error()
+		return flattenErrorText(err.Error())
 	}
 
 	for _, entry := range errorRegistry() {
@@ -119,7 +121,7 @@ func FormatError(err error) string {
 		}
 
 		if strings.Contains(entry.format, "%s") {
-			return fmt.Sprintf(entry.format, err)
+			return fmt.Sprintf(entry.format, flattenErrorText(err.Error()))
 		}
 
 		return entry.format
@@ -127,10 +129,22 @@ func FormatError(err error) string {
 
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		return fmt.Sprintf("usbip: network error: %s", err)
+		return "usbip: network error: " + flattenErrorText(err.Error())
 	}
 
-	return fmt.Sprintf("usbip: error: %s", err)
+	return "usbip: error: " + flattenErrorText(err.Error())
+}
+
+// flattenErrorText collapses any embedded newlines in s into "; ". Used
+// by FormatError to defend the one-line stderr contract against
+// errors.Join chains whose Error() returns newline-separated members.
+func flattenErrorText(s string) string {
+	// Normalize CRLF first so a Windows-style line separator produces
+	// one delimiter, not two.
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+
+	return strings.ReplaceAll(s, "\n", "; ")
 }
 
 // isUsageError detects the cobra usage-error class. Cobra wraps flag
