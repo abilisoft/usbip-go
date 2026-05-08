@@ -142,14 +142,14 @@ func encodeInterfaces(w io.Writer, d domain.Device) error {
 //   - Truncated mid-interface / declared interface count exceeds
 //     remaining bytes → io.ErrUnexpectedEOF wrapped with
 //     "truncated interfaces".
-func DecodeOpRepDevlist(r io.Reader) ([]domain.Device, bool, error) {
+func DecodeOpRepDevlist(r io.Reader) ([]domain.Device, DecodeFlags, error) {
 	_, op, _, err := DecodeHeader(r)
 	if err != nil {
-		return nil, false, err
+		return nil, DecodeFlags{}, err
 	}
 
 	if op != OpRepDevlist {
-		return nil, false, fmt.Errorf("%w: expected OP_REP_DEVLIST got 0x%04x",
+		return nil, DecodeFlags{}, fmt.Errorf("%w: expected OP_REP_DEVLIST got 0x%04x",
 			domain.ErrProtocolMismatch, uint16(op))
 	}
 
@@ -157,7 +157,7 @@ func DecodeOpRepDevlist(r io.Reader) ([]domain.Device, bool, error) {
 
 	_, err = io.ReadFull(r, countBuf)
 	if err != nil {
-		return nil, false, wrapUnexpectedEOF("read devlist count", err)
+		return nil, DecodeFlags{}, wrapUnexpectedEOF("read devlist count", err)
 	}
 
 	count := binary.BigEndian.Uint32(countBuf)
@@ -167,7 +167,7 @@ func DecodeOpRepDevlist(r io.Reader) ([]domain.Device, bool, error) {
 	// trigger a makeslice panic (or in the best case a multi-GB
 	// allocation).
 	if count > MaxDevlistDevices {
-		return nil, false, fmt.Errorf("%w: devlist count %d exceeds cap %d",
+		return nil, DecodeFlags{}, fmt.Errorf("%w: devlist count %d exceeds cap %d",
 			domain.ErrProtocolMismatch, count, MaxDevlistDevices)
 	}
 
@@ -177,44 +177,78 @@ func DecodeOpRepDevlist(r io.Reader) ([]domain.Device, bool, error) {
 		br = bufio.NewReader(r)
 	}
 
-	devices, err := decodeDevlistBody(br, count)
+	devices, flags, err := decodeDevlistBody(br, count)
 	if err != nil {
-		return nil, false, err
+		return nil, DecodeFlags{}, err
 	}
 
-	return devices, hasTrailingBytes(br), nil
+	flags.TrailingBytes = hasTrailingBytes(br)
+
+	return devices, flags, nil
 }
 
 // decodeDevlistBody reads exactly count devices, each followed by its
-// interface descriptors.
-func decodeDevlistBody(r io.Reader, count uint32) ([]domain.Device, error) {
+// interface descriptors. Per-device truncation flags are merged into
+// the returned DecodeFlags with DeviceIndex set to the in-slice
+// position of each device.
+func decodeDevlistBody(r io.Reader, count uint32) ([]domain.Device, DecodeFlags, error) {
+	var flags DecodeFlags
+
 	if count == 0 {
-		return nil, nil
+		return nil, flags, nil
 	}
 
 	devices := make([]domain.Device, 0, count)
 
 	for i := range count {
-		dev, err := DecodeDevice(r)
+		dev, devFlags, err := decodeDevlistDeviceAt(r, i)
 		if err != nil {
-			if errors.Is(err, io.ErrUnexpectedEOF) {
-				return nil, fmt.Errorf("%w: truncated devlist at index %d: %w",
-					errDevlistTruncated, i, io.ErrUnexpectedEOF)
-			}
-
-			return nil, fmt.Errorf("decode device at index %d: %w", i, err)
+			return nil, DecodeFlags{}, err
 		}
 
-		intfs, err := decodeInterfaces(r, dev.NumInterfaces)
-		if err != nil {
-			return nil, err
-		}
+		mergeDeviceTruncationFlags(&flags, devFlags, int(i))
 
-		dev.Interfaces = intfs
 		devices = append(devices, dev)
 	}
 
-	return devices, nil
+	return devices, flags, nil
+}
+
+// decodeDevlistDeviceAt decodes one device + its interface list,
+// classifying a truncated decode as errDevlistTruncated-wrapped so
+// the caller can distinguish it from a well-formed device whose own
+// padded-string fields simply were not NUL-terminated.
+func decodeDevlistDeviceAt(r io.Reader, idx uint32) (domain.Device, DecodeFlags, error) {
+	dev, devFlags, err := DecodeDevice(r)
+	if err != nil {
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			return domain.Device{}, DecodeFlags{},
+				fmt.Errorf("%w: truncated devlist at index %d: %w",
+					errDevlistTruncated, idx, io.ErrUnexpectedEOF)
+		}
+
+		return domain.Device{}, DecodeFlags{},
+			fmt.Errorf("decode device at index %d: %w", idx, err)
+	}
+
+	intfs, err := decodeInterfaces(r, dev.NumInterfaces)
+	if err != nil {
+		return domain.Device{}, DecodeFlags{}, err
+	}
+
+	dev.Interfaces = intfs
+
+	return dev, devFlags, nil
+}
+
+// mergeDeviceTruncationFlags copies every truncation entry from src
+// into dst with DeviceIndex rewritten to idx. Split out to keep
+// decodeDevlistBody under the project's cognitive-complexity cap.
+func mergeDeviceTruncationFlags(dst *DecodeFlags, src DecodeFlags, idx int) {
+	for _, trunc := range src.TruncatedPaddedStrings {
+		trunc.DeviceIndex = idx
+		dst.TruncatedPaddedStrings = append(dst.TruncatedPaddedStrings, trunc)
+	}
 }
 
 // decodeInterfaces reads count interface descriptors from r.
