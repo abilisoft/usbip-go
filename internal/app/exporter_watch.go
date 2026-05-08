@@ -5,6 +5,7 @@ import (
 	"iter"
 	"log/slog"
 	"sort"
+	"sync"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
@@ -15,11 +16,22 @@ import (
 // fan-out semantics in spec §5.1.
 const sessionEventBufSize = 16
 
-// sessionEventSubscriber is one active WatchSessions consumer. ch is
-// closed exactly once when the subscriber is removed (ctx cancel or
-// Shutdown).
+// sessionEventSubscriber is one active WatchSessions consumer. done is
+// closed exactly once by removeSubscriber or closeAllSubscribers to
+// signal the iterator that no more events will arrive. ch is
+// deliberately NOT closed from unsubscribe paths — the publish-side
+// select on ch vs done would otherwise race a removeSubscriber close
+// and panic with send-on-closed-channel.
 type sessionEventSubscriber struct {
-	ch chan domain.Event
+	ch       chan domain.Event
+	done     chan struct{}
+	doneOnce sync.Once
+}
+
+// closeDone signals the subscriber as removed exactly once. Safe to
+// call from any goroutine.
+func (s *sessionEventSubscriber) closeDone() {
+	s.doneOnce.Do(func() { close(s.done) })
 }
 
 // Sessions returns a snapshot of the currently-accepted sessions,
@@ -60,7 +72,8 @@ func (e *Exporter) WatchSessions(ctx context.Context) iter.Seq[domain.Event] {
 	}
 
 	sub := &sessionEventSubscriber{
-		ch: make(chan domain.Event, sessionEventBufSize),
+		ch:   make(chan domain.Event, sessionEventBufSize),
+		done: make(chan struct{}),
 	}
 
 	e.subscribers = append(e.subscribers, sub)
@@ -71,22 +84,20 @@ func (e *Exporter) WatchSessions(ctx context.Context) iter.Seq[domain.Event] {
 		e.removeSubscriber(sub)
 	}
 
-	return newEventSeq(ctx, sub.ch, remove)
+	return newSessionEventSeq(ctx, sub, remove)
 }
 
-// removeSubscriber drops sub from the subscriber list and closes its
-// channel exactly once. The close-once semantics are enforced by the
-// presence check: a subscriber only appears in the slice once, so the
-// second remove call finds nothing to close.
+// removeSubscriber drops sub from the subscriber list and signals the
+// iterator via sub.done. The event channel is NOT closed here: closing
+// it would race a concurrent publishSessionEvent send. Instead the
+// publish path selects on sub.done and skips subscribers that have
+// unsubscribed.
 func (e *Exporter) removeSubscriber(sub *sessionEventSubscriber) {
 	e.mu.Lock()
-
-	found := false
 
 	for i, s := range e.subscribers {
 		if s == sub {
 			e.subscribers = append(e.subscribers[:i], e.subscribers[i+1:]...)
-			found = true
 
 			break
 		}
@@ -94,20 +105,20 @@ func (e *Exporter) removeSubscriber(sub *sessionEventSubscriber) {
 
 	e.mu.Unlock()
 
-	if found {
-		close(sub.ch)
-	}
+	sub.closeDone()
 }
 
 // publishSessionEvent fans ev out to every live WatchSessions
 // subscriber. Slow consumers drop the event (logged) so one stuck
-// watcher cannot stall the session state machine.
+// watcher cannot stall the session state machine. Sends are guarded
+// by a select on sub.done so a concurrent removeSubscriber is observed
+// as "subscriber gone" instead of racing the channel close.
 func (e *Exporter) publishSessionEvent(ev domain.Event) {
 	e.mu.RLock()
 
 	// Copy the slice under the read lock so publish runs without
-	// holding it; a concurrent removeSubscriber can then close the
-	// channel safely without racing a blocking send.
+	// holding it; concurrent subscribe/unsubscribe churn then cannot
+	// block the session state machine.
 	subs := make([]*sessionEventSubscriber, len(e.subscribers))
 	copy(subs, e.subscribers)
 
@@ -115,6 +126,8 @@ func (e *Exporter) publishSessionEvent(ev domain.Event) {
 
 	for _, sub := range subs {
 		select {
+		case <-sub.done:
+			// Subscriber already torn down; skip without logging.
 		case sub.ch <- ev:
 		default:
 			e.logger.Debug("exporter session event dropped (slow consumer)",
@@ -123,10 +136,10 @@ func (e *Exporter) publishSessionEvent(ev domain.Event) {
 	}
 }
 
-// closeAllSubscribers drops every remaining subscriber and closes
-// their channels. Called by Shutdown so WatchSessions iters exit
-// after drain. Each removeSubscriber handles its own closeOnce
-// guarantee via the slice lookup.
+// closeAllSubscribers drops every remaining subscriber and signals
+// them via done. Called by Shutdown so WatchSessions iters exit after
+// drain. The event channels stay open for the lifetime of the
+// Exporter — the iterator loop terminates on sub.done independently.
 func (e *Exporter) closeAllSubscribers() {
 	e.mu.Lock()
 
@@ -137,6 +150,35 @@ func (e *Exporter) closeAllSubscribers() {
 	e.mu.Unlock()
 
 	for _, sub := range subs {
-		close(sub.ch)
+		sub.closeDone()
+	}
+}
+
+// newSessionEventSeq returns an iter.Seq that yields events from sub.ch
+// until ctx is cancelled, sub.done fires, or yield returns false. The
+// remove callback is invoked on exit so the subscriber is dropped from
+// the Exporter's list. Unlike newEventSeq (used by the Importer), this
+// variant terminates on sub.done rather than on channel close — the
+// publish path never closes sub.ch to avoid the send-on-closed race.
+func newSessionEventSeq(
+	ctx context.Context,
+	sub *sessionEventSubscriber,
+	remove func(),
+) iter.Seq[domain.Event] {
+	return func(yield func(domain.Event) bool) {
+		defer remove()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-sub.done:
+				return
+			case ev := <-sub.ch:
+				if !yield(ev) {
+					return
+				}
+			}
+		}
 	}
 }
