@@ -389,6 +389,64 @@ func TestListen_CloseDoesNotDeadlockAfterCtxCancel(t *testing.T) {
 	}
 }
 
+// TestDial_CancelRaceInvariant runs many concurrent dial+cancel races
+// to protect against a future refactor accidentally leaking a
+// raced-successful conn when ctx cancels just after the TCP handshake
+// completes. The tested invariant: Dial returns either a live conn
+// (caller owns Close) or an error with no conn — never both, never
+// neither. Extends the existing pre-cancel coverage
+// (TestDial_ContextCancelPreDial) into the actual race window that
+// net.Dialer.DialContext must handle correctly.
+func TestDial_CancelRaceInvariant(t *testing.T) {
+	t.Parallel()
+
+	ln, ep := localListener(t)
+
+	srvDone := make(chan struct{})
+
+	go func() {
+		defer close(srvDone)
+
+		for {
+			c, aerr := ln.Accept()
+			if aerr != nil {
+				return
+			}
+
+			_ = c.Close()
+		}
+	}()
+
+	defer func() {
+		_ = ln.Close()
+
+		<-srvDone
+	}()
+
+	tr := transport.New()
+
+	const iters = 100
+
+	for range iters {
+		ctx, cancel := context.WithCancel(t.Context())
+
+		go cancel()
+
+		conn, err := tr.Dial(ctx, ep)
+
+		switch {
+		case conn != nil:
+			require.NoError(t, err, "conn non-nil must imply err nil")
+
+			_ = conn.Close()
+		case err != nil:
+			// Cancelled before or during handshake; acceptable.
+		default:
+			t.Fatal("both conn and err are nil")
+		}
+	}
+}
+
 // captureHandler collects every slog.Record it handles, mirroring the
 // pattern in internal/adapter/wire/codec_test.go.
 type captureHandler struct {
