@@ -130,6 +130,15 @@ func driverPath(driver, attr string) string {
 // /sys/bus/usb/devices/<iface>/driver and takes its basename. MapFS
 // cannot emit symlinks so tests stage a driver_name text file instead;
 // we consult both in order.
+//
+// Error-distinction contract (spec §6.4 + §4.4):
+//   - Interface directory missing → ErrDeviceNotFound (via classifyErrno
+//     in the sysfs read helpers).
+//   - Interface directory present, but no driver attachment (neither
+//     driver_name file nor driver symlink) → ErrDeviceNotBound. The
+//     device exists; it just is not bound to any driver.
+//   - Both paths' reads fail with unexpected (non-ENOENT) errno →
+//     surface verbatim.
 func (a *ExporterAdapter) currentDriver(iface string) (string, error) {
 	ifaceDir := path.Join(SysfsUSBDevices, iface)
 
@@ -139,25 +148,38 @@ func (a *ExporterAdapter) currentDriver(iface string) (string, error) {
 	// drivers registered with a usb_driver{.name=...} record.
 	nameFile := path.Join(ifaceDir, "driver", ifaceDriverNameFile)
 
-	name, err := ReadLine(a.fs, nameFile)
-	if err == nil && name != "" {
+	name, nameErr := ReadLine(a.fs, nameFile)
+	if nameErr == nil && name != "" {
 		return name, nil
 	}
 
 	// Fallback: probe the symlink target directly by reading it as a
 	// file (production sysfs only — MapFS does not support this).
-	// ReadlinkFS is the stdlib 1.26 interface; if fsys is OS-backed we
+	// ReadLinkFS is the stdlib 1.26 interface; if fsys is OS-backed we
 	// try it via the rlFS interface.
-	link, rerr := readLink(a.fs, path.Join(ifaceDir, "driver"))
-	if rerr == nil && link != "" {
+	link, linkErr := readLink(a.fs, path.Join(ifaceDir, "driver"))
+	if linkErr == nil && link != "" {
 		return path.Base(link), nil
 	}
 
-	if err != nil {
-		return "", err
+	// Both lookups failed. Distinguish "device missing entirely" from
+	// "device present but unbound" by asking whether the interface
+	// directory itself exists. If it does, the absent driver paths
+	// mean the device is unbound, so return ErrDeviceNotBound; the
+	// caller (Bind) can interpret that however it needs. If the
+	// interface directory is missing too, the lookup error is
+	// authoritative and we surface it (already wraps
+	// ErrDeviceNotFound).
+	_, statErr := fs.Stat(a.fs, fsPathFromAbs(ifaceDir))
+	if statErr == nil {
+		return "", fmt.Errorf("%w: no driver attached to %s", domain.ErrDeviceNotBound, iface)
 	}
 
-	return "", fmt.Errorf("%w: no current driver for %s", domain.ErrDeviceNotBound, iface)
+	if nameErr != nil {
+		return "", nameErr
+	}
+
+	return "", fmt.Errorf("%w: %s", domain.ErrDeviceNotFound, iface)
 }
 
 // readLink reads a symlink through fsys when the fs.FS implementation
