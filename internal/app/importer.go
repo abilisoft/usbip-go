@@ -678,7 +678,8 @@ func (i *Importer) finishAttach(
 	devID domain.DeviceID,
 	opts AttachOptions,
 ) (domain.Port, error) {
-	h, err := i.registerHandle(portID, busID, endpoint, resolveShutdownTimeout(opts.ShutdownTimeout))
+	h, err := i.registerHandle(portID, busID, endpoint,
+		resolveShutdownTimeout(opts.ShutdownTimeout), opts.AutoReconnect)
 	if err != nil {
 		i.metrics.ImporterAttached(AttachOutcomeKernelError)
 
@@ -746,6 +747,7 @@ func (i *Importer) registerHandle(
 	busID domain.BusID,
 	endpoint domain.RemoteEndpoint,
 	shutdownTimeout time.Duration,
+	autoReconnect bool,
 ) (*portHandle, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -766,6 +768,15 @@ func (i *Importer) registerHandle(
 		remote:          endpoint,
 		generation:      i.nextGen,
 		shutdownTimeout: shutdownTimeout,
+	}
+
+	// Initialise the watcher-done channel under mu so Detach (which
+	// acquires mu before reading the handle) never races the write.
+	// Non-AutoReconnect handles leave watcherDone nil; the watcher
+	// goroutine, when spawned, closes the channel on exit so Detach's
+	// bounded wait unblocks immediately.
+	if autoReconnect {
+		h.watcherDone = make(chan struct{})
 	}
 
 	i.handles[id] = h

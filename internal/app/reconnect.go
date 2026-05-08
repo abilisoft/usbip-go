@@ -67,8 +67,9 @@ func (i *Importer) spawnReconnectWatcher(
 	busID domain.BusID,
 	opts AttachOptions,
 ) {
-	h.watcherDone = make(chan struct{})
-
+	// watcherDone is allocated under mu inside registerHandle when
+	// AutoReconnect is set, so the channel is already published to
+	// every future Detach before this goroutine runs.
 	params := reconnectParams{
 		handle:   h,
 		portID:   portID,

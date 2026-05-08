@@ -42,7 +42,7 @@ func TestImporterAttachDetachWatcherDoneRaceFree(t *testing.T) {
 
 	const iterations = 500
 
-	for i := 0; i < iterations; i++ {
+	for range iterations {
 		// Pre-compute the port id this iteration's AttachRemote will
 		// return so the Detach goroutine can race the publication.
 		targetID := domain.PortID(nextID.Load() + 1)
