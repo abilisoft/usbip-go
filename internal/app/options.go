@@ -56,6 +56,61 @@ func WithImporterLogger(l *slog.Logger) ImporterOption {
 	return func(c *importerConfig) { c.logger = l }
 }
 
+// ExporterOption configures an Exporter at construction time. Apply
+// options by passing them to NewExporter; options mutate an internal
+// config struct in declaration order so the last option wins for any
+// field. The split from ImporterOption (not a unified Option type) is
+// deliberate per spec §9.3: a unified type would let WithMaxSessions
+// compile against an Importer, which is a typed programming error.
+type ExporterOption func(*exporterConfig)
+
+// exporterConfig is the mutable bag of dependencies and limits that
+// option functions populate. Exposed to tests via option setters; never
+// returned from a public API. Fields added in later batches (resource
+// limits, ACL allow-list) live alongside the required dependencies so
+// the struct shape is stable across the phase.
+type exporterConfig struct {
+	kernel    ExporterKernel
+	events    KernelEvents
+	transport Transport
+	codec     ProtocolCodec
+	clock     Clock
+	logger    *slog.Logger
+}
+
+// WithExporterKernel injects the kernel-side adapter (usbip_host
+// surface). Required — NewExporter fails fast if left nil.
+func WithExporterKernel(k ExporterKernel) ExporterOption {
+	return func(c *exporterConfig) { c.kernel = k }
+}
+
+// WithExporterEvents injects the shared uevent source. Required.
+func WithExporterEvents(e KernelEvents) ExporterOption {
+	return func(c *exporterConfig) { c.events = e }
+}
+
+// WithExporterTransport injects the TCP transport. Required.
+func WithExporterTransport(t Transport) ExporterOption {
+	return func(c *exporterConfig) { c.transport = t }
+}
+
+// WithExporterCodec injects the USBIP wire codec. Required.
+func WithExporterCodec(p ProtocolCodec) ExporterOption {
+	return func(c *exporterConfig) { c.codec = p }
+}
+
+// WithExporterClock injects the Clock used for handshake timeouts and
+// drain deadlines. Defaults to RealClock when unspecified.
+func WithExporterClock(clk Clock) ExporterOption {
+	return func(c *exporterConfig) { c.clock = clk }
+}
+
+// WithExporterLogger injects the structured logger. Defaults to
+// slog.Default() when unspecified.
+func WithExporterLogger(l *slog.Logger) ExporterOption {
+	return func(c *exporterConfig) { c.logger = l }
+}
+
 // AttachOptions configures a single Importer.Attach call. All fields
 // are optional; zero values produce the documented defaults.
 type AttachOptions struct {
