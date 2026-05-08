@@ -159,3 +159,42 @@ func TestBackoffStrategyInterfaceSatisfied(t *testing.T) {
 
 	s.Reset()
 }
+
+// TestFixedBackoffResetIsNoop pins the per-doc contract: FixedBackoff
+// has no per-attempt state (Next(attempt) = Delay for every attempt),
+// so Reset is a no-op. The test calls Reset and verifies subsequent
+// Next calls return the same Delay.
+func TestFixedBackoffResetIsNoop(t *testing.T) {
+	t.Parallel()
+
+	b := app.FixedBackoff{Delay: 250 * time.Millisecond}
+
+	require.Equal(t, 250*time.Millisecond, b.Next(0))
+	require.Equal(t, 250*time.Millisecond, b.Next(5))
+
+	b.Reset()
+
+	require.Equal(t, 250*time.Millisecond, b.Next(0))
+	require.Equal(t, 250*time.Millisecond, b.Next(5))
+}
+
+// TestExponentialBackoffResetIsNoop locks the same contract for the
+// exponential variant: Next is a pure function of attempt, so Reset
+// must not change behavior. The test exercises Reset twice in a row
+// to also pin idempotency.
+func TestExponentialBackoffResetIsNoop(t *testing.T) {
+	t.Parallel()
+
+	b := app.NewExponentialBackoff(app.ExponentialBackoffConfig{
+		Min: time.Second,
+		Max: time.Minute,
+	})
+
+	beforeReset := b.Next(2)
+
+	b.Reset()
+	b.Reset()
+
+	require.Equal(t, beforeReset, b.Next(2),
+		"ExponentialBackoff.Next must be a pure function of attempt; Reset must not perturb it")
+}
