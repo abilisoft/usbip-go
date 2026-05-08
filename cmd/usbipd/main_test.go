@@ -2,14 +2,15 @@ package main
 
 import (
 	"bytes"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
 // specFlags lists every flag spec §7.7 requires on the usbipd root
-// command. The assertion is that `--help` output contains each flag name.
+// command. The assertion is that `--help` output contains each flag
+// name. --config was removed in Phase 8 review (Finding 6): operators
+// configure via flags + systemd drop-ins; YAML config is deferred to v2.
 func specFlags() []string {
 	return []string{
 		"--listen",
@@ -26,7 +27,6 @@ func specFlags() []string {
 		"--drain-timeout",
 		"--log-level",
 		"--log-format",
-		"--config",
 		"-v,",
 	}
 }
@@ -65,19 +65,18 @@ func TestUnknownFlagReturnsExit2(t *testing.T) {
 	require.Equal(t, exitUsage, code)
 }
 
-// TestConfigNonexistentReturnsExit1 confirms --config <missing> surfaces
-// as a generic failure (exit 1) after the parse succeeds — the config
-// loader must stat the path and fail loudly.
-func TestConfigNonexistentReturnsExit1(t *testing.T) {
+// TestConfigFlagRemoved confirms Phase 8 Finding 6's removal: --config
+// must surface as a usage error (cobra "unknown flag"), not silently
+// accepted. YAML config is deferred to v2; operators use flags +
+// systemd drop-ins in v1.
+func TestConfigFlagRemoved(t *testing.T) {
 	t.Parallel()
 
-	code, err := run([]string{"--config", "/tmp/does-not-exist-usbipd-test.yaml", "version"})
+	code, err := run([]string{"--config", "/tmp/does-not-exist.yaml", "version"})
 	require.Error(t, err)
-	require.Equal(t, exitGeneric, code)
-	require.True(t,
-		strings.Contains(err.Error(), "config") ||
-			strings.Contains(err.Error(), "does-not-exist-usbipd-test"),
-		"error should mention config path: %v", err)
+	require.Equal(t, exitUsage, code)
+	require.Contains(t, err.Error(), "unknown flag",
+		"expected cobra unknown-flag error, got %v", err)
 }
 
 // TestVersionSubcommand sanity-checks the version subcommand so the

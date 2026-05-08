@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -63,9 +61,6 @@ type Config struct {
 	LogFormat string
 	// VerboseCount counts -v occurrences: 1=debug, 2=trace.
 	VerboseCount int
-	// ConfigPath is an optional YAML override source; flags take
-	// precedence once loaded.
-	ConfigPath string
 }
 
 // bindFlags registers every usbipd root-command flag on cmd and wires
@@ -104,24 +99,4 @@ func bindFlags(cmd *cobra.Command, cfg *Config) {
 		"log handler: auto/pretty/json")
 	flags.CountVarP(&cfg.VerboseCount, "verbose", "v",
 		"verbose counter: -v=debug, -vv=trace")
-	flags.StringVar(&cfg.ConfigPath, "config", "",
-		"optional YAML config; flags override")
-}
-
-// loadConfig resolves the optional --config YAML file into cfg. The
-// current implementation enforces existence only; YAML parsing is a
-// Phase 9 follow-up once the production daemon needs richer config.
-// The intent is captured now so an operator-facing missing-file error
-// is surfaced early rather than ignored silently.
-func loadConfig(cfg *Config) error {
-	if cfg.ConfigPath == "" {
-		return nil
-	}
-
-	_, err := os.Stat(cfg.ConfigPath)
-	if err != nil {
-		return fmt.Errorf("config file %q: %w", cfg.ConfigPath, err)
-	}
-
-	return nil
 }
