@@ -54,7 +54,6 @@ func specFlags() []string {
 		"--max-handshake-bytes",
 		"--handshake-timeout",
 		"--shutdown-timeout",
-		"--drain-timeout",
 		"--log-level",
 		"--log-format",
 		"-v,",

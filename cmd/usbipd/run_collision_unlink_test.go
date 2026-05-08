@@ -67,7 +67,6 @@ func TestRunDaemonPreservesStatusSocketOnBindCollision(t *testing.T) {
 		MaxSessions:       16,
 		HandshakeTimeout:  2 * time.Second,
 		ShutdownTimeout:   2 * time.Second,
-		DrainTimeout:      10 * time.Second,
 		LogLevel:          "error",
 		LogFormat:         "json",
 	}
