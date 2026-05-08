@@ -575,3 +575,41 @@ func TestExporterShutdown_ReusesSessionsWaitGoroutine(t *testing.T) {
 		baseline, after, delta, extraShutdowns)
 }
 
+// TestExporterShutdown_RecoversFromSpuriousDeadlineRace locks in the
+// Pass-5 RANK B fix: when sessionsWG has drained and the caller ctx
+// is already cancelled, waitSessionsBounded's first select can still
+// pick the ctx.Done branch because Go's select is randomised among
+// ready cases. Without a non-blocking re-check of `done` after ctx
+// cancellation is observed, Shutdown returns a spurious
+// context.Canceled / DeadlineExceeded wrap even though the drain
+// completed.
+//
+// Trigger: construct a fresh Exporter with no sessions. Cancel the
+// ctx BEFORE calling Shutdown. sessionsWG.Wait() returns essentially
+// immediately (there are zero tasks) so `done` is ready; ctx.Done is
+// also ready. Pre-fix at least some iterations out of 100 observe
+// the wrong branch. Post-fix all 100 return nil deterministically.
+//
+// Pre-fix empirical: first iteration already fails with
+//
+//	"exporter shutdown: context canceled"
+//
+// confirming the race.
+func TestExporterShutdown_RecoversFromSpuriousDeadlineRace(t *testing.T) {
+	t.Parallel()
+
+	const iterations = 100
+
+	for i := range iterations {
+		exp := newExporterForTest(t)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := exp.Shutdown(ctx)
+		require.NoErrorf(t, err,
+			"iteration %d: Shutdown must observe completed drain even when ctx is already cancelled",
+			i)
+	}
+}
+
