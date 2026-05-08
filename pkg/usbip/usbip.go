@@ -2,6 +2,7 @@ package usbip
 
 import (
 	"context"
+	"errors"
 	"iter"
 	"net"
 	"time"
@@ -9,6 +10,35 @@ import (
 	internalapp "github.com/abilisoft/usbip-go/internal/app"
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
+
+// translateInternalErr maps internal/app lifecycle sentinels onto the
+// matching public sentinels declared in errors.go. The returned error
+// carries the public identity only: the internal sentinel is replaced,
+// not wrapped, so errors.Is(err, internalapp.ErrX) returns false
+// downstream of the facade. That enforces the package boundary —
+// consumers never need to import internal/app to classify a returned
+// error (Spec §5.7).
+//
+// The translation is scoped to the three internal sentinels that
+// would otherwise leak across the boundary. Any other error passes
+// through unchanged so adapter-level wrap chains (fmt.Errorf with %w
+// from transport/kernel/codec) reach the caller intact.
+func translateInternalErr(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	switch {
+	case errors.Is(err, internalapp.ErrImporterClosed):
+		return ErrImporterClosed
+	case errors.Is(err, internalapp.ErrAlreadyShutdown):
+		return ErrExporterShutdown
+	case errors.Is(err, internalapp.ErrServeAlreadyRunning):
+		return ErrServeAlreadyRunning
+	}
+
+	return err
+}
 
 // Pure-data types are aliased to pkg/domain so consumers referencing
 // usbip.Device and domain.Device get the same type. Aliasing instead of
@@ -105,7 +135,9 @@ func NewImporter(opts ...ImporterOption) (*Importer, error) {
 
 // ListRemote dials endpoint and returns its device list.
 func (i *Importer) ListRemote(ctx context.Context, r RemoteEndpoint) ([]Device, error) {
-	return i.inner.ListRemote(ctx, r)
+	devs, err := i.inner.ListRemote(ctx, r)
+
+	return devs, translateInternalErr(err)
 }
 
 // Attach runs the USB/IP import handshake for busID at r and returns
@@ -113,17 +145,21 @@ func (i *Importer) ListRemote(ctx context.Context, r RemoteEndpoint) ([]Device, 
 // defaults (WithImporterBackoff, WithImporterStatusPollInterval) then
 // translated to the internal form before forwarding.
 func (i *Importer) Attach(ctx context.Context, r RemoteEndpoint, busID BusID, opts AttachOptions) (Port, error) {
-	return i.inner.Attach(ctx, r, busID, i.mergeAttachOptions(opts).toInternal())
+	port, err := i.inner.Attach(ctx, r, busID, i.mergeAttachOptions(opts).toInternal())
+
+	return port, translateInternalErr(err)
 }
 
 // Detach tears down a previously-attached port.
 func (i *Importer) Detach(ctx context.Context, id PortID) error {
-	return i.inner.Detach(ctx, id)
+	return translateInternalErr(i.inner.Detach(ctx, id))
 }
 
 // ListPorts returns the kernel's view of currently-attached ports.
 func (i *Importer) ListPorts(ctx context.Context) ([]Port, error) {
-	return i.inner.ListPorts(ctx)
+	ports, err := i.inner.ListPorts(ctx)
+
+	return ports, translateInternalErr(err)
 }
 
 // Watch returns an iter.Seq yielding domain events while ctx is live.
@@ -136,7 +172,7 @@ func (i *Importer) Watch(ctx context.Context) iter.Seq[Event] {
 // Close cancels every active port handle, drains background goroutines,
 // and marks the Importer closed. Idempotent via the internal sync.Once.
 func (i *Importer) Close() error {
-	return i.inner.Close()
+	return translateInternalErr(i.inner.Close())
 }
 
 // mergeAttachOptions overlays importer-level defaults onto the per-
@@ -171,23 +207,25 @@ func NewExporter(opts ...ExporterOption) (*Exporter, error) {
 
 // ListAvailable enumerates locally-exportable devices.
 func (e *Exporter) ListAvailable(ctx context.Context) ([]Device, error) {
-	return e.inner.ListAvailable(ctx)
+	devs, err := e.inner.ListAvailable(ctx)
+
+	return devs, translateInternalErr(err)
 }
 
 // Bind makes a local device exportable (binds usbip-host).
 func (e *Exporter) Bind(ctx context.Context, busID BusID) error {
-	return e.inner.Bind(ctx, busID)
+	return translateInternalErr(e.inner.Bind(ctx, busID))
 }
 
 // Unbind returns a previously-bound device to its original driver.
 func (e *Exporter) Unbind(ctx context.Context, busID BusID) error {
-	return e.inner.Unbind(ctx, busID)
+	return translateInternalErr(e.inner.Unbind(ctx, busID))
 }
 
 // Serve runs the accept loop until ctx is cancelled or the listener
 // returns a permanent error.
 func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
-	return e.inner.Serve(ctx, listener)
+	return translateInternalErr(e.inner.Serve(ctx, listener))
 }
 
 // Sessions returns a snapshot of currently-accepted sessions, sorted
@@ -205,5 +243,5 @@ func (e *Exporter) WatchSessions(ctx context.Context) iter.Seq[Event] {
 // Shutdown stops accepting new connections and drains in-flight
 // sessions bounded by the provided ctx deadline.
 func (e *Exporter) Shutdown(ctx context.Context) error {
-	return e.inner.Shutdown(ctx)
+	return translateInternalErr(e.inner.Shutdown(ctx))
 }
