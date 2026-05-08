@@ -15,10 +15,13 @@ import (
 // process; construct via NewImporter and release via Close. The zero
 // value is not usable — NewImporter initialises required state.
 //
-// Handle-map state (per-port generation + cancel func) is added in
-// Task 5.6 together with Detach/ListPorts; the scaffolding exposes
-// only the construction + Close surface that downstream tasks build
-// on.
+// The handle map tracks every successfully-attached port along with a
+// monotonically-increasing generation counter and a per-handle
+// CancelFunc. The generation counter implements the stale-event
+// protection described in spec §5.5: a watcher reading an event must
+// compare its generation against the current handle generation and
+// drop the event if the numbers differ (the handle was detached and
+// re-attached in between).
 type Importer struct {
 	kernel    ImporterKernel
 	events    KernelEvents
@@ -27,8 +30,37 @@ type Importer struct {
 	clock     Clock
 	logger    *slog.Logger
 
-	mu     sync.RWMutex
-	closed bool
+	mu        sync.RWMutex
+	closed    bool
+	closeOnce sync.Once
+	handles   map[domain.PortID]*portHandle
+	nextGen   uint64
+	wg        sync.WaitGroup
+}
+
+// portHandle is the per-port bookkeeping entry for an active import.
+// The done channel is closed exactly once (guarded by cancelOnce) when
+// Detach or Close fires; the Task 5.8 watcher selects on it to observe
+// termination. generation increments on every successful Attach of the
+// same PortID so watchers can detect a detach/re-attach sequence
+// without missing the transition (spec §5.5).
+//
+// Using a channel + sync.Once instead of a context sidesteps the
+// containedctx linter while preserving the same semantics: done is a
+// broadcast signal, a watcher derives its own ctx at launch time and
+// selects on ctx.Done() alongside done.
+type portHandle struct {
+	generation uint64
+	done       chan struct{}
+	cancelOnce sync.Once
+	busID      domain.BusID
+	remote     domain.RemoteEndpoint
+}
+
+// cancel closes the done channel exactly once, signalling any watcher
+// to exit. Safe to call repeatedly from different goroutines.
+func (h *portHandle) cancel() {
+	h.cancelOnce.Do(func() { close(h.done) })
 }
 
 // NewImporter constructs an Importer from functional options. The
@@ -71,18 +103,37 @@ func NewImporter(opts ...ImporterOption) *Importer {
 		codec:     cfg.codec,
 		clock:     cfg.clock,
 		logger:    cfg.logger,
+		handles:   make(map[domain.PortID]*portHandle),
 	}
 }
 
-// Close marks the Importer closed; it is idempotent so `defer Close()`
-// is safe in test teardown. Task 5.6 extends the body with the full
-// handle-map teardown (cancel every watcher, wait via sync.WaitGroup);
-// the scaffolding version just flips the closed flag.
+// Close cancels every registered handle's context, waits for any
+// background goroutines to drain, and marks the Importer closed.
+// Subsequent Close calls are no-ops via sync.Once. The wait group is
+// currently empty (auto-reconnect goroutines land in Task 5.8) but the
+// wait is wired now so the contract is stable across that addition.
 func (i *Importer) Close() error {
-	i.mu.Lock()
-	defer i.mu.Unlock()
+	i.closeOnce.Do(func() {
+		i.mu.Lock()
 
-	i.closed = true
+		i.closed = true
+
+		handles := i.handles
+
+		i.handles = nil
+
+		i.mu.Unlock()
+
+		// Cancel outside the write lock: cancel funcs may try to
+		// re-enter the Importer (e.g. future reconnect watcher
+		// acquiring the RLock to check closed) and we must not hold
+		// the write lock while doing so.
+		for _, h := range handles {
+			h.cancel()
+		}
+
+		i.wg.Wait()
+	})
 
 	return nil
 }
@@ -196,6 +247,73 @@ func (i *Importer) Attach(
 	return i.attachOverDialed(ctx, endpoint, busID)
 }
 
+// Detach tears down a previously-imported port by id. It cancels the
+// handle's context BEFORE issuing the sysfs-backed detach per spec §5.5
+// so any auto-reconnect watcher (Task 5.8) sees cancel ahead of the
+// status transition and does not race a reattempt. When the kernel
+// rejects the detach, the handle is left registered so callers can
+// retry.
+func (i *Importer) Detach(ctx context.Context, id domain.PortID) error {
+	i.mu.Lock()
+
+	if i.closed {
+		i.mu.Unlock()
+
+		return ErrImporterClosed
+	}
+
+	h, ok := i.handles[id]
+	if !ok {
+		i.mu.Unlock()
+
+		return fmt.Errorf("detach port %d: %w", id, domain.ErrDeviceNotBound)
+	}
+
+	i.mu.Unlock()
+
+	// Cancel first (spec §5.5) — no watcher today, but the ordering
+	// contract is load-bearing for Task 5.8 and must not drift.
+	h.cancel()
+
+	err := i.kernel.DetachPort(ctx, id)
+	if err != nil {
+		// Preserve the handle so callers can retry; the cancelled
+		// context is harmless — any future watcher starts fresh from
+		// the next successful Attach which regenerates the handle.
+		return fmt.Errorf("detach port %d: %w", id, err)
+	}
+
+	i.mu.Lock()
+	delete(i.handles, id)
+	i.mu.Unlock()
+
+	return nil
+}
+
+// ListPorts forwards to the kernel's view of attached vhci ports. The
+// Importer's local handle map is internal bookkeeping; the kernel's
+// sysfs-derived list is the authoritative source, especially after a
+// daemon restart (§5.4 item 7) where our handles are empty but the
+// kernel still tracks live ports.
+func (i *Importer) ListPorts(ctx context.Context) ([]domain.Port, error) {
+	i.mu.RLock()
+
+	closed := i.closed
+
+	i.mu.RUnlock()
+
+	if closed {
+		return nil, ErrImporterClosed
+	}
+
+	ports, err := i.kernel.ListPorts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list vhci ports: %w", err)
+	}
+
+	return ports, nil
+}
+
 // attachOverDialed factors out the dial-through-handoff portion of
 // Attach. Splitting it keeps Attach under the project's cyclomatic cap
 // and isolates the fd-passing deferred cleanup per spec §5.4.
@@ -247,6 +365,8 @@ func (i *Importer) attachOverDialed(
 
 	handedOff = true
 
+	i.registerHandle(portID, busID, endpoint)
+
 	return domain.Port{
 		ID:       portID,
 		Status:   domain.StatusUsed,
@@ -255,4 +375,27 @@ func (i *Importer) attachOverDialed(
 		Remote:   endpoint,
 		BusID:    busID,
 	}, nil
+}
+
+// registerHandle records a successful attach in the handle map. If an
+// entry already existed for this PortID (the kernel re-used the slot
+// after a previous detach we didn't observe), its cancel func fires
+// first so any in-flight consumer sees termination before the new
+// generation appears.
+func (i *Importer) registerHandle(id domain.PortID, busID domain.BusID, endpoint domain.RemoteEndpoint) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	if old, ok := i.handles[id]; ok {
+		old.cancel()
+	}
+
+	i.nextGen++
+
+	i.handles[id] = &portHandle{
+		generation: i.nextGen,
+		done:       make(chan struct{}),
+		busID:      busID,
+		remote:     endpoint,
+	}
 }
