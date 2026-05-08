@@ -18,7 +18,6 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/abilisoft/usbip-go/pkg/usbip"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 // statusReadyTimeout bounds how long runDaemon waits for the status
@@ -43,6 +42,15 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 		log = slog.Default()
 	}
 
+	// Stamp build provenance into the daemon's first log record so
+	// journald queries can answer "which binary ran this session?"
+	// without grepping a pid for /proc/<pid>/cmdline.
+	log.Info("usbipd-go starting",
+		slog.String("version", version),
+		slog.String("commit", commit),
+		slog.String("build_date", buildDate),
+		slog.String("go_version", runtime.Version()))
+
 	activated := systemdActivated()
 
 	listener, err := listenOrActivation(ctx, cfg)
@@ -54,14 +62,7 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 		_ = listener.Close()
 	}()
 
-	// Build the Prometheus registry before constructing the exporter so
-	// the metric bundle is wired into the Serve/Shutdown path on the
-	// first session. The registry stays nil-safe when --metrics-addr is
-	// empty: the exporter's metricsRegisterer option simply leaves the
-	// bundle in its nop state.
-	metricsReg := prometheus.NewRegistry()
-
-	exp, err := buildExporter(cfg, log, metricsReg)
+	exp, err := buildExporter(cfg, log)
 	if err != nil {
 		return err
 	}
@@ -80,20 +81,20 @@ func runDaemon(ctx context.Context, cfg *Config) error {
 
 	src := newStatusExporter(exp, listener, activated)
 
-	metricsStop, err := maybeStartMetricsServer(ctx, cfg, log, metricsReg, src)
+	healthStop, err := maybeStartHealthServer(ctx, cfg, log, src)
 	if err != nil {
 		return err
 	}
 
-	// Two-stage LIFO shutdown: the metrics HTTP server must go down
-	// BEFORE exporter drain so /readyz and /metrics cannot hand out
-	// stale "accepting=true" or fresh session counters while the
-	// exporter is winding down. LIFO means the LAST-registered defer
-	// runs FIRST, so we register exp-drain first, then metrics-stop.
+	// Two-stage LIFO shutdown: the health HTTP server must go down
+	// BEFORE exporter drain so /readyz cannot hand out a stale
+	// "accepting=true" while the exporter is winding down. LIFO means
+	// the LAST-registered defer runs FIRST, so we register exp-drain
+	// first, then health-stop.
 	defer drainExporter(ctx, cfg, exp, log)
 
-	if metricsStop != nil {
-		defer shutdownMetricsServer(ctx, metricsStop, cfg.ShutdownTimeout, log)
+	if healthStop != nil {
+		defer shutdownHealthServer(ctx, healthStop, cfg.ShutdownTimeout, log)
 	}
 
 	src.setDrain(func() {
@@ -209,17 +210,9 @@ func drainExporter(
 
 // buildExporter constructs the pkg/usbip.Exporter from cfg. The
 // translation of Config fields to With* options lives here so runDaemon
-// stays focused on lifecycle rather than option plumbing. reg is the
-// Prometheus registry the exporter publishes to; a nil reg opts into
-// the no-op metrics bundle.
-//
-// When reg is non-nil, WithExporterBuildInfo stamps the usbip_build_info
-// gauge during construction. This replaces the previous pattern of
-// calling Metrics.SetBuildInfo from maybeStartMetricsServer, which
-// built a SECOND bundle against the same registry and panicked on
-// duplicate collector registration.
+// stays focused on lifecycle rather than option plumbing.
 func buildExporter(
-	cfg *Config, log *slog.Logger, reg prometheus.Registerer,
+	cfg *Config, log *slog.Logger,
 ) (*usbip.Exporter, error) {
 	opts := []usbip.ExporterOption{
 		usbip.WithExporterLogger(log),
@@ -229,12 +222,6 @@ func buildExporter(
 		usbip.WithExporterMaxHandshakeBytes(cfg.MaxHandshakeBytes),
 		usbip.WithExporterHandshakeTimeout(cfg.HandshakeTimeout),
 		usbip.WithExporterShutdownTimeout(cfg.ShutdownTimeout),
-	}
-
-	if reg != nil {
-		opts = append(opts,
-			usbip.WithExporterMetricsRegisterer(reg),
-			usbip.WithExporterBuildInfo(version, commit, runtime.Version()))
 	}
 
 	if len(cfg.AllowCIDR) > 0 {
@@ -249,40 +236,33 @@ func buildExporter(
 	return exp, nil
 }
 
-// maybeStartMetricsServer spins the Prometheus HTTP endpoint on a
-// separate listener when cfg.MetricsAddr is non-empty. Empty disables
-// the endpoint — the returned stop func is nil and runDaemon skips the
-// deferred shutdown branch. The readiness checker consults the
+// maybeStartHealthServer spins a stdlib HTTP server on a separate
+// listener when cfg.HealthAddr is non-empty. Empty disables the
+// endpoint — the returned stop func is nil and runDaemon skips the
+// deferred shutdown branch. The server exposes /healthz (liveness)
+// and /readyz (readiness). The readiness probe consults the
 // statusExporter for kernel-module state and accepting flag; the
 // "status socket writable" bit reads cfg.StatusSocket (empty means
 // "disabled, treat as writable for the purposes of readiness").
-func maybeStartMetricsServer(
+func maybeStartHealthServer(
 	ctx context.Context,
 	cfg *Config,
 	log *slog.Logger,
-	reg *prometheus.Registry,
 	src *statusExporter,
 ) (func(context.Context) error, error) {
-	if cfg.MetricsAddr == "" {
+	if cfg.HealthAddr == "" {
 		return nil, nil //nolint:nilnil // documented "addr empty = disabled" signal
 	}
 
-	// Build-info is stamped at Exporter construction via
-	// WithExporterBuildInfo; the metrics-HTTP server just serves
-	// promhttp.HandlerFor(reg) on the already-populated registry. A
-	// second MustNewMetrics call here would re-register the §11.5.5
-	// collectors and panic on duplicate registration.
-
 	probe := newDaemonReadinessProbe(cfg, src)
 
-	stop, err := startMetricsServer(ctx, cfg.MetricsAddr, reg,
-		newReadinessChecker(probe))
+	stop, err := startHealthServer(ctx, cfg.HealthAddr, probe)
 	if err != nil {
 		return nil, err
 	}
 
-	log.Info("metrics endpoint listening",
-		slog.String("addr", cfg.MetricsAddr))
+	log.Info("health endpoint listening",
+		slog.String("addr", cfg.HealthAddr))
 
 	return stop, nil
 }
@@ -308,26 +288,6 @@ func newDaemonReadinessProbe(cfg *Config, src *statusExporter) readinessProbe {
 			StatusWritable: statusSocketWritable(cfg.StatusSocket),
 			Modules:        mods,
 		}
-	}
-}
-
-// shutdownMetricsServer performs the deferred HTTP shutdown under a
-// timeout derived from parentCtx so a wedged handler can't hang daemon
-// exit. Errors are logged at warn level — the process is unwinding and
-// cannot surface them via the main error path.
-func shutdownMetricsServer(
-	parentCtx context.Context,
-	stop func(context.Context) error,
-	timeout time.Duration,
-	log *slog.Logger,
-) {
-	sctx, cancel := context.WithTimeout(
-		context.WithoutCancel(parentCtx), timeout)
-	defer cancel()
-
-	err := stop(sctx)
-	if err != nil {
-		log.Warn("metrics server shutdown returned error", slog.Any("err", err))
 	}
 }
 

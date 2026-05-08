@@ -128,15 +128,15 @@ func TestAttachKernelErrorRecordCarriesBusIDAndRemote(t *testing.T) {
 	found := false
 
 	for _, r := range records {
-		if r["msg"] == "attach failed" {
-			assertAttrsPresent(t, r, "busid", "remote", "err")
+		if r["msg"] == "attach kernel handoff failed" {
+			assertAttrsPresent(t, r, "busid", "remote", "err", "outcome")
 
 			found = true
 		}
 	}
 
 	require.Truef(t, found,
-		"attach failure must emit 'attach failed' record with busid+remote+err; got %s",
+		"attach failure must emit 'attach kernel handoff failed' record with busid+remote+err+outcome; got %s",
 		buf.String())
 }
 

@@ -50,7 +50,7 @@ func specFlags() []string {
 		"--listen",
 		"--status-socket",
 		"--status-socket-group",
-		"--metrics-addr",
+		"--health-addr",
 		"--allow-cidr",
 		"--max-sessions",
 		"--max-sessions-per-peer",

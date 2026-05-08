@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/abilisoft/usbip-go/pkg/usbip"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -149,96 +148,6 @@ func TestWithExporterShutdownTimeoutStores(t *testing.T) {
 	cfg := usbip.NewExporterConfigForTest(usbip.WithExporterShutdownTimeout(30 * time.Second))
 
 	require.Equal(t, 30*time.Second, cfg.ShutdownTimeoutForTest())
-}
-
-// TestWithExporterMetricsRegistererStores proves the registerer option
-// stores the supplied prometheus.Registerer on the public config. The
-// registerer is consumed by the exporter metrics wiring; the public
-// surface is stable across that change.
-func TestWithExporterMetricsRegistererStores(t *testing.T) {
-	t.Parallel()
-
-	reg := prometheus.NewRegistry()
-
-	cfg := usbip.NewExporterConfigForTest(usbip.WithExporterMetricsRegisterer(reg))
-
-	require.Same(t, reg, cfg.MetricsRegistererForTest())
-}
-
-// TestWithExporterBuildInfoStores proves the build-info option stores
-// the version / commit / goVersion triple on the public config. The
-// downstream consumer is internal/app Exporter construction, which
-// stamps the usbip_build_info gauge at that point; the public field
-// is stable across that wiring.
-func TestWithExporterBuildInfoStores(t *testing.T) {
-	t.Parallel()
-
-	cfg := usbip.NewExporterConfigForTest(
-		usbip.WithExporterBuildInfo("v1.2.3", "abcdef", "go1.26"))
-
-	bi := cfg.BuildInfoForTest()
-	require.Equal(t, "v1.2.3", bi.Version)
-	require.Equal(t, "abcdef", bi.Commit)
-	require.Equal(t, "go1.26", bi.GoVersion)
-}
-
-// TestWithExporterBuildInfoZeroIsNoop proves the unset (zero-value)
-// option case. exporterConfigToInternal must skip the build-info
-// internal option when every label is empty so a caller that never
-// invoked WithExporterBuildInfo does not end up clobbering an
-// existing stamp with blanks.
-func TestWithExporterBuildInfoZeroIsNoop(t *testing.T) {
-	t.Parallel()
-
-	cfg := usbip.NewExporterConfigForTest()
-
-	bi := cfg.BuildInfoForTest()
-	require.Empty(t, bi.Version)
-	require.Empty(t, bi.Commit)
-	require.Empty(t, bi.GoVersion)
-}
-
-// TestNewExporterWithBuildInfoStampsMetric drives the full public
-// construction path with both WithExporterMetricsRegisterer and
-// WithExporterBuildInfo — the combination exporterConfigToInternal
-// uses to forward the build-info stamp into the internal bundle.
-// Covers the non-zero buildInfo branch of exporterConfigToInternal
-// which the unit tests' forTest accessors cannot reach.
-func TestNewExporterWithBuildInfoStampsMetric(t *testing.T) {
-	t.Parallel()
-
-	reg := prometheus.NewRegistry()
-
-	_, err := usbip.NewExporter(
-		usbip.WithExporterMetricsRegisterer(reg),
-		usbip.WithExporterBuildInfo("v9.9.9", "cafebabe", "go1.99"),
-	)
-	require.NoError(t, err)
-
-	mfs, gatherErr := reg.Gather()
-	require.NoError(t, gatherErr)
-
-	var found bool
-
-	for _, mf := range mfs {
-		if mf.GetName() != "usbip_build_info" {
-			continue
-		}
-
-		labels := map[string]string{}
-
-		for _, lp := range mf.GetMetric()[0].GetLabel() {
-			labels[lp.GetName()] = lp.GetValue()
-		}
-
-		require.Equal(t, "v9.9.9", labels["version"])
-		require.Equal(t, "cafebabe", labels["commit"])
-		require.Equal(t, "go1.99", labels["go_version"])
-
-		found = true
-	}
-
-	require.True(t, found, "usbip_build_info must appear after NewExporter with build-info option")
 }
 
 // TestExporterOptionTypeIsFunc pins the public ExporterOption shape.

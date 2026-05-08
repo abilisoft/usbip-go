@@ -39,9 +39,9 @@ type Config struct {
 	// StatusSocketGroup is the group to chown the status UDS to after
 	// bind; the socket mode is always 0660.
 	StatusSocketGroup string
-	// MetricsAddr is the optional Prometheus metrics HTTP listener;
-	// empty string disables the endpoint.
-	MetricsAddr string
+	// HealthAddr is the optional HTTP listener that serves /healthz
+	// and /readyz; empty string disables the endpoint.
+	HealthAddr string
 	// AllowCIDR is the accept-path ACL. Empty slice means permit all.
 	AllowCIDR []string
 	// MaxSessions caps total concurrent sessions.
@@ -76,8 +76,8 @@ func bindFlags(cmd *cobra.Command, cfg *Config) {
 		"UDS path for health/status; empty disables")
 	flags.StringVar(&cfg.StatusSocketGroup, "status-socket-group", defaultStatusSocketGroup,
 		"group ownership applied via chown after UDS bind (mode 0660)")
-	flags.StringVar(&cfg.MetricsAddr, "metrics-addr", "",
-		"Prometheus metrics HTTP listener (e.g. 127.0.0.1:9240); empty disables")
+	flags.StringVar(&cfg.HealthAddr, "health-addr", "",
+		"HTTP listener for /healthz + /readyz (e.g. 127.0.0.1:9240); empty disables")
 	flags.StringSliceVar(&cfg.AllowCIDR, "allow-cidr", nil,
 		"accept-path ACL; repeatable CIDR entries. Empty permits all")
 	flags.IntVar(&cfg.MaxSessions, "max-sessions", defaultMaxSessions,

@@ -24,7 +24,6 @@ type importerConfig struct {
 	codec     ProtocolCodec
 	clock     Clock
 	logger    *slog.Logger
-	metrics   *Metrics
 	// transportOptions is the per-Importer TCP-level tuning bag. The
 	// zero value preserves v1.0.0 behavior; PR 1b wires non-zero
 	// fields through the adapter.
@@ -64,13 +63,6 @@ func WithImporterLogger(l *slog.Logger) ImporterOption {
 	return func(c *importerConfig) { c.logger = l }
 }
 
-// WithImporterMetrics injects the §11.5.5 metrics bundle. A nil *Metrics
-// opts the Importer into the no-op accessor path already implemented by
-// MustNewMetrics — call sites don't need a pre-call nil guard.
-func WithImporterMetrics(m *Metrics) ImporterOption {
-	return func(c *importerConfig) { c.metrics = m }
-}
-
 // WithImporterTransportOptions stores TCP-level tuning that the
 // Importer's Dial calls hand to the Transport adapter. Zero-valued
 // fields preserve v1.0.0 behavior; non-zero fields take effect once
@@ -101,7 +93,6 @@ type exporterConfig struct {
 	codec     ProtocolCodec
 	clock     Clock
 	logger    *slog.Logger
-	metrics   *Metrics
 	// transportOptions is the per-Exporter TCP-level tuning bag. The
 	// zero value preserves v1.0.0 behavior; PR 1b wires non-zero
 	// fields through the listener-accept path.
@@ -119,24 +110,6 @@ type exporterConfig struct {
 	shutdownTimeout time.Duration
 
 	aclCIDRs []string
-
-	buildInfo buildInfo
-}
-
-// buildInfo carries version / commit / goVersion labels for the
-// usbip_build_info gauge (§11.5.5). Zero-value means "do not stamp";
-// NewExporter skips the SetBuildInfo call in that case so a bundle
-// wired against a nil registerer stays fully no-op.
-type buildInfo struct {
-	version   string
-	commit    string
-	goVersion string
-}
-
-// empty reports whether bi carries no build-info labels. An all-zero
-// buildInfo is the signal to skip SetBuildInfo at construction.
-func (bi buildInfo) empty() bool {
-	return bi.version == "" && bi.commit == "" && bi.goVersion == ""
 }
 
 // WithExporterKernel injects the kernel-side adapter (usbip_host
@@ -172,13 +145,6 @@ func WithExporterLogger(l *slog.Logger) ExporterOption {
 	return func(c *exporterConfig) { c.logger = l }
 }
 
-// WithExporterMetrics injects the §11.5.5 metrics bundle. A nil *Metrics
-// opts the Exporter into the no-op accessor path implemented by
-// MustNewMetrics — call sites don't need a pre-call nil guard.
-func WithExporterMetrics(m *Metrics) ExporterOption {
-	return func(c *exporterConfig) { c.metrics = m }
-}
-
 // WithExporterTransportOptions stores TCP-level tuning that the
 // Exporter would hand to the Transport adapter on accepted
 // connections. Zero-valued fields preserve v1.0.0 behavior.
@@ -196,27 +162,6 @@ func WithExporterMetrics(m *Metrics) ExporterOption {
 // tuning to their own listener until then.
 func WithExporterTransportOptions(opts TransportOptions) ExporterOption {
 	return func(c *exporterConfig) { c.transportOptions = opts }
-}
-
-// WithExporterBuildInfo stamps the usbip_build_info gauge (§11.5.5)
-// with the supplied labels at Exporter construction time. The labels
-// appear in /metrics immediately, before any workload runs. An all-
-// empty triple is a no-op so constructors that leave the option
-// unspecified do not clobber an existing stamp with blanks.
-//
-// This option replaces the previous pattern of calling
-// Metrics.SetBuildInfo from the daemon bootstrap path, which forced
-// the caller to reach MustNewMetrics a SECOND time against the same
-// registry — panicking on duplicate registration. Wiring the stamp
-// through the exporter's own bundle keeps registration exactly-once.
-func WithExporterBuildInfo(version, commit, goVersion string) ExporterOption {
-	return func(c *exporterConfig) {
-		c.buildInfo = buildInfo{
-			version:   version,
-			commit:    commit,
-			goVersion: goVersion,
-		}
-	}
 }
 
 // WithExporterMaxSessions caps the total concurrent accepted sessions

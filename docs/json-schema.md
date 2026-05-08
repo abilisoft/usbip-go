@@ -295,8 +295,8 @@ connects), and back to `false` when `Serve` returns. This lets
 that has actually armed the accept loop.
 
 `kernel_modules` values are one of `"loaded"`, `"missing"`,
-`"unknown"`. They map 1:1 to the `usbip_kernel_modules_loaded`
-Prometheus gauge.
+`"unknown"`. The `/readyz` endpoint also consumes them to gate
+readiness on `usbip_core` and `usbip_host` being loaded.
 
 `sessions` entries use the same `sessionView` shape as the CLI
 list surfaces, with two JSON field name differences that are
@@ -305,36 +305,35 @@ pinned by v1 contract §7.7:
 - Status socket `sessionJSON.id` is the canonical UUIDv7 form.
 - `started_at` is RFC 3339 nano UTC.
 
-## Metrics
+## Observability via slog
 
-The Prometheus `/metrics` endpoint is NOT JSON — it emits the
-Prometheus text exposition format. The metric catalogue below lists
-every stable v1 metric and matches v1 contract §11.5.5 verbatim.
+Per ADR-0010, this project ships no Prometheus metrics. Every
+operation that crosses a state boundary emits a structured slog
+record carrying an `outcome` field with a closed-set classification.
+Operators query journald (`journalctl --output=json`) instead of
+scraping `/metrics`.
 
-| Name | Type | Unit | Labels | Description |
-|---|---|---|---|---|
-| `usbip_exporter_sessions_active` | gauge | — | — | Current accepted sessions. |
-| `usbip_exporter_sessions_accepted_total` | counter | — | `outcome`={`handshake_ok`,`rejected_acl`,`rejected_rate`,`rejected_cap`,`handshake_failed`} | Cumulative accept events. |
-| `usbip_exporter_handshake_duration_seconds` | histogram | seconds | `op`={`devlist`,`import`} | Wall time per OP handshake. |
-| `usbip_exporter_bind_total` | counter | — | `outcome`={`ok`,`already_bound`,`not_found`,`permission`,`error`} | Bind attempts. |
-| `usbip_exporter_unbind_total` | counter | — | `outcome`={`ok`,`not_bound`,`permission`,`error`} | Unbind attempts. |
-| `usbip_exporter_disconnect_total` | counter | — | `reason`={`graceful`,`client_gone`,`kernel_error`,`shutdown`} | Session end reasons. |
-| `usbip_importer_attaches_total` | counter | — | `outcome`={`ok`,`permission`,`no_free_port`,`protocol_mismatch`,`dial_failed`,`kernel_error`} | Attach attempts. |
-| `usbip_importer_detaches_total` | counter | — | `outcome`={`ok`,`not_found`,`error`} | Detach attempts. |
-| `usbip_importer_ports_active` | gauge | — | — | Currently-attached vhci ports. |
-| `usbip_importer_reconnect_attempts_total` | counter | — | `outcome`={`ok`,`backoff`,`exhausted`,`canceled`} | Reconnect attempts by auto-reconnect watcher. |
-| `usbip_adapter_sysfs_write_failures_total` | counter | — | `path`, `errno` | Sysfs write errors. Cardinality bounded by known paths. |
-| `usbip_kernel_modules_loaded` | gauge | — | `module`={`usbip_core`,`vhci_hcd`,`usbip_host`,`usbip_vudc`} | 1 if module loaded, 0 otherwise. |
-| `usbip_build_info` | gauge | — | `version`, `commit`, `go_version` | Always 1; labels carry build metadata. |
+The closed outcome enumerations:
 
-Per-session byte counters are explicitly omitted from v1. The
-kernel owns the URB path; polling byte counters at our layer would
-produce approximate, misleading numbers. Operators who need
-byte-level visibility read kernel socket stats via `ss -tn`.
+| Operation | Outcome values |
+|---|---|
+| `exporter_bind` | `ok`, `already_bound`, `not_found`, `permission`, `error` |
+| `exporter_unbind` | `ok`, `not_bound`, `permission`, `error` |
+| `exporter_session_handshake` | `handshake_ok`, `rejected_acl`, `rejected_rate`, `rejected_cap`, `handshake_failed` |
+| `exporter_disconnect_reason` | `graceful`, `client_gone`, `kernel_error`, `shutdown` |
+| `importer_attach` | `ok`, `permission`, `no_free_port`, `protocol_mismatch`, `dial_failed`, `kernel_error` |
+| `importer_detach` | `ok`, `not_found`, `error` |
+| `importer_reconnect` | `ok`, `backoff`, `exhausted`, `canceled` |
 
-Label values come from closed small sets. There are no `busid` or
-`remote` labels — those would be unbounded and would overwhelm
-Prometheus.
+Per-session byte counters are explicitly omitted from v1. The kernel
+owns the URB path; polling byte counters at our layer would produce
+approximate, misleading numbers. Operators who need byte-level
+visibility read kernel socket stats via `ss -tn`.
+
+Build provenance (`version`, `commit`, `build_date`, `go_version`)
+appears as fields on the `"usbipd-go starting"` slog record at daemon
+startup. Operators query for it via `journalctl --output=json | jq
+'select(.MESSAGE == "usbipd-go starting")'`.
 
 ## Forward compatibility
 
