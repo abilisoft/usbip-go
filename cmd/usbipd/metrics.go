@@ -28,8 +28,19 @@ const readinessRefreshInterval = 5 * time.Second
 
 // readinessState is the snapshot the /readyz handler consults. Every
 // field is an input to the 503/200 decision: all modules Loaded AND
-// Accepting AND StatusWritable → 200, otherwise 503.
+// ListenerBound AND Accepting AND StatusWritable → 200, otherwise 503.
+//
+// ListenerBound and Accepting are split (Finding 5) so /readyz cannot
+// report 200 during the gap between "exporter configured" and "accept
+// loop actually processing connections": ListenerBound flips true once
+// the bind confirms a non-nil Addr, Accepting flips true only after
+// the accept loop has produced its first successful net.Listener.Accept
+// return. Prior to Finding 5 the two flags were collapsed into
+// Accepting and set BEFORE Serve began, so a kernel bind failure
+// landing mid-startup would leave /readyz green while the TCP surface
+// was unreachable.
 type readinessState struct {
+	ListenerBound  bool
 	Accepting      bool
 	StatusWritable bool
 	Modules        map[string]usbip.ModuleState
@@ -75,10 +86,12 @@ func (c *readinessChecker) state(ctx context.Context) readinessState {
 }
 
 // ready reports whether the current state satisfies the §11.5.5
-// readiness contract: every required module Loaded, the accept loop
-// running, and the status socket writable (or disabled).
+// readiness contract: every required module Loaded, the listener
+// bound AND the accept loop actually accepting, and the status socket
+// writable (or disabled). All four inputs must be true — a false on
+// any short-circuits the reply to 503.
 func (s readinessState) ready() bool {
-	if !s.Accepting || !s.StatusWritable {
+	if !s.ListenerBound || !s.Accepting || !s.StatusWritable {
 		return false
 	}
 
