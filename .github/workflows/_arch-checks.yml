@@ -40,6 +40,30 @@ jobs:
             echo "pkg/domain imports internal/ — boundary violation"
             exit 1
           fi
+      - name: pkg/domain must not import third-party packages
+        # The pure-stdlib invariant means pkg/domain can NEVER pull
+        # in a non-stdlib import — no google/uuid, no testify (in
+        # production code), no third-party value-object helpers. A
+        # consumer of pkg/domain must be able to pull our public
+        # surface without inheriting our supply-chain risk. This
+        # check catches `import "<host>/<path>"` patterns that
+        # contain a dot in the host (which every third-party
+        # package has by definition; stdlib paths contain no dot).
+        # Test files are excluded — testify in *_test.go is fine,
+        # production .go is not.
+        run: |
+          set -euo pipefail
+          if [ -d pkg/domain ]; then
+            offenders=$(grep -rE '^\s*"[^"]*\.[^"]*/[^"]*"\s*$' pkg/domain/ \
+              --include='*.go' \
+              | { grep -v '_test\.go:' || true; } \
+              | { grep -v 'github\.com/abilisoft/usbip-go/' || true; })
+            if [ -n "$offenders" ]; then
+              echo "pkg/domain has third-party imports — pure-stdlib invariant violated:"
+              echo "$offenders"
+              exit 1
+            fi
+          fi
       - name: internal/app must not import internal/adapter/{kernel,transport}
         # internal/app declares adapter interfaces and consumes them
         # via dependency injection. It legitimately imports

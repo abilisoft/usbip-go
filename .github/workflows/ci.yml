@@ -108,9 +108,16 @@ jobs:
             subject=$(git log -1 --format=%s "$sha")
             added_test=$(git diff-tree --no-commit-id --name-only --diff-filter=A -r "$sha" \
               | { grep -E '_test\.go$' || true; })
+            # non_test_go counts ONLY production source. We exclude
+            # internal/tools/ because that path is the dev-tool
+            # blank-import pin (build-tag-gated, never linked into
+            # any binary); a deps-cleanup commit that touches only
+            # tools.go must NOT silently satisfy a prior RED's GREEN
+            # requirement (Codex MEDIUM finding).
             non_test_go=$(git diff-tree --no-commit-id --name-only -r "$sha" \
               | { grep -E '\.go$' || true; } \
-              | { grep -v '_test\.go$' || true; })
+              | { grep -v '_test\.go$' || true; } \
+              | { grep -v '^internal/tools/' || true; })
 
             if [ -n "$prev_red_sha" ]; then
               if [ -z "$non_test_go" ]; then

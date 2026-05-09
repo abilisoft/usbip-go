@@ -116,7 +116,7 @@ tasks:
     cmds:
       - act push
   act:job:
-    desc: 'Run a single job locally; pass JOB=<name>. Example: task act:job JOB=lint-and-vet'
+    desc: 'Run a single job locally; pass JOB=<name>. Example: task act:job JOB=security'
     preconditions:
       - sh: '[ -n "{{.JOB}}" ]'
         msg: 'set JOB=<name>; see `task act:list`'
