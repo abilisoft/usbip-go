@@ -87,19 +87,30 @@ func (a *ExporterAdapter) preflightBind(ctx context.Context, busID domain.BusID)
 	return a.checkAlreadyExported(busID)
 }
 
-// Bind performs the four-write sequence required by usbip-host:
-//  1. unbind current driver from the primary interface (iface
-//     "<busid>:<bConfigurationValue>.0")
+// Bind performs the three-write sequence required by usbip-host,
+// ordered to match upstream usbip-utils' bind_device() exactly:
+//  1. add the busID to usbip-host/match_busid (BEFORE any unbind)
 //  2. unbind the bare-device usb_driver (typically the generic "usb"
-//     driver) so usbip-host can claim the usb_device
-//  3. add the busID to usbip-host/match_busid
-//  4. bind usbip-host to the device (BARE busid; usbip-host is a
-//     usb_device_driver and matches at usb_device level)
+//     driver). USB core's disconnect cascade then unbinds every
+//     interface (drivers/usb/core/generic.c:265-272), and the kernel's
+//     auto-probe re-evaluates drivers — usbip-host's stub_probe wins
+//     because match_busid now contains the busid.
+//  3. write busid to usbip-host/bind as a belt-and-braces fallback
+//     in case auto-probe was disabled or another driver beat
+//     usbip-host to the device.
 //
-// Step 4 failure rolls back step 3 (match_busid del) so the busid
-// table is not poisoned. The earlier unbinds are preserved so the
-// operator can rebind manually, matching upstream usbip_bind.c
-// semantics.
+// Why match_busid MUST precede the unbind: if unbind happens first,
+// the kernel auto-probes drivers between unbind and our match_busid
+// write. usbip-host's stub_probe runs during that window with the
+// table empty, returns -ENODEV ("3-1 is not in match_busid table...
+// skip!"), and the original driver (cdc_ncm, etc.) reclaims the
+// device. The subsequent /bind write then races against the rebound
+// driver and surfaces ENODEV to the operator. Putting match_busid
+// first closes that window.
+//
+// Step-3 failure rolls back step 1 (match_busid del) so the busid
+// table is not poisoned. Step-2's unbind is preserved so the operator
+// can rebind manually.
 //
 // preflightBind() runs first: kernel-module check, vhci-loop refusal,
 // hub guard (refuses bDeviceClass=0x09 to prevent cascade-disconnect),
@@ -125,19 +136,10 @@ func (a *ExporterAdapter) Bind(ctx context.Context, busID domain.BusID) error {
 	// IFF_UP first.
 	a.deactivateNetdevs(busID)
 
-	// Bare-device unbind only. Mirrors upstream
-	// usbip_bind.c::unbind_other() which detaches the usb_device
-	// driver and lets USB core's generic disconnect cascade
-	// (drivers/usb/core/generic.c:265-272) unbind every interface.
-	// Doing the cascade ourselves with a hand-rolled iface unbind
-	// diverges from upstream: it only covers <busid>:<cfg>.0 and
-	// leaves composite devices in a half-state on subsequent
-	// failure.
-	err = a.unbindCurrentDeviceDriver(busID)
-	if err != nil {
-		return err
-	}
-
+	// Step 1: match_busid add BEFORE unbind. Upstream
+	// usbip_bind.c::bind_device() does this in the same order
+	// (modify_match_busid → unbind_other → bind_usbip). See the
+	// godoc above for why this order matters.
 	err = a.writeClassified(
 		path.Join(SysfsUSBIPHostDriver, SysfsMatchBusID),
 		MatchBusIDAddPrefix+string(busID),
@@ -146,13 +148,26 @@ func (a *ExporterAdapter) Bind(ctx context.Context, busID domain.BusID) error {
 		return err
 	}
 
-	// usbip-host is a usb_device_driver (drivers/usb/usbip/stub_dev.c
-	// declares `struct usb_device_driver stub_driver`). The kernel's
-	// driver bind/unbind sysfs handler looks up the target by name on
-	// the bus and only proceeds when dev->driver matches. For a
-	// device-level driver that means the BARE busid ("1-1"), not the
-	// iface — passing iface here would find the usb_interface, fail
-	// the dev->driver match, and surface ENODEV.
+	// Step 2: unbind bare-device usb_driver. Mirrors upstream
+	// unbind_other(): detaches the usb_device driver and lets USB
+	// core's generic disconnect cascade unbind every interface.
+	// Doing the cascade ourselves with a hand-rolled iface unbind
+	// diverges from upstream — it only covers <busid>:<cfg>.0 and
+	// leaves composite devices in a half-state on subsequent
+	// failure. Auto-probe runs after this write; usbip-host wins
+	// because match_busid was populated in step 1.
+	err = a.unbindCurrentDeviceDriver(busID)
+	if err != nil {
+		a.rollbackBind(busID, err)
+
+		return err
+	}
+
+	// Step 3: belt-and-braces /bind write. If kernel auto-probe is
+	// disabled (drivers_autoprobe=0) or some other driver claimed
+	// the device first, this forces the binding. Already-bound case
+	// returns success; usbip-host is a usb_device_driver and matches
+	// at usb_device level, so the BARE busid is correct here.
 	err = a.bindUSBIPHostWithRetry(ctx, busID)
 	if err != nil {
 		a.rollbackBind(busID, err)

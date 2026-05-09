@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"path"
 	"regexp"
+	"strconv"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
@@ -382,15 +383,30 @@ func narrowByteErr(attr string, v uint16) (uint8, error) {
 }
 
 // readByteAttr reads a decimal sysfs attribute that is semantically a
-// byte (e.g. bConfigurationValue). A value exceeding byteMax is a
-// malformed sysfs entry and fails the whole device read rather than
-// silently truncating.
+// byte (e.g. bConfigurationValue). An empty value is treated as 0 —
+// the kernel emits an empty string for byte attrs that derive from
+// the device's active configuration when there is no active config
+// (drivers/usb/core/config.c::show_bConfigurationValue and the
+// per-config bNumInterfaces show handler both return "\n" when
+// actconfig is NULL). This is the post-bind state of a device whose
+// driver (e.g. usbip-host stub_dev) has not picked a configuration.
+// A value exceeding byteMax is a malformed sysfs entry and fails the
+// whole device read rather than silently truncating.
 func (a *ExporterAdapter) readByteAttr(base, attr string) (uint8, error) {
 	p := path.Join(base, attr)
 
-	v, err := ReadUint(a.fs, p)
+	line, err := ReadLine(a.fs, p)
 	if err != nil {
 		return 0, err
+	}
+
+	if line == "" {
+		return 0, nil
+	}
+
+	v, perr := strconv.ParseUint(line, dec10, dec10Bits)
+	if perr != nil {
+		return 0, fmt.Errorf("parse uint %q: %w", p, perr)
 	}
 
 	if v > byteMax {
