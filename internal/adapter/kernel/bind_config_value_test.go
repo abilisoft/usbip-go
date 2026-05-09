@@ -96,12 +96,20 @@ func TestBind_HighConfigurationValue_ProceedsViaBareDeviceUnbind(t *testing.T) {
 		"Bind must succeed against a device whose active configuration is 2")
 
 	require.Len(t, rec.calls, 3,
-		"Bind sequence: bare-device unbind → match_busid add → usbip-host bind")
+		"Bind sequence: match_busid add → bare-device unbind → usbip-host bind")
 
-	// Bare-device unbind first — NOT cdc_ether/<iface>.
-	require.Equal(t, "/sys/bus/usb/drivers/usb/unbind", rec.calls[0].Path,
-		"first write must target the bare-device driver, not cdc_ether/<iface>")
-	require.Equal(t, string(busID), rec.calls[0].Data,
+	// match_busid add MUST be first — populating the table before the
+	// unbind cascade triggers kernel auto-probe ensures usbip-host's
+	// stub_probe wins the race against the original interface driver.
+	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/match_busid", rec.calls[0].Path,
+		"first write must populate match_busid before any unbind")
+	require.Equal(t, "add "+string(busID), rec.calls[0].Data,
+		"match_busid takes the 'add <busid>' command form")
+
+	// Bare-device unbind second — NOT cdc_ether/<iface>.
+	require.Equal(t, "/sys/bus/usb/drivers/usb/unbind", rec.calls[1].Path,
+		"second write must target the bare-device driver, not cdc_ether/<iface>")
+	require.Equal(t, string(busID), rec.calls[1].Data,
 		"bare-device unbind takes the BARE busid, not iface")
 
 	// Final write: bind to usbip-host with the BARE busid.

@@ -50,10 +50,10 @@ func listenOrActivation(ctx context.Context, cfg *ServeConfig) (net.Listener, er
 		// hand-run case; falling back to plain Listen is correct.
 		// Surface the reason at debug so an operator who DID expect
 		// activation can spot the misconfiguration in the log.
-		slog.Default().Debug("systemd socket activation unavailable; falling back to --listen",
+		loggerOrDefault(ctx).Debug("systemd socket activation unavailable; falling back to --listen",
 			"err", err)
 	} else if len(named) > 0 {
-		lis, activated, perr := pickNamedListener(named)
+		lis, activated, perr := pickNamedListener(ctx, named)
 		if perr != nil {
 			return nil, perr
 		}
@@ -76,7 +76,7 @@ func listenOrActivation(ctx context.Context, cfg *ServeConfig) (net.Listener, er
 // expected labels. Operators upgrading from the pre-rename
 // `FileDescriptorName=usbip` socket unit see the warning and can
 // realign their unit without observing a silent fallback.
-func pickNamedListener(named map[string][]net.Listener) (net.Listener, bool, error) {
+func pickNamedListener(ctx context.Context, named map[string][]net.Listener) (net.Listener, bool, error) {
 	fds, ok := named[activationFdName]
 	if ok && len(fds) == 1 {
 		return fds[0], true, nil
@@ -87,7 +87,7 @@ func pickNamedListener(named map[string][]net.Listener) (net.Listener, bool, err
 	if total == 1 {
 		observed := firstSingletonListenerName(named)
 		if observed != activationFdName {
-			slog.Default().Warn("systemd activation fd label mismatch; "+
+			loggerOrDefault(ctx).Warn("systemd activation fd label mismatch; "+
 				"accepting it as singleton fallback — update the socket "+
 				"unit's FileDescriptorName to silence this warning",
 				slog.String("observed", observed),

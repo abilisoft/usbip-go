@@ -21,9 +21,10 @@ import (
 // unbindCurrentDeviceDriver write-error branch: when the kernel
 // rejects the write to /sys/bus/usb/drivers/<driver>/unbind (e.g.
 // EPERM on a sandboxed daemon, EIO on a transient sysfs glitch),
-// Bind MUST surface the error rather than continuing to
-// match_busid — proceeding would leave the device's original
-// driver attached and the bind step would EBUSY anyway.
+// Bind MUST surface the error AND roll back the match_busid add
+// (because match_busid runs FIRST in the upstream-aligned sequence)
+// so the table is not poisoned with an unbound busid. The
+// usbip-host /bind write must NOT happen.
 func TestBind_DeviceUnbindWriteFails_PropagatesError(t *testing.T) {
 	t.Parallel()
 
@@ -55,9 +56,27 @@ func TestBind_DeviceUnbindWriteFails_PropagatesError(t *testing.T) {
 		"EPERM on the bare-device unbind write must surface as ErrPermission")
 
 	for _, c := range rec.calls {
-		require.NotEqual(t, usbipHostMatchBusIDPath, c.Path,
-			"match_busid must NOT be written when the bare-device unbind failed")
+		require.NotEqual(t, "/sys/bus/usb/drivers/usbip-host/bind", c.Path,
+			"usbip-host/bind must NOT be written when the bare-device unbind failed")
 	}
+
+	// Rollback: match_busid was added (step 1) then deleted on
+	// unbind failure. drivers_probe re-evaluates so the original
+	// driver re-attaches.
+	var addSeen, delSeen bool
+
+	for _, c := range rec.calls {
+		if c.Path == usbipHostMatchBusIDPath && c.Data == "add "+busID {
+			addSeen = true
+		}
+
+		if c.Path == usbipHostMatchBusIDPath && c.Data == "del "+busID {
+			delSeen = true
+		}
+	}
+
+	require.True(t, addSeen, "match_busid add must have been written before unbind failed")
+	require.True(t, delSeen, "match_busid del must have been written by rollback after unbind failure")
 }
 
 // TestBind_RollbackDriversProbeFails_LogsButReturnsPrimary pins the

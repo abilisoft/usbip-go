@@ -111,21 +111,22 @@ func TestBind_WritesExactSequence(t *testing.T) {
 	err = a.Bind(context.Background(), busID)
 	require.NoError(t, err)
 
-	// Three writes: bare-device unbind, match_busid add, usbip-host bind.
-	// Mirrors upstream usbip_bind.c::bind_device(): unbind_other()
-	// detaches the bare-device usb_driver and USB core's generic
-	// disconnect cascades to interface drivers (cdc_ether, usbhid, …),
-	// so we do NOT issue an explicit per-interface unbind.
+	// Three writes: match_busid add, bare-device unbind, usbip-host bind.
+	// Mirrors upstream usbip_bind.c::bind_device(): modify_match_busid()
+	// runs FIRST so the kernel auto-probe that fires after unbind_other()
+	// finds usbip-host's stub_probe winning the match table; otherwise
+	// the original interface drivers (cdc_ether, cdc_ncm, usbhid, …)
+	// reclaim the device in the auto-probe race window.
 	require.Len(t, rec.calls, 3)
-
-	require.Equal(t, writeCall{
-		Path: "/sys/bus/usb/drivers/usb/unbind",
-		Data: string(busID),
-	}, rec.calls[0])
 
 	require.Equal(t, writeCall{
 		Path: "/sys/bus/usb/drivers/usbip-host/match_busid",
 		Data: "add " + string(busID),
+	}, rec.calls[0])
+
+	require.Equal(t, writeCall{
+		Path: "/sys/bus/usb/drivers/usb/unbind",
+		Data: string(busID),
 	}, rec.calls[1])
 
 	require.Equal(t, writeCall{

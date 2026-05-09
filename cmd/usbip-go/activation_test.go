@@ -244,7 +244,7 @@ func TestListenOrActivation_LegacyFdNameWarns(t *testing.T) {
 func TestPickNamedListener_NoFds(t *testing.T) {
 	t.Parallel()
 
-	lis, activated, err := pickNamedListener(map[string][]net.Listener{})
+	lis, activated, err := pickNamedListener(t.Context(), map[string][]net.Listener{})
 	require.NoError(t, err)
 	require.False(t, activated)
 	require.Nil(t, lis)
