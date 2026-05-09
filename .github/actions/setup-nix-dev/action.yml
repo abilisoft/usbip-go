@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: 2026 AbiliSoft
+# SPDX-License-Identifier: Apache-2.0
+#
+# Composite action: checkout + Determinate Systems Nix installer +
+# FlakeHub cache restore. Every Nix-backed CI job repeats this triple
+# verbatim; centralising it here is the single point of truth so a
+# pin bump (e.g. nix-installer-action SHA) lands once instead of in
+# 15+ jobs.
+#
+# Callers MUST grant `id-token: write` at the JOB level so
+# flakehub-cache-action can mint its OIDC token. The composite action
+# cannot grant permissions itself — only workflow/job blocks can.
+#
+# fetch-depth defaults to 1 (shallow). Pass fetch-depth: 0 for jobs
+# that need full git history: TDD-discipline (rev-list base..head),
+# API-surface (apidiff against baselines tied to git SHAs), and any
+# job that runs git-cliff.
+#
+# This composite is invoked as `uses: ./.github/actions/setup-nix-dev`
+# directly in jobs that have NOT yet run actions/checkout — the
+# composite owns the checkout itself. GitHub Actions stages local
+# `./` actions from the workflow's repository at the workflow's
+# commit before any step runs, so the action.yml is available even
+# without a prior checkout step. (See GitHub's "About custom
+# actions" docs and https://github.community/t/214070.)
+
+name: Setup Nix dev environment
+description: Checkout the working tree, install Nix, and restore the FlakeHub cache.
+
+inputs:
+  fetch-depth:
+    description: Number of commits to fetch — 0 for full history, 1 for shallow.
+    required: false
+    default: '1'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        fetch-depth: ${{ inputs.fetch-depth }}
+    - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+    - uses: DeterminateSystems/flakehub-cache-action@771f7cc21370bb0b97ff0c5dc442073f9f45ebda # v3.19.0

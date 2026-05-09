@@ -33,8 +33,78 @@ env:
   COSIGN_EXPERIMENTAL: '1'
 
 jobs:
+  # Cheap fail-fast gate: reject non-canonical tags BEFORE spending
+  # runner minutes on the four reusable prereq workflows. The push
+  # tag-glob already excludes most prerelease shapes, but oddities
+  # like v1.0.0foo or v1.0.0_hotfix slip through; this guard re-
+  # validates against the anchored stable-SemVer regex used in
+  # cliff.toml so the pipeline aborts in seconds.
+  validate-tag:
+    name: Validate tag shape
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Reject non-canonical release tag
+        env:
+          # TAG is piped through env: rather than direct ${{ }}
+          # interpolation per the project's actions-security policy
+          # — github.ref_name is repo-controlled today but env
+          # quoting is the universal-safe shape.
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::tag '$TAG' is not a canonical stable release (vMAJOR.MINOR.PATCH); refusing to release"
+            exit 1
+          fi
+
+  # Run the same gates a green PR has to clear before publishing
+  # binaries. Pre-reorg the release job re-ran ONLY unit tests, so
+  # a tag pushed against a tip with a fresh lint or architecture
+  # break would still publish broken artefacts. Each gate is the
+  # exact reusable workflow ci.yml calls — same commands, same
+  # toolchain, no copy-paste drift.
+  prereq-security:
+    name: Pre-release security
+    needs: validate-tag
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
+    uses: ./.github/workflows/_security.yml
+    with:
+      # Tag-driven release runs are not "PR pushes" so the SARIF
+      # upload-skip guard (which keys on fork PRs) does not apply
+      # here. Leaving the upload on so a fresh CVE that landed
+      # since the last main-branch run still gets surfaced.
+      upload-sarif: true
+
+  prereq-unit-tests:
+    name: Pre-release unit tests
+    needs: validate-tag
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/_unit-tests.yml
+
+  prereq-conformance:
+    name: Pre-release conformance
+    needs: validate-tag
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/_conformance.yml
+
+  prereq-arch:
+    name: Pre-release architecture
+    needs: validate-tag
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/_arch-checks.yml
+
   release:
-    name: GoReleaser
+    name: Build and publish release
+    needs: [prereq-security, prereq-unit-tests, prereq-conformance, prereq-arch]
     runs-on: ubuntu-24.04
     permissions:
       # contents:write — goreleaser creates the GitHub Release and
@@ -51,31 +121,18 @@ jobs:
       # the slsa-github-generator generic builder consumes.
       hashes: ${{ steps.hash-artifacts.outputs.hashes }}
     steps:
-      - name: Reject non-canonical release tag
-        # GHA's tag glob excludes the common dash/plus shapes but
-        # cannot reject every alphanumeric oddity (e.g. v1.0.0foo,
-        # v1.0.0_hotfix). This guard re-validates the ref name
-        # against the anchored stable-SemVer regex used in cliff.toml
-        # so the pipeline aborts BEFORE any artefact is built or any
-        # Release object is created. TAG is piped through env: rather
-        # than direct ${{ }} interpolation per the project's
-        # actions-security policy.
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::tag '$TAG' is not a canonical stable release (vMAJOR.MINOR.PATCH); refusing to release"
-            exit 1
-          fi
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # Tag shape was validated by the validate-tag job above; the
+      # `needs:` chain guarantees it ran green before this job
+      # started. No re-validation here.
+      - uses: ./.github/actions/setup-nix-dev
         with:
-          fetch-depth: 0
-      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/flakehub-cache-action@771f7cc21370bb0b97ff0c5dc442073f9f45ebda # v3.19.0
+          # git-cliff needs full history to render --latest's
+          # "everything between the prior tag and HEAD" range.
+          fetch-depth: '0'
 
-      - name: Unit tests before release
-        run: nix develop --command task ci:test
+      # Unit / conformance / arch / security gates ran as the
+      # prereq-* reusable jobs above (`needs:` enforces the order),
+      # so we go straight to release-notes + GoReleaser here.
 
       - name: Generate release notes for ${{ github.ref_name }}
         # git-cliff renders the section for the most-recent matching
@@ -176,7 +233,7 @@ jobs:
           echo "hashes=$hashes" >> "$GITHUB_OUTPUT"
 
   provenance:
-    name: SLSA Build Provenance
+    name: Generate SLSA provenance
     needs: [release]
     permissions:
       # actions:read lets the generator inspect the parent workflow

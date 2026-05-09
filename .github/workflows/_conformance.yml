@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: 2026 AbiliSoft
+# SPDX-License-Identifier: Apache-2.0
+#
+# Reusable workflow: USB/IP wire-format conformance tests against
+# real captures + optional upstream usbip CLI cross-check. Called
+# from ci.yml on PR/push and from release.yml as a publish
+# prerequisite. No interpolation of untrusted GitHub event fields.
+
+name: Conformance (reusable)
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    name: USB/IP wire conformance
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: ./.github/actions/setup-nix-dev
+      - name: Conformance tests
+        # Conformance tests live under test/conformance/ and pin the
+        # codec output against captured wire bytes from upstream
+        # usbip-utils. The "optional upstream usbip" half of the job
+        # name reflects that the upstream CLI is exercised when the
+        # devShell ships it, otherwise the job runs the captures
+        # only. Either way the codec contract holds.
+        run: nix develop --command task ci:test:conformance

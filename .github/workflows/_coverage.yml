@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: 2026 AbiliSoft
+# SPDX-License-Identifier: Apache-2.0
+#
+# Reusable workflow: produce coverage profile, enforce the
+# vladopajic/go-test-coverage thresholds defined in
+# .testcoverage.yaml, and upload to Codecov for the README badge +
+# patch-coverage PR signal. Called from ci.yml on PR/push.
+# No interpolation of untrusted GitHub event fields.
+
+name: Coverage (reusable)
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    name: Coverage thresholds
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # id-token: write — flakehub-cache-action OIDC plus
+      # codecov-action's keyless OIDC upload (use_oidc: true).
+      id-token: write
+    steps:
+      - uses: ./.github/actions/setup-nix-dev
+        with:
+          # fetch-depth: 0 lets vladopajic/go-test-coverage diff
+          # against the base branch when configured to compute the
+          # patch threshold; the default shallow checkout would
+          # break that mode.
+          fetch-depth: '0'
+      - name: Produce coverage profile
+        run: nix develop --command task ci:test:cover
+      - name: Enforce thresholds
+        # Pinned to v2.18.6 — v2.18.7 PR #308 changed file search
+        # to require a leading slash, which breaks our local-prefix
+        # path resolution and surfaces as `could not find file
+        # [github.com/abilisoft/usbip-go/...]`. Revisit once the
+        # action ships a fix that respects local-prefix stripping.
+        uses: vladopajic/go-test-coverage@b7a53f8889e7246b7af7ad84e96a7c9704bf01fb # v2.18.6
+        with:
+          config: ./.testcoverage.yaml
+          profile: ./build/coverage/coverage.out
+      - name: Upload coverage to Codecov
+        # Codecov ingests the Go coverage profile and renders the
+        # percentage on the README badge. Per-PR diff comments
+        # require the Codecov GitHub App to be installed on the
+        # abilisoft org (one-time, https://github.com/apps/codecov).
+        # The badge works regardless.
+        #
+        # use_oidc: true opts into Codecov's GitHub-OIDC keyless
+        # path so no CODECOV_TOKEN secret is needed for public
+        # repos; the action exchanges the runner's id-token for a
+        # short-lived Codecov upload credential. Private repo
+        # support would require setting CODECOV_TOKEN.
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
+        with:
+          files: ./build/coverage/coverage.out
+          use_oidc: true
+          fail_ci_if_error: false
+          verbose: false

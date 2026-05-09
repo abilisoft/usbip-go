@@ -1,6 +1,24 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
 #
+# CI orchestrator. Calls reusable workflows under
+# `.github/workflows/_*.yml` so each gate has a single source of
+# truth that other workflows (nightly.yml, release.yml, …) can also
+# call without copy-paste drift.
+#
+# Triggers: push to main and PRs against main. Mutation testing has
+# been split out to mutation.yml (label-gated PRs + weekly cron).
+#
+# Pattern: run every gate on a plain ubuntu-24.04 runner via the
+# Determinate Systems Nix installer + Magic Nix Cache; flake-pinned
+# toolchain (Go, golangci-lint, govulncheck, …) on PATH inside
+# `nix develop --command`. We deliberately do NOT run jobs inside a
+# minimal nix-only container image: GitHub Actions requires Node.js
+# inside any job container so action-shipped JS code (notably
+# actions/cache save/restore) can run, and a node-less Nix base
+# image fails every JS action with "node: executable file not
+# found". The plain runner has node out of the box.
+
 name: CI
 
 on:
@@ -8,117 +26,56 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  schedule:
-    # Weekly mutation testing — Mondays at 04:00 UTC. Non-blocking, files tracking issues on survivors.
-    - cron: '0 4 * * 1'
 
+# Workflow-root permissions clamped to read-only so OpenSSF
+# Scorecard's Token-Permissions check passes; per-job blocks (and
+# per-reusable-workflow blocks) elevate where needed.
 permissions:
   contents: read
-# id-token:write is granted at job scope (not workflow root) for every
-# job that uses DeterminateSystems/flakehub-cache-action. Scorecard's
-# Token-Permissions check flags any non-read permission granted at
-# workflow root, so this file keeps the root clamped to contents:read
-# and each cache-using job adds its own permissions block.
-
-# Pattern: install Nix on a plain ubuntu-24.04 runner via the
-# Determinate Systems action, let Magic Nix Cache handle the store
-# cache, then run every job's commands inside `nix develop --command`
-# so the flake-pinned toolchain (Go, golangci-lint, govulncheck, …)
-# is on PATH.
-#
-# We deliberately do NOT run jobs inside a minimal nix-only container
-# image: GitHub Actions requires Node.js inside any job container so
-# action-shipped JS code (notably actions/cache save/restore) can run.
-# A node-less Nix base image fails every JS action with "node:
-# executable file not found". The plain runner has node out of the
-# box, and Magic Nix Cache replaces the nix-store actions/cache entry
-# that would otherwise live here.
 
 defaults:
   run:
     shell: bash
 
 jobs:
-  lint-and-vet:
-    name: Lint & vuln
-    runs-on: ubuntu-24.04
+  security:
+    name: Security
     permissions:
       contents: read
       id-token: write
-      # security-events:write required by github/codeql-action/upload-sarif
-      # so govulncheck findings render on Security -> Code scanning.
-      # Granted at job scope; Scorecard Token-Permissions flags any
-      # non-read at workflow root.
       security-events: write
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
-      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/flakehub-cache-action@771f7cc21370bb0b97ff0c5dc442073f9f45ebda # v3.19.0
-      - name: Format check (gofmt -s)
-        # Fails fast if any file under cmd/examples/internal/pkg/test
-        # would change under `gofmt -s`. Catches drift that local
-        # `task fmt` would auto-fix; Go Report Card's gofmt check
-        # otherwise surfaces it weeks later as a graded penalty.
-        run: nix develop --command task ci:fmt:check
-      - name: Lint
-        run: nix develop --command task ci:lint
-      - name: Vuln (SARIF)
-        # govulncheck -format=sarif writes the full SARIF payload to
-        # stdout before the nonzero-on-findings exit, so the redirect
-        # captures a complete file even when the step fails. Upload
-        # below runs with `if: always()` to guarantee delivery.
-        run: nix develop --command task ci:vuln:sarif
-      - name: Upload govulncheck SARIF
-        # Skip the upload on fork-originated PRs: GitHub clamps the
-        # GITHUB_TOKEN on those runs to read-only regardless of the
-        # job-scope `security-events: write` grant, so upload-sarif
-        # would fail the job. Push and same-repo PRs run normally.
-        if: >-
-          always() &&
-          (github.event_name != 'pull_request' ||
-           github.event.pull_request.head.repo.full_name == github.repository)
-        uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7 # v4.35.3
-        with:
-          sarif_file: build/govulncheck.sarif
-          # category disambiguates this scan from CodeQL, Scorecard,
-          # Trivy uploads so each renders as its own column on the
-          # code-scanning UI rather than overwriting prior runs.
-          category: govulncheck
+    uses: ./.github/workflows/_security.yml
 
-  unit-linux:
-    name: Unit tests (linux)
-    runs-on: ubuntu-24.04
+  unit-tests:
+    name: Unit
     permissions:
       contents: read
       id-token: write
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
-      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/flakehub-cache-action@771f7cc21370bb0b97ff0c5dc442073f9f45ebda # v3.19.0
-      - name: Test
-        run: nix develop --command task ci:test
+    uses: ./.github/workflows/_unit-tests.yml
 
   conformance:
-    name: Conformance (wire bytes + optional upstream usbip)
-    runs-on: ubuntu-24.04
+    name: Conformance
     permissions:
       contents: read
       id-token: write
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
-      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/flakehub-cache-action@771f7cc21370bb0b97ff0c5dc442073f9f45ebda # v3.19.0
-      - name: Conformance tests
-        run: nix develop --command task ci:test:conformance
+    uses: ./.github/workflows/_conformance.yml
 
-  test-tdd-discipline:
-    name: TDD discipline (Compliance Gate 3)
+  arch:
+    name: Architecture
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/_arch-checks.yml
+
+  coverage:
+    name: Coverage
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/_coverage.yml
+
+  tdd-discipline:
+    name: TDD commit discipline
     runs-on: ubuntu-24.04
     if: github.event_name == 'pull_request'
     env:
@@ -129,6 +86,15 @@ jobs:
         with:
           fetch-depth: 0
       - name: Inspect PR commits for red->green pairs
+        # A commit is RED when it adds new test files AND ships no
+        # production code in the same commit AND uses a behaviour-
+        # introducing Conventional-Commits type (feat / fix). RED
+        # commits MUST be immediately followed by a commit that adds
+        # a non-test .go file (the GREEN); no allow-list of "free
+        # passes" types because docs/chore/ci commits between RED
+        # and GREEN dilute the discipline. A trailing dangling RED
+        # at the end of the PR also fails so an open RED can never
+        # ship to main.
         run: |
           set -euo pipefail
           commits=$(git rev-list --reverse "${BASE_SHA}..${HEAD_SHA}")
@@ -136,235 +102,43 @@ jobs:
             echo "No commits in PR range; skipping TDD discipline check."
             exit 0
           fi
-          prev_added_test=""
+          prev_red_sha=""
           fail=0
           for sha in $commits; do
             subject=$(git log -1 --format=%s "$sha")
-            added_test=$(git diff-tree --no-commit-id --name-only --diff-filter=A -r "$sha" | { grep -E '_test\.go$' || true; })
-            non_test_go=$(git diff-tree --no-commit-id --name-only -r "$sha" | { grep -E '\.go$' || true; } | { grep -v '_test\.go$' || true; })
-            # A RED commit (new test files for new behavior) must be
-            # followed by a GREEN that adds production .go files OR by a
-            # Conventional Commit type that legitimately ships no
-            # production code: refactor, test (more tests for shipped
-            # code, e.g. mutation/coverage hardening), docs, chore, ci,
-            # style, build, perf. Anything else is a RED that never
-            # went green.
-            if [ -n "$prev_added_test" ] && [ -z "$non_test_go" ] && ! printf '%s' "$subject" | grep -qiE '^(refactor|test|docs|chore|ci|style|build|perf)(\([^)]*\))?:' ; then
-              echo "FAIL: commit $sha (\"$subject\") follows a RED commit but adds no implementation and is not labeled refactor/test/docs/chore/ci/style/build/perf"
-              fail=1
+            added_test=$(git diff-tree --no-commit-id --name-only --diff-filter=A -r "$sha" \
+              | { grep -E '_test\.go$' || true; })
+            non_test_go=$(git diff-tree --no-commit-id --name-only -r "$sha" \
+              | { grep -E '\.go$' || true; } \
+              | { grep -v '_test\.go$' || true; })
+
+            if [ -n "$prev_red_sha" ]; then
+              if [ -z "$non_test_go" ]; then
+                echo "FAIL: commit $sha (\"$subject\") follows RED commit $prev_red_sha but adds no non-test .go file"
+                fail=1
+              fi
+              # Whether or not the GREEN landed, clear the slot so
+              # the next iteration assesses the next commit on its
+              # own merits.
+              prev_red_sha=""
             fi
-            # A commit is RED (carries forward, requires GREEN next)
-            # only when it adds new test files AND ships no production
-            # code in the same commit AND uses a behavior-introducing
-            # type (feat/fix). A feat/fix that ships both tests and
-            # impl is self-greening; test:/refactor:/etc. signal "no
-            # new behavior" and never carry RED forward.
-            if [ -n "$added_test" ] && [ -z "$non_test_go" ] && printf '%s' "$subject" | grep -qiE '^(feat|fix)(\([^)]*\))?:' ; then
-              prev_added_test="$sha"
-            else
-              prev_added_test=""
+
+            # Mark THIS commit as a new RED only when it is a
+            # feat/fix commit that ships tests but no production
+            # code. test:/refactor:/etc. signal "no new behaviour"
+            # and never carry a RED forward.
+            if [ -n "$added_test" ] && [ -z "$non_test_go" ] \
+                && printf '%s' "$subject" | grep -qiE '^(feat|fix)(\([^)]*\))?:' ; then
+              prev_red_sha="$sha"
             fi
           done
+
+          # Trailing dangling RED — last commit added tests with no
+          # following GREEN. Without this guard the PR could merge
+          # with an unfollowed RED at HEAD.
+          if [ -n "$prev_red_sha" ]; then
+            echo "FAIL: PR ends with dangling RED commit $prev_red_sha (test added, no following GREEN)"
+            fail=1
+          fi
+
           exit "$fail"
-
-  api-surface:
-    name: API surface (Compliance Gate 6)
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
-      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/flakehub-cache-action@771f7cc21370bb0b97ff0c5dc442073f9f45ebda # v3.19.0
-      - name: Diff exported API against baselines
-        run: |
-          nix develop --command bash -eu -c '
-            # devShell does not export GOBIN (unlike the compose dev
-            # service which sets it via docker-compose.yml), so pin one
-            # under the hermetic cache tree before `go install`.
-            export GOBIN="$PWD/build/cache/go-bin"
-            mkdir -p "$GOBIN"
-            # Pin to the exact golang.org/x/exp pseudo-version recorded
-            # in go.mod so this `go install` is reproducible and
-            # OpenSSF Scorecard Pinned-Dependencies passes.
-            go install golang.org/x/exp/cmd/apidiff@v0.0.0-20260410095643-746e56fc9e2f
-            for pkg in github.com/abilisoft/usbip-go/pkg/usbip github.com/abilisoft/usbip-go/pkg/domain; do
-              short="${pkg##*/}"
-              baseline="api/pkg_${short}.json"
-              if [ ! -f "$baseline" ]; then
-                echo "no baseline for $pkg at $baseline; skipping"
-                continue
-              fi
-              "$GOBIN/apidiff" "$pkg" "$baseline" > diff.txt
-              cat diff.txt
-              if grep -qE "^(Incompatible|Removed)" diff.txt; then
-                if ! git log -1 --format=%s | grep -q "^BREAKING:" ; then
-                  echo "API break without BREAKING: commit"; exit 1
-                fi
-              fi
-            done
-          '
-
-  ddd-boundary:
-    name: DDD boundary (Compliance Gate 5)
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: pkg/domain must not import internal/
-        # pkg/domain is the pure-stdlib value-object surface; it must
-        # never reach into internal/. pkg/usbip is the public facade
-        # and is allowed to import internal/* by design (see
-        # docs/architecture.md "Layering rules").
-        run: |
-          set -euo pipefail
-          if [ -d pkg/domain ] && grep -rEn 'github\.com/abilisoft/usbip-go/internal/' pkg/domain/; then
-            echo "pkg/domain imports internal/ — boundary violation"
-            exit 1
-          fi
-      - name: internal/app must not import internal/adapter/{kernel,transport}
-        # internal/app declares adapter interfaces and consumes them
-        # via dependency injection. It legitimately imports
-        # internal/adapter/wire because codec value types appear on
-        # those interface signatures, but it must not import the
-        # kernel or transport adapter packages — those are reached
-        # only through the declared interfaces.
-        run: |
-          set -euo pipefail
-          if [ -d internal/app ] && grep -rEn 'github\.com/abilisoft/usbip-go/internal/adapter/(kernel|transport)' internal/app/; then
-            echo "internal/app imports internal/adapter/{kernel,transport} — boundary violation"
-            exit 1
-          fi
-
-  no-cgo:
-    name: No cgo (Compliance Gate 8)
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/flakehub-cache-action@771f7cc21370bb0b97ff0c5dc442073f9f45ebda # v3.19.0
-      - name: Authoritative cgo detection via go list
-        # `go list -f '{{.CgoFiles}}'` surfaces every OUR package
-        # that has cgo files — catches both single-line `import "C"`
-        # and block-imports, generated cgo, and dotimports. We DON'T
-        # use -deps because Go stdlib (runtime/cgo, net, os/user)
-        # ships cgo files that are only compiled under CGO_ENABLED=1;
-        # listing them is irrelevant to our CGO_ENABLED=0 policy.
-        run: |
-          nix develop --command bash -eu -c '
-            cgo_pkgs="$(go list -f "{{if .CgoFiles}}{{.ImportPath}}{{end}}" ./... | grep -v "^$" || true)"
-            if [ -n "$cgo_pkgs" ]; then
-              echo "found packages with cgo files — CGO_ENABLED=0 policy violation:"
-              echo "$cgo_pkgs"
-              exit 1
-            fi
-            if grep -rnE "(^|[[:space:]])import[[:space:]]+\"C\"" --include="*.go" . ; then
-              echo "found single-line import \"C\" — CGO_ENABLED=0 policy violation"
-              exit 1
-            fi
-            if find . -name "*.go" -not -path "./.git/*" -print0 | xargs -0 -r awk "
-                /^import[[:space:]]*\\(/ { in_blk=1; next }
-                in_blk && /^\\)/          { in_blk=0; next }
-                in_blk && /^[[:space:]]*\"C\"/ {
-                    print FILENAME \":\" FNR \": block-form import \\\"C\\\" (cgo)\"
-                    found=1
-                }
-                END { exit found ? 1 : 0 }
-              "; then
-              :
-            else
-              echo "found block-form import \"C\" — CGO_ENABLED=0 policy violation"
-              exit 1
-            fi
-          '
-
-  coverage:
-    name: Coverage (Compliance Gate 4)
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
-      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/flakehub-cache-action@771f7cc21370bb0b97ff0c5dc442073f9f45ebda # v3.19.0
-      - name: Produce coverage profile
-        run: nix develop --command task ci:test:cover
-      - name: Enforce thresholds
-        # Pinned back to v2.18.6 — v2.18.7 PR #308 changed file search
-        # to require a leading slash, which breaks our local-prefix
-        # path resolution and surfaces as `could not find file
-        # [github.com/abilisoft/usbip-go/...]`. Revisit once the
-        # action ships a fix that respects local-prefix stripping.
-        uses: vladopajic/go-test-coverage@b7a53f8889e7246b7af7ad84e96a7c9704bf01fb # v2.18.6
-        with:
-          config: ./.testcoverage.yaml
-          profile: ./build/coverage/coverage.out
-      - name: Upload coverage to Codecov
-        # Codecov ingests the Go coverage profile and renders the
-        # percentage on the README badge. Per-PR diff comments are
-        # NOT installed by this action alone; they require the
-        # Codecov GitHub App to be installed on the abilisoft org
-        # (one-time, https://github.com/apps/codecov). The badge
-        # works regardless.
-        #
-        # `use_oidc: true` opts into Codecov's GitHub-OIDC keyless
-        # path so no CODECOV_TOKEN secret is needed for public
-        # repos; the action exchanges the runner's id-token for a
-        # short-lived Codecov upload credential. Private-repo
-        # support would require setting CODECOV_TOKEN.
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
-        with:
-          files: ./build/coverage/coverage.out
-          use_oidc: true
-          fail_ci_if_error: false
-          verbose: false
-
-  cross-compile:
-    name: Cross-compile (Compliance Gate 12)
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/flakehub-cache-action@771f7cc21370bb0b97ff0c5dc442073f9f45ebda # v3.19.0
-      - name: Cross-platform build
-        # CGO_ENABLED=0 for cross-builds: matches the no-cgo policy
-        # gate plus avoids the host-toolchain cgo trap (cross-arch
-        # `gcc` cannot assemble runtime/cgo's per-arch sources;
-        # CGO_ENABLED=0 skips them entirely).
-        run: |
-          nix develop --command bash -eu -c '
-            export CGO_ENABLED=0
-            GOOS=linux GOARCH=amd64 go build ./...
-            GOOS=linux GOARCH=arm64 go build ./...
-            GOOS=linux GOARCH=arm GOARM=7 go build ./...
-          '
-
-  mutation:
-    name: Mutation testing
-    runs-on: ubuntu-24.04
-    # Runs on every push and PR — pkg/domain + internal/adapter/wire
-    # together complete in ~3-4 minutes serial. Promoted from
-    # schedule-only because efficacy regressions only surfaced on
-    # the weekly cron previously.
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
-      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/flakehub-cache-action@771f7cc21370bb0b97ff0c5dc442073f9f45ebda # v3.19.0
-      - name: Mutation tests
-        run: nix develop --command task ci:test:mutation
