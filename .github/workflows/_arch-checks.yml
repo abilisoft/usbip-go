@@ -228,15 +228,18 @@ jobs:
                 echo "missing API baseline for $pkg at $baseline — refusing to skip"
                 exit 1
               fi
-              # apidiff's positional form is `apidiff OLD NEW`;
-              # baseline is OLD (the committed contract), the
-              # current package source is NEW. The previous order
-              # (pkg, baseline) silently inverted this, so REMOVALS
-              # in the current tree appeared to apidiff as
-              # compatible ADDITIONS from baseline's perspective
-              # and slipped past the Incompatible/Removed grep
-              # below — every public-API removal could ship without
-              # a BREAKING: commit (Codex HIGH finding).
+              # apidiff positional form is `apidiff OLD NEW`;
+              # baseline (the committed contract) is OLD, current
+              # package source is NEW. Earlier revisions inverted
+              # these args, so REMOVALS in the current tree showed
+              # up to apidiff as compatible ADDITIONS relative to
+              # the baseline and slipped past the Incompatible /
+              # Removed grep below — every public-API removal
+              # could ship without a BREAKING: commit (Codex HIGH
+              # finding). Comment uses no apostrophes because the
+              # outer `bash -eu -c` body is single-quoted, and a
+              # stray apostrophe inside a single-quoted string
+              # closes the quote and breaks the script.
               "$GOBIN/apidiff" "$baseline" "$pkg" > diff.txt
               cat diff.txt
               if grep -qE "^(Incompatible|Removed)" diff.txt; then
