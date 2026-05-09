@@ -86,16 +86,18 @@ jobs:
         with:
           fetch-depth: 0
       - name: Inspect PR commits for red->green pairs
-        # A commit is RED when it adds new test files AND ships no
-        # production code in the same commit AND uses a behaviour-
-        # introducing Conventional-Commits type (feat / fix). RED
-        # commits MUST be immediately followed EITHER by a commit
-        # that adds a non-test .go file (the GREEN) OR by a
-        # `refactor:`-prefixed commit (the only accepted break in
-        # the chain). Anything else (`docs:`/`chore:`/`ci:`/
-        # `build:`/`perf:`/`style:`) leaves the RED unfollowed and
-        # fails the gate. A trailing dangling RED at the end of
-        # the PR also fails so an open RED can never
+        # A commit is RED when it adds at least one new
+        # `*_test.go` file, touches no non-test `.go` outside
+        # `internal/tools/`, and uses a behaviour-introducing
+        # Conventional-Commits type (feat / fix). RED commits
+        # MUST be immediately followed EITHER by a commit that
+        # touches a non-test `.go` outside `internal/tools/`
+        # (the GREEN — additions OR modifications both count) OR
+        # by a `refactor:`-prefixed commit (the only accepted
+        # break in the chain). Anything else (`docs:`/`chore:`/
+        # `ci:`/`build:`/`perf:`/`style:`) leaves the RED
+        # unfollowed and fails the gate. A trailing dangling RED
+        # at the end of the PR also fails so an open RED can never
         # ship to main.
         run: |
           set -euo pipefail
@@ -122,9 +124,11 @@ jobs:
               | { grep -v '^internal/tools/' || true; })
 
             if [ -n "$prev_red_sha" ]; then
-              # CONTRIBUTING.md "TDD discipline": after a RED commit
-              # the next commit MUST add non-test .go (the GREEN)
-              # OR be a `refactor:`-prefixed commit (the only
+              # CONTRIBUTING.md "TDD discipline": after a RED
+              # commit the next commit MUST touch non-test `.go`
+              # outside `internal/tools/` (additions OR
+              # modifications — the gate counts any change) OR
+              # be a `refactor:`-prefixed commit (the only
               # accepted break in the chain). Anything else
               # (including `chore:`/`docs:`/`ci:`) leaves the RED
               # unfollowed and fails the gate.

@@ -14,12 +14,14 @@ this template still containing placeholders.
 
 <!--
 The CI `TDD commit discipline` job (in `ci.yml`, PR-only) treats a
-feat:/fix: commit that ships only *_test.go (no non-test .go) as
-RED, and requires the very next commit to add non-test .go (GREEN)
-or be a refactor: commit. test: commits are NOT carried forward as
-RED — they're treated as coverage hardening for already-shipped
-code. If the PR has multiple RED/GREEN pairs, list each pair here.
-See CONTRIBUTING.md "TDD discipline" for the full gate semantics.
+feat:/fix: commit that adds new *_test.go AND touches no non-test
+.go outside internal/tools/ as RED, and requires the very next
+commit to touch non-test .go outside internal/tools/ (the GREEN;
+additions OR modifications both count) or be a refactor: commit.
+test:-prefixed commits are NOT carried forward as RED — they're
+treated as coverage hardening for already-shipped code. If the
+PR has multiple RED/GREEN pairs, list each pair here. See
+CONTRIBUTING.md "TDD discipline" for the full gate semantics.
 -->
 
 ## Contract trace
