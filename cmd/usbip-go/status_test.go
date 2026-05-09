@@ -557,7 +557,7 @@ func TestStatusGroupChownResolvesCallerGroup(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
 
-	applyStatusSocketACL(sockPath, gname)
+	applyStatusSocketACL(t.Context(), sockPath, gname)
 
 	info, err := os.Stat(sockPath)
 	require.NoError(t, err)
