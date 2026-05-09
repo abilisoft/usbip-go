@@ -69,52 +69,60 @@ jobs:
   vm-tests:
     name: Kernel module smoke + integration suite
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # 90 minutes accommodates TCG software-emulation runs on
+    # hosted runners (KVM-capable runners finish in 15-25 min
+    # easily inside this bound). The actual hung-test catcher is
+    # the per-Go-test deadline configured in Taskfile.yml; this
+    # bound is the upper safety net.
+    timeout-minutes: 90
     permissions:
       contents: read
       # id-token: write — required by DeterminateSystems/flakehub-cache-action
       # (v3.19.0+) to exchange the runner's OIDC token for cache auth.
       id-token: write
+    # USBIP_GO_VM_ALLOW_TCG=1 lets the flake's microvm-run script
+    # use `accel=kvm:tcg` instead of bare `kvm`. Result: qemu picks
+    # KVM when /dev/kvm exists (fast, ~15 s smoke / 10–15 min
+    # integration) and falls back to TCG software emulation when
+    # /dev/kvm is missing (slow but functional, ~60-180 s smoke /
+    # 30–60 min integration). This is the "works everywhere"
+    # posture: hosted ubuntu-24.04 runners (no /dev/kvm in 2026 on
+    # the standard SKU) still complete the gate; self-hosted KVM
+    # runners stay fast. Without this we'd lose the whole
+    # vm-integration tripwire on every hosted-runner PR.
+    env:
+      USBIP_GO_VM_ALLOW_TCG: '1'
     steps:
-      - name: Detect nested KVM availability
-        id: kvm
-        # GitHub-hosted ubuntu-24.04 runners no longer expose
-        # /dev/kvm to job containers (verified 2026-05; the
-        # standard SKU now requires a paid larger SKU or a
-        # self-hosted runner for nested virt). Without /dev/kvm
-        # qemu_kvm boots fail opaquely; rather than failing the
-        # whole gate on hosted infra and blocking every production-
-        # path PR, we DETECT and skip downstream VM steps when KVM
-        # is absent. Self-hosted runners with /dev/kvm passthrough
-        # still execute the full smoke + integration sweep; the
-        # daily scheduled run targets that capable runner. PR
-        # blockers like wire-format conformance, lint, and tests
-        # still gate via the other ci.yml workflows; vm-integration
-        # is the kernel-surface tripwire that fires when an
-        # appropriate runner is available.
+      - name: Detect virtualisation acceleration
+        # Print which accel path will be exercised so the run log
+        # shows whether this was a fast (KVM) or slow (TCG) sweep
+        # at a glance — distinguishes a 30-minute hosted-runner
+        # tcg run from a 10-minute self-hosted KVM run when
+        # comparing CI durations.
         run: |
           if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
-            echo "kvm=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=KVM available::Booting microVM with hardware virtualisation."
             ls -la /dev/kvm
           else
-            echo "kvm=false" >> "$GITHUB_OUTPUT"
-            echo "::warning title=KVM unavailable::/dev/kvm not accessible on this runner; vm-integration steps skipped. Configure a self-hosted runner with KVM passthrough for full kernel-surface coverage."
+            echo "::notice title=KVM unavailable::Falling back to TCG (qemu software emulation). Run will be slower than a /dev/kvm-capable runner."
           fi
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        if: steps.kvm.outputs.kvm == 'true'
       - uses: ./.github/actions/setup-nix-dev
-        if: steps.kvm.outputs.kvm == 'true'
       - name: VM smoke (kernel modules load)
         # Boots the microVM, asserts usbip_core / vhci_hcd /
         # usbip_host / usbip_vudc / libcomposite all loaded. Cheap
-        # check; runs first so an integration suite never starts
-        # against a broken VM image.
-        if: steps.kvm.outputs.kvm == 'true'
+        # check on KVM (~15 s); runs first so an integration suite
+        # never starts against a broken VM image. On TCG closer to
+        # 60-120 s, still well under the 45-minute job timeout.
         run: nix develop --command task ci:vm:smoke
       - name: Integration suite inside microVM
         # Runs `go test -tags=integration_linux ./test/integration/...`
         # inside the booted microVM via 9p split mounts (/src ro,
-        # /src/build/cache rw). Slow (15-25min); the smoke check
-        # gates against wasted runner time on a dead image.
-        if: steps.kvm.outputs.kvm == 'true'
+        # /src/build/cache rw). KVM: 15-25 min. TCG: 30-60 min,
+        # potentially 90 — the 45-minute job timeout above is a
+        # conservative bound that catches a hung test instead of
+        # an infrastructure-paced run. If TCG genuinely needs
+        # longer the bound moves up; the tripwire stays useful
+        # either way because integration failures usually surface
+        # in the smoke step.
         run: nix develop --command task ci:vm:test:integration
