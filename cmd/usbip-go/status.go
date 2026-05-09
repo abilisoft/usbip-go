@@ -341,26 +341,31 @@ func bindStatusSocket(ctx context.Context, path, group string) (net.Listener, er
 		return nil, fmt.Errorf("chmod status socket %q: %w", path, cerr)
 	}
 
-	applyStatusSocketACL(path, group)
+	applyStatusSocketACL(ctx, path, group)
 
 	return lis, nil
 }
 
 // applyStatusSocketACL chowns the UDS to the configured group.
-// Lookup / chown failures are logged via slog.Default but do NOT fail
-// startup (v1 contract §7.7: chown is an ops-facing convenience, not
-// a hard gate — a dev machine without a `usbip-go` group still boots).
-// Mode is set by bindStatusSocket's post-bind os.Chmod call, so this
-// helper is chown-only. Returns nothing: every failure path is
-// best-effort.
-func applyStatusSocketACL(path string, group string) {
+// Lookup / chown failures are logged via the ctx-bound logger but do
+// NOT fail startup (v1 contract §7.7: chown is an ops-facing
+// convenience, not a hard gate — a dev machine without a `usbip-go`
+// group still boots). Mode is set by bindStatusSocket's post-bind
+// os.Chmod call, so this helper is chown-only. Returns nothing:
+// every failure path is best-effort.
+func applyStatusSocketACL(ctx context.Context, path, group string) {
 	if group == "" {
 		return
 	}
 
+	log := loggerFromCtx(ctx)
+	if log == nil {
+		log = slog.Default()
+	}
+
 	grp, err := user.LookupGroup(group)
 	if err != nil {
-		slog.Default().Info("status-socket group lookup failed, skipping chown",
+		log.Info("status-socket group lookup failed, skipping chown",
 			slog.String("group", group), slog.Any("err", err))
 
 		return
@@ -368,7 +373,7 @@ func applyStatusSocketACL(path string, group string) {
 
 	gid, err := strconv.Atoi(grp.Gid)
 	if err != nil {
-		slog.Default().Warn("status-socket group has non-numeric gid, skipping chown",
+		log.Warn("status-socket group has non-numeric gid, skipping chown",
 			slog.String("group", group), slog.String("gid", grp.Gid), slog.Any("err", err))
 
 		return
@@ -378,7 +383,7 @@ func applyStatusSocketACL(path string, group string) {
 	if err != nil {
 		// Best-effort — a non-root dev machine typically can't chown
 		// to an arbitrary group. Surface the reason without aborting.
-		slog.Default().Info("status-socket chown skipped (non-fatal)",
+		log.Info("status-socket chown skipped (non-fatal)",
 			slog.String("group", group), slog.Int("gid", gid), slog.Any("err", err))
 	}
 }
@@ -392,7 +397,7 @@ func handleStatusGet(w http.ResponseWriter, r *http.Request, src statusSource) {
 		// Kernel-module probing is best-effort on non-Linux hosts; log
 		// and fall through with whatever partial map came back so the
 		// schema is still served.
-		slog.Default().Info("status: kernel-module probe failed",
+		loggerOrDefault(r.Context()).Info("status: kernel-module probe failed",
 			slog.Any("err", err))
 	}
 
@@ -405,7 +410,7 @@ func handleStatusGet(w http.ResponseWriter, r *http.Request, src statusSource) {
 		// list is empty. Operators polling / can distinguish "no
 		// exports" from "sysfs unreachable".
 		bdErrStr = bdErr.Error()
-		slog.Default().Warn("status: list bound devices failed",
+		loggerOrDefault(r.Context()).Warn("status: list bound devices failed",
 			slog.Any("err", bdErr))
 	}
 
@@ -429,7 +434,7 @@ func handleStatusGet(w http.ResponseWriter, r *http.Request, src statusSource) {
 
 	encErr := enc.Encode(resp)
 	if encErr != nil {
-		slog.Default().Warn("status: encode response failed",
+		loggerOrDefault(r.Context()).Warn("status: encode response failed",
 			slog.Any("err", encErr))
 	}
 }
@@ -469,7 +474,7 @@ func handleStatusDrain(drainCtx context.Context, started *atomic.Bool, w http.Re
 	go func() {
 		err := src.Drain(drainCtx)
 		if err != nil {
-			slog.Default().Error("status: drain returned error",
+			loggerOrDefault(drainCtx).Error("status: drain returned error",
 				slog.Any("err", err))
 		}
 	}()

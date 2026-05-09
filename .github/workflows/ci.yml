@@ -298,7 +298,12 @@ jobs:
       - name: Produce coverage profile
         run: nix develop --command task ci:test:cover
       - name: Enforce thresholds
-        uses: vladopajic/go-test-coverage@8cfd056d3bc5cc2bc64a840ded0c907aaae3dc46 # v2.18.7
+        # Pinned back to v2.18.6 — v2.18.7 PR #308 changed file search
+        # to require a leading slash, which breaks our local-prefix
+        # path resolution and surfaces as `could not find file
+        # [github.com/abilisoft/usbip-go/...]`. Revisit once the
+        # action ships a fix that respects local-prefix stripping.
+        uses: vladopajic/go-test-coverage@b7a53f8889e7246b7af7ad84e96a7c9704bf01fb # v2.18.6
         with:
           config: ./.testcoverage.yaml
           profile: ./build/coverage/coverage.out
