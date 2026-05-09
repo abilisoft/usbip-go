@@ -1,50 +1,38 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
 #
-name: Nightly
-
-# Nightly govulncheck + golangci-lint against `main`. Catches new
+# Nightly re-run of the security gate against `main`. Catches new
 # CVEs published to the Go vuln DB and lint-rule additions in
 # golangci-lint releases without waiting for a push or PR. The
 # regular CI workflow (.github/workflows/ci.yml) already runs the
-# same gates on every push and pull request — this job's purpose is
-# zero-code-change reruns so an upstream regression pages within 24h
-# instead of waiting for the next merge.
+# same gate on every push and pull request via the SAME reusable
+# workflow (_security.yml) — this nightly call is a zero-code-change
+# rerun so an upstream regression pages within 24h instead of
+# waiting for the next merge.
 #
 # Manual dispatch is enabled for ad-hoc reruns (e.g. immediately
 # after a CVE disclosure) without waiting for the cron tick.
 
+name: Nightly
+
 on:
   schedule:
-    # 03:30 UTC daily — well before the 04:00 weekly mutation cron in
-    # ci.yml so the two runs do not contend for the same nix-store
-    # cache shard on Mondays.
+    # Daily 03:30 UTC — well clear of all weekly crons:
+    #   Mon 05:15  mutation testing
+    #   Tue 06:10  scorecard
+    #   Wed 04:10  codeql
+    # and the daily 04:30 trivy run.
     - cron: '30 3 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
-# id-token:write is granted at job scope. Scorecard's Token-Permissions
-# check flags non-read permissions at workflow root.
-
-defaults:
-  run:
-    shell: bash
 
 jobs:
-  vuln-and-lint:
-    name: govulncheck + golangci-lint
-    runs-on: ubuntu-24.04
+  security:
+    name: Security
     permissions:
       contents: read
       id-token: write
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
-      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: DeterminateSystems/flakehub-cache-action@771f7cc21370bb0b97ff0c5dc442073f9f45ebda # v3.19.0
-      - name: govulncheck
-        run: nix develop --command task ci:vuln
-      - name: golangci-lint
-        run: nix develop --command task ci:lint
+      security-events: write
+    uses: ./.github/workflows/_security.yml

@@ -199,24 +199,32 @@ func TestExporterWatchSessions_StartEnd(t *testing.T) {
 	close(release)
 	cancel()
 
-	// Expect a SessionEndedEvent after the handler unwinds.
-	var gotEnded bool
+	// Expect a SessionEndedEvent after the handler unwinds. We
+	// poll the receiver in a non-blocking select inside
+	// require.Eventually (10 s budget, 5 ms tick) instead of a
+	// fixed `time.After(2*time.Second)` deadline because that
+	// shorter budget flaked on the GHA hosted runner under -race
+	// + nix-cache contention: the kernel-events fan-out plus the
+	// goroutine scheduling round-trip from close(release) ->
+	// handler unwind -> publish -> worker forward -> evs consumer
+	// can take >2 s under load even when nothing is wrong. 10 s
+	// is safely below `task ci:test`'s per-test 180 s wall and
+	// matches the budget the other "wait for an event" assertions
+	// in this file already use.
+	gotEnded := false
 
-	deadline := time.After(2 * time.Second)
-
-waitEnded:
-	for !gotEnded {
+	require.Eventually(t, func() bool {
 		select {
 		case ev := <-evs:
 			if _, ok := ev.(domain.SessionEndedEvent); ok {
 				gotEnded = true
 			}
-		case <-deadline:
-			break waitEnded
+		default:
 		}
-	}
 
-	require.True(t, gotEnded, "expected a SessionEndedEvent within 2s")
+		return gotEnded
+	}, 10*time.Second, 5*time.Millisecond,
+		"SessionEndedEvent must reach the subscriber within 10 s of session end")
 
 	_ = client.Close()
 

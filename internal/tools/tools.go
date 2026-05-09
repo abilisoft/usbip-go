@@ -6,19 +6,26 @@
 
 // Package tools pins dev-tool versions via go.mod blank imports so
 // `go install -mod=mod <import-path>` resolves the pinned version
-// instead of @latest. The hermetic devShell (flake.nix) ships most
-// of these binaries directly; this file is the escape hatch for the
-// few that are not in nixpkgs (gremlins) or are installed ad-hoc by
-// CI jobs (apidiff in the api-surface workflow).
+// instead of @latest. The hermetic devShell (flake.nix) ships
+// goreleaser, golangci-lint, gofumpt, gotools (goimports), moq,
+// and govulncheck DIRECTLY from nixpkgs — those binaries do NOT
+// belong here, and listing them pulled their full transitive dep
+// graph into go.sum (notably the goreleaser tree, which dragged in
+// vulnerable in-toto-golang and modelcontextprotocol/registry
+// versions that surfaced on the OpenSSF Scorecard Vulnerabilities
+// check).
+//
+// What stays here is the genuine escape hatch — tools that nixpkgs
+// does NOT ship and which CI does not install ad-hoc:
+//
+//   - gremlins: mutation-testing harness; absent from nixpkgs at
+//     the version Taskfile's ci:test:mutation depends on.
+//
+// apidiff is installed ad-hoc in the api-compatibility CI job via
+// `go install golang.org/x/exp/cmd/apidiff@<pseudo-version>` so
+// the version pin lives at the call site, not here.
 package tools
 
 import (
 	_ "github.com/go-gremlins/gremlins/cmd/gremlins"
-	_ "github.com/golangci/golangci-lint/v2/cmd/golangci-lint"
-	_ "github.com/goreleaser/goreleaser/v2"
-	_ "github.com/matryer/moq"
-	_ "golang.org/x/exp/cmd/apidiff"
-	_ "golang.org/x/tools/cmd/goimports"
-	_ "golang.org/x/vuln/cmd/govulncheck"
-	_ "mvdan.cc/gofumpt"
 )

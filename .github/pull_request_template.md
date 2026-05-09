@@ -9,14 +9,19 @@ this template still containing placeholders.
 
 ## TDD trace
 
-- RED commit: <!-- e.g. abc1234 -- test(app): <subject> -->
-- GREEN commit: <!-- e.g. def5678 -- feat(app): <subject> -->
+- RED commit: <!-- e.g. abc1234 -- feat(app): tests only, no impl yet -->
+- GREEN commit: <!-- e.g. def5678 -- feat(app): impl that satisfies the tests -->
 
 <!--
-If the PR is multiple RED/GREEN pairs, list each pair. Refactor-only
-commits are fine here — label them "refactor: <subject>".
-The CI `test-tdd-discipline` job enforces the chain; mismatch fails
-the build.
+The CI `TDD commit discipline` job (in `ci.yml`, PR-only) treats a
+feat:/fix: commit that adds new *_test.go AND touches no non-test
+.go outside internal/tools/ as RED, and requires the very next
+commit to touch non-test .go outside internal/tools/ (the GREEN;
+additions OR modifications both count) or be a refactor: commit.
+test:-prefixed commits are NOT carried forward as RED — they're
+treated as coverage hardening for already-shipped code. If the
+PR has multiple RED/GREEN pairs, list each pair here. See
+CONTRIBUTING.md "TDD discipline" for the full gate semantics.
 -->
 
 ## Contract trace

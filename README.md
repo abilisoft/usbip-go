@@ -61,6 +61,17 @@ around the protocol:
 | SBOM + `cosign` keyless signed releases                                   | ❌                     | ✅         |
 | SLSA Build Provenance on every release                                    | ❌                     | ✅         |
 | OpenSSF Scorecard / Best Practices                                        | ❌                     | ✅         |
+| Shell completion install (`bash`/`zsh`/`fish`/`pwsh`)                          | ❌                | ✅         |
+| `watch` subcommand for live event observation                                  | ❌                | ✅         |
+| `port` subcommand for active VHCI port introspection                           | ❌                | ✅         |
+| HTTP `/healthz` + `/readyz` endpoints                                          | ❌                | ✅         |
+| Operator-stable versioned exit codes                                           | ❌                | ✅         |
+| Drain admin API (`POST /drain` over the status UDS)                            | ❌                | ✅         |
+| UUIDv7 session IDs for traceability                                            | ❌                | ✅         |
+| `iter.Seq` (Go 1.23+) range-over-func event streams                            | ❌                | ✅         |
+| Dual BusID validation (lenient on the wire, strict in the CLI)                 | ❌                | ✅         |
+| `-race` enforced on every CI run                                               | ❌                | ✅         |
+| `gosec` static-analysis rules in CI (via `golangci-lint`)                      | ❌                | ✅         |
 | TLS or authentication on the wire (out of scope — tunnel via WG/SSH/Tailscale) | ❌                | ❌         |
 
 The underlying invariant — wire-compatible with upstream — does not

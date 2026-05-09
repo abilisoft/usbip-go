@@ -116,7 +116,7 @@ tasks:
     cmds:
       - act push
   act:job:
-    desc: 'Run a single job locally; pass JOB=<name>. Example: task act:job JOB=lint-and-vet'
+    desc: 'Run a single job locally; pass JOB=<name>. Example: task act:job JOB=security'
     preconditions:
       - sh: '[ -n "{{.JOB}}" ]'
         msg: 'set JOB=<name>; see `task act:list`'
@@ -240,8 +240,36 @@ tasks:
       # reproducible (Scorecard Pinned-Dependencies).
       - mkdir -p "$GOBIN"
       - go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
-      - '"$GOBIN"/gremlins unleash ./pkg/domain'
-      - '"$GOBIN"/gremlins unleash ./internal/adapter/wire'
+      # gremlins copies the ENTIRE module tree per worker via
+      # filepath.Walk on the source dir; .gremlins.yaml's
+      # `excluded-files` only filters mutation CANDIDATES, NOT the
+      # workdir copy (see internal/engine/workdir/workdir.go:81 in
+      # gremlins v0.6.0 — copyTo has no skip-dir logic). Running
+      # straight from the repo root tries to copy build/cache/
+      # (~900 MB of hermetic Go module + build cache) for every
+      # worker, which panics with the placeholder error
+      # `panic: error, this is temporary` once disk fills or the
+      # walk hits a symlink loop.
+      #
+      # Stage a clean copy of the mutation-relevant source tree to
+      # mktemp-d, run gremlins from there. GOMODCACHE stays pointed
+      # at /src/build/cache/go-mod (set above by the env block) so
+      # gremlins resolves modules without re-downloading. Trap on
+      # EXIT cleans the stage even on failure.
+      - |
+        set -eu
+        stage=$(mktemp -d -t usbip-go-mutation-XXXXXX)
+        # EXIT-only trap because Taskfile shell is plain sh
+        # (mvdan/sh) which rejects `INT TERM` signal-name args
+        # to trap. EXIT fires on Ctrl-C and on normal/error exit.
+        trap 'rm -rf "$stage"' EXIT
+        cp go.mod go.sum .gremlins.yaml "$stage/"
+        for d in cmd pkg internal test examples api; do
+          [ -d "$d" ] && cp -r "$d" "$stage/"
+        done
+        cd "$stage"
+        "$GOBIN"/gremlins unleash ./pkg/domain
+        "$GOBIN"/gremlins unleash ./internal/adapter/wire
 
   ci:lint:
     deps: [_check:tooling]

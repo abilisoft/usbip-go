@@ -109,25 +109,53 @@ KVM gives ~15 s end-to-end, TCG fallback (opt-in via
 unconditionally maps `/dev/kvm` into the dev service; Docker
 Desktop on macOS does not expose `/dev/kvm`, so `task vm:*` is not
 supported there — use a Linux host (including a Linux VM on macOS).
-The integration tier is not run by GitHub Actions: hosted runners
-do not expose `/dev/kvm` and TCG is too slow for CI. Run
-`task vm:test:integration` locally before pushing changes that
-touch the integration paths.
+The integration tier IS run by GitHub Actions via
+[`vm-integration.yml`](.github/workflows/vm-integration.yml): the
+workflow boots the microVM with `accel=kvm:tcg` so it picks KVM
+on a self-hosted runner and falls back to TCG software emulation
+on hosted ubuntu-24.04 (which no longer exposes `/dev/kvm` on the
+standard SKU). TCG is significantly slower (~30-60 min sweep vs
+10-15 min on KVM); the workflow's daily cron + the broadened PR
+`paths:` filter (cmd/, internal/, pkg/, go.{mod,sum}) means a
+production-source PR will exercise the kernel surface within the
+job's 90-minute timeout, just slowly. Run `task vm:test:integration`
+locally on a KVM-capable Linux host for fast feedback before
+pushing.
 
 ## TDD discipline
 
-TDD is enforced mechanically by the `test-tdd-discipline` CI job for
-every PR. The rule is:
+TDD is enforced mechanically by the `TDD commit discipline` job in
+`ci.yml` (PR events only — pushes to main do not re-evaluate the
+RED→GREEN chain). The rule the gate enforces is the
+"incomplete-feat/fix" check, not strict test-first:
 
-- **Every implementation commit is preceded by a RED commit** that
-  adds a failing test. The pair is easy to spot: the RED subject
-  begins with `test(...)`; the GREEN subject follows as `feat(...)`
-  or `fix(...)`.
-- **Refactor-only commits** are labeled `refactor:` and contain no
-  behaviour change. The CI job accepts `refactor:` subjects as a
-  valid break in the RED → GREEN chain.
-- A commit that follows a RED commit and adds no implementation
-  without a `refactor:` label is rejected at PR review.
+- **A `feat:`/`fix:` commit that adds at least one new
+  `*_test.go` and touches no non-test `.go` outside
+  `internal/tools/` is treated as RED** — an unfinished
+  behaviour-introducing commit. The very next commit MUST touch
+  a non-test `.go` outside `internal/tools/` (additions OR
+  modifications both count — the gate uses git diff-tree, which
+  reports any change) OR be a `refactor:`-prefixed commit (the
+  only accepted break in the chain). Anything else
+  (`docs:`/`chore:`/`ci:`/`build:`/`perf:`/`style:`) leaves the
+  RED unfollowed and fails the gate.
+- **`test:` commits do NOT carry RED forward.** In this codebase
+  `test(scope):` means "tests for already-shipped code" —
+  coverage hardening / mutation gap closure / pinning a
+  contract — not strict-TDD test-first. The gate explicitly
+  ignores `test:`-prefixed commits when deciding whether the
+  next commit must touch prod code.
+- **A trailing dangling RED at the end of the PR fails the gate**
+  so an unfollowed `feat:`-only-tests commit cannot merge.
+- **Refactor commits** are accepted by subject prefix
+  (`refactor(scope):`); reviewers verify they ship no behaviour
+  change. They satisfy the post-RED slot and are also valid on
+  their own.
+
+Strict test-first writers preferring `test(...)` → `feat(...)`
+pairs SHOULD still keep them adjacent in the same PR; the gate
+won't reject the test-first commit on its own, but reviewers will
+flag a stale `test:` commit at PR review.
 
 The v1 contract's compliance gates 1-4 define the discipline; the CI workflow
 enforces gates 1-6, 8, and 12 mechanically.
@@ -170,7 +198,7 @@ baselines:
 - `api/pkg_usbip.json`
 - `api/pkg_domain.json`
 
-The CI `api-surface` job diffs the baselines against the current
+The CI `api-compatibility` job (in `_arch-checks.yml`) diffs the baselines against the current
 tree. Any incompatible change fails the build. When a PR
 intentionally breaks either surface (subject line begins with
 `BREAKING:`), regenerate the affected baseline in the same PR so the
@@ -194,21 +222,22 @@ items per the progressive-enforcement policy:
 
 | Gate | What | Enforcement |
 |---|---|---|
-| 1 | `task lint` clean (gofumpt, wsl_v5, mnd, goconst, nolintlint, complexity ≤ 10, etc.) | CI: `lint-and-vet` job runs `task lint`. |
-| 2 | `task test` clean with `-race` on linux | CI: `unit-linux` job runs `task ci:test`. A dedicated `conformance` job runs `task ci:test:conformance`; upstream-binary cross-checks inside it skip when `usbip` is not on PATH (the flake closure does not pin usbip-utils). |
-| 3 | RED→GREEN commit chain (every `*_test.go`-adding commit is followed by implementation or a `refactor:` commit) | CI: `test-tdd-discipline` job on pull requests. |
-| 4 | Coverage thresholds per §8.7 (domain 95, app 90, wire 95, kernel 70, transport 80, cmd 60) | CI: `coverage` job runs `task test:cover` + `vladopajic/go-test-coverage` against `.testcoverage.yaml`. |
-| 5 | DDD layering: `pkg/domain` ↛ `internal/`; `internal/app` ↛ `internal/adapter/{kernel,transport}` (wire is allowed because codec value types appear on app interface signatures). `pkg/usbip` is the public facade and intentionally imports `internal/*` to compose defaults. | CI: `ddd-boundary` job greps both directions. |
-| 6 | Public API stability for `pkg/usbip` + `pkg/domain`; breaking changes require a `BREAKING:` commit prefix | CI: `api-surface` job diffs against `api/pkg_usbip.json` + `api/pkg_domain.json` via `apidiff`. |
+| 1 | `task lint` clean (gofumpt, wsl_v5, mnd, goconst, nolintlint, complexity ≤ 10, etc.) | CI: `Format, lint, and vulnerability scan` (in `_security.yml`). |
+| 2 | `task test` clean with `-race` on linux | CI: `Linux unit tests` (in `_unit-tests.yml`). A separate `USB/IP wire conformance` job (in `_conformance.yml`) runs `task ci:test:conformance`; upstream-binary cross-checks inside it skip when `usbip` is not on PATH (the flake closure does not pin usbip-utils). |
+| 3 | RED→GREEN commit chain — every `feat:`/`fix:` commit that adds at least one new `*_test.go` and touches no non-test `.go` outside `internal/tools/` is immediately followed by a commit that touches non-test `.go` outside `internal/tools/` (the GREEN; additions OR modifications both count) OR by a `refactor:` commit (the only accepted break). `test:`-prefixed commits are NOT carried as RED (treated as coverage hardening). Trailing dangling RED at the PR tip also fails. | CI: `TDD commit discipline` job in `ci.yml` (PRs only). |
+| 4 | Coverage thresholds per `.testcoverage.yaml` — per-package floor 80%, total 90% (the achievable floor across the kernel-adapter errno tail and the cmd Cobra-Action surface; pure-logic packages — `pkg/domain`, `pkg/usbip`, `internal/app`, `internal/adapter/wire` — clear 90% comfortably under the current test surface). | CI: `Coverage thresholds` (in `_coverage.yml`) runs `task test:cover` + `vladopajic/go-test-coverage` against `.testcoverage.yaml`. |
+| 5 | DDD layering: `pkg/domain` ↛ `internal/`; `pkg/domain` is pure-stdlib (no third-party imports); `internal/app` ↛ `internal/adapter/{kernel,transport}` (wire is allowed because codec value types appear on app interface signatures). `pkg/usbip` is the public facade and intentionally imports `internal/*` to compose defaults. | CI: `Domain boundary rules` (in `_arch-checks.yml`) greps internal-import direction + uses `go list` to enumerate every third-party import in `pkg/domain`. |
+| 6 | Public API stability for `pkg/usbip` + `pkg/domain`; breaking changes require a `BREAKING:` commit prefix | CI: `API compatibility` (in `_arch-checks.yml`) diffs against `api/pkg_usbip.json` + `api/pkg_domain.json` via `apidiff`; the BREAKING-prefix scan walks `merge-base..HEAD` on PR events. |
 | 7 | No magic values (named constants only) | Code review (enforced indirectly by `mnd` + `goconst` in `task lint`, so rides Gate 1). |
-| 8 | No cgo anywhere in the tree | CI: `no-cgo` job uses `go list -deps` + source greps for `import "C"`. |
+| 8 | No cgo anywhere in the tree | CI: `Pure Go enforcement` (in `_arch-checks.yml`) uses `go list -f '{{.CgoFiles}}'` + source greps for `import "C"`. |
 | 9 | Structured logging: `slog.DebugContext` + `oops.With(...)`, stable attr keys per §11.5.5 | Code review (enforced indirectly by `sloglint` in `task lint`, so rides Gate 1). |
 | 10 | Metrics registration: new app side-effects register a §11.5.5 catalog entry in the same PR | Code review. |
 | 11 | Error mapping: new sysfs/wire paths map to the v1 contract §6.2 + §6.4 sentinels in the same PR | Code review. |
-| 12 | Cross-compile for `linux/{amd64,arm64,arm}` | CI: `cross-compile` job (release builds use `goreleaser build --snapshot` wiring). |
+| 12 | Cross-compile for `linux/{amd64,arm64,arm}` | CI: `Linux cross-compilation` (in `_arch-checks.yml`); release builds use `goreleaser build --snapshot` wiring. |
 
-One additional CI job runs outside the numbered-gate table:
-`lint-and-vet` also runs `task vuln` (govulncheck) on every PR.
+The `Format, lint, and vulnerability scan` job ALSO runs `task vuln`
+(govulncheck) — vuln scanning rides the same gate as lint rather than
+appearing as a separate workflow.
 
 ## Code-review checklist
 
@@ -216,8 +245,14 @@ When reviewing a PR, verify:
 
 - [ ] Subject line is a valid Conventional Commit and matches the
       work done. `BREAKING:` is present when the API surface changes.
-- [ ] A RED commit precedes every implementation commit, or the
-      commit is labelled `refactor:`.
+- [ ] A `feat:`/`fix:` commit that adds new `*_test.go` and
+      touches no non-test `.go` outside `internal/tools/` is
+      immediately followed by a commit that touches non-test
+      `.go` outside `internal/tools/` (the GREEN; additions OR
+      modifications both count) OR by a `refactor:` commit.
+      `test:`-prefixed commits that add coverage for already-
+      shipped code do NOT need a following GREEN — they are not
+      carried forward by the gate.
 - [ ] New public API in `pkg/usbip` or `pkg/domain` has godoc on
       every exported identifier.
 - [ ] Tests cover happy path and at least one failure mode per new
@@ -248,7 +283,7 @@ drives docker-compose itself and the dev container does not mount
 
 ```
 nix develop --command task act:list                    # list jobs act would run for push
-nix develop --command task act:job JOB=lint-and-vet    # run one job
+nix develop --command task act:job JOB=security        # run one job
 nix develop --command task act:push                    # run every replayable push-event job
 ```
 
@@ -261,9 +296,12 @@ The repo-level `.actrc` pins the runner image to
 What does NOT replay locally:
 
 - Integration suite — runs the hermetic microVM defined in
-  `flake.nix`. There is no GitHub Actions workflow for it because
-  GitHub-hosted runners do not expose `/dev/kvm` and TCG fallback
-  is too slow for CI; run it locally with `task vm:test:integration`.
+  `flake.nix`. The `vm-integration.yml` workflow DOES run it on
+  GitHub Actions (via TCG fallback when `/dev/kvm` is absent), but
+  `act` cannot replay it locally because the act runner image
+  doesn't expose `/dev/kvm` either AND nesting qemu inside the
+  act container is finicky. For fast iteration, run
+  `task vm:test:integration` on the host (KVM-capable Linux).
 - `release` (release.yml) — fires only on a stable SemVer-triple tag
   push (`vMAJOR.MINOR.PATCH`, no pre-release suffix and no build
   metadata; see the workflow's `on:tags` filter and `cliff.toml`'s
