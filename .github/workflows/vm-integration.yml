@@ -70,57 +70,31 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
-  vm-tests:
-    name: Kernel module smoke + integration suite
+  # detect-acceleration runs first and decides whether the
+  # downstream vm-tests job runs at all. Splitting the gate from
+  # the suite means GitHub marks vm-tests as SKIPPED (gray) when
+  # the gate condition is false — not "passed in 3 s" (green) —
+  # which is the honest signal: nothing was exercised.
+  detect-acceleration:
+    name: Detect VM acceleration
     runs-on: ubuntu-24.04
-    # Trigger-conditional accel posture:
-    #
-    #   pull_request / push:
-    #     KVM-only. If /dev/kvm is missing on the runner the job
-    #     exits in seconds (no-op). PR feedback stays fast; the
-    #     hosted ubuntu-24.04 standard SKU has no /dev/kvm so PR
-    #     runs are de-facto disabled until a self-hosted KVM
-    #     runner is provisioned.
-    #
-    #   schedule (daily 04:45 UTC) / workflow_dispatch:
-    #     KVM if available, else TCG software emulation. TCG
-    #     burns 60-90 min of cold-cache nix-build + emulation
-    #     time, which is fine on a nightly tripwire that operators
-    #     never wait for. Operator-triggered dispatch runs get
-    #     the same posture so a manual rerun after a flake bump
-    #     still produces signal even on hosted infra.
-    #
-    # Ruleset 15547082 does NOT include this check in
-    # required_status_checks; vm-integration is the kernel-
-    # surface advisory tripwire, not a merge gate.
-    timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 90 || 30 }}
-    # vm-integration is an advisory tripwire (not in
-    # ruleset 15547082's required_status_checks). `continue-on-
-    # error: true` keeps a TCG-failure on the nightly cron from
-    # reddening the workflow's check; the genuine signal stays in
-    # the run logs + GitHub Annotations.
-    continue-on-error: true
-    permissions:
-      contents: read
-      # id-token: write — required by DeterminateSystems/flakehub-cache-action
-      # (v3.19.0+) to exchange the runner's OIDC token for cache auth.
-      id-token: write
-    # Pass USBIP_GO_VM_ALLOW_TCG=1 ONLY on schedule + dispatch.
-    # The flake's microvm-run script flips its accel from `kvm`
-    # to `kvm:tcg` when this env is set; on PR/push runs the env
-    # is empty and KVM is required.
+    outputs:
+      run: ${{ steps.vm.outputs.run }}
+      accel: ${{ steps.vm.outputs.accel }}
+    # USBIP_GO_VM_ALLOW_TCG=1 ONLY on schedule + dispatch. PR/push
+    # runs require real KVM. If the env is empty AND no /dev/kvm,
+    # the gate writes run=false and the dependent job is skipped.
     env:
       USBIP_GO_VM_ALLOW_TCG: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '1' || '' }}
     steps:
-      - name: Detect VM acceleration availability
+      - name: Inspect /dev/kvm + TCG opt-in
         id: vm
-        # Three outputs encode the four possible postures:
+        # Three outcomes encode the gate state:
         #   run=true,  accel=kvm  — runner has /dev/kvm
         #   run=true,  accel=tcg  — schedule/dispatch + no KVM
         #                            (TCG fallback enabled by env)
         #   run=false, accel=skip — PR/push + no KVM
-        #                            (skip the suite entirely)
-        # Downstream steps gate on `steps.vm.outputs.run`.
+        #                            (vm-tests will be skipped)
         run: |
           allow_tcg="${USBIP_GO_VM_ALLOW_TCG:-}"
           if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
@@ -135,19 +109,46 @@ jobs:
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
             echo "accel=skip" >> "$GITHUB_OUTPUT"
-            echo "::notice title=KVM unavailable::Hosted ubuntu-24.04 SKU does not expose /dev/kvm. PR/push runs of vm-integration require KVM and skip otherwise. Kernel-surface coverage runs nightly via the schedule trigger (which uses TCG) and on workflow_dispatch."
+            echo "::notice title=KVM unavailable::Hosted ubuntu-24.04 SKU does not expose /dev/kvm. PR/push runs of vm-integration require KVM. Kernel-surface coverage runs nightly via the schedule trigger (TCG fallback) and on workflow_dispatch. The downstream vm-tests job will report Skipped on this run."
           fi
+
+  vm-tests:
+    name: Kernel module smoke + integration suite
+    needs: detect-acceleration
+    # Skip cleanly when the gate said run=false. GitHub renders
+    # this as "Skipped" (gray) rather than "Passed" (green) — the
+    # honest signal that nothing was exercised on this run.
+    if: needs.detect-acceleration.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    # Trigger-conditional timeout: 30 min on KVM-fast PR runs;
+    # 90 min on TCG-slow nightly cron / dispatch.
+    timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 90 || 30 }}
+    # Advisory tripwire: ruleset 15547082 does not include this
+    # check in required_status_checks. continue-on-error keeps a
+    # nightly TCG cold-cache failure from reddening the workflow.
+    continue-on-error: true
+    permissions:
+      contents: read
+      # id-token: write — required by DeterminateSystems/flakehub-cache-action
+      # (v3.19.0+) to exchange the runner's OIDC token for cache auth.
+      id-token: write
+    env:
+      USBIP_GO_VM_ALLOW_TCG: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '1' || '' }}
+    steps:
+      - name: Echo accel mode
+        # Surface the acceleration path the detect job picked so
+        # the run log shows whether this is a fast (KVM) or slow
+        # (TCG) sweep at a glance.
+        run: |
+          echo "VM acceleration: ${{ needs.detect-acceleration.outputs.accel }}"
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        if: steps.vm.outputs.run == 'true'
       - uses: ./.github/actions/setup-nix-dev
-        if: steps.vm.outputs.run == 'true'
       - name: VM smoke (kernel modules load)
         # Boots the microVM, asserts usbip_core / vhci_hcd /
         # usbip_host / usbip_vudc / libcomposite all loaded.
         # ~15 s on KVM; ~60-180 s on TCG; runs first so an
         # integration suite never starts against a broken VM
         # image.
-        if: steps.vm.outputs.run == 'true'
         run: nix develop --command task ci:vm:smoke
       - name: Integration suite inside microVM
         # Runs `go test -tags=integration_linux ./test/integration/...`
@@ -156,5 +157,4 @@ jobs:
         # TCG (cold cache can push closer to the 90-min schedule
         # timeout above). The smoke check above gates wasted
         # runner time on a dead image.
-        if: steps.vm.outputs.run == 'true'
         run: nix develop --command task ci:vm:test:integration
