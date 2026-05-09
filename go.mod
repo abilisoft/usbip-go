@@ -15,7 +15,6 @@ require (
 	github.com/charmbracelet/fang v1.0.0
 	github.com/coreos/go-systemd/v22 v22.7.0
 	github.com/go-gremlins/gremlins v0.6.0
-	github.com/google/uuid v1.6.0
 	github.com/lmittmann/tint v1.1.3
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
