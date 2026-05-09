@@ -5,6 +5,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -132,4 +134,38 @@ func TestGlobalFlagsDefaults(t *testing.T) {
 
 	err := cmd.Execute()
 	require.NoError(t, err)
+}
+
+// TestLoggerOrDefaultReturnsCtxLogger — when ctx carries a logger via
+// loggerCtxKey, loggerOrDefault MUST return that exact instance so
+// downstream log calls share the operator's configured handler.
+func TestLoggerOrDefaultReturnsCtxLogger(t *testing.T) {
+	t.Parallel()
+
+	custom := slog.New(slog.DiscardHandler)
+	ctx := context.WithValue(t.Context(), loggerCtxKey, custom)
+
+	got := loggerOrDefault(ctx)
+	require.Same(t, custom, got,
+		"ctx-bound logger MUST be returned verbatim, not wrapped or replaced")
+}
+
+// TestLoggerOrDefaultFallsBackToSlogDefault — when ctx has no logger
+// (e.g. http handler invoked from net/http internals before
+// PersistentPreRunE installed one), loggerOrDefault MUST return
+// slog.Default() so callers can issue log calls without nil checks.
+func TestLoggerOrDefaultFallsBackToSlogDefault(t *testing.T) {
+	t.Parallel()
+
+	got := loggerOrDefault(t.Context())
+	require.Same(t, slog.Default(), got,
+		"empty ctx MUST fall back to slog.Default — never nil")
+}
+
+// TestLoggerFromCtxReturnsNilWhenAbsent pins the contract loggerOrDefault
+// relies on: the bare lookup returns nil when no logger is installed.
+func TestLoggerFromCtxReturnsNilWhenAbsent(t *testing.T) {
+	t.Parallel()
+
+	require.Nil(t, loggerFromCtx(t.Context()))
 }

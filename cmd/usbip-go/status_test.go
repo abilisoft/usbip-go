@@ -4,10 +4,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"maps"
 	"net"
 	"net/http"
@@ -40,6 +42,7 @@ type fakeStatusSource struct {
 
 	drainCalled atomic.Int32
 	drainErr    error
+	modulesErr  error
 	mu          sync.Mutex
 }
 
@@ -75,7 +78,7 @@ func (f *fakeStatusSource) KernelModules(_ context.Context) (map[string]usbip.Mo
 	out := make(map[string]usbip.ModuleState, len(f.modules))
 	maps.Copy(out, f.modules)
 
-	return out, nil
+	return out, f.modulesErr
 }
 
 func (f *fakeStatusSource) Drain(_ context.Context) error {
@@ -562,6 +565,69 @@ func TestStatusGroupChownResolvesCallerGroup(t *testing.T) {
 	info, err := os.Stat(sockPath)
 	require.NoError(t, err)
 	// Mode is untouched by the chown-only helper; 0o600 remains.
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}
+
+// TestApplyStatusSocketACL_UnknownGroupRoutesViaCtxLogger covers the
+// group-lookup-failed branch and the loggerOrDefault ctx-bound path:
+// when LookupGroup errors and the ctx carries a logger, the helper
+// MUST emit via the configured logger (verified by capturing its
+// output) rather than slog.Default. Ensures the unified-log fix
+// for `applyStatusSocketACL` actually reaches the operator's
+// configured handler.
+func TestApplyStatusSocketACL_UnknownGroupRoutesViaCtxLogger(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+
+	captured := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	ctx := context.WithValue(t.Context(), loggerCtxKey, captured)
+
+	dir := t.TempDir()
+	sockPath := filepath.Join(dir, "status.sock")
+
+	f, err := os.OpenFile(filepath.Clean(sockPath), os.O_CREATE|os.O_RDWR, 0o600)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	// Group name guaranteed not to exist on any host; LookupGroup MUST
+	// fail and the helper MUST log via the ctx-bound logger.
+	applyStatusSocketACL(ctx, sockPath, "definitely-not-a-real-group-7f9a3b21")
+
+	require.Contains(t, buf.String(), "status-socket group lookup failed",
+		"unknown group lookup must emit via the ctx-bound logger, not slog.Default")
+	require.Contains(t, buf.String(), "definitely-not-a-real-group-7f9a3b21",
+		"the failed group name must appear in the structured log payload")
+}
+
+// TestApplyStatusSocketACL_EmptyGroupShortCircuits pins the
+// no-op fast path: when no group is configured the helper MUST
+// return immediately without attempting any lookup, any chown, or
+// any logging. A captured ctx-bound logger lets us prove silence —
+// asserting non-emission rather than just non-panic.
+func TestApplyStatusSocketACL_EmptyGroupShortCircuits(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+
+	captured := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	ctx := context.WithValue(t.Context(), loggerCtxKey, captured)
+
+	dir := t.TempDir()
+	sockPath := filepath.Join(dir, "status.sock")
+
+	f, err := os.OpenFile(filepath.Clean(sockPath), os.O_CREATE|os.O_RDWR, 0o600)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	applyStatusSocketACL(ctx, sockPath, "")
+
+	require.Empty(t, buf.String(),
+		"empty group MUST short-circuit before any logging — the helper "+
+			"is a no-op when the operator hasn't configured a group ACL")
+
+	info, err := os.Stat(sockPath)
+	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }
 
