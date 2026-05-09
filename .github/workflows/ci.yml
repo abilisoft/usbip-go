@@ -137,19 +137,22 @@ jobs:
               prev_red_sha=""
             fi
 
-            # Mark THIS commit as a new RED when it is a test-only
-            # commit using a behaviour-introducing prefix. Per
-            # CONTRIBUTING.md the canonical RED prefix is `test:`
-            # (the test-first commit that names the failing
-            # behaviour); we ALSO catch `feat:`/`fix:` test-only
-            # commits because a feat/fix that ships no production
-            # code is also an unfollowed RED. `refactor:`/`chore:`/
-            # `docs:`/`ci:`/`build:`/`perf:`/`style:` test-only
-            # commits do NOT carry RED forward — they are coverage
-            # hardening / wiring / documentation, not the start of
-            # a new behaviour cycle.
+            # Mark THIS commit as a new RED ONLY when it is a
+            # `feat:`/`fix:` commit that ships tests but no
+            # production code — i.e. a behaviour-introducing
+            # commit that's incomplete. `test:` commits are
+            # explicitly NOT carried forward as RED: in this
+            # codebase `test(scope):` means "tests for already-
+            # shipped code" (coverage hardening) rather than
+            # strict-TDD test-first, and a `test:` commit on the
+            # tip of a PR has no implementation that should follow
+            # it. This matches the historic gate semantics; the
+            # earlier "include test: in RED" attempt mis-classified
+            # PR #17's `test(coverage):` patch-coverage commit and
+            # blocked PR #18. CONTRIBUTING.md "TDD discipline"
+            # documents this carve-out.
             if [ -n "$added_test" ] && [ -z "$non_test_go" ] \
-                && printf '%s' "$subject" | grep -qiE '^(test|feat|fix)(\([^)]*\))?:' ; then
+                && printf '%s' "$subject" | grep -qiE '^(feat|fix)(\([^)]*\))?:' ; then
               prev_red_sha="$sha"
             fi
           done

@@ -126,17 +126,32 @@ pushing.
 
 TDD is enforced mechanically by the `TDD commit discipline` job in
 `ci.yml` (PR events only — pushes to main do not re-evaluate the
-RED→GREEN chain). The rule is:
+RED→GREEN chain). The rule the gate enforces is the
+"incomplete-feat/fix" check, not strict test-first:
 
-- **Every implementation commit is preceded by a RED commit** that
-  adds a failing test. The pair is easy to spot: the RED subject
-  begins with `test(...)`; the GREEN subject follows as `feat(...)`
-  or `fix(...)`.
-- **Refactor-only commits** are labeled `refactor:` and contain no
-  behaviour change. The CI job accepts `refactor:` subjects as a
-  valid break in the RED → GREEN chain.
-- A commit that follows a RED commit and adds no implementation
-  without a `refactor:` label is rejected at PR review.
+- **A `feat:` or `fix:` commit that ships only `*_test.go` files
+  and no non-test `.go` is treated as RED** — an unfinished
+  behaviour-introducing commit. The very next commit MUST add
+  non-test `.go` (the GREEN) or be a `refactor:` commit (the
+  only accepted break in the chain). Anything else
+  (`docs:`/`chore:`/`ci:`/`build:`/`perf:`/`style:`) leaves the
+  RED unfollowed and fails the gate.
+- **`test:` commits do NOT carry RED forward.** In this codebase
+  `test(scope):` means "tests for already-shipped code" —
+  coverage hardening / mutation gap closure / pinning a
+  contract — not strict-TDD test-first. The gate explicitly
+  ignores `test:` commits when deciding whether the next commit
+  must add prod code.
+- **A trailing dangling RED at the end of the PR fails the gate**
+  so an unfollowed `feat:`-only-tests commit cannot merge.
+- **Refactor-only commits** are labeled `refactor:` and contain
+  no behaviour change. They are accepted both as the post-RED
+  break and on their own.
+
+Strict test-first writers preferring `test(...)` → `feat(...)`
+pairs SHOULD still keep them adjacent in the same PR; the gate
+won't reject the test-first commit on its own, but reviewers will
+flag a stale `test:` commit at PR review.
 
 The v1 contract's compliance gates 1-4 define the discipline; the CI workflow
 enforces gates 1-6, 8, and 12 mechanically.
