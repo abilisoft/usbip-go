@@ -61,6 +61,7 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/setup-nix-dev
       - name: Authoritative cgo detection via go list
         # `go list -f '{{.CgoFiles}}'` surfaces every OUR package
@@ -104,12 +105,13 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: ./.github/actions/setup-nix-dev
+      # Full history needed because the BREAKING-prefix scan below
+      # walks the merge-base..HEAD commit range on PRs, falling back
+      # to the tip commit on push.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # Full history needed because the BREAKING-prefix scan
-          # below walks the merge-base..HEAD commit range when
-          # available, falling back to the tip commit on push.
-          fetch-depth: '0'
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-nix-dev
       - name: Diff exported API against baselines
         # apidiff compares the current public-API surface (pkg/usbip
         # and pkg/domain) against the JSON baselines under api/.
@@ -157,6 +159,7 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/setup-nix-dev
       - name: Cross-platform build
         # CGO_ENABLED=0 for cross-builds: matches the no-cgo policy
