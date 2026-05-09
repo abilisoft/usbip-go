@@ -397,7 +397,7 @@ func handleStatusGet(w http.ResponseWriter, r *http.Request, src statusSource) {
 		// Kernel-module probing is best-effort on non-Linux hosts; log
 		// and fall through with whatever partial map came back so the
 		// schema is still served.
-		slog.Default().Info("status: kernel-module probe failed",
+		loggerOrDefault(r.Context()).Info("status: kernel-module probe failed",
 			slog.Any("err", err))
 	}
 
@@ -410,7 +410,7 @@ func handleStatusGet(w http.ResponseWriter, r *http.Request, src statusSource) {
 		// list is empty. Operators polling / can distinguish "no
 		// exports" from "sysfs unreachable".
 		bdErrStr = bdErr.Error()
-		slog.Default().Warn("status: list bound devices failed",
+		loggerOrDefault(r.Context()).Warn("status: list bound devices failed",
 			slog.Any("err", bdErr))
 	}
 
@@ -434,7 +434,7 @@ func handleStatusGet(w http.ResponseWriter, r *http.Request, src statusSource) {
 
 	encErr := enc.Encode(resp)
 	if encErr != nil {
-		slog.Default().Warn("status: encode response failed",
+		loggerOrDefault(r.Context()).Warn("status: encode response failed",
 			slog.Any("err", encErr))
 	}
 }
@@ -474,7 +474,7 @@ func handleStatusDrain(drainCtx context.Context, started *atomic.Bool, w http.Re
 	go func() {
 		err := src.Drain(drainCtx)
 		if err != nil {
-			slog.Default().Error("status: drain returned error",
+			loggerOrDefault(drainCtx).Error("status: drain returned error",
 				slog.Any("err", err))
 		}
 	}()

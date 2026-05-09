@@ -99,6 +99,15 @@ func newRootCmd() *cobra.Command {
 				return err
 			}
 
+			// Install as slog.Default so library code that has no
+			// access to ctx (pkg/usbip helpers, transitive deps that
+			// log via slog) inherits the same handler / level / format.
+			// Without this an operator running `usbip-go serve` saw
+			// stdlib-formatted lines like
+			//   2026/05/08 19:18:38 INFO status-socket group lookup ...
+			// mixed in among the configured tint / JSON output.
+			slog.SetDefault(log)
+
 			ctx := cmd.Context()
 			if ctx == nil {
 				ctx = context.Background()
@@ -182,4 +191,18 @@ func loggerFromCtx(ctx context.Context) *slog.Logger {
 	}
 
 	return v
+}
+
+// loggerOrDefault returns the ctx-bound logger or slog.Default() when
+// the ctx carries no logger. Use this at any log site whose caller
+// path may pre-date PersistentPreRunE (e.g. http.Server handlers
+// invoked from net/http internals, helper goroutines spawned before
+// the cobra cmd has installed its logger). The resulting *slog.Logger
+// is never nil — callers can issue Info/Warn/Error directly.
+func loggerOrDefault(ctx context.Context) *slog.Logger {
+	if log := loggerFromCtx(ctx); log != nil {
+		return log
+	}
+
+	return slog.Default()
 }
