@@ -218,11 +218,26 @@ jobs:
             for pkg in github.com/abilisoft/usbip-go/pkg/usbip github.com/abilisoft/usbip-go/pkg/domain; do
               short="${pkg##*/}"
               baseline="api/pkg_${short}.json"
+              # A missing baseline is itself a regression: the
+              # API-stability gate would otherwise silently skip
+              # the package whose JSON was deleted, letting an
+              # operator quietly disable the check by removing
+              # the file. Fail loudly so a deleted baseline is a
+              # gate failure, not a soft-skip.
               if [ ! -f "$baseline" ]; then
-                echo "no baseline for $pkg at $baseline; skipping"
-                continue
+                echo "missing API baseline for $pkg at $baseline — refusing to skip"
+                exit 1
               fi
-              "$GOBIN/apidiff" "$pkg" "$baseline" > diff.txt
+              # apidiff's positional form is `apidiff OLD NEW`;
+              # baseline is OLD (the committed contract), the
+              # current package source is NEW. The previous order
+              # (pkg, baseline) silently inverted this, so REMOVALS
+              # in the current tree appeared to apidiff as
+              # compatible ADDITIONS from baseline's perspective
+              # and slipped past the Incompatible/Removed grep
+              # below — every public-API removal could ship without
+              # a BREAKING: commit (Codex HIGH finding).
+              "$GOBIN/apidiff" "$baseline" "$pkg" > diff.txt
               cat diff.txt
               if grep -qE "^(Incompatible|Removed)" diff.txt; then
                 if ! printf "%s\n" "$subjects" | grep -q "^BREAKING:" ; then

@@ -102,9 +102,17 @@ jobs:
       id-token: write
     uses: ./.github/workflows/_arch-checks.yml
 
+  prereq-coverage:
+    name: Pre-release coverage
+    needs: validate-tag
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/_coverage.yml
+
   release:
     name: Build and publish release
-    needs: [prereq-security, prereq-unit-tests, prereq-conformance, prereq-arch]
+    needs: [prereq-security, prereq-unit-tests, prereq-conformance, prereq-arch, prereq-coverage]
     runs-on: ubuntu-24.04
     permissions:
       # contents:write — goreleaser creates the GitHub Release and
