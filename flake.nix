@@ -59,34 +59,6 @@
       microvmModule = { config, pkgs, lib, ... }: {
         system.stateVersion = "25.05";
 
-        # Skip upstream test-suites on packages whose check phase is
-        # sandbox-sensitive and which we have to rebuild locally
-        # because cache.nixos.org has not yet built our staging-next
-        # nixpkgs revision (the pin carrying the go_1_26 1.26.3 bump
-        # for GO-2026-4971 / GO-2026-4918). The flaky tests are not
-        # bugs in our code — they fail inside the docker-in-docker
-        # build sandbox the dev container provides. Once nixos-
-        # unstable absorbs the staging→master cycle and
-        # cache.nixos.org has the prebuilt outputs again, every
-        # entry here can be removed because nix will download the
-        # already-checked binaries instead of rebuilding.
-        #
-        #   coreutils-full: 1 of 733 tests sandbox-flaky (container
-        #     uid/cap path).
-        #   dbus-broker:    NSS Cache test SIGABRTs (test-nss-cache.c
-        #     can't reach NSS in build sandbox).
-        nixpkgs.overlays = [
-          (_final: prev: {
-            coreutils-full = prev.coreutils-full.overrideAttrs (_old: {
-              doCheck = false;
-            });
-            dbus-broker = prev.dbus-broker.overrideAttrs (_old: {
-              doCheck = false;
-              doInstallCheck = false;
-            });
-          })
-        ];
-
         # We boot with `qemu -kernel` so there is no bootloader stage;
         # disabling grub skips the stage-1 assertions that would
         # otherwise demand boot.loader.grub.devices on an x86 target.
