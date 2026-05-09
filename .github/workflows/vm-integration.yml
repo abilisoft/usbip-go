@@ -79,6 +79,18 @@ jobs:
     # the per-Go-test deadline configured in Taskfile.yml; this
     # bound is the upper safety net.
     timeout-minutes: 90
+    # vm-integration is an advisory tripwire, not a merge gate:
+    # the genuine kernel-surface coverage exists but the cold-
+    # cache nix-build cost on hosted runners (microvm toplevel
+    # = dozens of NixOS service derivations from scratch when
+    # flakehub-cache OIDC has a transient outage) routinely
+    # eats the 90-minute budget. Branch-protection ruleset does
+    # NOT include this check; `continue-on-error: true` mirrors
+    # that posture in the Checks UI so a cold-cache run does
+    # not redden the PR. The daily scheduled cron + a self-
+    # hosted KVM runner (when configured) is where the
+    # tripwire actually catches kernel-surface regressions.
+    continue-on-error: true
     permissions:
       contents: read
       # id-token: write — required by DeterminateSystems/flakehub-cache-action
