@@ -20,9 +20,13 @@
 #     source under cmd/, internal/, pkg/ (a USB/IP stack change
 #     SHOULD be gated by the kernel-surface check), OR go.mod/sum
 #
-# Runner: ubuntu-24.04 with nested KVM. Falls back to a self-hosted
-# runner with /dev/kvm passthrough if the GitHub-hosted SKU stops
-# exposing nested virt.
+# Runner: hosted ubuntu-24.04. The microvm-run helper boots qemu
+# with `accel=kvm:tcg` so it picks KVM when /dev/kvm exists (fast)
+# and falls back to TCG software emulation when it doesn't. The
+# hosted ubuntu-24.04 SKU stopped exposing /dev/kvm in 2026; TCG
+# keeps the gate functional on hosted infra. Self-hosted runners
+# with /dev/kvm passthrough still execute the full sweep at KVM
+# speed.
 
 name: VM Integration
 
@@ -113,13 +117,13 @@ jobs:
         # usbip_host / usbip_vudc / libcomposite all loaded. Cheap
         # check on KVM (~15 s); runs first so an integration suite
         # never starts against a broken VM image. On TCG closer to
-        # 60-120 s, still well under the 45-minute job timeout.
+        # 60-120 s, well under the 90-minute job timeout.
         run: nix develop --command task ci:vm:smoke
       - name: Integration suite inside microVM
         # Runs `go test -tags=integration_linux ./test/integration/...`
         # inside the booted microVM via 9p split mounts (/src ro,
         # /src/build/cache rw). KVM: 15-25 min. TCG: 30-60 min,
-        # potentially 90 — the 45-minute job timeout above is a
+        # potentially 60-90 — the 90-minute job timeout above is a
         # conservative bound that catches a hung test instead of
         # an infrastructure-paced run. If TCG genuinely needs
         # longer the bound moves up; the tripwire stays useful

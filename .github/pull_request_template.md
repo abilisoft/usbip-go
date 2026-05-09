@@ -15,8 +15,8 @@ this template still containing placeholders.
 <!--
 If the PR is multiple RED/GREEN pairs, list each pair. Refactor-only
 commits are fine here — label them "refactor: <subject>".
-The CI `test-tdd-discipline` job enforces the chain; mismatch fails
-the build.
+The CI `TDD commit discipline` job (in `ci.yml`, PR-only) enforces
+the chain; mismatch fails the build.
 -->
 
 ## Contract trace

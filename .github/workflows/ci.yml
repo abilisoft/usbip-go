@@ -120,8 +120,15 @@ jobs:
               | { grep -v '^internal/tools/' || true; })
 
             if [ -n "$prev_red_sha" ]; then
-              if [ -z "$non_test_go" ]; then
-                echo "FAIL: commit $sha (\"$subject\") follows RED commit $prev_red_sha but adds no non-test .go file"
+              # CONTRIBUTING.md "TDD discipline": after a RED commit
+              # the next commit MUST add non-test .go (the GREEN)
+              # OR be a `refactor:`-prefixed commit (the only
+              # accepted break in the chain). Anything else
+              # (including `chore:`/`docs:`/`ci:`) leaves the RED
+              # unfollowed and fails the gate.
+              if [ -z "$non_test_go" ] \
+                  && ! printf '%s' "$subject" | grep -qiE '^refactor(\([^)]*\))?:' ; then
+                echo "FAIL: commit $sha (\"$subject\") follows RED commit $prev_red_sha but adds no non-test .go file and is not a refactor: commit"
                 fail=1
               fi
               # Whether or not the GREEN landed, clear the slot so
@@ -130,12 +137,19 @@ jobs:
               prev_red_sha=""
             fi
 
-            # Mark THIS commit as a new RED only when it is a
-            # feat/fix commit that ships tests but no production
-            # code. test:/refactor:/etc. signal "no new behaviour"
-            # and never carry a RED forward.
+            # Mark THIS commit as a new RED when it is a test-only
+            # commit using a behaviour-introducing prefix. Per
+            # CONTRIBUTING.md the canonical RED prefix is `test:`
+            # (the test-first commit that names the failing
+            # behaviour); we ALSO catch `feat:`/`fix:` test-only
+            # commits because a feat/fix that ships no production
+            # code is also an unfollowed RED. `refactor:`/`chore:`/
+            # `docs:`/`ci:`/`build:`/`perf:`/`style:` test-only
+            # commits do NOT carry RED forward — they are coverage
+            # hardening / wiring / documentation, not the start of
+            # a new behaviour cycle.
             if [ -n "$added_test" ] && [ -z "$non_test_go" ] \
-                && printf '%s' "$subject" | grep -qiE '^(feat|fix)(\([^)]*\))?:' ; then
+                && printf '%s' "$subject" | grep -qiE '^(test|feat|fix)(\([^)]*\))?:' ; then
               prev_red_sha="$sha"
             fi
           done

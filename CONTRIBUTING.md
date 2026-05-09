@@ -109,15 +109,24 @@ KVM gives ~15 s end-to-end, TCG fallback (opt-in via
 unconditionally maps `/dev/kvm` into the dev service; Docker
 Desktop on macOS does not expose `/dev/kvm`, so `task vm:*` is not
 supported there — use a Linux host (including a Linux VM on macOS).
-The integration tier is not run by GitHub Actions: hosted runners
-do not expose `/dev/kvm` and TCG is too slow for CI. Run
-`task vm:test:integration` locally before pushing changes that
-touch the integration paths.
+The integration tier IS run by GitHub Actions via
+[`vm-integration.yml`](.github/workflows/vm-integration.yml): the
+workflow boots the microVM with `accel=kvm:tcg` so it picks KVM
+on a self-hosted runner and falls back to TCG software emulation
+on hosted ubuntu-24.04 (which no longer exposes `/dev/kvm` on the
+standard SKU). TCG is significantly slower (~30-60 min sweep vs
+10-15 min on KVM); the workflow's daily cron + the broadened PR
+`paths:` filter (cmd/, internal/, pkg/, go.{mod,sum}) means a
+production-source PR will exercise the kernel surface within the
+job's 90-minute timeout, just slowly. Run `task vm:test:integration`
+locally on a KVM-capable Linux host for fast feedback before
+pushing.
 
 ## TDD discipline
 
-TDD is enforced mechanically by the `test-tdd-discipline` CI job for
-every PR. The rule is:
+TDD is enforced mechanically by the `TDD commit discipline` job in
+`ci.yml` (PR events only — pushes to main do not re-evaluate the
+RED→GREEN chain). The rule is:
 
 - **Every implementation commit is preceded by a RED commit** that
   adds a failing test. The pair is easy to spot: the RED subject
@@ -197,7 +206,7 @@ items per the progressive-enforcement policy:
 | 1 | `task lint` clean (gofumpt, wsl_v5, mnd, goconst, nolintlint, complexity ≤ 10, etc.) | CI: `Format, lint, and vulnerability scan` (in `_security.yml`). |
 | 2 | `task test` clean with `-race` on linux | CI: `Linux unit tests` (in `_unit-tests.yml`). A separate `USB/IP wire conformance` job (in `_conformance.yml`) runs `task ci:test:conformance`; upstream-binary cross-checks inside it skip when `usbip` is not on PATH (the flake closure does not pin usbip-utils). |
 | 3 | RED→GREEN commit chain (every `*_test.go`-adding `feat:`/`fix:` commit is followed by a commit that adds non-test `.go`) | CI: `TDD commit discipline` job in `ci.yml` (PRs only). |
-| 4 | Coverage thresholds per §8.7 (domain 95, app 90, wire 95, kernel 70, transport 80, cmd 60) | CI: `Coverage thresholds` (in `_coverage.yml`) runs `task test:cover` + `vladopajic/go-test-coverage` against `.testcoverage.yaml`. |
+| 4 | Coverage thresholds per `.testcoverage.yaml` — per-package floor 80%, total 90% (the achievable floor across the kernel-adapter errno tail and the cmd Cobra-Action surface; pure-logic packages — `pkg/domain`, `pkg/usbip`, `internal/app`, `internal/adapter/wire` — clear 90% comfortably under the current test surface). | CI: `Coverage thresholds` (in `_coverage.yml`) runs `task test:cover` + `vladopajic/go-test-coverage` against `.testcoverage.yaml`. |
 | 5 | DDD layering: `pkg/domain` ↛ `internal/`; `pkg/domain` is pure-stdlib (no third-party imports); `internal/app` ↛ `internal/adapter/{kernel,transport}` (wire is allowed because codec value types appear on app interface signatures). `pkg/usbip` is the public facade and intentionally imports `internal/*` to compose defaults. | CI: `Domain boundary rules` (in `_arch-checks.yml`) greps internal-import direction + uses `go list` to enumerate every third-party import in `pkg/domain`. |
 | 6 | Public API stability for `pkg/usbip` + `pkg/domain`; breaking changes require a `BREAKING:` commit prefix | CI: `API compatibility` (in `_arch-checks.yml`) diffs against `api/pkg_usbip.json` + `api/pkg_domain.json` via `apidiff`; the BREAKING-prefix scan walks `merge-base..HEAD` on PR events. |
 | 7 | No magic values (named constants only) | Code review (enforced indirectly by `mnd` + `goconst` in `task lint`, so rides Gate 1). |
@@ -262,9 +271,12 @@ The repo-level `.actrc` pins the runner image to
 What does NOT replay locally:
 
 - Integration suite — runs the hermetic microVM defined in
-  `flake.nix`. There is no GitHub Actions workflow for it because
-  GitHub-hosted runners do not expose `/dev/kvm` and TCG fallback
-  is too slow for CI; run it locally with `task vm:test:integration`.
+  `flake.nix`. The `vm-integration.yml` workflow DOES run it on
+  GitHub Actions (via TCG fallback when `/dev/kvm` is absent), but
+  `act` cannot replay it locally because the act runner image
+  doesn't expose `/dev/kvm` either AND nesting qemu inside the
+  act container is finicky. For fast iteration, run
+  `task vm:test:integration` on the host (KVM-capable Linux).
 - `release` (release.yml) — fires only on a stable SemVer-triple tag
   push (`vMAJOR.MINOR.PATCH`, no pre-release suffix and no build
   metadata; see the workflow's `on:tags` filter and `cliff.toml`'s
