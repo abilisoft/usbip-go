@@ -14,7 +14,7 @@ local-prefix: github.com/abilisoft/usbip-go
 # rule "90%+ unless infeasible or would require production code
 # changes just for the sake of testing".
 #
-# Why 75% as the floor and not 90%:
+# Why 80% as the per-package floor and 90% as the total:
 #
 #   * pkg/domain, pkg/usbip, internal/app, internal/adapter/wire
 #     all clear 90% under the current test surface — the pure-
@@ -26,7 +26,7 @@ local-prefix: github.com/abilisoft/usbip-go
 #     The integration suite (test/integration) provokes those via
 #     the microVM; raising the unit-test threshold beyond ~85%
 #     would force test-only error injectors through every syscall.
-#   * cmd/* are Cobra Action functions that wire pkg/usbip
+#   * cmd/usbip-go is Cobra Action functions that wire pkg/usbip
 #     Importer/Exporter through I/O. The package-level
 #     newImporter / newExporter factories are the test seam, but
 #     swapping them is a global mutation incompatible with the
@@ -35,8 +35,9 @@ local-prefix: github.com/abilisoft/usbip-go
 #     directly. Action-function bodies are exercised end-to-end
 #     by the integration suite.
 #
-# `total: 80` keeps the cross-package average honest while not
-# punishing the cmd/ tail.
+# Total 90% keeps the cross-package average honest while
+# package 80% absorbs the cmd / kernel-adapter errno tail without
+# forcing test-only production seams.
 threshold:
   file: 0
   # Per-package floor at 80%. Total is the headline metric (90% below).
@@ -70,11 +71,11 @@ exclude:
     # that would require gomock-style indirection just to cover
     # them — production code changes for the sake of testing.
     - ^examples/
-    # main.go in both cmd/* binaries is a 5-line wrapper around
-    # cobra Execute + os.Exit; covering it would force runtime
-    # exit-code interception that the run-loop tests already cover
-    # via mainBody / runDaemon. Excluded so the per-package floor
-    # reflects real testable surface.
+    # main.go in the cmd/usbip-go binary is a 5-line wrapper
+    # around cobra Execute + os.Exit; covering it would force
+    # runtime exit-code interception that the run-loop tests
+    # already cover via mainBody / runDaemon. Excluded so the
+    # per-package floor reflects real testable surface.
     - ^cmd/usbip-go/main\.go$
     # Real syscall paths in the kernel adapter cannot be synthesised
     # under the hermetic dev container; exercised by the integration

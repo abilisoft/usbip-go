@@ -12,6 +12,7 @@ decision. All current kernel interaction goes through `/sys` file
 reads/writes and netlink sockets, both of which are reachable from
 pure Go.
 
-The no-cgo rule is enforced by the `no-cgo` CI job (`go list -f
-'{{.CgoFiles}}'` and a source grep for `import "C"`). A violation
-fails the build rather than relying on code review.
+The no-cgo rule is enforced by the `pure-go` CI job in
+[`_arch-checks.yml`](../../.github/workflows/_arch-checks.yml)
+(`go list -f '{{.CgoFiles}}'` and a source grep for `import "C"`).
+A violation fails the build rather than relying on code review.

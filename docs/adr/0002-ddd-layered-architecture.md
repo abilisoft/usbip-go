@@ -15,8 +15,9 @@ a mock) without touching the use-case code. The facade layer exists
 separately so the internal packages can restructure freely without
 breaking the public API semver contract.
 
-The boundaries are mechanically enforced by the `ddd-boundary` CI job
-rather than by code review alone. This was a deliberate choice after
+The boundaries are mechanically enforced by the `domain-boundary` CI
+job (in the `_arch-checks.yml` reusable workflow, called from
+`ci.yml`'s `arch:` job) rather than by code review alone. This was a deliberate choice after
 earlier drafts found that even careful reviewers let indirect imports
 slip through in test files.
 

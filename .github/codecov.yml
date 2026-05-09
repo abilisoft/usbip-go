@@ -29,10 +29,12 @@ ignore:
   # compile under the integration_linux build tag.
   - "test/integration/**"
 
-  # main.go in both cmd binaries: 5-line cobra Execute + os.Exit
-  # wrapper; covered end-to-end via integration tests rather than
-  # the unit suite. Mirrors the .testcoverage.yaml carve-out.
-  - "cmd/usbip-go/main.go"
+  # main.go in the cmd/usbip-go binary: 5-line cobra Execute +
+  # os.Exit wrapper; covered end-to-end via integration tests
+  # rather than the unit suite. Mirrors the .testcoverage.yaml
+  # carve-out. (Listed once — there is one binary; an earlier
+  # revision duplicated the entry from when the project shipped
+  # both `usbip-go` and `usbipd-go`.)
   - "cmd/usbip-go/main.go"
 
   # Real syscall paths in the kernel adapter — sysfs writes and

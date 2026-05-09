@@ -1,12 +1,22 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
 #
-name: Trivy
+# Trivy filesystem CVE + misconfiguration scan. Separate workflow
+# (rather than a step in ci.yml) so the README badge tracks Trivy
+# specifically and a Trivy regression doesn't redden the rest of CI.
+#
+# Two surfaces:
+#   * push + pull_request — non-blocking SARIF upload so findings
+#     appear on the Security tab without breaking PR merge. Trivy's
+#     scope (filesystem CVE across deps, Dockerfile, license
+#     metadata) overlaps with govulncheck for Go but adds OS-package
+#     and multi-ecosystem coverage on top.
+#   * scheduled — same scan but with HIGH/CRITICAL exit-code:1, so a
+#     newly disclosed CVE that lands between merges fails the
+#     daily run loudly. The PR gate stays advisory; the daily
+#     gate is the actual block.
 
-# Filesystem vulnerability + misconfiguration scan. Runs in its own
-# workflow file (rather than as a step in ci.yml) so the README can
-# carry a workflow-status badge specific to Trivy without coupling
-# its pass/fail signal to the rest of the CI matrix.
+name: Trivy
 
 on:
   push:
@@ -14,15 +24,18 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    # Daily refresh against the Trivy DB so newly disclosed CVEs
-    # surface even on idle weeks. 04:30 UTC matches the cadence of
-    # the existing nightly mutation cron.
+    # Daily 04:30 UTC. Distinct UTC minute from every other
+    # scheduled workflow:
+    #   03:30  nightly (security refresh)
+    #   04:10  codeql (Wed only)
+    #   04:45  vm-integration (kernel modules)
+    #   05:15  mutation (Mon only)
+    #   06:10  scorecard (Tue only)
     - cron: '30 4 * * *'
 
-# Workflow-root permissions are clamped to read-only; the writes the
-# upload-sarif step needs (security-events:write) are granted at job
-# scope only. OpenSSF Scorecard's Token-Permissions check flags any
-# write at workflow root.
+# Workflow-root permissions clamped to read-only; security-events:
+# write is granted at job scope only so OpenSSF Scorecard's
+# Token-Permissions check passes.
 permissions:
   contents: read
 
@@ -32,7 +45,7 @@ defaults:
 
 jobs:
   scan:
-    name: Trivy filesystem scan
+    name: Trivy filesystem vulnerability scan
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -44,12 +57,12 @@ jobs:
       - name: Run Trivy filesystem scan
         # scan-type:fs walks the working tree (Go module deps,
         # Dockerfile, license metadata, etc.) and emits one SARIF
-        # report. exit-code:0 keeps the action from failing the
-        # workflow on findings — the SARIF upload below surfaces them
-        # on the Security tab where they can be triaged, and the
-        # workflow status badge reflects scanner health, not CVE
-        # count. Severity is filtered to HIGH/CRITICAL to keep the
-        # signal-to-noise ratio meaningful for a userspace daemon.
+        # report. exit-code is event-dependent: '0' on push/PR so
+        # findings appear on the Security tab without blocking
+        # merge, '1' on schedule so a newly disclosed HIGH/CRITICAL
+        # fails the daily run loudly. Severity is filtered to
+        # HIGH/CRITICAL to keep signal-to-noise meaningful for a
+        # userspace daemon.
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
@@ -58,13 +71,16 @@ jobs:
           output: trivy.sarif
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          exit-code: '0'
+          exit-code: ${{ github.event_name == 'schedule' && '1' || '0' }}
       - name: Upload Trivy SARIF
-        # Skip the upload on fork-originated PRs: GitHub clamps the
-        # GITHUB_TOKEN on those runs to read-only regardless of the
-        # job-scope `security-events: write` grant, so upload-sarif
-        # would fail and turn the badge red on every fork PR. Push
-        # events and same-repo PRs run normally.
+        # Skip on fork PRs: GitHub clamps GITHUB_TOKEN to read-only
+        # there regardless of the job-scope security-events:write
+        # grant, so upload-sarif would fail and turn the badge red
+        # on every fork PR. Push, schedule, and same-repo PRs run
+        # normally. The pull_request.head.repo.full_name comparison
+        # is a repo identifier (e.g. `octocat/hello`) — no shell
+        # interpolation possible because it sits inside an `if:`
+        # expression context.
         if: >-
           always() &&
           (github.event_name != 'pull_request' ||

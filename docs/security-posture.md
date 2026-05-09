@@ -32,9 +32,14 @@ repo content cannot enable them on its own.
 
 1. **Branch-Protection** on `main`:
    - Require pull request reviews (1+).
-   - Require status checks to pass (the `lint-and-vet`,
-     `unit-linux`, `ddd-boundary`, `no-cgo`, `coverage`,
-     `cross-compile`, `api-surface`, `conformance` jobs).
+   - Require status checks to pass (the reusable-workflow-callee
+     names — `Security / Format, lint, and vulnerability scan`,
+     `Unit / Linux unit tests`, `Conformance / USB/IP wire
+     conformance`, `Architecture / Domain boundary rules`,
+     `Architecture / Pure Go enforcement`, `Architecture / API
+     compatibility`, `Architecture / Linux cross-compilation`,
+     `Coverage / Coverage thresholds`, `TDD commit discipline`,
+     `CodeQL Go analysis`).
    - Require branches to be up to date before merging.
    - Require signed commits.
    - Restrict who can push to matching branches (admins only;
@@ -51,17 +56,17 @@ Settings → Branches → Add branch ruleset for `main`:
     ✓ Require approvals (1)
     ✓ Dismiss stale pull request approvals when new commits are pushed
   ✓ Require status checks to pass
-    Required:
-      Lint & vuln
-      Unit tests (linux)
-      Conformance (wire bytes + optional upstream usbip)
-      DDD boundary (Compliance Gate 5)
-      No cgo (Compliance Gate 8)
-      API surface (Compliance Gate 6)
-      Coverage (Compliance Gate 4)
-      Cross-compile (Compliance Gate 12)
-      TDD discipline (Compliance Gate 3)
-      Analyze (Go)        # CodeQL
+    Required (reusable-workflow callees show as "<caller> / <callee>"):
+      Security / Format, lint, and vulnerability scan
+      Unit / Linux unit tests
+      Conformance / USB/IP wire conformance
+      Architecture / Domain boundary rules
+      Architecture / Pure Go enforcement
+      Architecture / API compatibility
+      Architecture / Linux cross-compilation
+      Coverage / Coverage thresholds
+      TDD commit discipline
+      CodeQL Go analysis
   ✓ Require signed commits
   ✓ Require linear history
   ✓ Block force pushes
