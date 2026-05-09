@@ -89,11 +89,13 @@ jobs:
         # A commit is RED when it adds new test files AND ships no
         # production code in the same commit AND uses a behaviour-
         # introducing Conventional-Commits type (feat / fix). RED
-        # commits MUST be immediately followed by a commit that adds
-        # a non-test .go file (the GREEN); no allow-list of "free
-        # passes" types because docs/chore/ci commits between RED
-        # and GREEN dilute the discipline. A trailing dangling RED
-        # at the end of the PR also fails so an open RED can never
+        # commits MUST be immediately followed EITHER by a commit
+        # that adds a non-test .go file (the GREEN) OR by a
+        # `refactor:`-prefixed commit (the only accepted break in
+        # the chain). Anything else (`docs:`/`chore:`/`ci:`/
+        # `build:`/`perf:`/`style:`) leaves the RED unfollowed and
+        # fails the gate. A trailing dangling RED at the end of
+        # the PR also fails so an open RED can never
         # ship to main.
         run: |
           set -euo pipefail

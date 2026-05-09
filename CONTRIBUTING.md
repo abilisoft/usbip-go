@@ -220,7 +220,7 @@ items per the progressive-enforcement policy:
 |---|---|---|
 | 1 | `task lint` clean (gofumpt, wsl_v5, mnd, goconst, nolintlint, complexity ≤ 10, etc.) | CI: `Format, lint, and vulnerability scan` (in `_security.yml`). |
 | 2 | `task test` clean with `-race` on linux | CI: `Linux unit tests` (in `_unit-tests.yml`). A separate `USB/IP wire conformance` job (in `_conformance.yml`) runs `task ci:test:conformance`; upstream-binary cross-checks inside it skip when `usbip` is not on PATH (the flake closure does not pin usbip-utils). |
-| 3 | RED→GREEN commit chain (every `*_test.go`-adding `feat:`/`fix:` commit is followed by a commit that adds non-test `.go`) | CI: `TDD commit discipline` job in `ci.yml` (PRs only). |
+| 3 | RED→GREEN commit chain — every `feat:`/`fix:` commit that ships only `*_test.go` (no non-test `.go`) is immediately followed by a commit that adds non-test `.go` (the GREEN) OR by a `refactor:` commit (the only accepted break). `test:` commits are NOT carried as RED (treated as coverage hardening). Trailing dangling RED at the PR tip also fails. | CI: `TDD commit discipline` job in `ci.yml` (PRs only). |
 | 4 | Coverage thresholds per `.testcoverage.yaml` — per-package floor 80%, total 90% (the achievable floor across the kernel-adapter errno tail and the cmd Cobra-Action surface; pure-logic packages — `pkg/domain`, `pkg/usbip`, `internal/app`, `internal/adapter/wire` — clear 90% comfortably under the current test surface). | CI: `Coverage thresholds` (in `_coverage.yml`) runs `task test:cover` + `vladopajic/go-test-coverage` against `.testcoverage.yaml`. |
 | 5 | DDD layering: `pkg/domain` ↛ `internal/`; `pkg/domain` is pure-stdlib (no third-party imports); `internal/app` ↛ `internal/adapter/{kernel,transport}` (wire is allowed because codec value types appear on app interface signatures). `pkg/usbip` is the public facade and intentionally imports `internal/*` to compose defaults. | CI: `Domain boundary rules` (in `_arch-checks.yml`) greps internal-import direction + uses `go list` to enumerate every third-party import in `pkg/domain`. |
 | 6 | Public API stability for `pkg/usbip` + `pkg/domain`; breaking changes require a `BREAKING:` commit prefix | CI: `API compatibility` (in `_arch-checks.yml`) diffs against `api/pkg_usbip.json` + `api/pkg_domain.json` via `apidiff`; the BREAKING-prefix scan walks `merge-base..HEAD` on PR events. |
@@ -241,8 +241,11 @@ When reviewing a PR, verify:
 
 - [ ] Subject line is a valid Conventional Commit and matches the
       work done. `BREAKING:` is present when the API surface changes.
-- [ ] A RED commit precedes every implementation commit, or the
-      commit is labelled `refactor:`.
+- [ ] A `feat:`/`fix:` commit that ships only `*_test.go` is
+      immediately followed by a commit that adds non-test `.go`
+      (the GREEN) OR by a `refactor:` commit. `test:` commits
+      that add coverage for already-shipped code do NOT need a
+      following GREEN — they are not carried forward by the gate.
 - [ ] New public API in `pkg/usbip` or `pkg/domain` has godoc on
       every exported identifier.
 - [ ] Tests cover happy path and at least one failure mode per new
