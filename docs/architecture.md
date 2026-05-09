@@ -63,8 +63,13 @@ Pure value objects: `Device`, `Port`, `Session`, `BusID`,
 `RemoteEndpoint`, `Event` and its nine concrete variants,
 `EventKind`, `USBClass`, `Speed`, `Status`, and the sentinel errors
 (`ErrDeviceNotFound`, `ErrBusIDInvalid`, `ErrKernelModuleMissing`,
-etc.). No I/O, no goroutines, no third-party imports — only stdlib
-and `github.com/google/uuid` for `SessionID`.
+etc.). No I/O, no goroutines, no third-party imports at all —
+`SessionID` is a UUIDv7 generated inline against `crypto/rand` +
+`encoding/binary` + `encoding/hex` so the value-object surface stays
+pure-stdlib. The `domain-boundary` CI gate uses `go list` to
+enumerate every import under `pkg/domain` and rejects any path that
+is not stdlib or a self-module reference, so a future contributor
+cannot reintroduce a third-party value-object dependency.
 
 Because `pkg/domain` types are returned across the package boundary,
 they participate in the `apidiff` baseline. Any incompatible change
@@ -137,7 +142,7 @@ version,completion}` cover the client and operator commands.
 
 Five minimal library-embed programs that each demonstrate one public
 API pattern. Every example builds with `go build ./examples/...` and
-is covered by the `cross-compile` CI job (in `_arch-checks.yml`).
+is covered by the `Linux cross-compilation` CI job (in `_arch-checks.yml`).
 
 ## Concurrency model
 

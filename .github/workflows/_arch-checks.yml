@@ -65,20 +65,42 @@ jobs:
         # excludes _test.go imports (testify in tests is fine) and
         # self-module imports under github.com/abilisoft/usbip-go/.
         run: |
-          nix develop --command bash -eu -c '
-            if [ ! -d pkg/domain ]; then exit 0; fi
-            # Enumerate Imports + TestImports via go list — parser-
-            # correct against every import shape (aliased, blank,
-            # dot, single-line, grouped, trailing-comment). We
-            # intentionally exclude TestImports because *_test.go
-            # is allowed to use testify; production-code Imports is
-            # the gate.
-            offenders=$(go list -f "{{\$pkg := .ImportPath}}{{range .Imports}}{{\$pkg}} -> {{.}}{{\"\n\"}}{{end}}" ./pkg/domain/... \
-              | awk -F" -> " '"'"'
-                  $2 ~ /\./ && $2 !~ /^github\.com\/abilisoft\/usbip-go\// {
-                    print $0
-                  }
-                '"'"')
+          nix develop --command bash -euo pipefail -c '
+            # pkg/domain disappearing is itself a boundary
+            # violation (the value-object surface is load-bearing
+            # for the whole DDD layering); fail loudly rather than
+            # silently passing the gate.
+            if [ ! -d pkg/domain ]; then
+              echo "pkg/domain not found — DDD value-object layer is missing"
+              exit 1
+            fi
+            # Enumerate Imports via go list — parser-correct
+            # against every import shape (aliased, blank, dot,
+            # single-line, grouped, trailing-comment). We
+            # intentionally consume Imports only (NOT TestImports)
+            # because *_test.go is allowed to use testify;
+            # production-code Imports is the gate.
+            #
+            # Capture go-list output to a temp file so a load /
+            # module error is detected explicitly. With pipefail a
+            # non-zero `go list` would already fail the pipeline,
+            # but a successful `go list` followed by a printf-
+            # error or empty package list would still produce
+            # zero offenders and silently pass; the exit-code
+            # check below catches both modes.
+            tmpfile=$(mktemp)
+            if ! go list -f "{{\$pkg := .ImportPath}}{{range .Imports}}{{\$pkg}} -> {{.}}{{\"\n\"}}{{end}}" ./pkg/domain/... > "$tmpfile"; then
+              echo "go list ./pkg/domain/... failed — cannot enforce boundary"
+              cat "$tmpfile"
+              rm -f "$tmpfile"
+              exit 1
+            fi
+            offenders=$(awk -F" -> " '"'"'
+                $2 ~ /\./ && $2 !~ /^github\.com\/abilisoft\/usbip-go\// {
+                  print $0
+                }
+              '"'"' "$tmpfile")
+            rm -f "$tmpfile"
             if [ -n "$offenders" ]; then
               echo "pkg/domain has third-party imports — pure-stdlib invariant violated:"
               echo "$offenders"
@@ -116,8 +138,22 @@ jobs:
         # ships cgo files that are only compiled under CGO_ENABLED=1;
         # listing them is irrelevant to our CGO_ENABLED=0 policy.
         run: |
-          nix develop --command bash -eu -c '
-            cgo_pkgs="$(go list -f "{{if .CgoFiles}}{{.ImportPath}}{{end}}" ./... | grep -v "^$" || true)"
+          nix develop --command bash -euo pipefail -c '
+            # Capture go-list output before filtering so a non-zero
+            # go-list exit fails the pipeline LOUDLY instead of
+            # being swallowed by the trailing `|| true` (Codex
+            # BLOCKER finding). The `|| true` exists only to absorb
+            # the legitimate "no match" exit from grep when the
+            # repo has zero cgo files.
+            tmpfile=$(mktemp)
+            if ! go list -f "{{if .CgoFiles}}{{.ImportPath}}{{end}}" ./... > "$tmpfile"; then
+              echo "go list ./... failed — cannot enforce no-cgo policy"
+              cat "$tmpfile"
+              rm -f "$tmpfile"
+              exit 1
+            fi
+            cgo_pkgs=$(grep -v "^$" "$tmpfile" || true)
+            rm -f "$tmpfile"
             if [ -n "$cgo_pkgs" ]; then
               echo "found packages with cgo files — CGO_ENABLED=0 policy violation:"
               echo "$cgo_pkgs"

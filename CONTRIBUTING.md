@@ -170,7 +170,7 @@ baselines:
 - `api/pkg_usbip.json`
 - `api/pkg_domain.json`
 
-The CI `api-surface` job diffs the baselines against the current
+The CI `api-compatibility` job (in `_arch-checks.yml`) diffs the baselines against the current
 tree. Any incompatible change fails the build. When a PR
 intentionally breaks either surface (subject line begins with
 `BREAKING:`), regenerate the affected baseline in the same PR so the
@@ -194,21 +194,22 @@ items per the progressive-enforcement policy:
 
 | Gate | What | Enforcement |
 |---|---|---|
-| 1 | `task lint` clean (gofumpt, wsl_v5, mnd, goconst, nolintlint, complexity ≤ 10, etc.) | CI: `lint-and-vet` job runs `task lint`. |
-| 2 | `task test` clean with `-race` on linux | CI: `unit-linux` job runs `task ci:test`. A dedicated `conformance` job runs `task ci:test:conformance`; upstream-binary cross-checks inside it skip when `usbip` is not on PATH (the flake closure does not pin usbip-utils). |
-| 3 | RED→GREEN commit chain (every `*_test.go`-adding commit is followed by implementation or a `refactor:` commit) | CI: `test-tdd-discipline` job on pull requests. |
-| 4 | Coverage thresholds per §8.7 (domain 95, app 90, wire 95, kernel 70, transport 80, cmd 60) | CI: `coverage` job runs `task test:cover` + `vladopajic/go-test-coverage` against `.testcoverage.yaml`. |
-| 5 | DDD layering: `pkg/domain` ↛ `internal/`; `internal/app` ↛ `internal/adapter/{kernel,transport}` (wire is allowed because codec value types appear on app interface signatures). `pkg/usbip` is the public facade and intentionally imports `internal/*` to compose defaults. | CI: `ddd-boundary` job greps both directions. |
-| 6 | Public API stability for `pkg/usbip` + `pkg/domain`; breaking changes require a `BREAKING:` commit prefix | CI: `api-surface` job diffs against `api/pkg_usbip.json` + `api/pkg_domain.json` via `apidiff`. |
+| 1 | `task lint` clean (gofumpt, wsl_v5, mnd, goconst, nolintlint, complexity ≤ 10, etc.) | CI: `Format, lint, and vulnerability scan` (in `_security.yml`). |
+| 2 | `task test` clean with `-race` on linux | CI: `Linux unit tests` (in `_unit-tests.yml`). A separate `USB/IP wire conformance` job (in `_conformance.yml`) runs `task ci:test:conformance`; upstream-binary cross-checks inside it skip when `usbip` is not on PATH (the flake closure does not pin usbip-utils). |
+| 3 | RED→GREEN commit chain (every `*_test.go`-adding `feat:`/`fix:` commit is followed by a commit that adds non-test `.go`) | CI: `TDD commit discipline` job in `ci.yml` (PRs only). |
+| 4 | Coverage thresholds per §8.7 (domain 95, app 90, wire 95, kernel 70, transport 80, cmd 60) | CI: `Coverage thresholds` (in `_coverage.yml`) runs `task test:cover` + `vladopajic/go-test-coverage` against `.testcoverage.yaml`. |
+| 5 | DDD layering: `pkg/domain` ↛ `internal/`; `pkg/domain` is pure-stdlib (no third-party imports); `internal/app` ↛ `internal/adapter/{kernel,transport}` (wire is allowed because codec value types appear on app interface signatures). `pkg/usbip` is the public facade and intentionally imports `internal/*` to compose defaults. | CI: `Domain boundary rules` (in `_arch-checks.yml`) greps internal-import direction + uses `go list` to enumerate every third-party import in `pkg/domain`. |
+| 6 | Public API stability for `pkg/usbip` + `pkg/domain`; breaking changes require a `BREAKING:` commit prefix | CI: `API compatibility` (in `_arch-checks.yml`) diffs against `api/pkg_usbip.json` + `api/pkg_domain.json` via `apidiff`; the BREAKING-prefix scan walks `merge-base..HEAD` on PR events. |
 | 7 | No magic values (named constants only) | Code review (enforced indirectly by `mnd` + `goconst` in `task lint`, so rides Gate 1). |
-| 8 | No cgo anywhere in the tree | CI: `no-cgo` job uses `go list -deps` + source greps for `import "C"`. |
+| 8 | No cgo anywhere in the tree | CI: `Pure Go enforcement` (in `_arch-checks.yml`) uses `go list -f '{{.CgoFiles}}'` + source greps for `import "C"`. |
 | 9 | Structured logging: `slog.DebugContext` + `oops.With(...)`, stable attr keys per §11.5.5 | Code review (enforced indirectly by `sloglint` in `task lint`, so rides Gate 1). |
 | 10 | Metrics registration: new app side-effects register a §11.5.5 catalog entry in the same PR | Code review. |
 | 11 | Error mapping: new sysfs/wire paths map to the v1 contract §6.2 + §6.4 sentinels in the same PR | Code review. |
-| 12 | Cross-compile for `linux/{amd64,arm64,arm}` | CI: `cross-compile` job (release builds use `goreleaser build --snapshot` wiring). |
+| 12 | Cross-compile for `linux/{amd64,arm64,arm}` | CI: `Linux cross-compilation` (in `_arch-checks.yml`); release builds use `goreleaser build --snapshot` wiring. |
 
-One additional CI job runs outside the numbered-gate table:
-`lint-and-vet` also runs `task vuln` (govulncheck) on every PR.
+The `Format, lint, and vulnerability scan` job ALSO runs `task vuln`
+(govulncheck) — vuln scanning rides the same gate as lint rather than
+appearing as a separate workflow.
 
 ## Code-review checklist
 
@@ -248,7 +249,7 @@ drives docker-compose itself and the dev container does not mount
 
 ```
 nix develop --command task act:list                    # list jobs act would run for push
-nix develop --command task act:job JOB=lint-and-vet    # run one job
+nix develop --command task act:job JOB=security        # run one job
 nix develop --command task act:push                    # run every replayable push-event job
 ```
 

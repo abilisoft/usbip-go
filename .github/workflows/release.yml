@@ -199,7 +199,7 @@ jobs:
           install-only: true
           version: '~> 2'
 
-      - name: GoReleaser (goreleaser, syft, cosign, nfpm all from the flake closure)
+      - name: Build and publish release artifacts (goreleaser, syft, cosign, nfpm from the flake closure)
         run: nix develop --command task ci:release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
