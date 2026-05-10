@@ -52,5 +52,6 @@ func TestGoReleaserPackagesDeploymentFiles(t *testing.T) {
 	} {
 		require.Contains(t, config, path, "release artifacts must include deployment asset %s", path)
 	}
+
 	require.Contains(t, config, "dst: /usr/lib/modules-load.d/usbip-go.conf")
 }

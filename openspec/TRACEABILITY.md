@@ -21,7 +21,7 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 |---|---:|---|---|
 | Requirement | 7 | Dependency direction is top-down only | `docs/architecture.md:1-200`; `openspec/specs/architecture-layering/spec.md:1-84` |
 | Scenario | 10 | Dependency direction is top-down only / Command code invokes behavior | `cmd/usbip-go/root.go:73-208`; `pkg/usbip/usbip.go:188-360`; `internal/app/interfaces.go:1-109` |
-| Scenario | 15 | Dependency direction is top-down only / Adapter code is compiled | `internal/adapter/kernel/attach.go:1-310`; `internal/adapter/transport/transport.go:1-428`; `internal/adapter/wire/codec.go:1-164`; `Taskfile.yml:1-439` |
+| Scenario | 15 | Dependency direction is top-down only / Adapter code is compiled | `internal/adapter/kernel/attach.go:1-310`; `internal/adapter/transport/transport.go:1-428`; `internal/adapter/wire/codec.go:1-164`; `Taskfile.yml:1-570` |
 | Requirement | 19 | pkg/domain is pure stdlib domain data | `pkg/domain/busid.go:1-118`; `pkg/domain/remote.go:1-282`; `pkg/domain/device.go:1-72`; `go.mod:1-73`; `openspec/specs/architecture-layering/spec.md:1-84` |
 | Scenario | 22 | pkg/domain is pure stdlib domain data / Value-object package gains a dependency | `pkg/domain/busid.go:1-118`; `pkg/domain/remote.go:1-282`; `pkg/domain/device.go:1-72`; `go.mod:1-73`; `openspec/specs/architecture-layering/spec.md:1-84` |
 | Requirement | 26 | pkg/usbip is the sole public service facade | `pkg/usbip/usbip.go:1-360`; `pkg/usbip/options.go:1-280`; `openspec/specs/public-library-api/spec.md:1-70` |
@@ -34,8 +34,8 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 54 | Adapter packages own external-system details / TCP tuning changes | `internal/adapter/transport/transport.go:1-428`; `internal/netopts/options.go:1-103` |
 | Requirement | 58 | Non-Linux builds compile with explicit unsupported behavior | `pkg/usbip/defaults_other.go:1-22`; `pkg/usbip/modules_other.go:1-26`; `pkg/usbip/defaults_test.go:1-123` |
 | Scenario | 61 | Non-Linux builds compile with explicit unsupported behavior / Non-Linux caller constructs defaults | `pkg/usbip/defaults_other.go:1-22`; `pkg/usbip/modules_other.go:1-26`; `pkg/usbip/defaults_test.go:1-123` |
-| Requirement | 65 | No cgo is allowed | `openspec/specs/architecture-layering/spec.md:61-69`; `Taskfile.yml:1-439`; `.goreleaser.yml:1-180` |
-| Scenario | 68 | No cgo is allowed / cgo is introduced | `openspec/specs/architecture-layering/spec.md:61-69`; `Taskfile.yml:1-439`; `.goreleaser.yml:1-180` |
+| Requirement | 65 | No cgo is allowed | `openspec/specs/architecture-layering/spec.md:61-69`; `Taskfile.yml:1-570`; `.goreleaser.yml:1-180` |
+| Scenario | 68 | No cgo is allowed / cgo is introduced | `openspec/specs/architecture-layering/spec.md:61-69`; `Taskfile.yml:1-570`; `.goreleaser.yml:1-180` |
 | Requirement | 72 | OpenSpec is the source of truth for current behavior | `docs/architecture.md:1-200`; `openspec/specs/architecture-layering/spec.md:1-84` |
 | Scenario | 75 | OpenSpec is the source of truth for current behavior / CLI shape changes | `openspec/specs/cli-interface/spec.md:1-30`; `cmd/usbip-go/root.go:1-208` |
 | Requirement | 79 | Main specs describe current behavior | `openspec/config.yaml:1-33`; `openspec/specs/architecture-layering/spec.md:1-85` |
@@ -97,36 +97,39 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 
 ## `developer-workflow`
 
-- Spec source: `openspec/specs/developer-workflow/spec.md:1-108`
+- Spec source: `openspec/specs/developer-workflow/spec.md:1-122`
 
-| Type | Spec line | Item | Evidence |
-|---|---:|---|---|
-| Requirement | 7 | Host tasks dispatch into the hermetic development environment | `Taskfile.yml:56-151`; `docker-compose.yml:1-94` |
-| Scenario | 10 | Host tasks dispatch into the hermetic development environment / Host runs a top-level task | `Taskfile.yml:56-151`; `docker-compose.yml:1-94` |
-| Scenario | 14 | Host tasks dispatch into the hermetic development environment / Task already runs inside the dev container | `Taskfile.yml:56-151`; `docker-compose.yml:1-94` |
-| Scenario | 18 | Host tasks dispatch into the hermetic development environment / Tooling version drifts | `Taskfile.yml:56-151`; `docker-compose.yml:1-94` |
-| Requirement | 22 | Build artifacts and caches stay under build | `Taskfile.yml:22-54`; `Taskfile.yml:176-181` |
-| Scenario | 25 | Build artifacts and caches stay under build / Cache preamble runs | `Taskfile.yml:22-54`; `Taskfile.yml:176-181` |
-| Scenario | 29 | Build artifacts and caches stay under build / Identity files are prepared | `Taskfile.yml:22-54`; `Taskfile.yml:176-181` |
-| Scenario | 34 | Build artifacts and caches stay under build / Clean is requested | `Taskfile.yml:22-54`; `Taskfile.yml:176-181` |
-| Requirement | 38 | Formatting and linting are scoped to owned source roots | `Taskfile.yml:294-324`; `.github/workflows/ci.yml:1-174` |
-| Scenario | 41 | Formatting and linting are scoped to owned source roots / Formatting runs | `Taskfile.yml:294-324`; `.github/workflows/ci.yml:1-174` |
-| Scenario | 45 | Formatting and linting are scoped to owned source roots / Format check runs in CI | `Taskfile.yml:307-324`; `.github/workflows/ci.yml:1-174` |
-| Scenario | 49 | Formatting and linting are scoped to owned source roots / Lint runs | `Taskfile.yml:283-292`; `.golangci.yml:1-286` |
-| Requirement | 54 | Test workflows are tiered by cost and environment | `Taskfile.yml:229-233`; `.github/workflows/_unit-tests.yml:1-34` |
-| Scenario | 57 | Test workflows are tiered by cost and environment / Unit tests run | `Taskfile.yml:229-233`; `.github/workflows/_unit-tests.yml:1-34` |
-| Scenario | 61 | Test workflows are tiered by cost and environment / Conformance tests run | `Taskfile.yml:229-233`; `.github/workflows/_unit-tests.yml:1-34` |
-| Scenario | 65 | Test workflows are tiered by cost and environment / Integration tests run directly | `Taskfile.yml:229-233`; `.github/workflows/_unit-tests.yml:1-34` |
-| Scenario | 69 | Test workflows are tiered by cost and environment / Coverage report is requested | `Taskfile.yml:229-233`; `.github/workflows/_unit-tests.yml:1-34` |
-| Scenario | 74 | Test workflows are tiered by cost and environment / Mutation tests run | `Taskfile.yml:229-233`; `.github/workflows/_unit-tests.yml:1-34` |
-| Requirement | 79 | microVM workflow provides kernel-module integration coverage | `Taskfile.yml:384-390`; `flake.nix:1-304`; `.github/workflows/vm-integration.yml:1-160` |
-| Scenario | 82 | microVM workflow provides kernel-module integration coverage / microVM closure is built | `Taskfile.yml:384-390`; `flake.nix:1-304`; `.github/workflows/vm-integration.yml:1-160` |
-| Scenario | 86 | microVM workflow provides kernel-module integration coverage / microVM smoke runs | `Taskfile.yml:384-390`; `flake.nix:1-304`; `.github/workflows/vm-integration.yml:1-160` |
-| Scenario | 90 | microVM workflow provides kernel-module integration coverage / microVM integration runs | `Taskfile.yml:384-390`; `flake.nix:1-304`; `.github/workflows/vm-integration.yml:1-160` |
-| Requirement | 95 | Local GitHub Actions rehearsal is available | `Taskfile.yml:1-439` |
-| Scenario | 98 | Local GitHub Actions rehearsal is available / Contributor lists actions | `Taskfile.yml:112-115` |
-| Scenario | 102 | Local GitHub Actions rehearsal is available / Contributor runs one action job | `Taskfile.yml:119-124` |
-| Scenario | 106 | Local GitHub Actions rehearsal is available / Contributor omits job name | `Taskfile.yml:119-124` |
+| Type | Line | Name | Evidence |
+| --- | ---: | --- | --- |
+| Requirement | 7 | Host tasks dispatch into the smallest hermetic Nix shell | `Taskfile.yml:55-220`; `docker-compose.yml:1-96`; `flake.nix:249-320` |
+| Scenario | 10 | Host tasks dispatch into the smallest hermetic Nix shell / Host runs a daily workflow task | `Taskfile.yml:61-64`; `Taskfile.yml:109-115`; `Taskfile.yml:174-184`; `docker-compose.yml:61-66`; `flake.nix:285-285` |
+| Scenario | 14 | Host tasks dispatch into the smallest hermetic Nix shell / Host runs a QA workflow task | `Taskfile.yml:66-69`; `Taskfile.yml:116-131`; `Taskfile.yml:186-196`; `docker-compose.yml:68-73`; `flake.nix:287-301` |
+| Scenario | 18 | Host tasks dispatch into the smallest hermetic Nix shell / Host runs a release workflow task | `Taskfile.yml:71-74`; `Taskfile.yml:132-134`; `Taskfile.yml:198-208`; `docker-compose.yml:75-80`; `flake.nix:303-309` |
+| Scenario | 22 | Host tasks dispatch into the smallest hermetic Nix shell / Host runs a microVM workflow task | `Taskfile.yml:76-79`; `Taskfile.yml:136-138`; `Taskfile.yml:210-220`; `docker-compose.yml:82-92`; `flake.nix:311-317` |
+| Scenario | 26 | Host tasks dispatch into the smallest hermetic Nix shell / Task already runs inside the expected Nix shell | `Taskfile.yml:174-220`; `docker-compose.yml:63-87`; `flake.nix:268-270` |
+| Scenario | 30 | Host tasks dispatch into the smallest hermetic Nix shell / Tooling version drifts | `Taskfile.yml:240-253`; `go.mod:1-7`; `flake.nix:251-253` |
+| Requirement | 34 | Build artifacts and caches stay under build | `Taskfile.yml:24-45`; `Taskfile.yml:165-168`; `Taskfile.yml:227-243` |
+| Scenario | 37 | Build artifacts and caches stay under build / Cache preamble runs | `Taskfile.yml:240-243` |
+| Scenario | 41 | Build artifacts and caches stay under build / Identity files are prepared | `Taskfile.yml:227-233`; `docker-compose.yml:19-23` |
+| Scenario | 46 | Build artifacts and caches stay under build / Clean is requested | `Taskfile.yml:165-168` |
+| Requirement | 50 | Formatting and linting are scoped to owned repository surfaces | `Taskfile.yml:116-128`; `Taskfile.yml:335-462`; `flake.nix:287-301`; `.github/workflows/_security.yml:50-59`; `.yamllint:1-12`; `.yamlfmt:1-23`; `.rumdl.toml:1-10`; `.typos.toml:1-36` |
+| Scenario | 53 | Formatting and linting are scoped to owned repository surfaces / Formatting runs | `Taskfile.yml:124-128`; `Taskfile.yml:390-426`; `.yamlfmt:1-23`; `.rumdl.toml:1-10`; `.github/workflows/_security.yml:50-54` |
+| Scenario | 58 | Formatting and linting are scoped to owned repository surfaces / Format check runs in CI | `Taskfile.yml:428-462`; `.github/workflows/_security.yml:50-54`; `.yamlfmt:1-23`; `.rumdl.toml:1-10` |
+| Scenario | 62 | Formatting and linting are scoped to owned repository surfaces / Lint runs | `Taskfile.yml:116-123`; `Taskfile.yml:335-388`; `.github/workflows/_security.yml:55-59`; `.golangci.yml:1-286`; `.yamllint:1-12`; `.rumdl.toml:1-10`; `.typos.toml:1-36`; `.goreleaser.yml:1-180` |
+| Requirement | 68 | Test workflows are tiered by cost and environment | `Taskfile.yml:111-115`; `Taskfile.yml:270-333`; `.github/workflows/_unit-tests.yml:1-34`; `.github/workflows/_conformance.yml:1-34`; `.github/workflows/_coverage.yml:1-36`; `.github/workflows/mutation.yml:1-54` |
+| Scenario | 71 | Test workflows are tiered by cost and environment / Unit tests run | `Taskfile.yml:111`; `Taskfile.yml:270-274`; `.github/workflows/_unit-tests.yml:1-34` |
+| Scenario | 75 | Test workflows are tiered by cost and environment / Conformance tests run | `Taskfile.yml:113`; `Taskfile.yml:282-285`; `.github/workflows/_conformance.yml:1-34` |
+| Scenario | 79 | Test workflows are tiered by cost and environment / Integration tests run directly | `Taskfile.yml:112`; `Taskfile.yml:276-280` |
+| Scenario | 83 | Test workflows are tiered by cost and environment / Coverage report is requested | `Taskfile.yml:114`; `Taskfile.yml:287-293`; `.github/workflows/_coverage.yml:1-36` |
+| Scenario | 88 | Test workflows are tiered by cost and environment / Mutation tests run | `Taskfile.yml:115`; `Taskfile.yml:295-333`; `.github/workflows/mutation.yml:1-54` |
+| Requirement | 93 | microVM workflow provides kernel-module integration coverage | `Taskfile.yml:136-138`; `Taskfile.yml:531-570`; `flake.nix:1-340`; `.github/workflows/vm-integration.yml:1-160` |
+| Scenario | 96 | microVM workflow provides kernel-module integration coverage / microVM closure is built | `Taskfile.yml:136`; `Taskfile.yml:532-536`; `flake.nix:329-334` |
+| Scenario | 100 | microVM workflow provides kernel-module integration coverage / microVM smoke runs | `Taskfile.yml:137`; `Taskfile.yml:538-559`; `flake.nix:36-246`; `.github/workflows/vm-integration.yml:145-152` |
+| Scenario | 104 | microVM workflow provides kernel-module integration coverage / microVM integration runs | `Taskfile.yml:138`; `Taskfile.yml:561-570`; `flake.nix:36-246`; `.github/workflows/vm-integration.yml:153-160` |
+| Requirement | 109 | Local GitHub Actions rehearsal is available | `Taskfile.yml:140-163`; `CONTRIBUTING.md:278-293` |
+| Scenario | 112 | Local GitHub Actions rehearsal is available / Contributor lists actions | `Taskfile.yml:149-152`; `CONTRIBUTING.md:287-291` |
+| Scenario | 116 | Local GitHub Actions rehearsal is available / Contributor runs one action job | `Taskfile.yml:157-163`; `CONTRIBUTING.md:287-291` |
+| Scenario | 120 | Local GitHub Actions rehearsal is available / Contributor omits job name | `Taskfile.yml:157-163` |
 
 ## `domain-model`
 
@@ -365,8 +368,8 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Requirement | 87 | Public sentinel errors classify stable runtime failures | `pkg/usbip/errors.go:1-116`; `pkg/usbip/errors_boundary_test.go:1-175`; `internal/app/errors.go:1-97` |
 | Scenario | 90 | Public sentinel errors classify stable runtime failures / Internal lifecycle error occurs | `pkg/usbip/errors.go:1-116`; `pkg/usbip/errors_boundary_test.go:1-175`; `internal/app/errors.go:1-97` |
 | Scenario | 95 | Public sentinel errors classify stable runtime failures / Transport option validation fails | `pkg/usbip/errors.go:1-116`; `pkg/usbip/errors_boundary_test.go:1-175`; `internal/app/errors.go:1-97` |
-| Requirement | 100 | Public API compatibility is gated | `.github/workflows/_arch-checks.yml:1-274`; `docs/security-posture.md:1-139`; `pkg/usbip/options_compile_test.go:1-24` |
-| Scenario | 103 | Public API compatibility is gated / Incompatible public API change is proposed | `.github/workflows/_arch-checks.yml:1-274`; `docs/security-posture.md:1-139`; `pkg/usbip/options_compile_test.go:1-24` |
+| Requirement | 100 | Public API compatibility is gated | `.github/workflows/_arch-checks.yml:1-274`; `docs/security-posture.md:1-140`; `pkg/usbip/options_compile_test.go:1-24` |
+| Scenario | 103 | Public API compatibility is gated / Incompatible public API change is proposed | `.github/workflows/_arch-checks.yml:1-274`; `docs/security-posture.md:1-140`; `pkg/usbip/options_compile_test.go:1-24` |
 
 ## `release-packaging`
 
@@ -384,9 +387,9 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Requirement | 33 | Release notes come from git-cliff | `.github/workflows/release.yml:1-273`; `.goreleaser.yml:1-180` |
 | Scenario | 36 | Release notes come from git-cliff / Release notes render | `.github/workflows/release.yml:1-273`; `.goreleaser.yml:1-180` |
 | Scenario | 41 | Release notes come from git-cliff / Release notes are empty | `.github/workflows/release.yml:1-273`; `.goreleaser.yml:1-180` |
-| Requirement | 45 | GoReleaser builds a single pure-Go Linux binary matrix | `.goreleaser.yml:1-180`; `cmd/usbip-go/release_metadata_test.go:1-56`; `Taskfile.yml:1-439` |
-| Scenario | 48 | GoReleaser builds a single pure-Go Linux binary matrix / Release binary is built | `.goreleaser.yml:1-180`; `cmd/usbip-go/release_metadata_test.go:1-56`; `Taskfile.yml:1-439` |
-| Scenario | 54 | GoReleaser builds a single pure-Go Linux binary matrix / Snapshot release runs locally | `.goreleaser.yml:1-180`; `cmd/usbip-go/release_metadata_test.go:1-56`; `Taskfile.yml:1-439` |
+| Requirement | 45 | GoReleaser builds a single pure-Go Linux binary matrix | `.goreleaser.yml:1-180`; `cmd/usbip-go/release_metadata_test.go:1-56`; `Taskfile.yml:1-570` |
+| Scenario | 48 | GoReleaser builds a single pure-Go Linux binary matrix / Release binary is built | `.goreleaser.yml:1-180`; `cmd/usbip-go/release_metadata_test.go:1-56`; `Taskfile.yml:1-570` |
+| Scenario | 54 | GoReleaser builds a single pure-Go Linux binary matrix / Snapshot release runs locally | `.goreleaser.yml:1-180`; `cmd/usbip-go/release_metadata_test.go:1-56`; `Taskfile.yml:1-570` |
 | Requirement | 58 | Release archives include operator documentation and deployment files | `.goreleaser.yml:1-180`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
 | Scenario | 61 | Release archives include operator documentation and deployment files / Archive is produced | `.goreleaser.yml:1-180`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
 | Requirement | 66 | OS packages install binary, docs, systemd units, and modules-load config | `.goreleaser.yml:1-180`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
@@ -406,10 +409,10 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 
 | Type | Spec line | Item | Evidence |
 |---|---:|---|---|
-| Requirement | 7 | USB/IP wire security is explicitly trusted-network only | `docs/security.md:1-167`; `docs/security-posture.md:1-139`; `docs/ops.md:1-304` |
-| Scenario | 10 | USB/IP wire security is explicitly trusted-network only / Operator reads deployment guidance | `docs/security.md:1-167`; `docs/security-posture.md:1-139`; `docs/ops.md:1-304` |
-| Requirement | 15 | TLS wrapping is out of scope | `docs/security.md:1-167`; `docs/security-posture.md:1-139` |
-| Scenario | 18 | TLS wrapping is out of scope / Confidentiality is required | `docs/security.md:1-167`; `docs/security-posture.md:1-139` |
+| Requirement | 7 | USB/IP wire security is explicitly trusted-network only | `docs/security.md:1-167`; `docs/security-posture.md:1-140`; `docs/ops.md:1-304` |
+| Scenario | 10 | USB/IP wire security is explicitly trusted-network only / Operator reads deployment guidance | `docs/security.md:1-167`; `docs/security-posture.md:1-140`; `docs/ops.md:1-304` |
+| Requirement | 15 | TLS wrapping is out of scope | `docs/security.md:1-167`; `docs/security-posture.md:1-140` |
+| Scenario | 18 | TLS wrapping is out of scope / Confidentiality is required | `docs/security.md:1-167`; `docs/security-posture.md:1-140` |
 | Requirement | 22 | Daemon defenses are defense-in-depth, not authentication | `internal/app/cidr.go:1-88`; `internal/app/cidr_test.go:1-185`; `docs/security.md:1-167` |
 | Scenario | 25 | Daemon defenses are defense-in-depth, not authentication / CIDR allow list is empty | `internal/app/cidr.go:1-88`; `internal/app/cidr_test.go:1-185`; `docs/security.md:1-167` |
 | Scenario | 29 | Daemon defenses are defense-in-depth, not authentication / CIDR allow list is non-empty | `internal/app/cidr.go:1-88`; `internal/app/cidr_test.go:1-185`; `docs/security.md:1-167` |
@@ -418,21 +421,21 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Requirement | 41 | Missing kernel modules are classified | `pkg/usbip/modules_linux.go:1-97`; `internal/adapter/kernel/modules.go:1-53`; `cmd/usbip-go/format_module_specific_test.go:1-65` |
 | Scenario | 44 | Missing kernel modules are classified / Importer module is missing | `pkg/usbip/modules_linux.go:1-97`; `internal/adapter/kernel/modules.go:1-53`; `cmd/usbip-go/format_module_specific_test.go:1-65` |
 | Scenario | 48 | Missing kernel modules are classified / Exporter module is missing | `pkg/usbip/modules_linux.go:1-97`; `internal/adapter/kernel/modules.go:1-53`; `cmd/usbip-go/format_module_specific_test.go:1-65` |
-| Requirement | 52 | Releases are reproducible and signed | `.goreleaser.yml:1-180`; `.github/workflows/release.yml:1-273`; `docs/security-posture.md:1-139` |
-| Scenario | 55 | Releases are reproducible and signed / User verifies a release | `.goreleaser.yml:1-180`; `.github/workflows/release.yml:1-273`; `docs/security-posture.md:1-139` |
-| Requirement | 59 | CI enforces security scanning and pinned workflow posture | `.github/workflows/_security.yml:1-87`; `.github/workflows/codeql.yml:1-77`; `.github/workflows/trivy.yml:1-94`; `Taskfile.yml:1-439` |
-| Scenario | 62 | CI enforces security scanning and pinned workflow posture / Vulnerability scan runs | `.github/workflows/_security.yml:1-87`; `.github/workflows/codeql.yml:1-77`; `.github/workflows/trivy.yml:1-94`; `Taskfile.yml:1-439` |
-| Scenario | 66 | CI enforces security scanning and pinned workflow posture / Workflow dependency is added | `.github/workflows/_security.yml:1-87`; `.github/workflows/codeql.yml:1-77`; `.github/workflows/trivy.yml:1-94`; `Taskfile.yml:1-439` |
-| Requirement | 70 | CI enforces architecture and pure-Go constraints | `docs/architecture.md:1-200`; `.github/workflows/_arch-checks.yml:1-274`; `Taskfile.yml:1-439` |
-| Scenario | 73 | CI enforces architecture and pure-Go constraints / Adapter import crosses a forbidden boundary | `docs/architecture.md:1-200`; `.github/workflows/_arch-checks.yml:1-274`; `Taskfile.yml:1-439` |
-| Scenario | 77 | CI enforces architecture and pure-Go constraints / cgo is introduced | `docs/architecture.md:1-200`; `.github/workflows/_arch-checks.yml:1-274`; `Taskfile.yml:1-439` |
-| Scenario | 81 | CI enforces architecture and pure-Go constraints / Public API changes incompatibly | `docs/architecture.md:1-200`; `.github/workflows/_arch-checks.yml:1-274`; `Taskfile.yml:1-439` |
-| Requirement | 85 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns | `Taskfile.yml:1-439`; `.github/workflows/_unit-tests.yml:1-34` |
-| Scenario | 88 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Unit tests run | `Taskfile.yml:1-439`; `.github/workflows/_unit-tests.yml:1-34` |
-| Scenario | 92 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Integration tests run | `Taskfile.yml:1-439`; `.github/workflows/_unit-tests.yml:1-34` |
-| Scenario | 96 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Wire conformance tests run | `Taskfile.yml:1-439`; `.github/workflows/_unit-tests.yml:1-34` |
-| Requirement | 100 | TDD and review discipline are codified | `CONTRIBUTING.md:1-329`; `Taskfile.yml:1-439` |
-| Scenario | 103 | TDD and review discipline are codified / Feature commit adds only tests | `CONTRIBUTING.md:1-329`; `Taskfile.yml:1-439` |
+| Requirement | 52 | Releases are reproducible and signed | `.goreleaser.yml:1-180`; `.github/workflows/release.yml:1-273`; `docs/security-posture.md:1-140` |
+| Scenario | 55 | Releases are reproducible and signed / User verifies a release | `.goreleaser.yml:1-180`; `.github/workflows/release.yml:1-273`; `docs/security-posture.md:1-140` |
+| Requirement | 59 | CI enforces security scanning and pinned workflow posture | `.github/workflows/_security.yml:1-87`; `.github/workflows/codeql.yml:1-77`; `.github/workflows/trivy.yml:1-93`; `Taskfile.yml:1-570` |
+| Scenario | 62 | CI enforces security scanning and pinned workflow posture / Vulnerability scan runs | `.github/workflows/_security.yml:1-87`; `.github/workflows/codeql.yml:1-77`; `.github/workflows/trivy.yml:1-93`; `Taskfile.yml:1-570` |
+| Scenario | 66 | CI enforces security scanning and pinned workflow posture / Workflow dependency is added | `.github/workflows/_security.yml:1-87`; `.github/workflows/codeql.yml:1-77`; `.github/workflows/trivy.yml:1-93`; `Taskfile.yml:1-570` |
+| Requirement | 70 | CI enforces architecture and pure-Go constraints | `docs/architecture.md:1-200`; `.github/workflows/_arch-checks.yml:1-274`; `Taskfile.yml:1-570` |
+| Scenario | 73 | CI enforces architecture and pure-Go constraints / Adapter import crosses a forbidden boundary | `docs/architecture.md:1-200`; `.github/workflows/_arch-checks.yml:1-274`; `Taskfile.yml:1-570` |
+| Scenario | 77 | CI enforces architecture and pure-Go constraints / cgo is introduced | `docs/architecture.md:1-200`; `.github/workflows/_arch-checks.yml:1-274`; `Taskfile.yml:1-570` |
+| Scenario | 81 | CI enforces architecture and pure-Go constraints / Public API changes incompatibly | `docs/architecture.md:1-200`; `.github/workflows/_arch-checks.yml:1-274`; `Taskfile.yml:1-570` |
+| Requirement | 85 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns | `Taskfile.yml:1-570`; `.github/workflows/_unit-tests.yml:1-34` |
+| Scenario | 88 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Unit tests run | `Taskfile.yml:1-570`; `.github/workflows/_unit-tests.yml:1-34` |
+| Scenario | 92 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Integration tests run | `Taskfile.yml:1-570`; `.github/workflows/_unit-tests.yml:1-34` |
+| Scenario | 96 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Wire conformance tests run | `Taskfile.yml:1-570`; `.github/workflows/_unit-tests.yml:1-34` |
+| Requirement | 100 | TDD and review discipline are codified | `CONTRIBUTING.md:1-323`; `Taskfile.yml:1-570` |
+| Scenario | 103 | TDD and review discipline are codified / Feature commit adds only tests | `CONTRIBUTING.md:1-323`; `Taskfile.yml:1-570` |
 | Requirement | 107 | License and metadata are consistent | `.github/workflows/release.yml:1-273`; `.goreleaser.yml:1-180`; `LICENSE:1-202` |
 | Scenario | 110 | License and metadata are consistent / Stable release tag is pushed | `.github/workflows/release.yml:1-273`; `.goreleaser.yml:1-180`; `LICENSE:1-202` |
 

@@ -13,6 +13,7 @@ only).
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Pinned-Dependencies    | Every workflow `uses:` is a 40-char SHA with a trailing `# vN` Dependabot anchor.                                |
 | SAST                   | `.github/workflows/codeql.yml` runs CodeQL `security-and-quality` on every push/PR + weekly cron.                |
+| Lint / config hygiene  | `task lint` runs Go, YAML, GitHub Actions, Markdown, shell, spelling, and GoReleaser config checks.              |
 | Vulnerabilities        | `task vuln` (govulncheck) on every push, PR, and nightly schedule.                                               |
 | Token-Permissions      | Every workflow declares minimal top-level `permissions:`; jobs widen only when required (release / scorecard).   |
 | Security-Policy        | [`SECURITY.md`](../SECURITY.md) at repo root.                                                                    |
@@ -101,14 +102,14 @@ Scorecard's Packaging check is static workflow-file analysis. Its
 matcher for Go projects (see ossf/scorecard
 `checks/fileparser/github_workflow.go::IsPackagingWorkflow`) ONLY
 recognises a literal `uses: goreleaser/goreleaser-action` step.
-Shell-wrapped invocations such as `nix develop --command task
+Shell-wrapped invocations such as `nix develop .#release --command task
 ci:release` are invisible to the matcher even when they execute the
 same goreleaser binary.
 
 `release.yml` reconciles two competing requirements:
 
 1. **Hermetic release artefacts**: goreleaser, syft, cosign, and
-   nfpm all come from the nix flake closure (`flake.lock`), which
+   nfpm all come from the release flake shell (`flake.lock`), which
    pins the exact source revision of every tool. Local runs via
    `task release:snapshot` use the same binaries.
 2. **Honest Scorecard signal**: the score should reflect what we
@@ -117,7 +118,7 @@ same goreleaser binary.
 The compromise is an explicit `goreleaser/goreleaser-action@<sha>`
 step with `install-only: true` placed before the canonical release
 step. The action installs a goreleaser binary onto runner PATH;
-that binary is then SHADOWED by `nix develop`'s PATH in the next
+that binary is then SHADOWED by `nix develop .#release`'s PATH in the next
 step, so the actual release work runs the flake-pinned binary, not
 the action-installed one. The action-installed binary is never
 executed at runtime, so its version does not need to track

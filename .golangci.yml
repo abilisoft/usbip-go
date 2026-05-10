@@ -29,11 +29,11 @@ linters:
   default: all
   disable:
     # Each disable requires a rationale per spec §9.4.
-    - depguard      # enable once we configure an allowed-deps list (tracked as an open item)
-    - exhaustruct   # fights functional options and zero-value defaults
-    - varnamelen    # flags idiomatic short names (err, ctx, i)
-    - wsl           # superseded by wsl_v5
-    - nlreturn      # overlaps with wsl_v5
+    - depguard # enable once we configure an allowed-deps list (tracked as an open item)
+    - exhaustruct # fights functional options and zero-value defaults
+    - varnamelen # flags idiomatic short names (err, ctx, i)
+    - wsl # superseded by wsl_v5
+    - nlreturn # overlaps with wsl_v5
   settings:
     gocyclo:
       min-complexity: 10
@@ -106,7 +106,7 @@ linters:
   exclusions:
     rules:
       - path: cmd/.+/.+\.go
-        linters: [gochecknoglobals]  # cobra cmd vars are unavoidable; scoped here only
+        linters: [gochecknoglobals] # cobra cmd vars are unavoidable; scoped here only
       - path: test/integration/killable/.+\.go
         # The killable subprocess is a hand-rolled main package whose
         # checkpoint writer must be reachable from package-level

@@ -158,7 +158,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build
-          nix develop --command git-cliff \
+          nix develop .#release --command git-cliff \
             --latest \
             --strip header \
             --output build/release-notes.md
@@ -182,12 +182,12 @@ jobs:
       # checks/fileparser/github_workflow.go::IsPackagingWorkflow)
       # ONLY pattern-matches a literal
       # `uses: goreleaser/goreleaser-action` step. Shell-wrapped
-      # invocations like our canonical `nix develop --command task
+      # invocations like our canonical `nix develop .#release --command task
       # ci:release` are invisible to that matcher even though they
       # execute the same goreleaser binary.
       #
       # install-only:true installs a goreleaser binary onto runner
-      # PATH; the next step's `nix develop` shadows that PATH so the
+      # PATH; the next step's release shell shadows that PATH so the
       # release runs the flake-pinned binary, not this one. Two
       # consequences:
       #
@@ -207,8 +207,8 @@ jobs:
           install-only: true
           version: '~> 2'
 
-      - name: Build and publish release artifacts (goreleaser, syft, cosign, nfpm from the flake closure)
-        run: nix develop --command task ci:release
+      - name: Build and publish release artifacts (release flake shell)
+        run: nix develop .#release --command task ci:release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COSIGN_EXPERIMENTAL: '1'

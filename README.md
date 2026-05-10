@@ -52,7 +52,7 @@ around the protocol:
 | Static read / write deadlines per `Importer` / `Exporter`                 | ❌                     | ✅         |
 | Tolerance for high-latency / lossy links (50–800 ms RTT)                  | ❌                     | ✅         |
 | Reproducible builds (`-trimpath`, no cgo)                                 | ❌                     | ✅         |
-| Static analysis + vuln scanning (CodeQL, `golangci-lint`, `govulncheck`, Trivy) | ❌               | ✅         |
+| Static analysis + vuln/config linting (CodeQL, `golangci-lint`, `yamllint`, `actionlint`, `rumdl`, `shellcheck`, `typos`, `govulncheck`, Trivy) | ❌ | ✅ |
 | Conformance tests against real wire captures                              | ❌                     | ✅         |
 | Fuzz targets on the wire codec                                            | ❌                     | ✅         |
 | Mutation testing on protocol-critical packages                            | ❌                     | ✅         |
@@ -98,7 +98,7 @@ change as new features land.
 Prebuilt binaries, `.deb`, and `.rpm` packages are published to
 [GitHub Releases](https://github.com/abilisoft/usbip-go/releases).
 
-```
+```text
 VERSION=1.0.0  # replace with the tag you want; see the Releases page
 curl -LO "https://github.com/abilisoft/usbip-go/releases/download/v${VERSION}/usbip-go_${VERSION}_linux_amd64.tar.gz"
 tar xzf "usbip-go_${VERSION}_linux_amd64.tar.gz"
@@ -119,7 +119,7 @@ installing — `name_template` in `.goreleaser.yml` produces the
 checksum filename as `usbip-go_<version>_checksums.txt`, so the
 matching cosign bundle is `usbip-go_<version>_checksums.txt.sigstore.json`:
 
-```
+```text
 VERSION=1.0.0
 ARCHIVE=usbip-go_${VERSION}_linux_amd64.tar.gz
 CHECKSUMS=usbip-go_${VERSION}_checksums.txt
@@ -165,7 +165,7 @@ once; both are statically linked single binaries.
 The release archive and packages both include systemd units and a
 modules-load snippet. Drop them in place and enable the socket unit:
 
-```
+```text
 sudo install -Dm 0644 contrib/systemd/usbip-go.service /etc/systemd/system/usbip-go.service
 sudo install -Dm 0644 contrib/systemd/usbip-go.socket  /etc/systemd/system/usbip-go.socket
 sudo install -Dm 0644 contrib/modules-load.d/usbip-go.conf /etc/modules-load.d/usbip-go.conf
@@ -179,7 +179,7 @@ hardening recipe, status/health endpoints, and drain procedure.
 
 ### `go install`
 
-```
+```text
 go install github.com/abilisoft/usbip-go/cmd/usbip-go@latest
 ```
 
@@ -190,7 +190,7 @@ Requires Go 1.26 or newer.
 Every host running `usbip-go serve` (exporter) or the `usbip-go`
 client needs the relevant kernel modules:
 
-```
+```text
 sudo modprobe usbip_core vhci_hcd usbip_host
 echo -e 'usbip_core\nvhci_hcd\nusbip_host' \
   | sudo tee /etc/modules-load.d/usbip-go.conf
@@ -230,7 +230,7 @@ events, and reconnect.
 
 ### 2. CLI attach
 
-```
+```text
 sudo usbip-go attach 10.0.0.5 1-1.2
 sudo usbip-go port
 sudo usbip-go detach 0
@@ -238,7 +238,7 @@ sudo usbip-go detach 0
 
 ### 3. Daemon via systemd
 
-```
+```text
 sudo systemctl enable --now usbip-go.socket
 sudo usbip-go bind 1-1.2           # export a local device
 sudo systemctl status usbip-go
@@ -251,10 +251,11 @@ Status, drain, health, and readiness endpoints are in
 
 The dev toolchain is hermetic: the only host-side prerequisites are
 **Docker** and **[Task](https://taskfile.dev)**. Go, linters,
-formatters, and every release tool (goreleaser, syft, cosign, nfpm,
-git-cliff) are pinned in `flake.nix` and delivered through a Nix
-container — `task setup` seeds the store once, then `task test`,
-`task lint`, and friends reuse it.
+formatters, spelling checks, release tools, and microVM tooling are pinned in
+`flake.nix` and delivered through Nix containers. The flake is split into fast
+build/test `dev`, lint/format/analyzer `qa`, release-only `release`, and
+microVM-only `vm` shells so `task test` does not realize linter, release, or
+VM closures.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md#prerequisites) for the full
 onboarding flow, the hermetic-cache layout under `./build/`, and

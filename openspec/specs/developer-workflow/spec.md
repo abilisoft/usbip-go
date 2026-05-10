@@ -4,20 +4,32 @@ Specify the repository's contributor workflow, hermetic toolchain, local task di
 
 ## Requirements
 
-### Requirement: Host tasks dispatch into the hermetic development environment
-Top-level Taskfile targets SHALL dispatch through the Nix/Docker development environment unless the process is already inside the expected containerized devShell.
+### Requirement: Host tasks dispatch into the smallest hermetic Nix shell
+Top-level Taskfile targets SHALL dispatch through Docker-backed Nix shells for local users unless the process is already inside the expected shell. Routine build and test tasks SHALL use the fast `dev` shell; lint, format, spelling, vulnerability, and release-configuration validation tasks SHALL use the `qa` shell; release tasks SHALL use the `release` shell; microVM tasks SHALL use the `vm` shell.
 
-#### Scenario: Host runs a top-level task
-- **WHEN** a contributor runs `task test`, `task lint`, `task fmt`, `task vuln`, `task build`, or another top-level workflow task from the host
-- **THEN** the task uses the `_run` dispatcher to invoke the matching `ci:*` task inside `docker compose run --rm dev`
+#### Scenario: Host runs a daily workflow task
+- **WHEN** a contributor runs `task test`, `task build`, `task tidy`, or another build/test workflow task from the host
+- **THEN** the task seeds `.#dev` if needed and invokes the matching `ci:*` task inside `docker compose run --rm dev`
 
-#### Scenario: Task already runs inside the dev container
-- **WHEN** `IN_NIX_CONTAINER=1`, `/.dockerenv` exists, the working directory is `/src`, and `go` resolves under `/nix/store`
-- **THEN** `_run` invokes the inner `ci:*` task directly without nesting another container
+#### Scenario: Host runs a QA workflow task
+- **WHEN** a contributor runs `task lint`, `task fmt`, `task vuln`, `task check`, or another lint/format/analyzer workflow task from the host
+- **THEN** the task seeds `.#qa` if needed and invokes the matching `ci:*` task inside `docker compose run --rm qa`
+
+#### Scenario: Host runs a release workflow task
+- **WHEN** a contributor runs `task release:notes`, `task release:snapshot`, or `task release` from the host
+- **THEN** the task seeds `.#release` if needed and invokes the matching `ci:*` task inside `docker compose run --rm release`
+
+#### Scenario: Host runs a microVM workflow task
+- **WHEN** a contributor runs `task vm:build`, `task vm:smoke`, or `task vm:test:integration` from the host
+- **THEN** the task seeds `.#vm` if needed and invokes the matching `ci:*` task inside `docker compose run --rm vm`
+
+#### Scenario: Task already runs inside the expected Nix shell
+- **WHEN** `USBIP_GO_NIX_SHELL` matches the dispatcher shell for the requested top-level task
+- **THEN** the dispatcher invokes the inner `ci:*` task directly without nesting another container
 
 #### Scenario: Tooling version drifts
-- **WHEN** `go.mod` or `toolchain` declares a different Go version than the devShell provides
-- **THEN** `_check:tooling` fails before build, test, lint, or release commands run
+- **WHEN** `go.mod` or `toolchain` declares a different Go version than the active Nix shell provides
+- **THEN** `_check:tooling` fails before build, test, lint, release, or VM commands run
 
 ### Requirement: Build artifacts and caches stay under build
 The development workflow SHALL keep generated artifacts, identities, Go caches, lint caches, coverage output, VM closures, and release output under `build/`.
@@ -35,21 +47,23 @@ The development workflow SHALL keep generated artifacts, identities, Go caches, 
 - **WHEN** `task clean` runs
 - **THEN** only first-level contents under `build/` are removed
 
-### Requirement: Formatting and linting are scoped to owned source roots
-Formatting and linting tasks SHALL operate on repository-owned Go package roots and avoid generated caches or third-party module sources under `build/cache`.
+### Requirement: Formatting and linting are scoped to owned repository surfaces
+Formatting and linting tasks SHALL operate on repository-owned Go, YAML, Markdown, shell, workflow, spelling, and release-configuration surfaces while avoiding generated caches or third-party module sources under `build/`.
 
 #### Scenario: Formatting runs
 - **WHEN** `task fmt` dispatches to `ci:fmt`
-- **THEN** `gofmt -s`, `gofumpt`, and `goimports` run over `cmd`, `examples`, `internal`, `pkg`, and `test`
+- **THEN** Go formatters (`gofmt -s`, `gofumpt`, and `goimports`) run over `cmd`, `examples`, `internal`, `pkg`, and `test`
+- **AND** config/doc/script formatters (`yamlfmt`, `rumdl fmt`, and `shfmt`) run over the configured YAML, Markdown, and shell-script surfaces
 
 #### Scenario: Format check runs in CI
 - **WHEN** `ci:fmt:check` runs
-- **THEN** `gofmt -s -l` reports drift over the owned source roots and fails if any file would change
+- **THEN** Go, YAML, Markdown, and shell formatter check modes fail if any owned file would change
 
 #### Scenario: Lint runs
 - **WHEN** `task lint` dispatches to `ci:lint`
 - **THEN** `golangci-lint` runs over `cmd/...`, `pkg/...`, `internal/...`, `test/...`, and `examples/...`
-- **AND** it does not recurse through `build/cache/go-mod`
+- **AND** `yamllint`, `actionlint`, `rumdl check`, `shellcheck`, `typos`, and `goreleaser check` run over their configured repository surfaces
+- **AND** linters and formatters do not recurse through generated caches under `build/`
 
 ### Requirement: Test workflows are tiered by cost and environment
 The repository SHALL separate race-enabled unit tests, conformance tests, integration tests, coverage, mutation testing, and microVM-backed Linux integration.

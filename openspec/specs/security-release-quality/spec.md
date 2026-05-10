@@ -68,7 +68,7 @@ The repository SHALL run CodeQL, govulncheck, Trivy/Scorecard-style checks where
 - **THEN** it is pinned according to repository security posture conventions
 
 ### Requirement: CI enforces architecture and pure-Go constraints
-The repository SHALL mechanically enforce DDD layering, no cgo, public API compatibility, cross-compilation, formatting, linting, tests, and coverage thresholds.
+The repository SHALL mechanically enforce DDD layering, no cgo, public API compatibility, cross-compilation, formatting, linting, spelling, release-configuration validation, tests, and coverage thresholds.
 
 #### Scenario: Adapter import crosses a forbidden boundary
 - **WHEN** `internal/app` imports the kernel or transport adapter directly

@@ -251,37 +251,73 @@
           goAttr = "go_${builtins.replaceStrings ["."] ["_"] goMinor}";
           go = pkgs.${goAttr} or (throw
             "flake.nix: nixpkgs does not expose ${goAttr}; bump goMinor or the nixpkgs input");
-        in {
-          default = pkgs.mkShell {
-            name = "usbip-go-dev";
 
-            packages = [
-              go
-              pkgs.go-task
-              pkgs.golangci-lint
-              pkgs.gofumpt
-              pkgs.gotools          # goimports, stringer, guru, etc.
-              pkgs.govulncheck
-              pkgs.goreleaser
-              pkgs.moq
-              pkgs.nfpm
-              pkgs.syft
-              pkgs.cosign
-              pkgs.git-cliff
-              pkgs.gh
-              pkgs.act           # run GitHub Actions locally (task ci:local)
-              pkgs.git
-              pkgs.coreutils
-              pkgs.gnumake
-            ];
-
-            # Environment-only setup. The hermetic-cache paths and the
-            # go.mod/toolchain parity check were moved into Taskfile.yml
-            # (see the `_check:tooling` precondition) so all imperative
-            # shell logic lives in one place.
+          commonEnv = {
             GOTOOLCHAIN = "local";
             GOFLAGS = "-trimpath";
           };
+
+          commonPackages = [
+            go
+            pkgs.go-task
+            pkgs.git
+            pkgs.coreutils
+            pkgs.gnumake
+          ];
+
+          mkShell = name: shellKind: packages: pkgs.mkShell (commonEnv // {
+            inherit name packages;
+            USBIP_GO_NIX_SHELL = shellKind;
+          });
+
+          # rumdl's upstream nixpkgs package compiles the binary and then
+          # separately links its test harness with LTO for the package smoke
+          # tests. That makes first-time QA shell realization painfully slow
+          # in the Docker/Nix local path; the project exercises rumdl through
+          # ci:fmt:markdown and ci:lint:markdown, so the shell only needs the
+          # installed CLI.
+          rumdlCli = pkgs.rumdl.overrideAttrs (_old: {
+            doCheck = false;
+            doInstallCheck = false;
+            useNextest = false;
+          });
+
+          dev = mkShell "usbip-go-dev" "dev" commonPackages;
+
+          qa = mkShell "usbip-go-qa" "qa" (commonPackages ++ [
+            pkgs.golangci-lint
+            pkgs.gofumpt
+            pkgs.gotools          # goimports, stringer, guru, etc.
+            pkgs.govulncheck
+            pkgs.goreleaser       # config validation only; release shell carries publishing tools.
+            pkgs.yamllint
+            pkgs.yamlfmt
+            pkgs.actionlint
+            rumdlCli
+            pkgs.shellcheck
+            pkgs.shfmt
+            pkgs.typos
+            pkgs.moq
+          ]);
+
+          release = mkShell "usbip-go-release" "release" (commonPackages ++ [
+            pkgs.goreleaser
+            pkgs.nfpm
+            pkgs.syft
+            pkgs.cosign
+            pkgs.git-cliff
+          ]);
+
+          vm = mkShell "usbip-go-vm" "vm" (commonPackages ++ [
+            pkgs.gotools
+            pkgs.gcc
+            pkgs.binutils
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+            pkgs.qemu_kvm
+          ]);
+        in {
+          default = dev;
+          inherit dev qa release vm;
         });
 
       # integration-test microVM: produced with nixpkgs's standard

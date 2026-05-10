@@ -149,7 +149,7 @@ jobs:
         # ~15 s on KVM; ~60-180 s on TCG; runs first so an
         # integration suite never starts against a broken VM
         # image.
-        run: nix develop --command task ci:vm:smoke
+        run: nix develop .#vm --command task ci:vm:smoke
       - name: Integration suite inside microVM
         # Runs `go test -tags=integration_linux ./test/integration/...`
         # inside the booted microVM via 9p split mounts (/src ro,
@@ -157,4 +157,4 @@ jobs:
         # TCG (cold cache can push closer to the 90-min schedule
         # timeout above). The smoke check above gates wasted
         # runner time on a dead image.
-        run: nix develop --command task ci:vm:test:integration
+        run: nix develop .#vm --command task ci:vm:test:integration
