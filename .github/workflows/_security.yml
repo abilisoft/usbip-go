@@ -48,13 +48,14 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/setup-nix-dev
       - name: Format check
-        # Fails fast if any Go, YAML, Markdown, or shell file would
-        # change under the project formatters. Catches drift that local
+        # Fails fast if any Go, YAML, Markdown, shell, Nix, or TOML file
+        # would change under the project formatters. Catches drift that local
         # `task fmt` would auto-fix.
         run: nix develop .#qa --command task ci:fmt:check
       - name: Lint
         # Runs golangci-lint, yamllint, actionlint (+ shellcheck for
-        # workflow run: blocks), rumdl, shellcheck, typos, and
+        # workflow run: blocks), rumdl, shellcheck, typos, Nix/TOML
+        # linting, Compose validation, OpenSpec validation, and
         # goreleaser config validation.
         run: nix develop .#qa --command task ci:lint
       - name: Vuln (SARIF)

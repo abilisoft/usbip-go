@@ -52,7 +52,7 @@ around the protocol:
 | Static read / write deadlines per `Importer` / `Exporter`                 | ❌                     | ✅         |
 | Tolerance for high-latency / lossy links (50–800 ms RTT)                  | ❌                     | ✅         |
 | Reproducible builds (`-trimpath`, no cgo)                                 | ❌                     | ✅         |
-| Static analysis + vuln/config linting (CodeQL, `golangci-lint`, `yamllint`, `actionlint`, `rumdl`, `shellcheck`, `typos`, `govulncheck`, Trivy) | ❌ | ✅ |
+| Static analysis + vuln/config linting (CodeQL, `golangci-lint`, `yamllint`, `actionlint`, `rumdl`, `shellcheck`, `typos`, `taplo`, `statix`, `deadnix`, `govulncheck`, Trivy) | ❌ | ✅ |
 | Conformance tests against real wire captures                              | ❌                     | ✅         |
 | Fuzz targets on the wire codec                                            | ❌                     | ✅         |
 | Mutation testing on protocol-critical packages                            | ❌                     | ✅         |

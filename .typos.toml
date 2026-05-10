@@ -1,10 +1,5 @@
 [files]
-extend-exclude = [
-  "build/**",
-  "cmd/**/.t-*/*",
-  "go.mod",
-  "go.sum",
-]
+extend-exclude = ["build/**", "cmd/**/.t-*/*", "go.mod", "go.sum"]
 
 [default.extend-words]
 AbiliSoft = "AbiliSoft"
@@ -35,6 +30,11 @@ yamlfmt = "yamlfmt"
 yamllint = "yamllint"
 actionlint = "actionlint"
 shfmt = "shfmt"
+nixpkgs = "nixpkgs"
+nixpkgs-fmt = "nixpkgs-fmt"
+statix = "statix"
+deadnix = "deadnix"
+taplo = "taplo"
 intoto = "intoto"
 mis = "mis"
 unparseable = "unparseable"

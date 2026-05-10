@@ -48,21 +48,22 @@ The development workflow SHALL keep generated artifacts, identities, Go caches, 
 - **THEN** only first-level contents under `build/` are removed
 
 ### Requirement: Formatting and linting are scoped to owned repository surfaces
-Formatting and linting tasks SHALL operate on repository-owned Go, YAML, Markdown, shell, workflow, spelling, and release-configuration surfaces while avoiding generated caches or third-party module sources under `build/`.
+Formatting and linting tasks SHALL operate on repository-owned Go, YAML, Markdown, shell, workflow, spelling, Nix, TOML, Docker Compose, OpenSpec, module-tidy, and release-configuration surfaces while avoiding generated caches or third-party module sources under `build/`.
 
 #### Scenario: Formatting runs
 - **WHEN** `task fmt` dispatches to `ci:fmt`
 - **THEN** Go formatters (`gofmt -s`, `gofumpt`, and `goimports`) run over `cmd`, `examples`, `internal`, `pkg`, and `test`
-- **AND** config/doc/script formatters (`yamlfmt`, `rumdl fmt`, and `shfmt`) run over the configured YAML, Markdown, and shell-script surfaces
+- **AND** config/doc/script formatters (`yamlfmt`, `rumdl fmt`, `shfmt`, `nixpkgs-fmt`, and `taplo fmt`) run over the configured YAML, Markdown, shell-script, Nix, and TOML surfaces
 
 #### Scenario: Format check runs in CI
 - **WHEN** `ci:fmt:check` runs
-- **THEN** Go, YAML, Markdown, and shell formatter check modes fail if any owned file would change
+- **THEN** Go, YAML, Markdown, shell, Nix, and TOML formatter check modes fail if any owned file would change
 
 #### Scenario: Lint runs
 - **WHEN** `task lint` dispatches to `ci:lint`
 - **THEN** `golangci-lint` runs over `cmd/...`, `pkg/...`, `internal/...`, `test/...`, and `examples/...`
-- **AND** `yamllint`, `actionlint`, `rumdl check`, `shellcheck`, `typos`, and `goreleaser check` run over their configured repository surfaces
+- **AND** `yamllint`, `actionlint`, `rumdl check`, `shellcheck`, `typos`, `goreleaser check`, `statix`, `deadnix`, `taplo lint`, `docker-compose config --quiet`, and `openspec validate --specs --strict` run over their configured repository surfaces
+- **AND** module tidy drift is detected by running `go mod tidy` and checking `go.mod` and `go.sum`
 - **AND** linters and formatters do not recurse through generated caches under `build/`
 
 ### Requirement: Test workflows are tiered by cost and environment

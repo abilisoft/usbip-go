@@ -61,48 +61,48 @@ split_commits = false
 
 # Preprocess commit messages before parsing.
 commit_preprocessors = [
-    # Strip noise that a hook or tool might prepend.
-    { pattern = '\s+$', replace = "" },
-    # Scrub references to the development tooling used during the
-    # initial implementation push; the rendered release notes should
-    # describe what changed in the project, not what reviewer found
-    # the bug or which directory hosts editor state.
-    { pattern = '\bcodex\b', replace = "review" },
-    { pattern = '\bClaude Code\b', replace = "developer tooling" },
-    { pattern = '\.claude\b', replace = ".editor-tooling" },
-    { pattern = '\bAI assistant state\b', replace = "editor tooling state" },
-    { pattern = '\bAI assistant\b', replace = "developer tooling" },
+  # Strip noise that a hook or tool might prepend.
+  { pattern = '\s+$', replace = "" },
+  # Scrub references to the development tooling used during the
+  # initial implementation push; the rendered release notes should
+  # describe what changed in the project, not what reviewer found
+  # the bug or which directory hosts editor state.
+  { pattern = '\bcodex\b', replace = "review" },
+  { pattern = '\bClaude Code\b', replace = "developer tooling" },
+  { pattern = '\.claude\b', replace = ".editor-tooling" },
+  { pattern = '\bAI assistant state\b', replace = "editor tooling state" },
+  { pattern = '\bAI assistant\b', replace = "developer tooling" },
 ]
 
 # Map Conventional Commit types into human-friendly section headings.
 # Ordering here determines section order in the output.
 commit_parsers = [
-    # Breaking changes win over type — match BEFORE the type-grouping
-    # parsers so a `feat(scope)!:` or any commit body with
-    # `BREAKING CHANGE:` lands in its own section instead of being
-    # silently absorbed into Features / Fixes / etc. The bare
-    # `^[a-z]+!` regex would miss scoped breaking commits, so include
-    # the optional parenthesised scope.
-    { body = ".*BREAKING CHANGE.*",      group = "Breaking Changes" },
-    { message = "^[a-z]+(\\(.+\\))?!",   group = "Breaking Changes" },
-    # Drop the release commit itself — a chore(release): vX.Y.Z
-    # commit is meta-noise in user-facing release notes; readers
-    # learn the version from the GitHub Release title, not a bullet
-    # in the body.
-    { message = "^chore\\(release\\)",   skip = true },
-    { message = "^feat",                 group = "Features" },
-    { message = "^fix",                  group = "Bug Fixes" },
-    { message = "^perf",                 group = "Performance" },
-    { message = "^refactor",             group = "Refactoring" },
-    { message = "^docs",                 group = "Documentation" },
-    { message = "^test",                 group = "Tests" },
-    { message = "^ci",                   group = "CI & Build" },
-    { message = "^build",                group = "CI & Build" },
-    { message = "^deps",                 group = "Dependencies" },
-    { message = "^chore",                group = "Chores" },
-    { message = "^style",                group = "Style" },
-    # Everything else is skipped.
-    { message = ".*", skip = true },
+  # Breaking changes win over type — match BEFORE the type-grouping
+  # parsers so a `feat(scope)!:` or any commit body with
+  # `BREAKING CHANGE:` lands in its own section instead of being
+  # silently absorbed into Features / Fixes / etc. The bare
+  # `^[a-z]+!` regex would miss scoped breaking commits, so include
+  # the optional parenthesised scope.
+  { body = ".*BREAKING CHANGE.*", group = "Breaking Changes" },
+  { message = "^[a-z]+(\\(.+\\))?!", group = "Breaking Changes" },
+  # Drop the release commit itself — a chore(release): vX.Y.Z
+  # commit is meta-noise in user-facing release notes; readers
+  # learn the version from the GitHub Release title, not a bullet
+  # in the body.
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Bug Fixes" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", group = "Refactoring" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^test", group = "Tests" },
+  { message = "^ci", group = "CI & Build" },
+  { message = "^build", group = "CI & Build" },
+  { message = "^deps", group = "Dependencies" },
+  { message = "^chore", group = "Chores" },
+  { message = "^style", group = "Style" },
+  # Everything else is skipped.
+  { message = ".*", skip = true },
 ]
 
 # Protect against merge/revert noise.

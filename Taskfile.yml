@@ -121,12 +121,19 @@ tasks:
   lint:shell: {desc: 'shellcheck', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:shell'}}]}
   lint:spelling: {desc: 'typos spell check', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:spelling'}}]}
   lint:release: {desc: 'GoReleaser config check', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:release'}}]}
+  lint:nix: {desc: 'Nix lint gates', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:nix'}}]}
+  lint:toml: {desc: 'TOML lint', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:toml'}}]}
+  lint:compose: {desc: 'Docker Compose config validation', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:compose'}}]}
+  lint:openspec: {desc: 'OpenSpec strict validation', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:openspec'}}]}
   fmt: {desc: 'Format code/docs/config', cmds: [{task: '_run:qa', vars: {INNER: 'ci:fmt'}}]}
   fmt:go: {desc: 'Format Go', cmds: [{task: '_run:qa', vars: {INNER: 'ci:fmt:go'}}]}
   fmt:yaml: {desc: 'Format YAML', cmds: [{task: '_run:qa', vars: {INNER: 'ci:fmt:yaml'}}]}
   fmt:markdown: {desc: 'Format Markdown', cmds: [{task: '_run:qa', vars: {INNER: 'ci:fmt:markdown'}}]}
   fmt:shell: {desc: 'Format shell scripts', cmds: [{task: '_run:qa', vars: {INNER: 'ci:fmt:shell'}}]}
+  fmt:nix: {desc: 'Format Nix', cmds: [{task: '_run:qa', vars: {INNER: 'ci:fmt:nix'}}]}
+  fmt:toml: {desc: 'Format TOML', cmds: [{task: '_run:qa', vars: {INNER: 'ci:fmt:toml'}}]}
   tidy: {desc: 'go mod tidy', cmds: [{task: '_run:dev', vars: {INNER: 'ci:tidy'}}]}
+  tidy:check: {desc: 'Check go mod tidy drift', cmds: [{task: '_run:dev', vars: {INNER: 'ci:tidy:check'}}]}
   vuln: {desc: 'govulncheck', cmds: [{task: '_run:qa', vars: {INNER: 'ci:vuln'}}]}
   check: {desc: 'Pre-commit gauntlet', cmds: [{task: '_run:qa', vars: {INNER: 'ci:check'}}]}
   release:notes: {desc: 'Generate release notes', cmds: [{task: '_run:release', vars: {INNER: 'ci:release:notes'}}]}
@@ -342,6 +349,10 @@ tasks:
       - task: ci:lint:shell
       - task: ci:lint:spelling
       - task: ci:lint:release
+      - task: ci:lint:nix
+      - task: ci:lint:toml
+      - task: ci:lint:compose
+      - task: ci:lint:openspec
 
   ci:lint:go:
     deps: ['_check:tooling']
@@ -387,6 +398,34 @@ tasks:
     cmds:
       - goreleaser check
 
+  ci:lint:nix:
+    deps: ['_check:tooling']
+    cmds:
+      - nixpkgs-fmt --check flake.nix
+      - statix check flake.nix
+      - deadnix --fail flake.nix
+
+  ci:lint:toml:
+    deps: ['_check:tooling']
+    cmds:
+      - taplo lint --no-schema .taplo.toml .rumdl.toml .typos.toml cliff.toml
+
+  ci:lint:compose:
+    deps: ['_check:tooling']
+    cmds:
+      - docker-compose config --quiet
+
+  ci:lint:openspec:
+    deps: ['_check:tooling']
+    env:
+      NPM_CONFIG_AUDIT: 'false'
+      NPM_CONFIG_CACHE: '{{.BUILD_DIR}}/cache/npm'
+      NPM_CONFIG_FUND: 'false'
+      NPM_CONFIG_UPDATE_NOTIFIER: 'false'
+      OPENSPEC_TELEMETRY: '0'
+    cmds:
+      - openspec validate --specs --strict
+
   ci:fmt:
     deps: ['_check:tooling']
     cmds:
@@ -394,6 +433,8 @@ tasks:
       - task: ci:fmt:yaml
       - task: ci:fmt:markdown
       - task: ci:fmt:shell
+      - task: ci:fmt:nix
+      - task: ci:fmt:toml
 
   ci:fmt:go:
     deps: ['_check:tooling']
@@ -425,6 +466,16 @@ tasks:
     cmds:
       - shfmt -w scripts/*.sh
 
+  ci:fmt:nix:
+    deps: ['_check:tooling']
+    cmds:
+      - nixpkgs-fmt flake.nix
+
+  ci:fmt:toml:
+    deps: ['_check:tooling']
+    cmds:
+      - taplo fmt .taplo.toml .rumdl.toml .typos.toml cliff.toml
+
   ci:fmt:check:
     # CI-only companion to ci:fmt. Fails if Go, YAML, Markdown, or shell
     # formatting would change. Local `task fmt` applies the same formatters.
@@ -434,6 +485,8 @@ tasks:
       - task: ci:fmt:yaml:check
       - task: ci:fmt:markdown:check
       - task: ci:fmt:shell:check
+      - task: ci:fmt:nix:check
+      - task: ci:fmt:toml:check
 
   ci:fmt:go:check:
     deps: ['_check:tooling']
@@ -461,13 +514,49 @@ tasks:
     cmds:
       - shfmt -d scripts/*.sh
 
+  ci:fmt:nix:check:
+    deps: ['_check:tooling']
+    cmds:
+      - nixpkgs-fmt --check flake.nix
+
+  ci:fmt:toml:check:
+    deps: ['_check:tooling']
+    cmds:
+      - taplo fmt --check .taplo.toml .rumdl.toml .typos.toml cliff.toml
+
   ci:tidy:
     deps: ['_check:tooling']
-    cmds: [go mod tidy]
+    cmds:
+      - |
+        set -eu
+        stage=$(mktemp -d -t usbip-go-tidy-XXXXXX)
+        trap 'rm -rf "$stage"' EXIT
+        cp go.mod go.sum "$stage/"
+        for d in cmd pkg internal test examples api; do
+          [ -d "$d" ] && cp -R "$d" "$stage/"
+        done
+        (cd "$stage" && go mod tidy)
+        cp "$stage/go.mod" go.mod
+        cp "$stage/go.sum" go.sum
+
+  ci:tidy:check:
+    deps: ['_check:tooling']
+    cmds:
+      - |
+        set -eu
+        stage=$(mktemp -d -t usbip-go-tidy-check-XXXXXX)
+        trap 'rm -rf "$stage"' EXIT
+        cp go.mod go.sum "$stage/"
+        for d in cmd pkg internal test examples api; do
+          [ -d "$d" ] && cp -R "$d" "$stage/"
+        done
+        (cd "$stage" && go mod tidy)
+        cmp -s go.mod "$stage/go.mod" || { echo 'go.mod is not tidy; run task tidy' >&2; diff -u go.mod "$stage/go.mod" >&2 || true; exit 1; }
+        cmp -s go.sum "$stage/go.sum" || { echo 'go.sum is not tidy; run task tidy' >&2; diff -u go.sum "$stage/go.sum" >&2 || true; exit 1; }
 
   ci:vuln:
     deps: ['_check:tooling']
-    cmds: [govulncheck ./...]
+    cmds: [govulncheck ./cmd/... ./pkg/... ./internal/... ./test/... ./examples/...]
 
   ci:vuln:sarif:
     # CI-only companion to ci:vuln. Emits a SARIF report so the CI
@@ -480,12 +569,13 @@ tasks:
     deps: ['_check:tooling']
     cmds:
       - mkdir -p {{.BUILD_DIR}}
-      - govulncheck -format=sarif ./... > {{.BUILD_DIR}}/govulncheck.sarif
+      - govulncheck -format=sarif ./cmd/... ./pkg/... ./internal/... ./test/... ./examples/... > {{.BUILD_DIR}}/govulncheck.sarif
 
   ci:check:
     deps: ['_check:tooling']
     cmds:
       - task: ci:fmt
+      - task: ci:tidy:check
       - task: ci:lint
       - task: ci:vuln
       - task: ci:test

@@ -1,10 +1,7 @@
 [global]
 line-length = 120
 respect-gitignore = true
-exclude = [
-  "build/**",
-  "cmd/**/.t-*/*",
-]
+exclude = ["build/**", "cmd/**/.t-*/*"]
 disable = [
   "MD013", # line length: tables, URLs, and OpenSpec evidence rows are intentionally long.
 ]

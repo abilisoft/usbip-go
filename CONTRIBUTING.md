@@ -59,14 +59,14 @@ task setup:dev              # re-seeds the fast build/test shell
 ## Dev loop
 
 ```text
-task fmt      # gofmt/gofumpt/goimports + yamlfmt + rumdl + shfmt
-task lint     # Go/YAML/Actions/Markdown/shell/spelling/release-config lint gates
+task fmt      # gofmt/gofumpt/goimports + yamlfmt + rumdl + shfmt + nixpkgs-fmt + taplo
+task lint     # Go/YAML/Actions/Markdown/shell/spelling/Nix/TOML/Compose/OpenSpec/release lint gates
 task vuln     # govulncheck
 task test     # -race unit tests
 task build    # release-style build of usbip-go → build/bin/
 ```
 
-`task check` runs `fmt`, `lint`, `vuln`, `test` in sequence — the
+`task check` runs `fmt`, `tidy:check`, `lint`, `vuln`, `test` in sequence — the
 minimum bar before pushing. All build artefacts land under
 `./build/` (binaries in `build/bin/`, coverage under
 `build/coverage/`, goreleaser output under `build/dist/`, and every
@@ -174,10 +174,13 @@ define the discipline; the CI workflow enforces gates 1-6, 8, and
 ## Style rules
 
 - Formatters: `gofmt -s`, `gofumpt`, `goimports`, `yamlfmt`,
-  `rumdl fmt`, and `shfmt`. `task fmt` runs all of them.
+  `rumdl fmt`, `shfmt`, `nixpkgs-fmt`, and `taplo fmt`. `task fmt`
+  runs all of them.
 - Linters: `golangci-lint` with the config at
   [`.golangci.yml`](.golangci.yml), plus `yamllint`, `actionlint`,
-  `rumdl check`, `shellcheck`, `typos`, and `goreleaser check`.
+  `rumdl check`, `shellcheck`, `typos`, `goreleaser check`,
+  `statix`, `deadnix`, `taplo lint`, `docker compose config`, and
+  `openspec validate --specs --strict`.
   `golangci-lint` uses `default: all` with a minimal, justified
   disable list.
 - Code review applies the repository style rules — comments explain
@@ -220,7 +223,7 @@ items per the progressive-enforcement policy:
 
 | Gate | What | Enforcement |
 |---|---|---|
-| 1 | `task lint` clean (Go, YAML, GitHub Actions, Markdown, shell, spelling, and release config checks) plus formatter drift checks (`gofmt`, `yamlfmt`, `rumdl`, `shfmt`) | CI: `Format, lint, and vulnerability scan` (in `_security.yml`). |
+| 1 | `task lint` clean (Go, YAML, GitHub Actions, Markdown, shell, spelling, Nix, TOML, Compose, OpenSpec, and release config checks) plus formatter drift checks (`gofmt`, `yamlfmt`, `rumdl`, `shfmt`, `nixpkgs-fmt`, `taplo`) | CI: `Format, lint, and vulnerability scan` (in `_security.yml`). |
 | 2 | `task test` clean with `-race` on linux | CI: `Linux unit tests` (in `_unit-tests.yml`). A separate `USB/IP wire conformance` job (in `_conformance.yml`) runs `task ci:test:conformance`; upstream-binary cross-checks inside it skip when `usbip` is not on PATH (the flake closure does not pin usbip-utils). |
 | 3 | RED→GREEN commit chain — every `feat:`/`fix:` commit that adds at least one new `*_test.go` and touches no non-test `.go` outside `internal/tools/` is immediately followed by a commit that touches non-test `.go` outside `internal/tools/` (the GREEN; additions OR modifications both count) OR by a `refactor:` commit (the only accepted break). `test:`-prefixed commits are NOT carried as RED (treated as coverage hardening). Trailing dangling RED at the PR tip also fails. | CI: `TDD commit discipline` job in `ci.yml` (PRs only). |
 | 4 | Coverage thresholds per `.testcoverage.yaml` — per-package floor 80%, total 90% (the achievable floor across the kernel-adapter errno tail and the cmd Cobra-Action surface; pure-logic packages — `pkg/domain`, `pkg/usbip`, `internal/app`, `internal/adapter/wire` — clear 90% comfortably under the current test surface). | CI: `Coverage thresholds` (in `_coverage.yml`) runs `task test:cover` + `vladopajic/go-test-coverage` against `.testcoverage.yaml`. |
