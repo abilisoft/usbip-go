@@ -31,6 +31,7 @@ linters:
     # Each disable requires a rationale per spec §9.4.
     - depguard # enable once we configure an allowed-deps list (tracked as an open item)
     - exhaustruct # fights functional options and zero-value defaults
+    - gomodguard # superseded by gomodguard_v2
     - varnamelen # flags idiomatic short names (err, ctx, i)
     - wsl # superseded by wsl_v5
     - nlreturn # overlaps with wsl_v5
