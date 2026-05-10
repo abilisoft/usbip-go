@@ -11,9 +11,9 @@ START: usbip-go attach HOST BUSID fails.
   |
   +-- Error text contains "kernel module missing"?
   |     |
-  |     +-- YES -> sudo modprobe vhci-hcd usbip-core
+  |     +-- YES -> sudo modprobe vhci_hcd usbip_core
   |     |          Run again. If it still fails, check
-  |     |          dmesg for vhci-hcd load errors and
+  |     |          dmesg for vhci_hcd load errors and
   |     |          verify the kernel has CONFIG_USBIP_VHCI_HCD=m.
   |     |
   |     +-- NO  -> continue.
@@ -23,7 +23,7 @@ START: usbip-go attach HOST BUSID fails.
   |     +-- YES -> Are you running as root or with CAP_SYS_ADMIN+CAP_DAC_OVERRIDE?
   |     |           |
   |     |           +-- NO  -> sudo the client OR setcap the binary:
-  |     |           |          sudo setcap 'cap_sys_admin,cap_dac_override=+ep' /usr/bin/usbip
+  |     |           |          sudo setcap 'cap_sys_admin,cap_dac_override=+ep' /usr/bin/usbip-go
   |     |           |
   |     |           +-- YES -> Is SELinux / AppArmor enforcing on /sys/devices/platform/vhci_hcd.0?
   |     |                      Check dmesg + auditd. Adjust policy or set permissive
@@ -45,8 +45,8 @@ START: usbip-go attach HOST BUSID fails.
   |     |
   |     +-- YES -> usbip-go port  (check currently-attached ports)
   |     |          Detach something: usbip-go detach <port_id>
-  |     |          Or boot with vhci-hcd num_ports=N for a larger table:
-  |     |          echo 'options vhci-hcd num_ports=16' | sudo tee /etc/modprobe.d/vhci.conf
+  |     |          Or boot with vhci_hcd num_ports=N for a larger table:
+  |     |          echo 'options vhci_hcd num_ports=16' | sudo tee /etc/modprobe.d/vhci.conf
   |     |
   |     +-- NO  -> continue.
   |
@@ -87,7 +87,7 @@ in log output so you can grep directly.
 
 | Sentinel | Typical cause | First remediation |
 |---|---|---|
-| `ErrKernelModuleMissing` | `vhci-hcd` / `usbip-host` / `usbip-core` not loaded, or no access to `/sys/module/`. | `sudo modprobe vhci-hcd usbip-core usbip-host`. Add to `/etc/modules-load.d/`. |
+| `ErrKernelModuleMissing` | `vhci_hcd` / `usbip_host` / `usbip_core` not loaded, or no access to `/sys/module/`. | `sudo modprobe vhci_hcd usbip_core usbip_host`. Add to `/etc/modules-load.d/`. |
 | `ErrPermission` | Sysfs write needs `CAP_SYS_ADMIN` + `CAP_DAC_OVERRIDE`. | `sudo` the caller or `setcap` the binary. |
 | `ErrDeviceNotFound` | BusID does not exist on the server, or is not bound. | Server: `usbip-go list --local`; bind the target with `usbip-go bind`. |
 | `ErrDeviceAlreadyBound` | Device is already exported. | Server: `usbip-go unbind BUSID` then retry. |
@@ -106,8 +106,8 @@ $ lsmod | grep -E 'usbip|vhci'
 # No output — modules are not loaded.
 
 $ sudo modprobe usbip_core
-$ sudo modprobe vhci-hcd
-$ sudo modprobe usbip-host
+$ sudo modprobe vhci_hcd
+$ sudo modprobe usbip_host
 
 $ cat /sys/module/usbip_core/version
 $ ls /sys/devices/platform/vhci_hcd.0/

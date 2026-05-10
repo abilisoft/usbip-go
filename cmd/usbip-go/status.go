@@ -211,7 +211,7 @@ func serveStatus(
 
 	// drainStarted gates handleStatusDrain so concurrent / repeat
 	// POST /drain calls fold into a single goroutine spawn (see
-	// ADR-0012). The variable lives in this closure so its lifetime
+	// openspec/specs/operations-observability/spec.md). The variable lives in this closure so its lifetime
 	// matches the status server itself; tests construct their own
 	// server via startStatusTestServer and get a fresh flag per run.
 	var drainStarted atomic.Bool
@@ -223,8 +223,8 @@ func serveStatus(
 	mux.HandleFunc("POST /drain", func(w http.ResponseWriter, r *http.Request) {
 		// Reject any query params: v1 has no recognised flags on
 		// /drain. Silently accepting `?force=true` would let a
-		// future client typo masquerade as success; ADR-0012
-		// chooses the explicit-rejection forward-compat policy.
+		// future client typo masquerade as success; the OpenSpec
+		// contract chooses the explicit-rejection forward-compat policy.
 		if r.URL.RawQuery != "" {
 			http.Error(w, "POST /drain accepts no query parameters in v1", http.StatusBadRequest)
 
@@ -448,7 +448,7 @@ func handleStatusGet(w http.ResponseWriter, r *http.Request, src statusSource) {
 // is asked to shut down.
 //
 // started guards against repeat POSTs spawning redundant goroutines.
-// ADR-0012 requires `POST /drain` be idempotent at the handler level:
+// OpenSpec requires `POST /drain` be idempotent at the handler level:
 // the first POST flips started true via CompareAndSwap and spawns the
 // drain goroutine, returning 202 Accepted (RFC 9110 §15.3.3 — the
 // request was accepted for asynchronous processing). Subsequent POSTs
@@ -459,11 +459,10 @@ func handleStatusGet(w http.ResponseWriter, r *http.Request, src statusSource) {
 // implementation is also idempotent: Exporter.Shutdown flips a
 // `shutdown` flag under its mutex on first entry and captures-and-
 // clears the tracked listener so subsequent calls find an empty
-// session map and return after the no-op cleanup pass (see
-// ADR-0012's Idempotency section for the three layers). The handler-
-// level CAS guard avoids the wasted goroutines and the duplicate
-// error log noise that would otherwise occur on the rare path where
-// Drain returns non-nil.
+// session map and return after the no-op cleanup pass. The
+// handler-level CAS guard avoids the wasted goroutines and the
+// duplicate error log noise that would otherwise occur on the rare
+// path where Drain returns non-nil.
 func handleStatusDrain(drainCtx context.Context, started *atomic.Bool, w http.ResponseWriter, src statusSource) {
 	if !started.CompareAndSwap(false, true) {
 		w.WriteHeader(http.StatusOK)

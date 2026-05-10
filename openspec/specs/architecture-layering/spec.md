@@ -69,12 +69,12 @@ The repository SHALL remain pure Go with no cgo files and no `import "C"`.
 - **WHEN** CI scans package metadata and source files
 - **THEN** any cgo usage fails the pure-Go architecture gate
 
-### Requirement: Architecture decisions are documented
-Durable architectural decisions SHALL be captured in ADRs under `docs/adr/` and reflected in specs when they define observable behavior.
+### Requirement: OpenSpec is the source of truth for current behavior
+Durable architectural and behavioral decisions SHALL be captured in the relevant OpenSpec capability under `openspec/specs/` when they describe current behavior.
 
 #### Scenario: CLI shape changes
 - **WHEN** the project changes command grouping or binary topology
-- **THEN** the relevant ADR and OpenSpec CLI capability are updated together
+- **THEN** `openspec/specs/cli-interface/spec.md` is updated in the same change
 
 ### Requirement: Main specs describe current behavior
 OpenSpec files under `openspec/specs/` SHALL describe behavior currently present in the repository, while future changes are captured under `openspec/changes/`.

@@ -2,7 +2,7 @@
 
 Stable contract for every JSON object emitted by usbip-go. This
 document fixes field names, types, and semantics at schema v1 per
-v1 contract §7.5.
+`openspec/specs/operations-observability/spec.md` and `openspec/specs/cli-interface/spec.md`.
 
 The schema is mutable BEFORE the first stable release (v1.1.0).
 Field semantics may shift between v0.x and v1.0.x without a schema
@@ -223,7 +223,7 @@ Emitted by `Importer.Watch` when the reconnect watcher gives up after
 the last successful Attach (the kernel slot is gone at emission time);
 `attempts` is the number of reconnect attempts actually made (NOT
 `MaxAttempts`); `last_error` is the stringified final error. See
-ADR-0009.
+`openspec/specs/domain-model/spec.md`.
 
 ```json
 {
@@ -307,16 +307,17 @@ readiness on `usbip_core` and `usbip_host` being loaded.
 
 `sessions` entries use the same `sessionView` shape as the CLI
 list surfaces, with two JSON field name differences that are
-pinned by v1 contract §7.7:
+pinned by `openspec/specs/operations-observability/spec.md`:
 
 - Status socket `sessionJSON.id` is the canonical UUIDv7 form.
 - `started_at` is RFC 3339 nano UTC.
 
 ## Observability via slog
 
-Per ADR-0010, this project ships no Prometheus metrics. Every
-operation that crosses a state boundary emits a structured slog
-record carrying an `outcome` field with a closed-set classification.
+Per `openspec/specs/operations-observability/spec.md`, this project
+ships no Prometheus metrics. Every operation that crosses a state
+boundary emits a structured slog record carrying an `outcome` field
+with a closed-set classification.
 Operators query journald (`journalctl --output=json`) instead of
 scraping `/metrics`.
 

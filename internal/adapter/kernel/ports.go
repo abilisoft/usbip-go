@@ -220,7 +220,7 @@ func parseStatusRow(line string) (parsedPort, bool) {
 		// A row whose `spd` falls outside enum usb_device_speed is a
 		// malformed sysfs read (driver bug / interrupted write).
 		// Reject the row so the caller's port table never carries an
-		// undefined Speed downstream into metrics or CLI rendering.
+		// undefined Speed downstream into structured logs or CLI rendering.
 		return parsedPort{}, false
 	}
 

@@ -231,14 +231,13 @@ func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn,
 // fires the handshake deadline.
 //
 // handshakeStart is the wall-clock instant the accept loop dispatched
-// this conn to the handler; serveImport uses it to emit the
-// usbip_exporter_handshake_duration_seconds sample at the handshake-
-// complete boundary. Every terminal return path observes the metric so
-// the histogram's import-label samples cover failed handshakes too;
-// the success branch observes it the moment ExportOnConn returns,
-// BEFORE the handler parks on waitForSessionEnd. Observing after
-// serveImport returns would make the histogram record the full session
-// lifetime rather than the handshake.
+// this conn to the handler; serveImport uses it to report handshake
+// duration at the handshake-complete boundary. Every terminal return
+// path records an outcome so failed handshakes are observable too; the
+// success branch records the duration the moment ExportOnConn returns,
+// BEFORE the handler parks on waitForSessionEnd. Recording after
+// serveImport returns would measure the full session lifetime rather
+// than the handshake.
 //
 // After ExportOnConn returns success the kernel owns the fd but the
 // session is still live; the real sysfs write completes immediately
@@ -639,7 +638,7 @@ func eventEndsSessionForBusID(ev domain.Event, busID domain.BusID) bool {
 }
 
 // classifyDisconnectReason maps an ExportOnConn error terminator onto
-// the §11.5.5 disconnect_total reason label. The caller invokes this
+// the stable disconnect reason label. The caller invokes this
 // only on the non-nil branch — successful ExportOnConn parks on
 // waitForSessionEnd, which classifies via PortDetached / DeviceUnbound
 // kernel events instead.

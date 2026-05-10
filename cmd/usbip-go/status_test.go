@@ -636,7 +636,7 @@ func TestApplyStatusSocketACL_EmptyGroupShortCircuits(t *testing.T) {
 // types `usbip drain --force` against a build that does not
 // understand `?force=true` should get a clear 400 Bad Request, not
 // a silent success that makes them think force took effect.
-// ADR-0012 keeps the door open for v2 to add typed flags without
+// OpenSpec keeps the door open for v2 to add typed flags without
 // the silent-accept ambiguity.
 func TestStatusDrainRejectsQueryParams(t *testing.T) {
 	t.Parallel()
@@ -671,7 +671,7 @@ func TestStatusDrainRejectsQueryParams(t *testing.T) {
 		"rejected request must NOT trigger Drain")
 }
 
-// TestStatusDrainHandlerIdempotent locks ADR-0012's idempotency
+// TestStatusDrainHandlerIdempotent locks OpenSpec's idempotency
 // guarantee: repeated POST /drain calls return 200 each time but the
 // underlying Drain operation runs at most once. Without the
 // handler-level guard, every POST would spawn a fresh goroutine that

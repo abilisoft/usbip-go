@@ -40,7 +40,6 @@ around the protocol:
 | Per-attach `MaxAttempts` / `OnReconnect` callback                         | ❌                     | ✅         |
 | Graceful drain + bounded `ShutdownTimeout`                                | ❌                     | ✅         |
 | Structured logging (`slog` JSON / text)                                   | ❌                     | ✅         |
-| Prometheus metrics on importer + exporter                                 | ❌                     | ✅         |
 | Event subscription API (port / session / reconnect)                       | ❌                     | ✅         |
 | systemd socket activation (`usbip-go.socket`)                             | ❌                     | ✅         |
 | Status UDS for live introspection                                         | ❌                     | ✅         |
@@ -175,7 +174,7 @@ sudo systemctl enable --now usbip-go.socket
 
 Socket activation means the daemon starts on the first inbound
 connection. See [`docs/ops.md`](docs/ops.md) for the full systemd
-hardening recipe, metrics wiring, and drain procedure.
+hardening recipe, status/health endpoints, and drain procedure.
 
 ### `go install`
 
@@ -191,7 +190,7 @@ Every host running `usbip-go serve` (exporter) or the `usbip-go`
 client needs the relevant kernel modules:
 
 ```
-sudo modprobe usbip_core vhci-hcd usbip-host
+sudo modprobe usbip_core vhci_hcd usbip_host
 echo -e 'usbip_core\nvhci_hcd\nusbip_host' \
   | sudo tee /etc/modules-load.d/usbip-go.conf
 ```
@@ -226,7 +225,7 @@ func main() {
 ```
 
 More patterns under [`examples/`](examples/) — client, server,
-events, reconnect, metrics.
+events, reconnect, and daemon embedding.
 
 ### 2. CLI attach
 
@@ -244,7 +243,7 @@ sudo usbip-go bind 1-1.2           # export a local device
 sudo systemctl status usbip-go
 ```
 
-Metrics, drain, and readiness endpoints are in
+Status, drain, health, and readiness endpoints are in
 [`docs/ops.md`](docs/ops.md).
 
 ## Development
@@ -269,13 +268,15 @@ kernel without requiring the USBIP modules on your host.
 - [`docs/security.md`](docs/security.md) — threat model, privilege,
   allow-CIDR, `setcap`.
 - [`docs/ops.md`](docs/ops.md) — daemon install, systemd, status UDS,
-  metrics, drain.
+  health/readiness, structured logs, and drain.
 - [`docs/troubleshooting.md`](docs/troubleshooting.md) — decision
   tree for attach failures.
 - [`docs/wire-trace.md`](docs/wire-trace.md) — pcap recipe for bug
   reports.
 - [`docs/json-schema.md`](docs/json-schema.md) — v1 JSON schema
   contract.
+- [`openspec/specs/`](openspec/specs/) — source-of-truth
+  requirements for current behavior; update these instead of ADRs.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup, TDD discipline,
   commit conventions.
 

@@ -947,7 +947,7 @@ func (i *Importer) logAttachFailure(
 
 // finishAttach performs the post-handoff bookkeeping: registers the
 // port in the handle map, spawns the reconnect watcher when enabled,
-// and emits the success metric. Extracted from attachOverDialed so the
+// and emits the success outcome. Extracted from attachOverDialed so the
 // parent function stays under the project funlen cap.
 func (i *Importer) finishAttach(
 	ctx context.Context,

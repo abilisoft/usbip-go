@@ -68,7 +68,7 @@ When `--health-addr` is configured, the daemon SHALL serve `/healthz` and `/read
 - **THEN** `/readyz` returns 503 rather than hanging the HTTP request
 
 ### Requirement: JSON schema v1 is additively stable
-All JSON-producing surfaces SHALL emit schema v1 envelopes and SHALL preserve field names, types, and semantics within the v1 contract.
+All JSON-producing surfaces SHALL emit schema v1 envelopes and SHALL preserve field names, types, and semantics within schema v1.
 
 #### Scenario: New field is added
 - **WHEN** a JSON surface gains an additive field

@@ -55,7 +55,7 @@ The only package external consumers import. It declares `Importer`,
 public backoff strategies, and the sentinel errors. All method bodies
 are 1:1 forwards to `internal/app` after trivial argument translation.
 The facade exists so the internal layer can evolve without breaking
-the public API; v1 contract §5.7 documents this surface.
+the public API; `openspec/specs/public-library-api/spec.md` documents this surface.
 
 ### `pkg/domain`
 
@@ -83,12 +83,12 @@ Implements the use-case services:
   `Close`.
 - `Exporter` — `ListAvailable`, `Bind`, `Unbind`, `Serve`, `Sessions`,
   `WatchSessions`, `Shutdown`.
-- Reconnect watcher with per-port generation tokens (v1 contract §5.5).
+- Reconnect watcher with per-port generation tokens (see `openspec/specs/importer-lifecycle/spec.md`).
 - Session accounting, ACL enforcement, accept rate limiting (spec
-  §11.5.3).
+  documented in `openspec/specs/security-release-quality/spec.md`.
 - Closed-set outcome enums (AttachOutcome, ReconnectOutcome, etc.) used
   as `slog.String("outcome", …)` field values for journald queries
-  (no Prometheus dependency — see ADR-0010).
+  (no Prometheus dependency — see `openspec/specs/operations-observability/spec.md`).
 
 `internal/app` declares every adapter interface it consumes
 (`ImporterKernel`, `ExporterKernel`, `KernelEvents`, `WireCodec`,
@@ -133,7 +133,7 @@ accepted connection to minimise handshake latency.
 ### `cmd/usbip-go`
 
 Cobra-based single-binary CLI entrypoint with flat top-level verbs
-(see ADR-0011). The binary consumes `pkg/usbip` only; it does not
+(see `openspec/specs/cli-interface/spec.md`). The binary consumes `pkg/usbip` only; it does not
 import `internal/*` directly. `usbip-go serve` runs the production
 daemon; `usbip-go {list,attach,detach,bind,unbind,watch,drain,
 version,completion}` cover the client and operator commands.
@@ -159,9 +159,7 @@ is covered by the `Linux cross-compilation` CI job (in `_arch-checks.yml`).
   `test/conformance`) install `goleak.VerifyTestMain` to catch
   goroutine leaks at the package boundary.
 
-See v1 contract §3.4 for the authoritative lifecycle-semantics list
-(double-detach idempotency, Shutdown drain semantics, runtime module
-disappearance, etc.).
+See `openspec/specs/importer-lifecycle/spec.md` and `openspec/specs/exporter-lifecycle/spec.md` for the authoritative lifecycle-semantics list (double-detach idempotency, shutdown drain semantics, runtime module disappearance, etc.).
 
 ## Error strategy
 
@@ -173,7 +171,7 @@ automatically in structured output.
 
 Every returned error is classifiable via `errors.Is` against one of
 the sentinels in `pkg/usbip/errors.go`. The kernel-to-domain error
-map is in v1 contract §6.4.
+map is covered by `openspec/specs/domain-model/spec.md` and the package tests.
 
 ## Layering rules (enforced)
 

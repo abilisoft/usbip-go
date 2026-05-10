@@ -72,7 +72,7 @@ func specFlags() []string {
 // TestRootHelpListsEveryFlag guards that `usbip serve --help` surfaces
 // every flag required by v1 contract §7.7. The flags moved off the root
 // onto the serve subcommand when the two-binary tree merged into the
-// unified `usbip` binary (ADR-0011); the help assertion follows.
+// unified `usbip-go` binary; the help assertion follows.
 func TestRootHelpListsEveryFlag(t *testing.T) {
 	t.Parallel()
 

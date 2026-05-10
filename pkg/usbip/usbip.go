@@ -100,7 +100,7 @@ type (
 	// PortReconnectExhaustedEvent is emitted by the importer's reconnect
 	// watcher when MaxAttempts is reached without a successful reattach.
 	// Carries a snapshot of the last successful Port plus attempt count
-	// and stringified last error. See ADR-0009.
+	// and stringified last error. See openspec/specs/domain-model/spec.md.
 	PortReconnectExhaustedEvent = domain.PortReconnectExhaustedEvent
 
 	// DeviceBoundEvent is emitted when a local device becomes exportable.

@@ -25,7 +25,7 @@ const (
 // above. Wire decoders call IsKnown after reading the 4-byte field
 // so a peer emitting a value the kernel does not define cannot
 // round-trip as a mystery domain.Speed that downstream consumers
-// (metrics, CLI rendering, event delivery) would silently carry.
+// (structured logs, CLI rendering, event delivery) would silently carry.
 func (s Speed) IsKnown() bool {
 	switch s {
 	case SpeedUnknown, SpeedLow, SpeedFull, SpeedHigh,

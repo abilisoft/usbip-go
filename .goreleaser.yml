@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
 #
-# GoReleaser config for usbip-go per spec §10.3.
+# GoReleaser config for usbip-go release packaging requirements.
 #
 # Produces:
 #   - linux/{amd64,arm64,arm} binary for cmd/usbip-go (single binary,
-#     ADR-0011 — flat verbs `usbip-go serve`, `usbip-go attach`, ...)
+#     OpenSpec cli-interface — flat verbs `usbip-go serve`, `usbip-go attach`, ...)
 #   - tar.gz archives including LICENSE, README, systemd units
 #   - deb + rpm packages via nfpms
 #   - SHA-256 checksums file
@@ -77,7 +77,7 @@ nfpms:
     maintainer: abilisoft <oss@abilisoft.com>
     description: |-
       Pure-Go reimplementation of USB/IP userspace for Linux. Single
-      binary `usbip-go` exposes flat verbs (ADR-0011): `usbip-go serve`
+      binary `usbip-go` exposes flat verbs: `usbip-go serve`
       runs the daemon (parallel install alongside upstream `usbipd`);
       `usbip-go attach`, `usbip-go detach`, `usbip-go list`,
       `usbip-go bind`, `usbip-go unbind`, `usbip-go drain` cover

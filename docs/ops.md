@@ -3,7 +3,7 @@
 This document covers installation, systemd integration, the status
 UDS, and health/readiness endpoints for production deployments of
 `usbip-go serve` (the daemon subcommand of the unified `usbip-go` binary;
-see ADR-0011).
+see `openspec/specs/cli-interface/spec.md`).
 
 ## Installation
 
@@ -40,7 +40,7 @@ Three supported install paths:
 Kernel modules must be loadable on the target host:
 
 ```
-sudo modprobe usbip_core vhci-hcd usbip-host
+sudo modprobe usbip_core vhci_hcd usbip_host
 ```
 
 Add the modules to `/etc/modules-load.d/usbip-go.conf` for
@@ -119,7 +119,9 @@ listener.
 
 ## Daemon flags
 
-Authoritative list in v1 contract §7.7. Full flag set:
+Authoritative behavior is captured in
+`openspec/specs/cli-interface/spec.md` and
+`openspec/specs/operations-observability/spec.md`. Full daemon flag set:
 
 | Flag | Default | When to change |
 |---|---|---|
@@ -142,8 +144,9 @@ Run `usbip-go serve --help` for the up-to-date set.
 
 ## Exit codes
 
-The `usbip-go` binary uses a stable numeric exit-code catalog (v1
-contract §7.4). Operators / supervisors can grep on these values:
+The `usbip-go` binary uses a stable numeric exit-code catalog
+documented in `openspec/specs/cli-interface/spec.md`. Operators /
+supervisors can grep on these values:
 
 | Code | Symbol | Meaning |
 |---|---|---|
@@ -191,9 +194,9 @@ sudo usbip-go drain --status-socket /run/usbip-go/status.sock
 Drain instructs the running daemon to refuse new accepts, wait for
 in-flight sessions to end, and exit cleanly. `systemctl restart usbip-go`
 then starts the new version against the same socket-activated
-listener without a connect-refused window. See ADR-0012 for the
-mechanism (HTTP-over-UDS) and the rejected alternatives (signals,
-sd_notify, gRPC, custom binary protocol).
+listener without a connect-refused window. See
+`openspec/specs/operations-observability/spec.md` for the
+HTTP-over-UDS drain behavior.
 
 ### Two timeouts, server-authoritative
 
@@ -236,9 +239,10 @@ library (no third-party dependency):
   listener bound, accept loop armed, status socket writable.
   Readiness gate for Kubernetes-style orchestrators.
 
-Per ADR-0010, this daemon does NOT export Prometheus metrics. Operator
-observability is structured slog (journald) + sysfs + `systemctl
-status`. Every operation that previously emitted a metric now emits a
+Per `openspec/specs/operations-observability/spec.md`, this daemon
+does NOT export Prometheus metrics. Operator observability is
+structured slog (journald) + sysfs + `systemctl status`. Every
+important operation emits a
 slog record with an `outcome` field carrying the closed-set
 classification, so journald queries cover the same dashboards.
 
@@ -260,9 +264,8 @@ journalctl -u usbip-go --output=json \
 ```
 
 Operators who genuinely need Prometheus metrics should run a sidecar
-that parses `journalctl --output=json` and republishes counters in the
-exposition format. The library deliberately does not ship that
-adapter.
+that derives them from journald or sysfs. The library deliberately does
+not ship that adapter.
 
 ## Drain-and-upgrade
 
@@ -270,12 +273,12 @@ For seamless upgrades:
 
 ```
 sudo usbip-go drain --status-socket /run/usbip-go/status.sock
-sudo install -m 0755 /tmp/new-usbip /usr/bin/usbip
+sudo install -m 0755 /tmp/new-usbip-go /usr/bin/usbip-go
 sudo systemctl start usbip-go
 ```
 
 Kernel-owned sessions survive the daemon restart because the kernel
-holds the socket refs (v1 contract §5.4 item 7). Socket activation keeps
+holds the socket refs after handoff. Socket activation keeps
 port 3240 bound across the restart so new clients do not see
 connect-refused.
 
