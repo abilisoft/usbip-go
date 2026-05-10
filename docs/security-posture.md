@@ -13,8 +13,8 @@ only).
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Pinned-Dependencies    | Every workflow `uses:` is a 40-char SHA with a trailing `# vN` Dependabot anchor.                                |
 | SAST                   | `.github/workflows/codeql.yml` runs CodeQL `security-and-quality` on every push/PR + weekly cron.                |
-| Lint / config hygiene  | `task lint` runs Go, YAML, GitHub Actions, Markdown, shell, spelling, and GoReleaser config checks.              |
-| Vulnerabilities        | `task vuln` (govulncheck) on every push, PR, and nightly schedule.                                               |
+| Lint / config hygiene  | CI runs formatter drift, `go mod tidy` drift, Go, YAML, GitHub Actions, Markdown, shell, spelling, Nix, TOML, Compose, OpenSpec, and GoReleaser config checks. |
+| Vulnerabilities        | `task vuln` / govulncheck on every push, PR, and nightly schedule.                                               |
 | Token-Permissions      | Every workflow declares minimal top-level `permissions:`; jobs widen only when required (release / scorecard).   |
 | Security-Policy        | [`SECURITY.md`](../SECURITY.md) at repo root.                                                                    |
 | Signed-Releases        | GoReleaser + cosign keyless via GitHub OIDC; SBOM via syft. See `.goreleaser.yml`.                               |
@@ -34,7 +34,7 @@ repo content cannot enable them on its own.
 1. **Branch-Protection** on `main`:
    - Require pull request reviews (1+).
    - Require status checks to pass (the reusable-workflow-callee
-     names — `Security / Format, lint, and vulnerability scan`,
+     names — `Security / Format, tidy, lint, and vulnerability scan`,
      `Unit / Linux unit tests`, `Conformance / USB/IP wire
      conformance`, `Architecture / Domain boundary rules`,
      `Architecture / Pure Go enforcement`, `Architecture / API
@@ -58,7 +58,7 @@ Settings → Branches → Add branch ruleset for `main`:
     ✓ Dismiss stale pull request approvals when new commits are pushed
   ✓ Require status checks to pass
     Required (reusable-workflow callees show as "<caller> / <callee>"):
-      Security / Format, lint, and vulnerability scan
+      Security / Format, tidy, lint, and vulnerability scan
       Unit / Linux unit tests
       Conformance / USB/IP wire conformance
       Architecture / Domain boundary rules

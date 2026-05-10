@@ -97,7 +97,7 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 
 ## `developer-workflow`
 
-- Spec source: `openspec/specs/developer-workflow/spec.md:1-122`
+- Spec source: `openspec/specs/developer-workflow/spec.md:1-127`
 
 | Type | Line | Name | Evidence |
 | --- | ---: | --- | --- |
@@ -112,24 +112,25 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 37 | Build artifacts and caches stay under build / Cache preamble runs | `Taskfile.yml:240-243` |
 | Scenario | 41 | Build artifacts and caches stay under build / Identity files are prepared | `Taskfile.yml:227-233`; `docker-compose.yml:19-23` |
 | Scenario | 46 | Build artifacts and caches stay under build / Clean is requested | `Taskfile.yml:165-168` |
-| Requirement | 50 | Formatting and linting are scoped to owned repository surfaces | `Taskfile.yml:116-136`; `Taskfile.yml:342-555`; `flake.nix:318-337`; `.github/workflows/_security.yml:50-60`; `.yamllint:1-12`; `.yamlfmt:1-23`; `.rumdl.toml:1-7`; `.taplo.toml:1-11`; `.typos.toml:1-41` |
-| Scenario | 53 | Formatting and linting are scoped to owned repository surfaces / Formatting runs | `Taskfile.yml:128-134`; `Taskfile.yml:429-477`; `.yamlfmt:1-23`; `.rumdl.toml:1-7`; `.taplo.toml:1-11`; `.github/workflows/_security.yml:50-54` |
-| Scenario | 58 | Formatting and linting are scoped to owned repository surfaces / Format check runs in CI | `Taskfile.yml:479-525`; `.github/workflows/_security.yml:50-54`; `.yamlfmt:1-23`; `.rumdl.toml:1-7`; `.taplo.toml:1-11` |
-| Scenario | 62 | Formatting and linting are scoped to owned repository surfaces / Lint runs | `Taskfile.yml:116-127`; `Taskfile.yml:342-427`; `.github/workflows/_security.yml:55-60`; `.golangci.yml:1-286`; `.yamllint:1-12`; `.rumdl.toml:1-7`; `.taplo.toml:1-11`; `.typos.toml:1-41`; `.goreleaser.yml:1-180` |
-| Requirement | 68 | Test workflows are tiered by cost and environment | `Taskfile.yml:111-115`; `Taskfile.yml:270-333`; `.github/workflows/_unit-tests.yml:1-34`; `.github/workflows/_conformance.yml:1-34`; `.github/workflows/_coverage.yml:1-36`; `.github/workflows/mutation.yml:1-54` |
-| Scenario | 71 | Test workflows are tiered by cost and environment / Unit tests run | `Taskfile.yml:111`; `Taskfile.yml:270-274`; `.github/workflows/_unit-tests.yml:1-34` |
-| Scenario | 75 | Test workflows are tiered by cost and environment / Conformance tests run | `Taskfile.yml:113`; `Taskfile.yml:282-285`; `.github/workflows/_conformance.yml:1-34` |
-| Scenario | 79 | Test workflows are tiered by cost and environment / Integration tests run directly | `Taskfile.yml:112`; `Taskfile.yml:276-280` |
-| Scenario | 83 | Test workflows are tiered by cost and environment / Coverage report is requested | `Taskfile.yml:114`; `Taskfile.yml:287-293`; `.github/workflows/_coverage.yml:1-36` |
-| Scenario | 88 | Test workflows are tiered by cost and environment / Mutation tests run | `Taskfile.yml:115`; `Taskfile.yml:295-333`; `.github/workflows/mutation.yml:1-54` |
-| Requirement | 93 | microVM workflow provides kernel-module integration coverage | `Taskfile.yml:136-138`; `Taskfile.yml:531-570`; `flake.nix:1-340`; `.github/workflows/vm-integration.yml:1-160` |
-| Scenario | 96 | microVM workflow provides kernel-module integration coverage / microVM closure is built | `Taskfile.yml:136`; `Taskfile.yml:532-536`; `flake.nix:329-334` |
-| Scenario | 100 | microVM workflow provides kernel-module integration coverage / microVM smoke runs | `Taskfile.yml:137`; `Taskfile.yml:538-559`; `flake.nix:36-246`; `.github/workflows/vm-integration.yml:145-152` |
-| Scenario | 104 | microVM workflow provides kernel-module integration coverage / microVM integration runs | `Taskfile.yml:138`; `Taskfile.yml:561-570`; `flake.nix:36-246`; `.github/workflows/vm-integration.yml:153-160` |
-| Requirement | 109 | Local GitHub Actions rehearsal is available | `Taskfile.yml:140-163`; `CONTRIBUTING.md:278-293` |
-| Scenario | 112 | Local GitHub Actions rehearsal is available / Contributor lists actions | `Taskfile.yml:149-152`; `CONTRIBUTING.md:287-291` |
-| Scenario | 116 | Local GitHub Actions rehearsal is available / Contributor runs one action job | `Taskfile.yml:157-163`; `CONTRIBUTING.md:287-291` |
-| Scenario | 120 | Local GitHub Actions rehearsal is available / Contributor omits job name | `Taskfile.yml:157-163` |
+| Requirement | 50 | Formatting and linting are scoped to owned repository surfaces | `Taskfile.yml:116-138`; `Taskfile.yml:342-582`; `flake.nix:318-337`; `.github/workflows/_security.yml:51-65`; `.yamllint:1-12`; `.yamlfmt:1-23`; `.rumdl.toml:1-7`; `.taplo.toml:1-11`; `.typos.toml:1-41` |
+| Scenario | 53 | Formatting and linting are scoped to owned repository surfaces / Formatting runs | `Taskfile.yml:128-134`; `Taskfile.yml:429-477`; `.yamlfmt:1-23`; `.rumdl.toml:1-7`; `.taplo.toml:1-11`; `.github/workflows/_security.yml:51-55` |
+| Scenario | 58 | Formatting and linting are scoped to owned repository surfaces / Format check runs in CI | `Taskfile.yml:479-526`; `.github/workflows/_security.yml:51-55`; `.yamlfmt:1-23`; `.rumdl.toml:1-7`; `.taplo.toml:1-11` |
+| Scenario | 62 | Formatting and linting are scoped to owned repository surfaces / Lint runs | `Taskfile.yml:116-127`; `Taskfile.yml:342-427`; `.github/workflows/_security.yml:60-65`; `.golangci.yml:1-286`; `.yamllint:1-12`; `.rumdl.toml:1-7`; `.taplo.toml:1-11`; `.typos.toml:1-41`; `.goreleaser.yml:1-180` |
+| Scenario | 68 | Formatting and linting are scoped to owned repository surfaces / Module tidy drift check runs in CI | `Taskfile.yml:135-136`; `Taskfile.yml:543-556`; `Taskfile.yml:575-580`; `.github/workflows/_security.yml:56-59` |
+| Requirement | 73 | Test workflows are tiered by cost and environment | `Taskfile.yml:111-115`; `Taskfile.yml:270-333`; `.github/workflows/_unit-tests.yml:1-34`; `.github/workflows/_conformance.yml:1-34`; `.github/workflows/_coverage.yml:1-36`; `.github/workflows/mutation.yml:1-54` |
+| Scenario | 76 | Test workflows are tiered by cost and environment / Unit tests run | `Taskfile.yml:111`; `Taskfile.yml:270-274`; `.github/workflows/_unit-tests.yml:1-34` |
+| Scenario | 80 | Test workflows are tiered by cost and environment / Conformance tests run | `Taskfile.yml:113`; `Taskfile.yml:282-285`; `.github/workflows/_conformance.yml:1-34` |
+| Scenario | 84 | Test workflows are tiered by cost and environment / Integration tests run directly | `Taskfile.yml:112`; `Taskfile.yml:276-280` |
+| Scenario | 88 | Test workflows are tiered by cost and environment / Coverage report is requested | `Taskfile.yml:114`; `Taskfile.yml:287-293`; `.github/workflows/_coverage.yml:1-36` |
+| Scenario | 93 | Test workflows are tiered by cost and environment / Mutation tests run | `Taskfile.yml:115`; `Taskfile.yml:295-333`; `.github/workflows/mutation.yml:1-54` |
+| Requirement | 98 | microVM workflow provides kernel-module integration coverage | `Taskfile.yml:143-145`; `Taskfile.yml:623-684`; `flake.nix:1-340`; `.github/workflows/vm-integration.yml:1-160` |
+| Scenario | 101 | microVM workflow provides kernel-module integration coverage / microVM closure is built | `Taskfile.yml:143`; `Taskfile.yml:623-627`; `flake.nix:329-334` |
+| Scenario | 105 | microVM workflow provides kernel-module integration coverage / microVM smoke runs | `Taskfile.yml:144`; `Taskfile.yml:629-650`; `flake.nix:36-246`; `.github/workflows/vm-integration.yml:145-152` |
+| Scenario | 109 | microVM workflow provides kernel-module integration coverage / microVM integration runs | `Taskfile.yml:145`; `Taskfile.yml:652-684`; `flake.nix:36-246`; `.github/workflows/vm-integration.yml:153-160` |
+| Requirement | 114 | Local GitHub Actions rehearsal is available | `Taskfile.yml:147-168`; `CONTRIBUTING.md:276-294` |
+| Scenario | 117 | Local GitHub Actions rehearsal is available / Contributor lists actions | `Taskfile.yml:156-159`; `CONTRIBUTING.md:287-291` |
+| Scenario | 121 | Local GitHub Actions rehearsal is available / Contributor runs one action job | `Taskfile.yml:164-168`; `CONTRIBUTING.md:287-291` |
+| Scenario | 125 | Local GitHub Actions rehearsal is available / Contributor omits job name | `Taskfile.yml:164-168` |
 
 ## `domain-model`
 

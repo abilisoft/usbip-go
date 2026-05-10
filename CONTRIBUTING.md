@@ -179,8 +179,8 @@ define the discipline; the CI workflow enforces gates 1-6, 8, and
 - Linters: `golangci-lint` with the config at
   [`.golangci.yml`](.golangci.yml), plus `yamllint`, `actionlint`,
   `rumdl check`, `shellcheck`, `typos`, `goreleaser check`,
-  `statix`, `deadnix`, `taplo lint`, `docker compose config`, and
-  `openspec validate --specs --strict`.
+  `statix`, `deadnix`, `taplo lint`, `docker-compose config --quiet`,
+  and `openspec validate --specs --strict`.
   `golangci-lint` uses `default: all` with a minimal, justified
   disable list.
 - Code review applies the repository style rules — comments explain
@@ -223,7 +223,7 @@ items per the progressive-enforcement policy:
 
 | Gate | What | Enforcement |
 |---|---|---|
-| 1 | `task lint` clean (Go, YAML, GitHub Actions, Markdown, shell, spelling, Nix, TOML, Compose, OpenSpec, and release config checks) plus formatter drift checks (`gofmt`, `yamlfmt`, `rumdl`, `shfmt`, `nixpkgs-fmt`, `taplo`) | CI: `Format, lint, and vulnerability scan` (in `_security.yml`). |
+| 1 | `task lint` clean (Go, YAML, GitHub Actions, Markdown, shell, spelling, Nix, TOML, Compose, OpenSpec, and release config checks), formatter drift checks (`gofmt`, `yamlfmt`, `rumdl`, `shfmt`, `nixpkgs-fmt`, `taplo`), and module-tidy drift checks | CI: `Format, tidy, lint, and vulnerability scan` (in `_security.yml`). |
 | 2 | `task test` clean with `-race` on linux | CI: `Linux unit tests` (in `_unit-tests.yml`). A separate `USB/IP wire conformance` job (in `_conformance.yml`) runs `task ci:test:conformance`; upstream-binary cross-checks inside it skip when `usbip` is not on PATH (the flake closure does not pin usbip-utils). |
 | 3 | RED→GREEN commit chain — every `feat:`/`fix:` commit that adds at least one new `*_test.go` and touches no non-test `.go` outside `internal/tools/` is immediately followed by a commit that touches non-test `.go` outside `internal/tools/` (the GREEN; additions OR modifications both count) OR by a `refactor:` commit (the only accepted break). `test:`-prefixed commits are NOT carried as RED (treated as coverage hardening). Trailing dangling RED at the PR tip also fails. | CI: `TDD commit discipline` job in `ci.yml` (PRs only). |
 | 4 | Coverage thresholds per `.testcoverage.yaml` — per-package floor 80%, total 90% (the achievable floor across the kernel-adapter errno tail and the cmd Cobra-Action surface; pure-logic packages — `pkg/domain`, `pkg/usbip`, `internal/app`, `internal/adapter/wire` — clear 90% comfortably under the current test surface). | CI: `Coverage thresholds` (in `_coverage.yml`) runs `task test:cover` + `vladopajic/go-test-coverage` against `.testcoverage.yaml`. |
@@ -236,10 +236,11 @@ items per the progressive-enforcement policy:
 | 11 | Error mapping: new sysfs/wire paths map to public domain sentinels and OpenSpec error behavior in the same PR | Code review. |
 | 12 | Cross-compile for `linux/{amd64,arm64,arm}` | CI: `Linux cross-compilation` (in `_arch-checks.yml`); release builds use `goreleaser build --snapshot` wiring. |
 
-The `Format, lint, and vulnerability scan` job runs formatter drift
-checks, the full lint suite, and `task vuln` (govulncheck), so config,
-docs, shell, release metadata, and vulnerability scanning ride the
-same required gate.
+The `Format, tidy, lint, and vulnerability scan` job runs formatter
+drift checks, module-tidy drift checks, the full lint suite, and
+`task vuln` (govulncheck), so config, docs, shell, release metadata,
+dependency metadata, and vulnerability scanning ride the same required
+gate.
 
 ## Code-review checklist
 
@@ -259,7 +260,7 @@ When reviewing a PR, verify:
       every exported identifier.
 - [ ] Tests cover happy path and at least one failure mode per new
       branch.
-- [ ] `task lint` reports clean Go/YAML/Actions/Markdown/shell/spelling/release-config checks locally.
+- [ ] `task check` reports clean formatter, tidy, lint, vulnerability, and race-test gates locally.
 - [ ] `task test` is race-clean.
 - [ ] No `//nolint` without a rule + rationale comment that cites
       the spec section or linter rule.

@@ -63,8 +63,12 @@ Formatting and linting tasks SHALL operate on repository-owned Go, YAML, Markdow
 - **WHEN** `task lint` dispatches to `ci:lint`
 - **THEN** `golangci-lint` runs over `cmd/...`, `pkg/...`, `internal/...`, `test/...`, and `examples/...`
 - **AND** `yamllint`, `actionlint`, `rumdl check`, `shellcheck`, `typos`, `goreleaser check`, `statix`, `deadnix`, `taplo lint`, `docker-compose config --quiet`, and `openspec validate --specs --strict` run over their configured repository surfaces
-- **AND** module tidy drift is detected by running `go mod tidy` and checking `go.mod` and `go.sum`
 - **AND** linters and formatters do not recurse through generated caches under `build/`
+
+#### Scenario: Module tidy drift check runs in CI
+- **WHEN** `ci:tidy:check` runs in the security workflow or as part of `task check`
+- **THEN** module tidy drift is detected by running `go mod tidy` on a staged copy of owned source roots
+- **AND** `go.mod` and `go.sum` differences fail the gate without recursing through generated caches under `build/`
 
 ### Requirement: Test workflows are tiered by cost and environment
 The repository SHALL separate race-enabled unit tests, conformance tests, integration tests, coverage, mutation testing, and microVM-backed Linux integration.

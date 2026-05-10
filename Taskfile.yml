@@ -477,8 +477,9 @@ tasks:
       - taplo fmt .taplo.toml .rumdl.toml .typos.toml cliff.toml
 
   ci:fmt:check:
-    # CI-only companion to ci:fmt. Fails if Go, YAML, Markdown, or shell
-    # formatting would change. Local `task fmt` applies the same formatters.
+    # CI-only companion to ci:fmt. Fails if Go, YAML, Markdown, shell, Nix,
+    # or TOML formatting would change. Local `task fmt` applies the same
+    # formatters.
     deps: ['_check:tooling']
     cmds:
       - task: ci:fmt:go:check

@@ -1,10 +1,11 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
 #
-# Reusable workflow: format checks + lint suite + govulncheck (SARIF
-# upload to the Security tab). Called from ci.yml on every PR / push
-# and from nightly.yml on the daily cron so a CVE published to the Go
-# vuln DB pages within 24h instead of waiting for the next merge.
+# Reusable workflow: format checks + module-tidy drift + lint suite +
+# govulncheck (SARIF upload to the Security tab). Called from ci.yml on
+# every PR / push and from nightly.yml on the daily cron so a CVE
+# published to the Go vuln DB pages within 24h instead of waiting for
+# the next merge.
 # Single source of truth — bumping lint/format configs or the
 # upload-sarif action lands here, not in N copies.
 #
@@ -31,7 +32,7 @@ permissions:
 
 jobs:
   format-lint-vuln:
-    name: Format, lint, and vulnerability scan
+    name: Format, tidy, lint, and vulnerability scan
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -52,6 +53,10 @@ jobs:
         # would change under the project formatters. Catches drift that local
         # `task fmt` would auto-fix.
         run: nix develop .#qa --command task ci:fmt:check
+      - name: Module tidy check
+        # Fails if `go mod tidy` would change go.mod or go.sum. This is
+        # the same drift gate local `task check` runs before linting.
+        run: nix develop .#qa --command task ci:tidy:check
       - name: Lint
         # Runs golangci-lint, yamllint, actionlint (+ shellcheck for
         # workflow run: blocks), rumdl, shellcheck, typos, Nix/TOML
