@@ -1,0 +1,33 @@
+schema: spec-driven
+
+context: |
+  Repository: github.com/abilisoft/usbip-go.
+  Product: pure-Go USB/IP userspace for Linux, exposing a stable Go library
+  (`pkg/usbip`, with value objects in `pkg/domain`) and one CLI binary
+  (`usbip-go`) with flat subcommands for importer, exporter, daemon, and
+  operator workflows.
+  Domain language: use Importer/Exporter, Device, BusID, RemoteEndpoint,
+  Bind/Unbind, Handshake, URB traffic, Port, Attachment, Session, SessionID,
+  Reconnect watcher, Drain, Event, and Wire as defined in CONTEXT.md.
+  Architecture: dependencies flow cmd/examples -> pkg/usbip/pkg/domain ->
+  internal/app -> internal/adapter/{kernel,transport,wire}. `pkg/domain`
+  remains pure stdlib. `pkg/usbip` is the only public facade importing
+  internal packages. `internal/app` declares adapter interfaces and must not
+  import kernel or transport adapters directly.
+  Runtime scope: USB/IP handshake is implemented in Go; post-handshake URB
+  traffic is kernel-owned after fd handoff. Linux kernel modules are required
+  for real operations. Non-Linux builds compile stubs that surface
+  ErrKernelModuleMissing.
+  Security posture: USB/IP is plaintext and unauthenticated. Do not add TLS
+  wrapping to the protocol in this project; operators must deploy over trusted
+  networks or tunnels and may use daemon ACL/resource-limit defenses.
+
+rules:
+  specs:
+    - Main specs must describe the behavior that exists today, not aspirational features.
+    - Requirements should use project vocabulary from CONTEXT.md.
+    - Each requirement must include at least one concrete scenario.
+  proposal:
+    - Keep proposal non-goals explicit when a change touches protocol or security behavior.
+  tasks:
+    - Include validation tasks for `openspec validate --strict`, relevant Go tests, and docs updates.
