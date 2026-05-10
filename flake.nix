@@ -13,9 +13,16 @@
     # and GO-2026-4918 in net + net/http. Revisit once nixos-unstable
     # absorbs the staging→master cycle.
     nixpkgs.url = "github:NixOS/nixpkgs/8e58c3dfe4bd7cac174c2496c5dba3a12a1e2688";
+
+    # Cached CLI-tool package set. The primary nixpkgs input intentionally tracks
+    # a staging-next Go security bump before the broader binary cache has caught
+    # up; using that same pin for Rust-heavy formatters such as rumdl/taplo makes
+    # CI build tools from source. This input is still pinned by flake.lock, but it
+    # follows the normal nixos-unstable cache path for non-Go developer tooling.
+    tooling-nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
-  outputs = { self, nixpkgs, ... }:
+  outputs = { self, nixpkgs, tooling-nixpkgs, ... }:
     let
       systems = [
         "x86_64-linux"
@@ -26,7 +33,9 @@
 
       forAllSystems = f:
         nixpkgs.lib.genAttrs systems (system:
-          f (import nixpkgs { inherit system; }));
+          f
+            (import nixpkgs { inherit system; })
+            (import tooling-nixpkgs { inherit system; }));
 
       # Minor version of the Go toolchain to select from nixpkgs. Must match
       # the `go X.Y` directive in go.mod at least at the minor level; the
@@ -269,7 +278,7 @@
       };
     in
     {
-      devShells = forAllSystems (pkgs:
+      devShells = forAllSystems (pkgs: toolPkgs:
         let
           goAttr = "go_${builtins.replaceStrings ["."] ["_"] goMinor}";
           go = pkgs.${goAttr} or (throw
@@ -282,10 +291,10 @@
 
           commonPackages = [
             go
-            pkgs.go-task
-            pkgs.git
-            pkgs.coreutils
-            pkgs.gnumake
+            toolPkgs.go-task
+            toolPkgs.git
+            toolPkgs.coreutils
+            toolPkgs.gnumake
           ];
 
           mkShell = name: shellKind: packages: pkgs.mkShell (commonEnv // {
@@ -293,44 +302,58 @@
             USBIP_GO_NIX_SHELL = shellKind;
           });
 
-          openspecCli = pkgs.writeShellApplication {
+          openspecCli = toolPkgs.writeShellApplication {
             name = "openspec";
-            runtimeInputs = [ pkgs.nodejs_24 ];
+            runtimeInputs = [ toolPkgs.nodejs_24 ];
             text = ''
               exec npx --yes @fission-ai/openspec@1.3.1 "$@"
             '';
           };
 
-          dev = mkShell "usbip-go-dev" "dev" commonPackages;
+          formatterPackages = [
+            toolPkgs.gofumpt
+            toolPkgs.gotools # goimports, stringer, guru, etc.
+            toolPkgs.yamlfmt
+            toolPkgs.rumdl
+            toolPkgs.shfmt
+            toolPkgs.nixpkgs-fmt
+            toolPkgs.taplo
+          ];
 
-          qa = mkShell "usbip-go-qa" "qa" (commonPackages ++ [
-            pkgs.golangci-lint
-            pkgs.gofumpt
-            pkgs.gotools # goimports, stringer, guru, etc.
-            pkgs.govulncheck
-            pkgs.goreleaser # config validation only; release shell carries publishing tools.
-            pkgs.yamllint
-            pkgs.yamlfmt
-            pkgs.taplo
-            pkgs.docker-compose
-            pkgs.actionlint
-            pkgs.rumdl
-            pkgs.shellcheck
-            pkgs.shfmt
-            pkgs.typos
-            pkgs.nixpkgs-fmt
-            pkgs.statix
-            pkgs.deadnix
+          linterPackages = [
+            toolPkgs.golangci-lint
+            toolPkgs.goreleaser # config validation only; release shell carries publishing tools.
+            toolPkgs.yamllint
+            toolPkgs.taplo
+            toolPkgs.docker-compose
+            toolPkgs.actionlint
+            toolPkgs.rumdl
+            toolPkgs.shellcheck
+            toolPkgs.typos
+            toolPkgs.nixpkgs-fmt
+            toolPkgs.statix
+            toolPkgs.deadnix
             openspecCli
-            pkgs.moq
-          ]);
+            toolPkgs.moq
+          ];
+
+          vulnPackages = [
+            toolPkgs.govulncheck
+          ];
+
+          dev = mkShell "usbip-go-dev" "dev" commonPackages;
+          fmt = mkShell "usbip-go-fmt" "fmt" (commonPackages ++ formatterPackages);
+          lint = mkShell "usbip-go-lint" "lint" (commonPackages ++ linterPackages);
+          vuln = mkShell "usbip-go-vuln" "vuln" (commonPackages ++ vulnPackages);
+
+          qa = mkShell "usbip-go-qa" "qa" (commonPackages ++ formatterPackages ++ linterPackages ++ vulnPackages);
 
           release = mkShell "usbip-go-release" "release" (commonPackages ++ [
-            pkgs.goreleaser
-            pkgs.nfpm
-            pkgs.syft
-            pkgs.cosign
-            pkgs.git-cliff
+            toolPkgs.goreleaser
+            toolPkgs.nfpm
+            toolPkgs.syft
+            toolPkgs.cosign
+            toolPkgs.git-cliff
           ]);
 
           vm = mkShell "usbip-go-vm" "vm" (commonPackages ++ [
@@ -343,7 +366,7 @@
         in
         {
           default = dev;
-          inherit dev qa release vm;
+          inherit dev fmt lint vuln qa release vm;
         });
 
       # integration-test microVM: produced with nixpkgs's standard
@@ -361,6 +384,6 @@
         microvm-run = mkMicrovmRun (import nixpkgs { system = "x86_64-linux"; });
       };
 
-      formatter = forAllSystems (pkgs: pkgs.nixpkgs-fmt);
+      formatter = forAllSystems (_: toolPkgs: toolPkgs.nixpkgs-fmt);
     };
 }

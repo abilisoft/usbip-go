@@ -52,23 +52,23 @@ jobs:
         # Fails fast if any Go, YAML, Markdown, shell, Nix, or TOML file
         # would change under the project formatters. Catches drift that local
         # `task fmt` would auto-fix.
-        run: nix develop .#qa --command task ci:fmt:check
+        run: nix develop .#fmt --command task ci:fmt:check
       - name: Module tidy check
         # Fails if `go mod tidy` would change go.mod or go.sum. This is
         # the same drift gate local `task check` runs before linting.
-        run: nix develop .#qa --command task ci:tidy:check
+        run: nix develop .#dev --command task ci:tidy:check
       - name: Lint
         # Runs golangci-lint, yamllint, actionlint (+ shellcheck for
         # workflow run: blocks), rumdl, shellcheck, typos, Nix/TOML
         # linting, Compose validation, OpenSpec validation, and
         # goreleaser config validation.
-        run: nix develop .#qa --command task ci:lint
+        run: nix develop .#lint --command task ci:lint
       - name: Vuln (SARIF)
         # govulncheck -format=sarif writes the full SARIF payload to
         # stdout before the nonzero-on-findings exit, so the redirect
         # captures a complete file even when the step fails. Upload
         # below runs with `if: always()` to guarantee delivery.
-        run: nix develop .#qa --command task ci:vuln:sarif
+        run: nix develop .#vuln --command task ci:vuln:sarif
       - name: Upload govulncheck SARIF
         # Skip on fork PRs: GitHub clamps GITHUB_TOKEN to read-only
         # there regardless of the job-scope security-events:write

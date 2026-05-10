@@ -6,10 +6,10 @@ version: '3'
 # ------------------------------------------------------------------------------
 # usbip-go Taskfile — canonical local and CI workflow.
 #
-# Normal build/test tasks use the fast Nix dev shell; lint/format/analyze,
-# release, and VM tasks use separate heavier shells so everyday work does not
-# realize unrelated tool closures. Local users do not need host Nix: outer tasks dispatch
-# through docker-compose into the appropriate nixos/nix container. CI can call
+# Normal build/test tasks use the fast Nix dev shell; format, lint/analyze,
+# vulnerability, release, and VM tasks use separate shells so everyday work
+# does not realize unrelated tool closures. Local users do not need host Nix:
+# outer tasks dispatch through docker-compose into the appropriate nixos/nix container. CI can call
 # `nix develop .#<shell> --command task ci:<target>` directly.
 #
 # All build artefacts live under ./build/ so `task clean` is a single rm.
@@ -64,9 +64,24 @@ tasks:
       - 'docker compose run --rm setup "git config --global --add safe.directory /src && nix develop .#dev --command true && chown -R {{.UID}}:{{.GID}} /nix"'
 
   setup:qa:
-    desc: Seed local Docker/Nix volume for lint, format, and analyzer tooling
+    desc: Seed local Docker/Nix volume for the full QA tooling shell
     cmds:
       - 'docker compose run --rm setup "git config --global --add safe.directory /src && nix develop .#qa --command true && chown -R {{.UID}}:{{.GID}} /nix"'
+
+  setup:fmt:
+    desc: Seed local Docker/Nix volume for formatting tooling
+    cmds:
+      - 'docker compose run --rm setup "git config --global --add safe.directory /src && nix develop .#fmt --command true && chown -R {{.UID}}:{{.GID}} /nix"'
+
+  setup:lint:
+    desc: Seed local Docker/Nix volume for lint and analyzer tooling
+    cmds:
+      - 'docker compose run --rm setup "git config --global --add safe.directory /src && nix develop .#lint --command true && chown -R {{.UID}}:{{.GID}} /nix"'
+
+  setup:vuln:
+    desc: Seed local Docker/Nix volume for vulnerability tooling
+    cmds:
+      - 'docker compose run --rm setup "git config --global --add safe.directory /src && nix develop .#vuln --command true && chown -R {{.UID}}:{{.GID}} /nix"'
 
   setup:release:
     desc: Seed local Docker/Nix volume for release tooling
@@ -85,10 +100,28 @@ tasks:
       - docker compose run --rm -it --entrypoint 'nix develop .#dev' dev
 
   shell:qa:
-    desc: Open lint, format, and analyzer shell inside the local Docker/Nix container
+    desc: Open full QA tooling shell inside the local Docker/Nix container
     deps: ['_prep:identity', 'setup:qa']
     cmds:
       - docker compose run --rm -it --entrypoint 'nix develop .#qa' qa
+
+  shell:fmt:
+    desc: Open formatting shell inside the local Docker/Nix container
+    deps: ['_prep:identity', 'setup:fmt']
+    cmds:
+      - docker compose run --rm -it --entrypoint 'nix develop .#fmt' fmt
+
+  shell:lint:
+    desc: Open lint and analyzer shell inside the local Docker/Nix container
+    deps: ['_prep:identity', 'setup:lint']
+    cmds:
+      - docker compose run --rm -it --entrypoint 'nix develop .#lint' lint
+
+  shell:vuln:
+    desc: Open vulnerability shell inside the local Docker/Nix container
+    deps: ['_prep:identity', 'setup:vuln']
+    cmds:
+      - docker compose run --rm -it --entrypoint 'nix develop .#vuln' vuln
 
   shell:release:
     desc: Open release tooling shell inside the local Docker/Nix container
@@ -113,28 +146,28 @@ tasks:
   test:conformance: {desc: 'Conformance tests', cmds: [{task: '_run:dev', vars: {INNER: 'ci:test:conformance'}}]}
   test:cover: {desc: 'Coverage HTML report', cmds: [{task: '_run:dev', vars: {INNER: 'ci:test:cover'}}]}
   test:mutation: {desc: 'Mutation tests', cmds: [{task: '_run:dev', vars: {INNER: 'ci:test:mutation'}}]}
-  lint: {desc: 'All lint gates', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint'}}]}
-  lint:go: {desc: 'golangci-lint', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:go'}}]}
-  lint:yaml: {desc: 'yamllint', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:yaml'}}]}
-  lint:actions: {desc: 'actionlint', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:actions'}}]}
-  lint:markdown: {desc: 'rumdl markdown lint', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:markdown'}}]}
-  lint:shell: {desc: 'shellcheck', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:shell'}}]}
-  lint:spelling: {desc: 'typos spell check', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:spelling'}}]}
-  lint:release: {desc: 'GoReleaser config check', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:release'}}]}
-  lint:nix: {desc: 'Nix lint gates', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:nix'}}]}
-  lint:toml: {desc: 'TOML lint', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:toml'}}]}
-  lint:compose: {desc: 'Docker Compose config validation', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:compose'}}]}
-  lint:openspec: {desc: 'OpenSpec strict validation', cmds: [{task: '_run:qa', vars: {INNER: 'ci:lint:openspec'}}]}
-  fmt: {desc: 'Format code/docs/config', cmds: [{task: '_run:qa', vars: {INNER: 'ci:fmt'}}]}
-  fmt:go: {desc: 'Format Go', cmds: [{task: '_run:qa', vars: {INNER: 'ci:fmt:go'}}]}
-  fmt:yaml: {desc: 'Format YAML', cmds: [{task: '_run:qa', vars: {INNER: 'ci:fmt:yaml'}}]}
-  fmt:markdown: {desc: 'Format Markdown', cmds: [{task: '_run:qa', vars: {INNER: 'ci:fmt:markdown'}}]}
-  fmt:shell: {desc: 'Format shell scripts', cmds: [{task: '_run:qa', vars: {INNER: 'ci:fmt:shell'}}]}
-  fmt:nix: {desc: 'Format Nix', cmds: [{task: '_run:qa', vars: {INNER: 'ci:fmt:nix'}}]}
-  fmt:toml: {desc: 'Format TOML', cmds: [{task: '_run:qa', vars: {INNER: 'ci:fmt:toml'}}]}
+  lint: {desc: 'All lint gates', cmds: [{task: '_run:lint', vars: {INNER: 'ci:lint'}}]}
+  lint:go: {desc: 'golangci-lint', cmds: [{task: '_run:lint', vars: {INNER: 'ci:lint:go'}}]}
+  lint:yaml: {desc: 'yamllint', cmds: [{task: '_run:lint', vars: {INNER: 'ci:lint:yaml'}}]}
+  lint:actions: {desc: 'actionlint', cmds: [{task: '_run:lint', vars: {INNER: 'ci:lint:actions'}}]}
+  lint:markdown: {desc: 'rumdl markdown lint', cmds: [{task: '_run:lint', vars: {INNER: 'ci:lint:markdown'}}]}
+  lint:shell: {desc: 'shellcheck', cmds: [{task: '_run:lint', vars: {INNER: 'ci:lint:shell'}}]}
+  lint:spelling: {desc: 'typos spell check', cmds: [{task: '_run:lint', vars: {INNER: 'ci:lint:spelling'}}]}
+  lint:release: {desc: 'GoReleaser config check', cmds: [{task: '_run:lint', vars: {INNER: 'ci:lint:release'}}]}
+  lint:nix: {desc: 'Nix lint gates', cmds: [{task: '_run:lint', vars: {INNER: 'ci:lint:nix'}}]}
+  lint:toml: {desc: 'TOML lint', cmds: [{task: '_run:lint', vars: {INNER: 'ci:lint:toml'}}]}
+  lint:compose: {desc: 'Docker Compose config validation', cmds: [{task: '_run:lint', vars: {INNER: 'ci:lint:compose'}}]}
+  lint:openspec: {desc: 'OpenSpec strict validation', cmds: [{task: '_run:lint', vars: {INNER: 'ci:lint:openspec'}}]}
+  fmt: {desc: 'Format code/docs/config', cmds: [{task: '_run:fmt', vars: {INNER: 'ci:fmt'}}]}
+  fmt:go: {desc: 'Format Go', cmds: [{task: '_run:fmt', vars: {INNER: 'ci:fmt:go'}}]}
+  fmt:yaml: {desc: 'Format YAML', cmds: [{task: '_run:fmt', vars: {INNER: 'ci:fmt:yaml'}}]}
+  fmt:markdown: {desc: 'Format Markdown', cmds: [{task: '_run:fmt', vars: {INNER: 'ci:fmt:markdown'}}]}
+  fmt:shell: {desc: 'Format shell scripts', cmds: [{task: '_run:fmt', vars: {INNER: 'ci:fmt:shell'}}]}
+  fmt:nix: {desc: 'Format Nix', cmds: [{task: '_run:fmt', vars: {INNER: 'ci:fmt:nix'}}]}
+  fmt:toml: {desc: 'Format TOML', cmds: [{task: '_run:fmt', vars: {INNER: 'ci:fmt:toml'}}]}
   tidy: {desc: 'go mod tidy', cmds: [{task: '_run:dev', vars: {INNER: 'ci:tidy'}}]}
   tidy:check: {desc: 'Check go mod tidy drift', cmds: [{task: '_run:dev', vars: {INNER: 'ci:tidy:check'}}]}
-  vuln: {desc: 'govulncheck', cmds: [{task: '_run:qa', vars: {INNER: 'ci:vuln'}}]}
+  vuln: {desc: 'govulncheck', cmds: [{task: '_run:vuln', vars: {INNER: 'ci:vuln'}}]}
   check: {desc: 'Pre-commit gauntlet', cmds: [{task: '_run:qa', vars: {INNER: 'ci:check'}}]}
   release:notes: {desc: 'Generate release notes', cmds: [{task: '_run:release', vars: {INNER: 'ci:release:notes'}}]}
   release:snapshot: {desc: 'GoReleaser snapshot', cmds: [{task: '_run:release', vars: {INNER: 'ci:release:snapshot'}}]}
@@ -200,6 +233,42 @@ tasks:
           task _prep:identity
           task setup:qa
           docker compose run --rm qa task {{.INNER}}
+        fi
+
+  _run:fmt:
+    internal: true
+    cmds:
+      - |
+        if [ "${USBIP_GO_NIX_SHELL:-}" = "fmt" ] || [ "${USBIP_GO_NIX_SHELL:-}" = "qa" ]; then
+          task {{.INNER}}
+        else
+          task _prep:identity
+          task setup:fmt
+          docker compose run --rm fmt task {{.INNER}}
+        fi
+
+  _run:lint:
+    internal: true
+    cmds:
+      - |
+        if [ "${USBIP_GO_NIX_SHELL:-}" = "lint" ] || [ "${USBIP_GO_NIX_SHELL:-}" = "qa" ]; then
+          task {{.INNER}}
+        else
+          task _prep:identity
+          task setup:lint
+          docker compose run --rm lint task {{.INNER}}
+        fi
+
+  _run:vuln:
+    internal: true
+    cmds:
+      - |
+        if [ "${USBIP_GO_NIX_SHELL:-}" = "vuln" ] || [ "${USBIP_GO_NIX_SHELL:-}" = "qa" ]; then
+          task {{.INNER}}
+        else
+          task _prep:identity
+          task setup:vuln
+          docker compose run --rm vuln task {{.INNER}}
         fi
 
   _run:release:

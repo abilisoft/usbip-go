@@ -8,13 +8,17 @@ before opening a PR.
 
 ## Prerequisites
 
-The toolchain is hermetic and split by cost. Go build/test tools,
-lint/format/analyzer tools, release tools, and microVM tools are pinned in
-[`flake.nix`](flake.nix) and run through Nix containers. The fast `dev` shell
-carries build/test tooling; `qa` carries lint, format, spelling, vulnerability,
-and release-config validation tooling; `release` carries GoReleaser,
-SBOM/signing/package/changelog tools; `vm` carries the microVM runner. The
-only host-side dependencies are:
+The toolchain is hermetic and split by cost. Go build/test tools, formatters,
+lint/analyzer tools, vulnerability scanning, release tools, and microVM tools
+are pinned in [`flake.nix`](flake.nix) and run through Nix containers. The Go
+toolchain and microVM stay on the primary security-patched Nixpkgs pin; non-Go
+CLI tooling comes from the separate locked `tooling-nixpkgs` input so CI uses
+cached formatter/linter closures instead of source-building Rust-heavy tools.
+The fast `dev` shell carries build/test tooling; `fmt` carries formatters;
+`lint` carries lint, spelling, analyzer, Compose/OpenSpec, and release-config
+validation tooling; `vuln` carries vulnerability scanning; `qa` is the full
+local QA superset; `release` carries GoReleaser, SBOM/signing/package/changelog
+tools; `vm` carries the microVM runner. The only host-side dependencies are:
 
 - **Docker Engine 20.10+** (or a compatible daemon exposing the
   `docker` CLI and `docker compose`). On Linux install via your
@@ -34,13 +38,18 @@ You do not need to run setup manually for normal use. Top-level tasks seed the
 smallest required Docker/Nix shell before executing:
 
 - `task test`, `task build`, `task tidy` → `.#dev`
-- `task lint`, `task fmt`, `task vuln`, `task check` → `.#qa`
+- `task fmt` → `.#fmt`
+- `task lint` → `.#lint`
+- `task vuln` → `.#vuln`
+- `task check` → `.#qa`
 - `task release:notes`, `task release:snapshot`, `task release` → `.#release`
 - `task vm:build`, `task vm:smoke`, `task vm:test:integration` → `.#vm`
 
 If you want to prewarm or debug a shell explicitly, use `task setup:dev`,
-`task setup:qa`, `task setup:release`, `task setup:vm`, `task shell`,
-`task shell:qa`, `task shell:release`, or `task shell:vm`.
+`task setup:fmt`, `task setup:lint`, `task setup:vuln`, `task setup:qa`,
+`task setup:release`, `task setup:vm`, `task shell`, `task shell:fmt`,
+`task shell:lint`, `task shell:vuln`, `task shell:qa`,
+`task shell:release`, or `task shell:vm`.
 
 The volume name includes your UID, GID, and a sha256 prefix of the absolute
 workspace path (see `docker volume ls`), so multiple checkouts never alias into

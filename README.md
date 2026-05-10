@@ -253,9 +253,11 @@ The dev toolchain is hermetic: the only host-side prerequisites are
 **Docker** and **[Task](https://taskfile.dev)**. Go, linters,
 formatters, spelling checks, release tools, and microVM tooling are pinned in
 `flake.nix` and delivered through Nix containers. The flake is split into fast
-build/test `dev`, lint/format/analyzer `qa`, release-only `release`, and
-microVM-only `vm` shells so `task test` does not realize linter, release, or
-VM closures.
+build/test `dev`, formatter `fmt`, lint/analyzer `lint`, vulnerability-scan
+`vuln`, full-QA `qa`, release-only `release`, and microVM-only `vm` shells so
+each task realizes only the tooling it needs. Go and the microVM stay on the
+primary security-patched Nixpkgs pin; formatter/linter/release CLIs come from a
+separate locked `tooling-nixpkgs` input to keep CI on cached tool closures.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md#prerequisites) for the full
 onboarding flow, the hermetic-cache layout under `./build/`, and

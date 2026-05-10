@@ -5,15 +5,32 @@ Specify the repository's contributor workflow, hermetic toolchain, local task di
 ## Requirements
 
 ### Requirement: Host tasks dispatch into the smallest hermetic Nix shell
-Top-level Taskfile targets SHALL dispatch through Docker-backed Nix shells for local users unless the process is already inside the expected shell. Routine build and test tasks SHALL use the fast `dev` shell; lint, format, spelling, vulnerability, and release-configuration validation tasks SHALL use the `qa` shell; release tasks SHALL use the `release` shell; microVM tasks SHALL use the `vm` shell.
+Top-level Taskfile targets SHALL dispatch through Docker-backed Nix shells for local users unless the process is already inside the expected shell. Routine build and test tasks SHALL use the fast `dev` shell; formatting tasks SHALL use the `fmt` shell; lint, spelling, analyzer, Compose/OpenSpec, and release-configuration validation tasks SHALL use the `lint` shell; vulnerability scanning SHALL use the `vuln` shell; full local QA checks MAY use the `qa` superset shell; release tasks SHALL use the `release` shell; microVM tasks SHALL use the `vm` shell.
+
+#### Scenario: Tooling uses cached Nixpkgs packages
+- **WHEN** formatter, linter, vulnerability, or release CLI tools are evaluated
+- **THEN** those tools are sourced from a separate locked `tooling-nixpkgs` input
+- **AND** the Go toolchain and microVM closure remain sourced from the primary security-patched `nixpkgs` input
 
 #### Scenario: Host runs a daily workflow task
 - **WHEN** a contributor runs `task test`, `task build`, `task tidy`, or another build/test workflow task from the host
 - **THEN** the task seeds `.#dev` if needed and invokes the matching `ci:*` task inside `docker compose run --rm dev`
 
-#### Scenario: Host runs a QA workflow task
-- **WHEN** a contributor runs `task lint`, `task fmt`, `task vuln`, `task check`, or another lint/format/analyzer workflow task from the host
-- **THEN** the task seeds `.#qa` if needed and invokes the matching `ci:*` task inside `docker compose run --rm qa`
+#### Scenario: Host runs a formatting workflow task
+- **WHEN** a contributor runs `task fmt` or a formatter-specific workflow task from the host
+- **THEN** the task seeds `.#fmt` if needed and invokes the matching `ci:*` task inside `docker compose run --rm fmt`
+
+#### Scenario: Host runs a lint workflow task
+- **WHEN** a contributor runs `task lint` or a linter-specific workflow task from the host
+- **THEN** the task seeds `.#lint` if needed and invokes the matching `ci:*` task inside `docker compose run --rm lint`
+
+#### Scenario: Host runs a vulnerability workflow task
+- **WHEN** a contributor runs `task vuln` from the host
+- **THEN** the task seeds `.#vuln` if needed and invokes the matching `ci:*` task inside `docker compose run --rm vuln`
+
+#### Scenario: Host runs the combined QA workflow
+- **WHEN** a contributor runs `task check` from the host
+- **THEN** the task seeds `.#qa` if needed and invokes the combined `ci:check` task inside `docker compose run --rm qa`
 
 #### Scenario: Host runs a release workflow task
 - **WHEN** a contributor runs `task release:notes`, `task release:snapshot`, or `task release` from the host
@@ -48,7 +65,7 @@ The development workflow SHALL keep generated artifacts, identities, Go caches, 
 - **THEN** only first-level contents under `build/` are removed
 
 ### Requirement: Formatting and linting are scoped to owned repository surfaces
-Formatting and linting tasks SHALL operate on repository-owned Go, YAML, Markdown, shell, workflow, spelling, Nix, TOML, Docker Compose, OpenSpec, module-tidy, and release-configuration surfaces while avoiding generated caches or third-party module sources under `build/`.
+Formatting and linting tasks SHALL operate on repository-owned Go, YAML, Markdown, shell, workflow, spelling, Nix, TOML, Docker Compose, OpenSpec, module-tidy, and release-configuration surfaces while avoiding generated caches or third-party module sources under `build/`. CI SHALL run formatting under the `fmt` shell, module tidy under the `dev` shell, linting under the `lint` shell, and vulnerability scanning under the `vuln` shell.
 
 #### Scenario: Formatting runs
 - **WHEN** `task fmt` dispatches to `ci:fmt`
