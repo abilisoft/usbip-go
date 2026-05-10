@@ -19,24 +19,24 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 
 | Type | Spec line | Item | Evidence |
 |---|---:|---|---|
-| Requirement | 7 | Dependency direction is top-down only | `docs/architecture.md:1-202`; `openspec/specs/architecture-layering/spec.md:1-84` |
+| Requirement | 7 | Dependency direction is top-down only | `docs/architecture.md:1-200`; `openspec/specs/architecture-layering/spec.md:1-84` |
 | Scenario | 10 | Dependency direction is top-down only / Command code invokes behavior | `cmd/usbip-go/root.go:73-208`; `pkg/usbip/usbip.go:188-360`; `internal/app/interfaces.go:1-109` |
 | Scenario | 15 | Dependency direction is top-down only / Adapter code is compiled | `internal/adapter/kernel/attach.go:1-310`; `internal/adapter/transport/transport.go:1-428`; `internal/adapter/wire/codec.go:1-164`; `Taskfile.yml:1-439` |
 | Requirement | 19 | pkg/domain is pure stdlib domain data | `pkg/domain/busid.go:1-118`; `pkg/domain/remote.go:1-282`; `pkg/domain/device.go:1-72`; `go.mod:1-73`; `openspec/specs/architecture-layering/spec.md:1-84` |
 | Scenario | 22 | pkg/domain is pure stdlib domain data / Value-object package gains a dependency | `pkg/domain/busid.go:1-118`; `pkg/domain/remote.go:1-282`; `pkg/domain/device.go:1-72`; `go.mod:1-73`; `openspec/specs/architecture-layering/spec.md:1-84` |
 | Requirement | 26 | pkg/usbip is the sole public service facade | `pkg/usbip/usbip.go:1-360`; `pkg/usbip/options.go:1-280`; `openspec/specs/public-library-api/spec.md:1-70` |
 | Scenario | 29 | pkg/usbip is the sole public service facade / External caller constructs services | `pkg/usbip/usbip.go:1-360`; `pkg/usbip/options.go:1-280`; `openspec/specs/public-library-api/spec.md:1-70` |
-| Requirement | 34 | internal/app owns use-case orchestration and interfaces | `docs/architecture.md:1-202`; `openspec/specs/architecture-layering/spec.md:1-84` |
+| Requirement | 34 | internal/app owns use-case orchestration and interfaces | `docs/architecture.md:1-200`; `openspec/specs/architecture-layering/spec.md:1-84` |
 | Scenario | 37 | internal/app owns use-case orchestration and interfaces / App layer needs kernel behavior | `internal/app/interfaces.go:1-109`; `internal/app/importer.go:1-1082`; `internal/app/exporter.go:1-1013` |
 | Scenario | 42 | internal/app owns use-case orchestration and interfaces / App layer needs wire value types | `internal/app/interfaces.go:1-109`; `internal/adapter/wire/header.go:1-117`; `internal/adapter/wire/import_op.go:1-205` |
-| Requirement | 47 | Adapter packages own external-system details | `docs/architecture.md:1-202`; `openspec/specs/architecture-layering/spec.md:1-84` |
+| Requirement | 47 | Adapter packages own external-system details | `docs/architecture.md:1-200`; `openspec/specs/architecture-layering/spec.md:1-84` |
 | Scenario | 50 | Adapter packages own external-system details / Kernel sysfs changes | `internal/adapter/kernel/bind.go:1-785`; `internal/adapter/kernel/attach.go:1-310`; `internal/adapter/kernel/sysfs.go:1-259` |
 | Scenario | 54 | Adapter packages own external-system details / TCP tuning changes | `internal/adapter/transport/transport.go:1-428`; `internal/netopts/options.go:1-103` |
 | Requirement | 58 | Non-Linux builds compile with explicit unsupported behavior | `pkg/usbip/defaults_other.go:1-22`; `pkg/usbip/modules_other.go:1-26`; `pkg/usbip/defaults_test.go:1-123` |
 | Scenario | 61 | Non-Linux builds compile with explicit unsupported behavior / Non-Linux caller constructs defaults | `pkg/usbip/defaults_other.go:1-22`; `pkg/usbip/modules_other.go:1-26`; `pkg/usbip/defaults_test.go:1-123` |
 | Requirement | 65 | No cgo is allowed | `openspec/specs/architecture-layering/spec.md:61-69`; `Taskfile.yml:1-439`; `.goreleaser.yml:1-176` |
 | Scenario | 68 | No cgo is allowed / cgo is introduced | `openspec/specs/architecture-layering/spec.md:61-69`; `Taskfile.yml:1-439`; `.goreleaser.yml:1-176` |
-| Requirement | 72 | OpenSpec is the source of truth for current behavior | `docs/architecture.md:1-202`; `openspec/specs/architecture-layering/spec.md:1-84` |
+| Requirement | 72 | OpenSpec is the source of truth for current behavior | `docs/architecture.md:1-200`; `openspec/specs/architecture-layering/spec.md:1-84` |
 | Scenario | 75 | OpenSpec is the source of truth for current behavior / CLI shape changes | `openspec/specs/cli-interface/spec.md:1-30`; `cmd/usbip-go/root.go:1-208` |
 | Requirement | 79 | Main specs describe current behavior | `openspec/config.yaml:1-33`; `openspec/specs/architecture-layering/spec.md:1-85` |
 | Scenario | 82 | Main specs describe current behavior / New feature is proposed | `openspec/config.yaml:1-33`; `openspec/specs/architecture-layering/spec.md:1-85` |
@@ -71,7 +71,7 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 85 | serve runs the exporter daemon / systemd socket activation is present | `cmd/usbip-go/serve.go:1-550`; `cmd/usbip-go/activation.go:1-171`; `cmd/usbip-go/activation_test.go:1-217` |
 | Scenario | 89 | serve runs the exporter daemon / health address is omitted | `cmd/usbip-go/serve.go:1-550`; `cmd/usbip-go/serve_flags.go:1-94`; `cmd/usbip-go/health.go:1-200`; `cmd/usbip-go/health_test.go:1-357` |
 | Requirement | 93 | drain talks to the status socket | `cmd/usbip-go/root.go:1-208` |
-| Scenario | 96 | drain talks to the status socket / Repeated drain requests occur | `cmd/usbip-go/status.go:1-518`; `cmd/usbip-go/status_test.go:1-782`; `openspec/specs/operations-observability/spec.md:40-58` |
+| Scenario | 96 | drain talks to the status socket / Repeated drain requests occur | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `openspec/specs/operations-observability/spec.md:40-58` |
 | Scenario | 100 | drain talks to the status socket / Drain polls for completion | `cmd/usbip-go/drain.go:1-301`; `cmd/usbip-go/drain_test.go:1-349`; `openspec/specs/operations-observability/spec.md:40-58` |
 | Scenario | 106 | drain talks to the status socket / Drain timeout expires | `cmd/usbip-go/drain.go:1-301`; `cmd/usbip-go/drain_test.go:1-349`; `cmd/usbip-go/exitcode.go:1-266` |
 | Requirement | 111 | JSON output uses schema v1 envelopes | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/output_test.go:1-148`; `docs/json-schema.md:1-356` |
@@ -134,9 +134,9 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 
 | Type | Spec line | Item | Evidence |
 |---|---:|---|---|
-| Requirement | 7 | Domain vocabulary is canonical | `docs/architecture.md:1-202`; `pkg/domain/device.go:1-72`; `pkg/domain/port.go:1-26` |
-| Scenario | 10 | Domain vocabulary is canonical / USB/IP roles are described | `docs/architecture.md:1-202`; `pkg/domain/device.go:1-72`; `pkg/domain/port.go:1-26` |
-| Scenario | 15 | Domain vocabulary is canonical / Export-side accounting is described | `docs/architecture.md:1-202`; `pkg/domain/device.go:1-72`; `pkg/domain/port.go:1-26` |
+| Requirement | 7 | Domain vocabulary is canonical | `docs/architecture.md:1-200`; `pkg/domain/device.go:1-72`; `pkg/domain/port.go:1-26` |
+| Scenario | 10 | Domain vocabulary is canonical / USB/IP roles are described | `docs/architecture.md:1-200`; `pkg/domain/device.go:1-72`; `pkg/domain/port.go:1-26` |
+| Scenario | 15 | Domain vocabulary is canonical / Export-side accounting is described | `docs/architecture.md:1-200`; `pkg/domain/device.go:1-72`; `pkg/domain/port.go:1-26` |
 | Requirement | 20 | BusID values are validated by context | `pkg/domain/busid.go:1-118`; `pkg/domain/busid_test.go:1-77`; `cmd/usbip-go/attach.go:1-276` |
 | Scenario | 23 | BusID values are validated by context / CLI receives a BusID | `pkg/domain/busid.go:1-118`; `pkg/domain/busid_test.go:1-77`; `cmd/usbip-go/attach.go:1-276` |
 | Scenario | 28 | BusID values are validated by context / Wire payload contains a BusID | `pkg/domain/busid.go:1-118`; `pkg/domain/busid_test.go:1-77`; `cmd/usbip-go/attach.go:1-276` |
@@ -173,17 +173,17 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 33 | Bind makes a device exportable without unsafe hub detachment / Concurrent bind and unbind target the same BusID | `internal/adapter/kernel/bind.go:1-785`; `internal/adapter/kernel/bind_hub_guard_test.go:1-53` |
 | Requirement | 37 | Unbind returns a device to its original driver when possible | `internal/adapter/kernel/bind.go:1-785`; `internal/adapter/kernel/unbind_errors_test.go:1-133`; `internal/app/exporter.go:1-1013` |
 | Scenario | 40 | Unbind returns a device to its original driver when possible / Device is not bound | `internal/adapter/kernel/bind.go:1-785`; `internal/adapter/kernel/unbind_errors_test.go:1-133`; `internal/app/exporter.go:1-1013` |
-| Requirement | 44 | Serve accepts one session goroutine per connection | `internal/app/exporter.go:1-1013`; `internal/app/session.go:1-736`; `internal/app/exporter_session_opcodes_test.go:1-317` |
-| Scenario | 47 | Serve accepts one session goroutine per connection / Devlist request arrives | `internal/app/exporter.go:1-1013`; `internal/app/session.go:1-736`; `internal/app/exporter_session_opcodes_test.go:1-317` |
-| Scenario | 51 | Serve accepts one session goroutine per connection / Import request arrives | `internal/app/exporter.go:1-1013`; `internal/app/session.go:1-736`; `internal/app/exporter_session_opcodes_test.go:1-317` |
+| Requirement | 44 | Serve accepts one session goroutine per connection | `internal/app/exporter.go:1-1013`; `internal/app/session.go:1-735`; `internal/app/exporter_session_opcodes_test.go:1-317` |
+| Scenario | 47 | Serve accepts one session goroutine per connection / Devlist request arrives | `internal/app/exporter.go:1-1013`; `internal/app/session.go:1-735`; `internal/app/exporter_session_opcodes_test.go:1-317` |
+| Scenario | 51 | Serve accepts one session goroutine per connection / Import request arrives | `internal/app/exporter.go:1-1013`; `internal/app/session.go:1-735`; `internal/app/exporter_session_opcodes_test.go:1-317` |
 | Requirement | 55 | Session registration enforces configured limits | `internal/app/limits.go:1-189`; `internal/app/exporter_limits_test.go:1-556`; `internal/app/exporter.go:1-1013` |
 | Scenario | 58 | Session registration enforces configured limits / Total session cap is reached | `internal/app/limits.go:1-189`; `internal/app/exporter_limits_test.go:1-556`; `internal/app/exporter.go:1-1013` |
 | Scenario | 63 | Session registration enforces configured limits / Handshake stalls | `internal/app/limits.go:1-189`; `internal/app/exporter_limits_test.go:1-556`; `internal/app/exporter.go:1-1013` |
 | Requirement | 67 | Session IDs and counters are tracked on the exporter side | `internal/app/exporter.go:1-1013`; `internal/app/exporter_sessions_sort_test.go:1-162`; `cmd/usbip-go/status_exporter.go:1-237` |
 | Scenario | 70 | Session IDs and counters are tracked on the exporter side / Sessions snapshot is requested | `internal/app/exporter.go:1-1013`; `internal/app/exporter_sessions_sort_test.go:1-162`; `cmd/usbip-go/status_exporter.go:1-237` |
-| Requirement | 74 | Session events are observable | `internal/app/session.go:1-736`; `internal/app/exporter_session_lifecycle_test.go:1-192`; `internal/app/exporter_watch.go:1-202` |
-| Scenario | 77 | Session events are observable / Import handshake completes | `internal/app/session.go:1-736`; `internal/app/exporter_session_lifecycle_test.go:1-192`; `internal/app/exporter_watch.go:1-202` |
-| Scenario | 81 | Session events are observable / Session ends | `internal/app/session.go:1-736`; `internal/app/exporter_session_lifecycle_test.go:1-192`; `internal/app/exporter_watch.go:1-202` |
+| Requirement | 74 | Session events are observable | `internal/app/session.go:1-735`; `internal/app/exporter_session_lifecycle_test.go:1-192`; `internal/app/exporter_watch.go:1-202` |
+| Scenario | 77 | Session events are observable / Import handshake completes | `internal/app/session.go:1-735`; `internal/app/exporter_session_lifecycle_test.go:1-192`; `internal/app/exporter_watch.go:1-202` |
+| Scenario | 81 | Session events are observable / Session ends | `internal/app/session.go:1-735`; `internal/app/exporter_session_lifecycle_test.go:1-192`; `internal/app/exporter_watch.go:1-202` |
 | Requirement | 85 | Shutdown performs graceful drain | `internal/app/exporter.go:1-1013`; `internal/app/exporter_shutdown_timeout_test.go:1-110`; `openspec/specs/operations-observability/spec.md:40-58` |
 | Scenario | 88 | Shutdown performs graceful drain / Shutdown is called with active sessions | `internal/app/exporter.go:1-1013`; `internal/app/exporter_shutdown_timeout_test.go:1-110`; `openspec/specs/operations-observability/spec.md:40-58` |
 | Scenario | 92 | Shutdown performs graceful drain / Drain deadline expires | `internal/app/exporter.go:1-1013`; `internal/app/exporter_shutdown_timeout_test.go:1-110`; `openspec/specs/operations-observability/spec.md:40-58` |
@@ -233,8 +233,8 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 18 | Device view has stable field names / Device IDs are rendered | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/table_devices_test.go:1-139`; `docs/json-schema.md:1-356` |
 | Requirement | 22 | Port view has stable field names | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/output_test.go:1-148`; `docs/json-schema.md:1-356` |
 | Scenario | 25 | Port view has stable field names / Local BusID is unknown | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/output_test.go:1-148`; `docs/json-schema.md:1-356` |
-| Requirement | 29 | Session view has stable field names | `cmd/usbip-go/status.go:1-518`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-356` |
-| Scenario | 32 | Session view has stable field names / Session start time is serialized | `cmd/usbip-go/status.go:1-518`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-356` |
+| Requirement | 29 | Session view has stable field names | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-356` |
+| Scenario | 32 | Session view has stable field names / Session start time is serialized | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-356` |
 | Requirement | 36 | List envelopes wrap homogeneous collections | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/list_test.go:1-347`; `docs/json-schema.md:1-356` |
 | Scenario | 39 | List envelopes wrap homogeneous collections / Devices are listed | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/list_test.go:1-347`; `docs/json-schema.md:1-356` |
 | Scenario | 43 | List envelopes wrap homogeneous collections / Ports are listed | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/list_test.go:1-347`; `docs/json-schema.md:1-356` |
@@ -245,12 +245,12 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Requirement | 62 | Watch event records are discriminated by kind | `cmd/usbip-go/events.go:1-361`; `cmd/usbip-go/events_test.go:1-135`; `docs/json-schema.md:1-356` |
 | Scenario | 65 | Watch event records are discriminated by kind / Port reconnect exhaustion is rendered | `cmd/usbip-go/events.go:1-361`; `cmd/usbip-go/events_test.go:1-135`; `docs/json-schema.md:1-356` |
 | Scenario | 69 | Watch event records are discriminated by kind / Unknown event concrete type is rendered | `cmd/usbip-go/events.go:1-361`; `cmd/usbip-go/events_test.go:1-135`; `docs/json-schema.md:1-356` |
-| Requirement | 73 | Status socket document is schema v1 | `cmd/usbip-go/status.go:1-518`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-356` |
-| Scenario | 76 | Status socket document is schema v1 / Bound device rendering succeeds | `cmd/usbip-go/status.go:1-518`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-356` |
-| Scenario | 81 | Status socket document is schema v1 / Bound device listing fails | `cmd/usbip-go/status.go:1-518`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-356` |
-| Requirement | 86 | Kernel module state is tri-state JSON | `cmd/usbip-go/status.go:1-518`; `cmd/usbip-go/status_test.go:1-782`; `pkg/usbip/modules.go:1-58` |
-| Scenario | 89 | Kernel module state is tri-state JSON / Module probe is blocked | `cmd/usbip-go/status.go:1-518`; `cmd/usbip-go/status_test.go:1-782`; `pkg/usbip/modules.go:1-58` |
-| Scenario | 93 | Kernel module state is tri-state JSON / Non-Linux status is rendered | `cmd/usbip-go/status.go:1-518`; `cmd/usbip-go/status_test.go:1-782`; `pkg/usbip/modules.go:1-58` |
+| Requirement | 73 | Status socket document is schema v1 | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-356` |
+| Scenario | 76 | Status socket document is schema v1 / Bound device rendering succeeds | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-356` |
+| Scenario | 81 | Status socket document is schema v1 / Bound device listing fails | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-356` |
+| Requirement | 86 | Kernel module state is tri-state JSON | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `pkg/usbip/modules.go:1-58` |
+| Scenario | 89 | Kernel module state is tri-state JSON / Module probe is blocked | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `pkg/usbip/modules.go:1-58` |
+| Scenario | 93 | Kernel module state is tri-state JSON / Non-Linux status is rendered | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `pkg/usbip/modules.go:1-58` |
 | Requirement | 97 | JSON v1 is forward-compatible | `cmd/usbip-go/output_forward_compat_test.go:1-86`; `docs/json-schema.md:1-356` |
 | Scenario | 100 | JSON v1 is forward-compatible / Additive field appears | `cmd/usbip-go/output_forward_compat_test.go:1-86`; `docs/json-schema.md:1-356` |
 
@@ -305,12 +305,12 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 16 | Daemon supports plain listener and systemd socket activation / Singleton activation listener has a different label | `cmd/usbip-go/activation.go:1-171`; `cmd/usbip-go/activation_test.go:1-217`; `contrib/systemd/usbip-go.socket:1-13` |
 | Scenario | 21 | Daemon supports plain listener and systemd socket activation / Multiple activation listeners are ambiguous | `cmd/usbip-go/activation.go:1-171`; `cmd/usbip-go/activation_test.go:1-217`; `contrib/systemd/usbip-go.socket:1-13` |
 | Scenario | 25 | Daemon supports plain listener and systemd socket activation / Activation is unavailable | `cmd/usbip-go/activation.go:1-171`; `cmd/usbip-go/activation_test.go:1-217`; `contrib/systemd/usbip-go.socket:1-13` |
-| Requirement | 29 | Status UDS exposes live daemon state | `cmd/usbip-go/status.go:1-518`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter.go:1-237` |
-| Scenario | 32 | Status UDS exposes live daemon state / Status root is requested | `cmd/usbip-go/status.go:1-518`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter.go:1-237` |
-| Scenario | 37 | Status UDS exposes live daemon state / Status socket group is configured | `cmd/usbip-go/status.go:1-518`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter.go:1-237` |
-| Requirement | 42 | Drain API is HTTP over the status UDS | `cmd/usbip-go/status.go:1-518`; `cmd/usbip-go/status_test.go:1-782`; `openspec/specs/operations-observability/spec.md:40-58` |
-| Scenario | 45 | Drain API is HTTP over the status UDS / Drain is requested | `cmd/usbip-go/status.go:1-518`; `cmd/usbip-go/status_test.go:1-782`; `openspec/specs/operations-observability/spec.md:40-58` |
-| Scenario | 50 | Drain API is HTTP over the status UDS / Drain request includes query parameters | `cmd/usbip-go/status.go:1-518`; `cmd/usbip-go/status_test.go:1-782`; `openspec/specs/operations-observability/spec.md:40-58` |
+| Requirement | 29 | Status UDS exposes live daemon state | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter.go:1-237` |
+| Scenario | 32 | Status UDS exposes live daemon state / Status root is requested | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter.go:1-237` |
+| Scenario | 37 | Status UDS exposes live daemon state / Status socket group is configured | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter.go:1-237` |
+| Requirement | 42 | Drain API is HTTP over the status UDS | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `openspec/specs/operations-observability/spec.md:40-58` |
+| Scenario | 45 | Drain API is HTTP over the status UDS / Drain is requested | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `openspec/specs/operations-observability/spec.md:40-58` |
+| Scenario | 50 | Drain API is HTTP over the status UDS / Drain request includes query parameters | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `openspec/specs/operations-observability/spec.md:40-58` |
 | Requirement | 54 | Health endpoints are optional and separate from the USB/IP listener | `cmd/usbip-go/health.go:1-200`; `cmd/usbip-go/health_test.go:1-357` |
 | Scenario | 57 | Health endpoints are optional and separate from the USB/IP listener / Liveness is checked | `cmd/usbip-go/health.go:1-200`; `cmd/usbip-go/health_test.go:1-357` |
 | Scenario | 61 | Health endpoints are optional and separate from the USB/IP listener / Readiness is checked | `cmd/usbip-go/health.go:1-200`; `cmd/usbip-go/health_test.go:1-357` |
@@ -330,10 +330,10 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 116 | Systemd units document operational defaults / Boot-time module loading is configured | `contrib/systemd/usbip-go.socket:1-13`; `contrib/systemd/usbip-go.service:1-29`; `docs/ops.md:1-304` |
 | Requirement | 120 | Diagnostic docs support protocol bug reports | `docs/wire-trace.md:1-175`; `docs/troubleshooting.md:1-182`; `docs/ops.md:1-304` |
 | Scenario | 123 | Diagnostic docs support protocol bug reports / Operator files protocol bug | `docs/wire-trace.md:1-175`; `docs/troubleshooting.md:1-182`; `docs/ops.md:1-304` |
-| Requirement | 127 | Drain cuts active USB traffic during graceful shutdown | `openspec/specs/operations-observability/spec.md:40-58`; `internal/app/exporter.go:1-1013`; `internal/app/session.go:1-736` |
-| Scenario | 130 | Drain cuts active USB traffic during graceful shutdown / Active sessions exist during drain | `openspec/specs/operations-observability/spec.md:40-58`; `internal/app/exporter.go:1-1013`; `internal/app/session.go:1-736` |
-| Scenario | 136 | Drain cuts active USB traffic during graceful shutdown / Kernel event does not arrive | `openspec/specs/operations-observability/spec.md:40-58`; `internal/app/exporter.go:1-1013`; `internal/app/session.go:1-736` |
-| Scenario | 140 | Drain cuts active USB traffic during graceful shutdown / Shutdown timeout elapses | `openspec/specs/operations-observability/spec.md:40-58`; `internal/app/exporter.go:1-1013`; `internal/app/session.go:1-736` |
+| Requirement | 127 | Drain cuts active USB traffic during graceful shutdown | `openspec/specs/operations-observability/spec.md:40-58`; `internal/app/exporter.go:1-1013`; `internal/app/session.go:1-735` |
+| Scenario | 130 | Drain cuts active USB traffic during graceful shutdown / Active sessions exist during drain | `openspec/specs/operations-observability/spec.md:40-58`; `internal/app/exporter.go:1-1013`; `internal/app/session.go:1-735` |
+| Scenario | 136 | Drain cuts active USB traffic during graceful shutdown / Kernel event does not arrive | `openspec/specs/operations-observability/spec.md:40-58`; `internal/app/exporter.go:1-1013`; `internal/app/session.go:1-735` |
+| Scenario | 140 | Drain cuts active USB traffic during graceful shutdown / Shutdown timeout elapses | `openspec/specs/operations-observability/spec.md:40-58`; `internal/app/exporter.go:1-1013`; `internal/app/session.go:1-735` |
 
 ## `public-library-api`
 
@@ -423,10 +423,10 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Requirement | 59 | CI enforces security scanning and pinned workflow posture | `.github/workflows/_security.yml:1-87`; `.github/workflows/codeql.yml:1-77`; `.github/workflows/trivy.yml:1-94`; `Taskfile.yml:1-439` |
 | Scenario | 62 | CI enforces security scanning and pinned workflow posture / Vulnerability scan runs | `.github/workflows/_security.yml:1-87`; `.github/workflows/codeql.yml:1-77`; `.github/workflows/trivy.yml:1-94`; `Taskfile.yml:1-439` |
 | Scenario | 66 | CI enforces security scanning and pinned workflow posture / Workflow dependency is added | `.github/workflows/_security.yml:1-87`; `.github/workflows/codeql.yml:1-77`; `.github/workflows/trivy.yml:1-94`; `Taskfile.yml:1-439` |
-| Requirement | 70 | CI enforces architecture and pure-Go constraints | `docs/architecture.md:1-202`; `.github/workflows/_arch-checks.yml:1-274`; `Taskfile.yml:1-439` |
-| Scenario | 73 | CI enforces architecture and pure-Go constraints / Adapter import crosses a forbidden boundary | `docs/architecture.md:1-202`; `.github/workflows/_arch-checks.yml:1-274`; `Taskfile.yml:1-439` |
-| Scenario | 77 | CI enforces architecture and pure-Go constraints / cgo is introduced | `docs/architecture.md:1-202`; `.github/workflows/_arch-checks.yml:1-274`; `Taskfile.yml:1-439` |
-| Scenario | 81 | CI enforces architecture and pure-Go constraints / Public API changes incompatibly | `docs/architecture.md:1-202`; `.github/workflows/_arch-checks.yml:1-274`; `Taskfile.yml:1-439` |
+| Requirement | 70 | CI enforces architecture and pure-Go constraints | `docs/architecture.md:1-200`; `.github/workflows/_arch-checks.yml:1-274`; `Taskfile.yml:1-439` |
+| Scenario | 73 | CI enforces architecture and pure-Go constraints / Adapter import crosses a forbidden boundary | `docs/architecture.md:1-200`; `.github/workflows/_arch-checks.yml:1-274`; `Taskfile.yml:1-439` |
+| Scenario | 77 | CI enforces architecture and pure-Go constraints / cgo is introduced | `docs/architecture.md:1-200`; `.github/workflows/_arch-checks.yml:1-274`; `Taskfile.yml:1-439` |
+| Scenario | 81 | CI enforces architecture and pure-Go constraints / Public API changes incompatibly | `docs/architecture.md:1-200`; `.github/workflows/_arch-checks.yml:1-274`; `Taskfile.yml:1-439` |
 | Requirement | 85 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns | `Taskfile.yml:1-439`; `.github/workflows/_unit-tests.yml:1-34` |
 | Scenario | 88 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Unit tests run | `Taskfile.yml:1-439`; `.github/workflows/_unit-tests.yml:1-34` |
 | Scenario | 92 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Integration tests run | `Taskfile.yml:1-439`; `.github/workflows/_unit-tests.yml:1-34` |

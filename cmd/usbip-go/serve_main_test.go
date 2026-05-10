@@ -46,10 +46,10 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// specFlags lists every flag v1 contract §7.7 requires on the usbipd root
+// specFlags lists every flag OpenSpec requires on the usbip-go serve
 // command. The assertion is that `--help` output contains each flag
-// name. --config is intentionally absent: operators configure via
-// flags + systemd drop-ins; YAML config is deferred to v2.
+// name. --config is intentionally absent: operators configure via flags
+// + systemd drop-ins; YAML config is deferred to v2.
 func specFlags() []string {
 	return []string{
 		"--listen",

@@ -225,7 +225,7 @@ func main() {
 ```
 
 More patterns under [`examples/`](examples/) — client, server,
-events, reconnect, and daemon embedding.
+events, and reconnect.
 
 ### 2. CLI attach
 

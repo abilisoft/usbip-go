@@ -12,8 +12,8 @@ Three supported install paths:
 1. **Pre-built release archive** from GitHub Releases:
 
    ```
-   curl -LO https://github.com/abilisoft/usbip-go/releases/download/vX.Y.Z/usbip-go_vX.Y.Z_linux_amd64.tar.gz
-   tar xzf usbip-go_vX.Y.Z_linux_amd64.tar.gz
+   curl -LO https://github.com/abilisoft/usbip-go/releases/download/vX.Y.Z/usbip-go_X.Y.Z_linux_amd64.tar.gz
+   tar xzf usbip-go_X.Y.Z_linux_amd64.tar.gz
    sudo install -m 0755 usbip-go /usr/local/bin/
    sudo install -Dm 0644 contrib/systemd/usbip-go.service /etc/systemd/system/usbip-go.service
    sudo install -Dm 0644 contrib/systemd/usbip-go.socket  /etc/systemd/system/usbip-go.socket
@@ -61,7 +61,7 @@ Description=USB/IP (Go) daemon socket
 [Socket]
 ListenStream=0.0.0.0:3240
 Accept=no
-FileDescriptorName=usbip
+FileDescriptorName=usbip-go
 
 [Install]
 WantedBy=sockets.target
@@ -70,7 +70,7 @@ WantedBy=sockets.target
 Socket activation means systemd binds the TCP port. The daemon
 receives the listener via `LISTEN_FDS` + `LISTEN_FDNAMES` and never
 races with a previous daemon over port 3240 during upgrades. The
-`FileDescriptorName=usbip` directive lets the Go
+`FileDescriptorName=usbip-go` directive lets the Go
 `activation.ListenersWithNames` helper disambiguate if multiple
 sockets are ever passed to the same unit.
 
@@ -181,6 +181,8 @@ Output includes:
 - `version`, `commit`, `uptime_sec`.
 - `listening` — TCP `addr` and whether it was `activation`-received.
 - `bound_devices` — every exported BusID with `vid` / `pid`.
+- `bound_devices_error` — optional diagnostic text when listing
+  bound devices failed and `bound_devices` would otherwise be empty.
 - `kernel_modules` — per-module `loaded` / `missing` / `unknown`.
 - `sessions` — every accepted session with `id`, `remote`, `busid`,
   `started_at`, byte counters.

@@ -269,7 +269,7 @@ Shape is `statusResponse` in
 ```json
 {
   "schema": "v1",
-  "version": "vX.Y.Z",
+  "version": "X.Y.Z",
   "commit": "<short sha>",
   "uptime_sec": <i64>,
   "listening": {
@@ -281,6 +281,7 @@ Shape is `statusResponse` in
     { "busid": "1-1.2", "vid": "0x0951", "pid": "0x1666" },
     ...
   ],
+  "bound_devices_error": "optional diagnostic text when bound-device listing fails",
   "sessions": [ sessionJSON, ... ],
   "kernel_modules": {
     "usbip_core": "loaded",
@@ -300,6 +301,11 @@ accept loop enters its first `Accept` call (before any client
 connects), and back to `false` when `Serve` returns. This lets
 `/readyz` distinguish a listener that is merely bound from one
 that has actually armed the accept loop.
+
+`bound_devices_error` is omitted on the happy path. When the daemon
+cannot list bound devices, `bound_devices` remains an empty array and
+`bound_devices_error` carries a human-readable diagnostic so operators
+can distinguish "nothing is exported" from "status collection failed".
 
 `kernel_modules` values are one of `"loaded"`, `"missing"`,
 `"unknown"`. The `/readyz` endpoint also consumes them to gate
