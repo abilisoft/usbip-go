@@ -60,7 +60,7 @@ the public API; `openspec/specs/public-library-api/spec.md` documents this surfa
 ### `pkg/domain`
 
 Pure value objects: `Device`, `Port`, `Session`, `BusID`,
-`RemoteEndpoint`, `Event` and its nine concrete variants,
+`RemoteEndpoint`, `Event` and its eight concrete variants,
 `EventKind`, `USBClass`, `Speed`, `Status`, and the sentinel errors
 (`ErrDeviceNotFound`, `ErrBusIDInvalid`, `ErrKernelModuleMissing`,
 etc.). No I/O, no goroutines, no third-party imports at all —
@@ -140,7 +140,7 @@ version,completion}` cover the client and operator commands.
 
 ### `examples/`
 
-Five minimal library-embed programs that each demonstrate one public
+Four minimal library-embed programs that each demonstrate one public
 API pattern. Every example builds with `go build ./examples/...` and
 is covered by the `Linux cross-compilation` CI job (in `_arch-checks.yml`).
 

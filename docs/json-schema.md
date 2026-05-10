@@ -334,7 +334,7 @@ The closed outcome enumerations:
 | `exporter_bind` | `ok`, `already_bound`, `not_found`, `permission`, `error` |
 | `exporter_unbind` | `ok`, `not_bound`, `permission`, `error` |
 | `exporter_session_handshake` | `handshake_ok`, `rejected_acl`, `rejected_rate`, `rejected_cap`, `handshake_failed` |
-| `exporter_disconnect_reason` | `graceful`, `client_gone`, `kernel_error`, `shutdown` |
+| `exporter_disconnect_reason` | `client_gone`, `kernel_error`, `shutdown`, `protocol_error` |
 | `importer_attach` | `ok`, `permission`, `no_free_port`, `protocol_mismatch`, `dial_failed`, `kernel_error` |
 | `importer_detach` | `ok`, `not_found`, `error` |
 | `importer_reconnect` | `ok`, `backoff`, `exhausted`, `canceled` |

@@ -17,6 +17,7 @@ Three supported install paths:
    sudo install -m 0755 usbip-go /usr/local/bin/
    sudo install -Dm 0644 contrib/systemd/usbip-go.service /etc/systemd/system/usbip-go.service
    sudo install -Dm 0644 contrib/systemd/usbip-go.socket  /etc/systemd/system/usbip-go.socket
+   sudo install -Dm 0644 contrib/modules-load.d/usbip-go.conf /etc/modules-load.d/usbip-go.conf
    ```
 
 2. **Debian / RPM package** from the release assets. Install via
@@ -29,7 +30,8 @@ Three supported install paths:
    ```
 
    Packages drop the binaries under `/usr/bin`, the systemd units
-   under `/usr/lib/systemd/system`.
+   under `/usr/lib/systemd/system`, and the modules-load snippet
+   under `/usr/lib/modules-load.d`.
 
 3. **Source build** for development:
 

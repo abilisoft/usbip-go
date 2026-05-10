@@ -34,8 +34,8 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 54 | Adapter packages own external-system details / TCP tuning changes | `internal/adapter/transport/transport.go:1-428`; `internal/netopts/options.go:1-103` |
 | Requirement | 58 | Non-Linux builds compile with explicit unsupported behavior | `pkg/usbip/defaults_other.go:1-22`; `pkg/usbip/modules_other.go:1-26`; `pkg/usbip/defaults_test.go:1-123` |
 | Scenario | 61 | Non-Linux builds compile with explicit unsupported behavior / Non-Linux caller constructs defaults | `pkg/usbip/defaults_other.go:1-22`; `pkg/usbip/modules_other.go:1-26`; `pkg/usbip/defaults_test.go:1-123` |
-| Requirement | 65 | No cgo is allowed | `openspec/specs/architecture-layering/spec.md:61-69`; `Taskfile.yml:1-439`; `.goreleaser.yml:1-176` |
-| Scenario | 68 | No cgo is allowed / cgo is introduced | `openspec/specs/architecture-layering/spec.md:61-69`; `Taskfile.yml:1-439`; `.goreleaser.yml:1-176` |
+| Requirement | 65 | No cgo is allowed | `openspec/specs/architecture-layering/spec.md:61-69`; `Taskfile.yml:1-439`; `.goreleaser.yml:1-180` |
+| Scenario | 68 | No cgo is allowed / cgo is introduced | `openspec/specs/architecture-layering/spec.md:61-69`; `Taskfile.yml:1-439`; `.goreleaser.yml:1-180` |
 | Requirement | 72 | OpenSpec is the source of truth for current behavior | `docs/architecture.md:1-200`; `openspec/specs/architecture-layering/spec.md:1-84` |
 | Scenario | 75 | OpenSpec is the source of truth for current behavior / CLI shape changes | `openspec/specs/cli-interface/spec.md:1-30`; `cmd/usbip-go/root.go:1-208` |
 | Requirement | 79 | Main specs describe current behavior | `openspec/config.yaml:1-33`; `openspec/specs/architecture-layering/spec.md:1-85` |
@@ -321,8 +321,8 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Requirement | 81 | Structured logging is the primary operational signal | `internal/app/exporter.go:1-1013`; `internal/app/logging_test.go:1-684`; `openspec/specs/operations-observability/spec.md:80-90` |
 | Scenario | 84 | Structured logging is the primary operational signal / Handshake is rejected by ACL | `internal/app/exporter.go:1-1013`; `internal/app/logging_test.go:1-684`; `openspec/specs/operations-observability/spec.md:80-90` |
 | Scenario | 88 | Structured logging is the primary operational signal / Reconnect backs off | `internal/app/exporter.go:1-1013`; `internal/app/logging_test.go:1-684`; `openspec/specs/operations-observability/spec.md:80-90` |
-| Requirement | 92 | Build provenance is visible at startup and in status | `cmd/usbip-go/serve.go:1-550`; `cmd/usbip-go/version.go:1-44`; `cmd/usbip-go/release_metadata_test.go:1-38` |
-| Scenario | 95 | Build provenance is visible at startup and in status / Daemon starts | `cmd/usbip-go/serve.go:1-550`; `cmd/usbip-go/version.go:1-44`; `cmd/usbip-go/release_metadata_test.go:1-38` |
+| Requirement | 92 | Build provenance is visible at startup and in status | `cmd/usbip-go/serve.go:1-550`; `cmd/usbip-go/version.go:1-44`; `cmd/usbip-go/release_metadata_test.go:1-56` |
+| Scenario | 95 | Build provenance is visible at startup and in status / Daemon starts | `cmd/usbip-go/serve.go:1-550`; `cmd/usbip-go/version.go:1-44`; `cmd/usbip-go/release_metadata_test.go:1-56` |
 | Requirement | 100 | Systemd units document operational defaults | `contrib/systemd/usbip-go.socket:1-13`; `contrib/systemd/usbip-go.service:1-29`; `docs/ops.md:1-304` |
 | Scenario | 103 | Systemd units document operational defaults / Socket unit is enabled | `contrib/systemd/usbip-go.socket:1-13`; `contrib/systemd/usbip-go.service:1-29`; `docs/ops.md:1-304` |
 | Scenario | 107 | Systemd units document operational defaults / Service unit is customized | `contrib/systemd/usbip-go.socket:1-13`; `contrib/systemd/usbip-go.service:1-29`; `docs/ops.md:1-304` |
@@ -370,7 +370,7 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 
 ## `release-packaging`
 
-- Spec source: `openspec/specs/release-packaging/spec.md:1-105`
+- Spec source: `openspec/specs/release-packaging/spec.md:1-106`
 
 | Type | Spec line | Item | Evidence |
 |---|---:|---|---|
@@ -381,24 +381,24 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Requirement | 22 | Release publication waits for prereq gates | `.github/workflows/release.yml:1-273`; `.github/workflows/_security.yml:1-87`; `.github/workflows/_unit-tests.yml:1-34`; `.github/workflows/_conformance.yml:1-34`; `.github/workflows/_arch-checks.yml:1-274`; `.github/workflows/_coverage.yml:1-64` |
 | Scenario | 25 | Release publication waits for prereq gates / Prereq gate fails | `.github/workflows/release.yml:1-273`; `.github/workflows/_security.yml:1-87`; `.github/workflows/_unit-tests.yml:1-34`; `.github/workflows/_conformance.yml:1-34`; `.github/workflows/_arch-checks.yml:1-274`; `.github/workflows/_coverage.yml:1-64` |
 | Scenario | 29 | Release publication waits for prereq gates / Prereq gates pass | `.github/workflows/release.yml:1-273`; `.github/workflows/_security.yml:1-87`; `.github/workflows/_unit-tests.yml:1-34`; `.github/workflows/_conformance.yml:1-34`; `.github/workflows/_arch-checks.yml:1-274`; `.github/workflows/_coverage.yml:1-64` |
-| Requirement | 33 | Release notes come from git-cliff | `.github/workflows/release.yml:1-273`; `.goreleaser.yml:1-176` |
-| Scenario | 36 | Release notes come from git-cliff / Release notes render | `.github/workflows/release.yml:1-273`; `.goreleaser.yml:1-176` |
-| Scenario | 41 | Release notes come from git-cliff / Release notes are empty | `.github/workflows/release.yml:1-273`; `.goreleaser.yml:1-176` |
-| Requirement | 45 | GoReleaser builds a single pure-Go Linux binary matrix | `.goreleaser.yml:1-176`; `cmd/usbip-go/release_metadata_test.go:1-38`; `Taskfile.yml:1-439` |
-| Scenario | 48 | GoReleaser builds a single pure-Go Linux binary matrix / Release binary is built | `.goreleaser.yml:1-176`; `cmd/usbip-go/release_metadata_test.go:1-38`; `Taskfile.yml:1-439` |
-| Scenario | 54 | GoReleaser builds a single pure-Go Linux binary matrix / Snapshot release runs locally | `.goreleaser.yml:1-176`; `cmd/usbip-go/release_metadata_test.go:1-38`; `Taskfile.yml:1-439` |
-| Requirement | 58 | Release archives include operator documentation and units | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13` |
-| Scenario | 61 | Release archives include operator documentation and units / Archive is produced | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13` |
-| Requirement | 66 | OS packages install binary, docs, and systemd units | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13` |
-| Scenario | 69 | OS packages install binary, docs, and systemd units / Package is produced | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13` |
-| Requirement | 75 | Checksums and SBOMs are generated | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-273` |
-| Scenario | 78 | Checksums and SBOMs are generated / Checksums are generated | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-273` |
-| Scenario | 82 | Checksums and SBOMs are generated / SBOMs are generated | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-273` |
-| Requirement | 86 | Checksums are keylessly signed with Sigstore | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-273` |
-| Scenario | 89 | Checksums are keylessly signed with Sigstore / Signing runs | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-273` |
-| Requirement | 94 | SLSA provenance covers user-downloadable binary artifacts | `.github/workflows/release.yml:1-273` |
-| Scenario | 97 | SLSA provenance covers user-downloadable binary artifacts / Artifact hashes are collected | `.github/workflows/release.yml:1-273` |
-| Scenario | 102 | SLSA provenance covers user-downloadable binary artifacts / Provenance is generated | `.github/workflows/release.yml:1-273` |
+| Requirement | 33 | Release notes come from git-cliff | `.github/workflows/release.yml:1-273`; `.goreleaser.yml:1-180` |
+| Scenario | 36 | Release notes come from git-cliff / Release notes render | `.github/workflows/release.yml:1-273`; `.goreleaser.yml:1-180` |
+| Scenario | 41 | Release notes come from git-cliff / Release notes are empty | `.github/workflows/release.yml:1-273`; `.goreleaser.yml:1-180` |
+| Requirement | 45 | GoReleaser builds a single pure-Go Linux binary matrix | `.goreleaser.yml:1-180`; `cmd/usbip-go/release_metadata_test.go:1-56`; `Taskfile.yml:1-439` |
+| Scenario | 48 | GoReleaser builds a single pure-Go Linux binary matrix / Release binary is built | `.goreleaser.yml:1-180`; `cmd/usbip-go/release_metadata_test.go:1-56`; `Taskfile.yml:1-439` |
+| Scenario | 54 | GoReleaser builds a single pure-Go Linux binary matrix / Snapshot release runs locally | `.goreleaser.yml:1-180`; `cmd/usbip-go/release_metadata_test.go:1-56`; `Taskfile.yml:1-439` |
+| Requirement | 58 | Release archives include operator documentation and deployment files | `.goreleaser.yml:1-180`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
+| Scenario | 61 | Release archives include operator documentation and deployment files / Archive is produced | `.goreleaser.yml:1-180`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
+| Requirement | 66 | OS packages install binary, docs, systemd units, and modules-load config | `.goreleaser.yml:1-180`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
+| Scenario | 69 | OS packages install binary, docs, systemd units, and modules-load config / Package is produced | `.goreleaser.yml:1-180`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
+| Requirement | 76 | Checksums and SBOMs are generated | `.goreleaser.yml:1-180`; `.github/workflows/release.yml:1-273` |
+| Scenario | 79 | Checksums and SBOMs are generated / Checksums are generated | `.goreleaser.yml:1-180`; `.github/workflows/release.yml:1-273` |
+| Scenario | 83 | Checksums and SBOMs are generated / SBOMs are generated | `.goreleaser.yml:1-180`; `.github/workflows/release.yml:1-273` |
+| Requirement | 87 | Checksums are keylessly signed with Sigstore | `.goreleaser.yml:1-180`; `.github/workflows/release.yml:1-273` |
+| Scenario | 90 | Checksums are keylessly signed with Sigstore / Signing runs | `.goreleaser.yml:1-180`; `.github/workflows/release.yml:1-273` |
+| Requirement | 95 | SLSA provenance covers user-downloadable binary artifacts | `.github/workflows/release.yml:1-273` |
+| Scenario | 98 | SLSA provenance covers user-downloadable binary artifacts / Artifact hashes are collected | `.github/workflows/release.yml:1-273` |
+| Scenario | 103 | SLSA provenance covers user-downloadable binary artifacts / Provenance is generated | `.github/workflows/release.yml:1-273` |
 
 ## `security-release-quality`
 
@@ -418,8 +418,8 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Requirement | 41 | Missing kernel modules are classified | `pkg/usbip/modules_linux.go:1-97`; `internal/adapter/kernel/modules.go:1-53`; `cmd/usbip-go/format_module_specific_test.go:1-65` |
 | Scenario | 44 | Missing kernel modules are classified / Importer module is missing | `pkg/usbip/modules_linux.go:1-97`; `internal/adapter/kernel/modules.go:1-53`; `cmd/usbip-go/format_module_specific_test.go:1-65` |
 | Scenario | 48 | Missing kernel modules are classified / Exporter module is missing | `pkg/usbip/modules_linux.go:1-97`; `internal/adapter/kernel/modules.go:1-53`; `cmd/usbip-go/format_module_specific_test.go:1-65` |
-| Requirement | 52 | Releases are reproducible and signed | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-273`; `docs/security-posture.md:1-139` |
-| Scenario | 55 | Releases are reproducible and signed / User verifies a release | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-273`; `docs/security-posture.md:1-139` |
+| Requirement | 52 | Releases are reproducible and signed | `.goreleaser.yml:1-180`; `.github/workflows/release.yml:1-273`; `docs/security-posture.md:1-139` |
+| Scenario | 55 | Releases are reproducible and signed / User verifies a release | `.goreleaser.yml:1-180`; `.github/workflows/release.yml:1-273`; `docs/security-posture.md:1-139` |
 | Requirement | 59 | CI enforces security scanning and pinned workflow posture | `.github/workflows/_security.yml:1-87`; `.github/workflows/codeql.yml:1-77`; `.github/workflows/trivy.yml:1-94`; `Taskfile.yml:1-439` |
 | Scenario | 62 | CI enforces security scanning and pinned workflow posture / Vulnerability scan runs | `.github/workflows/_security.yml:1-87`; `.github/workflows/codeql.yml:1-77`; `.github/workflows/trivy.yml:1-94`; `Taskfile.yml:1-439` |
 | Scenario | 66 | CI enforces security scanning and pinned workflow posture / Workflow dependency is added | `.github/workflows/_security.yml:1-87`; `.github/workflows/codeql.yml:1-77`; `.github/workflows/trivy.yml:1-94`; `Taskfile.yml:1-439` |
@@ -433,8 +433,8 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 96 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Wire conformance tests run | `Taskfile.yml:1-439`; `.github/workflows/_unit-tests.yml:1-34` |
 | Requirement | 100 | TDD and review discipline are codified | `CONTRIBUTING.md:1-329`; `Taskfile.yml:1-439` |
 | Scenario | 103 | TDD and review discipline are codified / Feature commit adds only tests | `CONTRIBUTING.md:1-329`; `Taskfile.yml:1-439` |
-| Requirement | 107 | License and metadata are consistent | `.github/workflows/release.yml:1-273`; `.goreleaser.yml:1-176`; `LICENSE:1-202` |
-| Scenario | 110 | License and metadata are consistent / Stable release tag is pushed | `.github/workflows/release.yml:1-273`; `.goreleaser.yml:1-176`; `LICENSE:1-202` |
+| Requirement | 107 | License and metadata are consistent | `.github/workflows/release.yml:1-273`; `.goreleaser.yml:1-180`; `LICENSE:1-202` |
+| Scenario | 110 | License and metadata are consistent / Stable release tag is pushed | `.github/workflows/release.yml:1-273`; `.goreleaser.yml:1-180`; `LICENSE:1-202` |
 
 ## `transport-networking`
 

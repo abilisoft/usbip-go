@@ -55,21 +55,22 @@ GoReleaser SHALL build the `./cmd/usbip-go` single binary for Linux `amd64`, `ar
 - **WHEN** `task release:snapshot` dispatches to `ci:release:snapshot`
 - **THEN** GoReleaser runs with `--snapshot --clean --skip=sign,sbom,publish`
 
-### Requirement: Release archives include operator documentation and units
-GoReleaser SHALL package tar.gz archives with the binary plus core repository documentation and systemd unit files.
+### Requirement: Release archives include operator documentation and deployment files
+GoReleaser SHALL package tar.gz archives with the binary plus core repository documentation, systemd unit files, and the modules-load snippet.
 
 #### Scenario: Archive is produced
 - **WHEN** a release archive is generated
 - **THEN** its name includes project, version, OS, architecture, and ARM variant when applicable
-- **AND** it includes `LICENSE`, `README.md`, `CONTRIBUTING.md`, `contrib/systemd/usbip-go.service`, `contrib/systemd/usbip-go.socket`, and `docs/*.md`
+- **AND** it includes `LICENSE`, `README.md`, `CONTRIBUTING.md`, `contrib/systemd/usbip-go.service`, `contrib/systemd/usbip-go.socket`, `contrib/modules-load.d/usbip-go.conf`, and `docs/*.md`
 
-### Requirement: OS packages install binary, docs, and systemd units
+### Requirement: OS packages install binary, docs, systemd units, and modules-load config
 GoReleaser nfpm packaging SHALL produce Debian and RPM packages for the same build IDs.
 
 #### Scenario: Package is produced
 - **WHEN** nfpm emits a package
 - **THEN** the binary installs under `/usr/bin`
 - **AND** the systemd service and socket install under `/usr/lib/systemd/system`
+- **AND** the modules-load snippet installs under `/usr/lib/modules-load.d`
 - **AND** README and LICENSE install under `/usr/share/doc/usbip-go`
 
 ### Requirement: Checksums and SBOMs are generated

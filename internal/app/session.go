@@ -660,7 +660,8 @@ func classifyDisconnectReason(err error) DisconnectReason {
 // "handler exited"). When waitForSessionEnd recorded a typed
 // DisconnectReason on the handle BEFORE the deferred call fires,
 // that closed-set value wins so journald carries the precise
-// classification (graceful / client_gone / kernel_error / shutdown)
+// classification (client_gone / kernel_error / shutdown /
+// protocol_error)
 // rather than a free-form fallback.
 func (e *Exporter) endSession(h *sessionHandle, reason string) {
 	if typed := h.disconnectReason.Load(); typed != nil && *typed != "" {

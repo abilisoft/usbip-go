@@ -6,7 +6,8 @@
 # Produces:
 #   - linux/{amd64,arm64,arm} binary for cmd/usbip-go (single binary,
 #     OpenSpec cli-interface — flat verbs `usbip-go serve`, `usbip-go attach`, ...)
-#   - tar.gz archives including LICENSE, README, systemd units
+#   - tar.gz archives including LICENSE, README, systemd units,
+#     and modules-load config
 #   - deb + rpm packages via nfpms
 #   - SHA-256 checksums file
 #   - SBOM per archive (SPDX) via syft
@@ -65,6 +66,7 @@ archives:
       - CONTRIBUTING.md
       - contrib/systemd/usbip-go.service
       - contrib/systemd/usbip-go.socket
+      - contrib/modules-load.d/usbip-go.conf
       - docs/*.md
 
 nfpms:
@@ -92,6 +94,8 @@ nfpms:
         dst: /usr/lib/systemd/system/usbip-go.service
       - src: contrib/systemd/usbip-go.socket
         dst: /usr/lib/systemd/system/usbip-go.socket
+      - src: contrib/modules-load.d/usbip-go.conf
+        dst: /usr/lib/modules-load.d/usbip-go.conf
       - src: README.md
         dst: /usr/share/doc/usbip-go/README.md
       - src: LICENSE

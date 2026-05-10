@@ -36,3 +36,21 @@ func TestGoReleaserStampsPrintedBuildDate(t *testing.T) {
 	require.True(t, strings.Contains(config, "main.version") && strings.Contains(config, "main.commit"),
 		"release builds must continue stamping version and commit alongside buildDate")
 }
+
+func TestGoReleaserPackagesDeploymentFiles(t *testing.T) {
+	t.Parallel()
+
+	configBytes, err := os.ReadFile(filepath.Join("..", "..", ".goreleaser.yml"))
+	require.NoError(t, err)
+
+	config := string(configBytes)
+
+	for _, path := range []string{
+		"contrib/systemd/usbip-go.service",
+		"contrib/systemd/usbip-go.socket",
+		"contrib/modules-load.d/usbip-go.conf",
+	} {
+		require.Contains(t, config, path, "release artifacts must include deployment asset %s", path)
+	}
+	require.Contains(t, config, "dst: /usr/lib/modules-load.d/usbip-go.conf")
+}

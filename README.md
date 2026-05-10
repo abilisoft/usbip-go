@@ -162,12 +162,13 @@ once; both are statically linked single binaries.
 
 ### Systemd
 
-The release archive and packages both include systemd units. Drop
-them in place and enable the socket unit:
+The release archive and packages both include systemd units and a
+modules-load snippet. Drop them in place and enable the socket unit:
 
 ```
 sudo install -Dm 0644 contrib/systemd/usbip-go.service /etc/systemd/system/usbip-go.service
 sudo install -Dm 0644 contrib/systemd/usbip-go.socket  /etc/systemd/system/usbip-go.socket
+sudo install -Dm 0644 contrib/modules-load.d/usbip-go.conf /etc/modules-load.d/usbip-go.conf
 sudo systemctl daemon-reload
 sudo systemctl enable --now usbip-go.socket
 ```
