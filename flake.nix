@@ -293,18 +293,6 @@
             USBIP_GO_NIX_SHELL = shellKind;
           });
 
-          # rumdl's upstream nixpkgs package compiles the binary and then
-          # separately links its test harness with LTO for the package smoke
-          # tests. That makes first-time QA shell realization painfully slow
-          # in the Docker/Nix local path; the project exercises rumdl through
-          # ci:fmt:markdown and ci:lint:markdown, so the shell only needs the
-          # installed CLI.
-          rumdlCli = pkgs.rumdl.overrideAttrs (_old: {
-            doCheck = false;
-            doInstallCheck = false;
-            useNextest = false;
-          });
-
           openspecCli = pkgs.writeShellApplication {
             name = "openspec";
             runtimeInputs = [ pkgs.nodejs_24 ];
@@ -326,7 +314,7 @@
             pkgs.taplo
             pkgs.docker-compose
             pkgs.actionlint
-            rumdlCli
+            pkgs.rumdl
             pkgs.shellcheck
             pkgs.shfmt
             pkgs.typos

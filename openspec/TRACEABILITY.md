@@ -102,17 +102,17 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Type | Line | Name | Evidence |
 | --- | ---: | --- | --- |
 | Requirement | 7 | Host tasks dispatch into the smallest hermetic Nix shell | `Taskfile.yml:55-220`; `docker-compose.yml:1-96`; `flake.nix:249-320` |
-| Scenario | 10 | Host tasks dispatch into the smallest hermetic Nix shell / Host runs a daily workflow task | `Taskfile.yml:61-64`; `Taskfile.yml:109-115`; `Taskfile.yml:174-184`; `docker-compose.yml:61-66`; `flake.nix:285-285` |
-| Scenario | 14 | Host tasks dispatch into the smallest hermetic Nix shell / Host runs a QA workflow task | `Taskfile.yml:66-69`; `Taskfile.yml:116-131`; `Taskfile.yml:186-196`; `docker-compose.yml:68-73`; `flake.nix:287-301` |
-| Scenario | 18 | Host tasks dispatch into the smallest hermetic Nix shell / Host runs a release workflow task | `Taskfile.yml:71-74`; `Taskfile.yml:132-134`; `Taskfile.yml:198-208`; `docker-compose.yml:75-80`; `flake.nix:303-309` |
-| Scenario | 22 | Host tasks dispatch into the smallest hermetic Nix shell / Host runs a microVM workflow task | `Taskfile.yml:76-79`; `Taskfile.yml:136-138`; `Taskfile.yml:210-220`; `docker-compose.yml:82-92`; `flake.nix:311-317` |
+| Scenario | 10 | Host tasks dispatch into the smallest hermetic Nix shell / Host runs a daily workflow task | `Taskfile.yml:61-64`; `Taskfile.yml:109-115`; `Taskfile.yml:174-184`; `docker-compose.yml:61-66`; `flake.nix:283-285` |
+| Scenario | 14 | Host tasks dispatch into the smallest hermetic Nix shell / Host runs a QA workflow task | `Taskfile.yml:66-69`; `Taskfile.yml:116-131`; `Taskfile.yml:186-196`; `docker-compose.yml:68-73`; `flake.nix:306-326` |
+| Scenario | 18 | Host tasks dispatch into the smallest hermetic Nix shell / Host runs a release workflow task | `Taskfile.yml:71-74`; `Taskfile.yml:132-134`; `Taskfile.yml:198-208`; `docker-compose.yml:75-80`; `flake.nix:328-334` |
+| Scenario | 22 | Host tasks dispatch into the smallest hermetic Nix shell / Host runs a microVM workflow task | `Taskfile.yml:76-79`; `Taskfile.yml:136-138`; `Taskfile.yml:210-220`; `docker-compose.yml:82-92`; `flake.nix:336-342` |
 | Scenario | 26 | Host tasks dispatch into the smallest hermetic Nix shell / Task already runs inside the expected Nix shell | `Taskfile.yml:174-220`; `docker-compose.yml:63-87`; `flake.nix:268-270` |
 | Scenario | 30 | Host tasks dispatch into the smallest hermetic Nix shell / Tooling version drifts | `Taskfile.yml:240-253`; `go.mod:1-7`; `flake.nix:251-253` |
 | Requirement | 34 | Build artifacts and caches stay under build | `Taskfile.yml:24-45`; `Taskfile.yml:165-168`; `Taskfile.yml:227-243` |
 | Scenario | 37 | Build artifacts and caches stay under build / Cache preamble runs | `Taskfile.yml:240-243` |
 | Scenario | 41 | Build artifacts and caches stay under build / Identity files are prepared | `Taskfile.yml:227-233`; `docker-compose.yml:19-23` |
 | Scenario | 46 | Build artifacts and caches stay under build / Clean is requested | `Taskfile.yml:165-168` |
-| Requirement | 50 | Formatting and linting are scoped to owned repository surfaces | `Taskfile.yml:116-138`; `Taskfile.yml:342-582`; `flake.nix:318-337`; `.github/workflows/_security.yml:51-65`; `.yamllint:1-12`; `.yamlfmt:1-23`; `.rumdl.toml:1-7`; `.taplo.toml:1-11`; `.typos.toml:1-41` |
+| Requirement | 50 | Formatting and linting are scoped to owned repository surfaces | `Taskfile.yml:116-138`; `Taskfile.yml:342-582`; `flake.nix:306-325`; `.github/workflows/_security.yml:51-65`; `.yamllint:1-12`; `.yamlfmt:1-23`; `.rumdl.toml:1-7`; `.taplo.toml:1-11`; `.typos.toml:1-41` |
 | Scenario | 53 | Formatting and linting are scoped to owned repository surfaces / Formatting runs | `Taskfile.yml:128-134`; `Taskfile.yml:429-477`; `.yamlfmt:1-23`; `.rumdl.toml:1-7`; `.taplo.toml:1-11`; `.github/workflows/_security.yml:51-55` |
 | Scenario | 58 | Formatting and linting are scoped to owned repository surfaces / Format check runs in CI | `Taskfile.yml:479-526`; `.github/workflows/_security.yml:51-55`; `.yamlfmt:1-23`; `.rumdl.toml:1-7`; `.taplo.toml:1-11` |
 | Scenario | 62 | Formatting and linting are scoped to owned repository surfaces / Lint runs | `Taskfile.yml:116-127`; `Taskfile.yml:342-427`; `.github/workflows/_security.yml:60-65`; `.golangci.yml:1-287`; `.yamllint:1-12`; `.rumdl.toml:1-7`; `.taplo.toml:1-11`; `.typos.toml:1-41`; `.goreleaser.yml:1-180` |
@@ -123,8 +123,8 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 84 | Test workflows are tiered by cost and environment / Integration tests run directly | `Taskfile.yml:112`; `Taskfile.yml:276-280` |
 | Scenario | 88 | Test workflows are tiered by cost and environment / Coverage report is requested | `Taskfile.yml:114`; `Taskfile.yml:287-293`; `.github/workflows/_coverage.yml:1-36` |
 | Scenario | 93 | Test workflows are tiered by cost and environment / Mutation tests run | `Taskfile.yml:115`; `Taskfile.yml:295-333`; `.github/workflows/mutation.yml:1-54` |
-| Requirement | 98 | microVM workflow provides kernel-module integration coverage | `Taskfile.yml:143-145`; `Taskfile.yml:623-684`; `flake.nix:1-340`; `.github/workflows/vm-integration.yml:1-160` |
-| Scenario | 101 | microVM workflow provides kernel-module integration coverage / microVM closure is built | `Taskfile.yml:143`; `Taskfile.yml:623-627`; `flake.nix:329-334` |
+| Requirement | 98 | microVM workflow provides kernel-module integration coverage | `Taskfile.yml:143-145`; `Taskfile.yml:623-684`; `flake.nix:1-342`; `.github/workflows/vm-integration.yml:1-160` |
+| Scenario | 101 | microVM workflow provides kernel-module integration coverage / microVM closure is built | `Taskfile.yml:143`; `Taskfile.yml:623-627`; `flake.nix:341-342` |
 | Scenario | 105 | microVM workflow provides kernel-module integration coverage / microVM smoke runs | `Taskfile.yml:144`; `Taskfile.yml:629-650`; `flake.nix:36-246`; `.github/workflows/vm-integration.yml:145-152` |
 | Scenario | 109 | microVM workflow provides kernel-module integration coverage / microVM integration runs | `Taskfile.yml:145`; `Taskfile.yml:652-684`; `flake.nix:36-246`; `.github/workflows/vm-integration.yml:153-160` |
 | Requirement | 114 | Local GitHub Actions rehearsal is available | `Taskfile.yml:147-168`; `CONTRIBUTING.md:276-294` |
