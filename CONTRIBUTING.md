@@ -157,8 +157,9 @@ pairs SHOULD still keep them adjacent in the same PR; the gate
 won't reject the test-first commit on its own, but reviewers will
 flag a stale `test:` commit at PR review.
 
-The v1 contract's compliance gates 1-4 define the discipline; the CI workflow
-enforces gates 1-6, 8, and 12 mechanically.
+The OpenSpec developer-workflow and security/release capabilities
+define the discipline; the CI workflow enforces gates 1-6, 8, and
+12 mechanically.
 
 ## Commit conventions
 
@@ -183,9 +184,9 @@ enforces gates 1-6, 8, and 12 mechanically.
 - Linter: `golangci-lint` with the config at
   [`.golangci.yml`](.golangci.yml). `default: all` with a minimal,
   justified disable list.
-- Code review applies v1 contract §9 style rules — comments explain WHY,
-  not WHAT; no `//nolint` without a cited rationale; no `t.Skip`
-  without a tracked reason; magic numbers named.
+- Code review applies the repository style rules — comments explain
+  WHY, not WHAT; no `//nolint` without a cited rationale; no
+  `t.Skip` without a tracked reason; magic numbers named.
 - Lines are bounded at 120 chars (`lll` linter). Cyclomatic complexity
   capped at 10 (`cyclop`, `gocyclo`, `gocognit`).
 
@@ -214,8 +215,9 @@ alongside the `BREAKING:`-prefixed change.
 
 ## Compliance gates
 
-Every PR is validated against the 12 compliance gates defined in the
-release-readiness policy. The CI workflow
+Every PR is validated against the compliance gates summarized below
+and backed by OpenSpec's developer-workflow and security/release
+capabilities. The CI workflow
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) enforces
 gates 1-6, 8, and 12 mechanically; the remainder are code-review
 items per the progressive-enforcement policy:
@@ -230,9 +232,9 @@ items per the progressive-enforcement policy:
 | 6 | Public API stability for `pkg/usbip` + `pkg/domain`; breaking changes require a `BREAKING:` commit prefix | CI: `API compatibility` (in `_arch-checks.yml`) diffs against `api/pkg_usbip.json` + `api/pkg_domain.json` via `apidiff`; the BREAKING-prefix scan walks `merge-base..HEAD` on PR events. |
 | 7 | No magic values (named constants only) | Code review (enforced indirectly by `mnd` + `goconst` in `task lint`, so rides Gate 1). |
 | 8 | No cgo anywhere in the tree | CI: `Pure Go enforcement` (in `_arch-checks.yml`) uses `go list -f '{{.CgoFiles}}'` + source greps for `import "C"`. |
-| 9 | Structured logging: `slog.DebugContext` + `oops.With(...)`, stable attr keys per §11.5.5 | Code review (enforced indirectly by `sloglint` in `task lint`, so rides Gate 1). |
-| 10 | Metrics registration: new app side-effects register a §11.5.5 catalog entry in the same PR | Code review. |
-| 11 | Error mapping: new sysfs/wire paths map to the v1 contract §6.2 + §6.4 sentinels in the same PR | Code review. |
+| 9 | Structured logging: `slog.DebugContext` + `oops.With(...)`, stable attr keys aligned with `openspec/specs/operations-observability/spec.md` | Code review (enforced indirectly by `sloglint` in `task lint`, so rides Gate 1). |
+| 10 | Observability updates: new app side-effects add or reuse stable `outcome` values and update OpenSpec/docs/tests in the same PR | Code review. |
+| 11 | Error mapping: new sysfs/wire paths map to public domain sentinels and OpenSpec error behavior in the same PR | Code review. |
 | 12 | Cross-compile for `linux/{amd64,arm64,arm}` | CI: `Linux cross-compilation` (in `_arch-checks.yml`); release builds use `goreleaser build --snapshot` wiring. |
 
 The `Format, lint, and vulnerability scan` job ALSO runs `task vuln`

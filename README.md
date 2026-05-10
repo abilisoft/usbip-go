@@ -33,7 +33,7 @@ around the protocol:
 | Wire-compatible with `usbip-utils` peers                                  | ✅                     | ✅         |
 | Uses kernel `vhci_hcd` / `usbip_host` / `usbip_vudc`                      | ✅                     | ✅         |
 | Pure Go, no cgo                                                           | ❌                     | ✅         |
-| Cross-compile to all Linux arches in one command                          | ❌                     | ✅         |
+| Cross-compile supported Linux arches in one command                       | ❌                     | ✅         |
 | Embeddable as a library (`pkg/usbip`)                                     | ❌                     | ✅         |
 | Auto-reconnect on detach (exponential backoff + jitter)                   | ❌                     | ✅         |
 | Concurrent-attach deduplication (per `(remote, busid)`)                   | ❌                     | ✅         |
