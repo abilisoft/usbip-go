@@ -30,19 +30,31 @@ building USB/IP-aware tools.
 
 ## Comparison
 
+Legend: ✅ built in · ⚠️ varies by distro/package · ❌ not provided
+
 | Capability | `usbip-utils` | `usbip-go` |
 | --- | --- | --- |
 | USB/IP wire compatibility | ✅ | ✅ |
 | Linux kernel USB/IP modules | ✅ | ✅ |
 | Single client/exporter/daemon binary | ❌ | ✅ |
+| Flat command set | ❌ | ✅ |
 | Embeddable Go library | ❌ | ✅ |
+| Typed Go domain model | ❌ | ✅ |
 | Pure Go, no cgo | ❌ | ✅ |
+| Non-Linux build stubs | ❌ | ✅ |
 | JSON output with versioned schema | ❌ | ✅ |
-| Auto-reconnect + event stream | ❌ | ✅ |
+| Shell completion installer | ⚠️ | ✅ |
+| Active port inspection | ✅ | ✅ |
+| Auto-reconnect | ❌ | ✅ |
+| Event stream | ❌ | ✅ |
+| Bind safety guardrails | ⚠️ | ✅ |
 | Graceful drain + status UDS | ❌ | ✅ |
-| systemd socket activation | distro-dependent | ✅ |
+| Health/readiness endpoints | ❌ | ✅ |
+| systemd socket activation | ⚠️ | ✅ |
+| CIDR/rate/session limits | ❌ | ✅ |
 | WAN TCP tuning | ❌ | ✅ |
-| Release SBOM + cosign + SLSA provenance | distro-dependent | ✅ |
+| Release SBOM + cosign + SLSA provenance | ⚠️ | ✅ |
+| OpenSpec behavior specs | ❌ | ✅ |
 | TLS/auth on the USB/IP wire | ❌ | ❌ |
 
 ## Installation
@@ -79,37 +91,30 @@ Load modules for the role each machine plays:
 | exporter/server | `usbip_core`, `usbip_host` | shares physical USB devices |
 | importer/client | `usbip_core`, `vhci_hcd` | attaches remote devices locally |
 
-The `.deb` and `.rpm` packages install a modules-load file under
-`/usr/lib/modules-load.d/usbip-go.conf`. Archive and `go install`
-users should configure modules explicitly.
+The `.deb` and `.rpm` packages install persistent module-loading
+configuration. For archive or `go install` setups, load modules before
+running commands:
 
 Copy/paste for an **exporter/server**:
 
 ```sh
 sudo modprobe usbip_core usbip_host
-printf '%s\n' usbip_core usbip_host \
-  | sudo tee /etc/modules-load.d/usbip-go.conf
 ```
 
 Copy/paste for an **importer/client**:
 
 ```sh
 sudo modprobe usbip_core vhci_hcd
-printf '%s\n' usbip_core vhci_hcd \
-  | sudo tee /etc/modules-load.d/usbip-go.conf
 ```
 
 If a host does both:
 
 ```sh
 sudo modprobe usbip_core vhci_hcd usbip_host
-printf '%s\n' usbip_core vhci_hcd usbip_host \
-  | sudo tee /etc/modules-load.d/usbip-go.conf
 ```
 
 The systemd service also runs `modprobe usbip_core usbip_host` before
-starting the daemon, but boot-time modules-load configuration is still
-the most predictable setup.
+starting the exporter daemon.
 
 ## Usage
 
@@ -120,16 +125,18 @@ USB/IP has two sides:
 
 ### Export a local USB device
 
-On the machine with the physical USB device:
+Manual foreground flow on the machine with the physical USB device:
 
 ```sh
 sudo modprobe usbip_core usbip_host
 usbip-go list --local
 sudo usbip-go bind 1-1.2
-sudo usbip-go serve --listen 0.0.0.0:3240
+sudo usbip-go serve
 ```
 
-Keep `usbip-go serve` running while clients are attached. When you are done:
+By default, `serve` listens on `0.0.0.0:3240`; use
+`--listen HOST:PORT` to override it. Keep `usbip-go serve` running
+while clients are attached. When you are done:
 
 ```sh
 sudo usbip-go unbind 1-1.2
@@ -157,6 +164,13 @@ sudo systemctl enable --now usbip-go.socket
 Socket activation starts `usbip-go serve` on the first inbound
 connection. See [`docs/ops.md`](docs/ops.md) for status, readiness,
 health checks, logs, and graceful `usbip-go drain` rollouts.
+
+After enabling the socket, bind the devices you want to export:
+
+```sh
+sudo modprobe usbip_core usbip_host
+sudo usbip-go bind 1-1.2
+```
 
 ### JSON for scripts
 
