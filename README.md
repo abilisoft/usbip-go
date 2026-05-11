@@ -72,14 +72,20 @@ Requires Go 1.26 or newer.
 
 ### Kernel modules
 
-Importer hosts need `usbip_core` and `vhci_hcd`. Exporter hosts need
-`usbip_core` and `usbip_host`.
+Load modules for the role each machine plays:
+
+| Machine | Needs | Why |
+| --- | --- | --- |
+| exporter/server | `usbip_core`, `usbip_host` | shares physical USB devices |
+| importer/client | `usbip_core`, `vhci_hcd` | attaches remote devices locally |
+
+If a host does both, load all three:
 
 ```sh
 sudo modprobe usbip_core vhci_hcd usbip_host
 ```
 
-For boot-time loading:
+For boot-time loading on a host that does both:
 
 ```sh
 printf '%s\n' usbip_core vhci_hcd usbip_host \
@@ -98,6 +104,7 @@ USB/IP has two sides:
 On the machine with the physical USB device:
 
 ```sh
+sudo modprobe usbip_core usbip_host
 usbip-go list --local
 sudo usbip-go bind 1-1.2
 sudo usbip-go serve --listen 0.0.0.0:3240
@@ -112,6 +119,7 @@ sudo usbip-go unbind 1-1.2
 ### Import that device from another machine
 
 ```sh
+sudo modprobe usbip_core vhci_hcd
 usbip-go list --remote 10.0.0.5
 sudo usbip-go attach 10.0.0.5 1-1.2
 usbip-go port
