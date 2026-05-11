@@ -88,22 +88,34 @@ printf '%s\n' usbip_core vhci_hcd usbip_host \
 
 ## Usage
 
-### Import a remote USB device
+USB/IP has two sides:
+
+- **exporter/server** — owns the physical USB device and runs the daemon.
+- **importer/client** — attaches that remote device to a local VHCI port.
+
+### Export a local USB device
+
+On the machine with the physical USB device:
+
+```sh
+usbip-go list --local
+sudo usbip-go bind 1-1.2
+sudo usbip-go serve --listen 0.0.0.0:3240
+```
+
+Keep `usbip-go serve` running while clients are attached. When you are done:
+
+```sh
+sudo usbip-go unbind 1-1.2
+```
+
+### Import that device from another machine
 
 ```sh
 usbip-go list --remote 10.0.0.5
 sudo usbip-go attach 10.0.0.5 1-1.2
 usbip-go port
 sudo usbip-go detach 0
-```
-
-### Export a local USB device
-
-```sh
-usbip-go list --local
-sudo usbip-go bind 1-1.2
-sudo usbip-go serve --listen 0.0.0.0:3240
-sudo usbip-go unbind 1-1.2
 ```
 
 ### Run as a daemon with systemd
