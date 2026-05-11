@@ -36,7 +36,7 @@ The root command SHALL NOT expose a persistent `--config` flag until YAML config
 - **AND** daemon-side shutdown behavior remains controlled by `--shutdown-timeout`
 
 ### Requirement: list command defaults local and accepts an optional remote
-`usbip-go list` SHALL list locally exportable devices by default. `usbip-go list HOST` SHALL parse HOST as a RemoteEndpoint and list that peer's devices. Legacy `--remote/-r`, `--local/-l`, and `--ports/-p` selectors SHALL remain accepted for compatibility, while `usbip-go port` is the primary attached-port listing command.
+`usbip-go list` SHALL list locally exportable devices by default. `usbip-go list HOST` SHALL parse HOST as a RemoteEndpoint and list that peer's devices. Listing source flags such as `--remote/-r`, `--local/-l`, and `--ports/-p` SHALL NOT be exposed; attached ports are listed with `usbip-go port`.
 
 #### Scenario: Local listing is selected by default
 - **WHEN** `usbip-go list` runs
@@ -46,9 +46,9 @@ The root command SHALL NOT expose a persistent `--config` flag until YAML config
 - **WHEN** `usbip-go list HOST` runs
 - **THEN** the CLI parses HOST as a RemoteEndpoint and renders the peer's devices
 
-#### Scenario: Positional and legacy selectors are combined
-- **WHEN** a positional HOST is supplied with `--remote`, `--local`, or `--ports`
-- **THEN** the CLI rejects the command before running the use case
+#### Scenario: Removed selector flag is supplied
+- **WHEN** `--remote`, `--local`, or `--ports` is supplied to `usbip-go list`
+- **THEN** cobra rejects the command as an unknown flag before running the use case
 
 ### Requirement: attach uses positional remote and BusID arguments
 `usbip-go attach` SHALL accept `<remote> <busid>` positional arguments and optional reconnect flags.

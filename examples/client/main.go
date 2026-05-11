@@ -78,7 +78,7 @@ func run(hostArg, busIDArg string) error {
 	imp, err := usbip.NewImporter(usbip.WithImporterLogger(slog.Default()))
 	if err != nil {
 		if errors.Is(err, usbip.ErrKernelModuleMissing) {
-			return fmt.Errorf("kernel module missing; run: sudo modprobe vhci-hcd: %w", err)
+			return fmt.Errorf("kernel module missing; run: sudo modprobe vhci_hcd: %w", err)
 		}
 
 		return fmt.Errorf("new importer: %w", err)

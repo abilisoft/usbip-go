@@ -95,7 +95,7 @@ func TestListExportedDevices_FilterByDriverAndStatus(t *testing.T) {
 
 // TestListLocalDevices_StillReturnsEverything pins that the CLI's
 // local view is unchanged: ListLocalDevices reports every USB device
-// regardless of bind state, since `usbip-go list -l` shows the whole
+// regardless of bind state, since `usbip-go list` shows the whole
 // bus to operators.
 func TestListLocalDevices_StillReturnsEverything(t *testing.T) {
 	t.Parallel()

@@ -55,10 +55,10 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Requirement | 26 | CLI omits deferred configuration and misplaced drain flags | `cmd/usbip-go/root.go:1-208` |
 | Scenario | 29 | CLI omits deferred configuration and misplaced drain flags / Deferred config flag is requested | `cmd/usbip-go/root_config_flag_test.go:1-25`; `cmd/usbip-go/root.go:124-150` |
 | Scenario | 33 | CLI omits deferred configuration and misplaced drain flags / Daemon drain timeout is requested on serve | `cmd/usbip-go/serve_drain_timeout_test.go:1-32`; `cmd/usbip-go/drain.go:1-301`; `cmd/usbip-go/serve_flags.go:1-94` |
-| Requirement | 38 | list command defaults local and accepts an optional remote | `cmd/usbip-go/list.go:1-204`; `cmd/usbip-go/list_test.go:1-409`; `README.md:126-181` |
-| Scenario | 41 | list command defaults local and accepts an optional remote / Local listing is selected by default | `cmd/usbip-go/list.go:65-97`; `cmd/usbip-go/list_test.go:177-204`; `README.md:126-136` |
-| Scenario | 45 | list command defaults local and accepts an optional remote / Remote listing is selected | `cmd/usbip-go/list.go:65-124`; `cmd/usbip-go/list_test.go:249-305`; `internal/app/importer.go:1-1082` |
-| Scenario | 49 | list command defaults local and accepts an optional remote / Positional and legacy selectors are combined | `cmd/usbip-go/list.go:37-97`; `cmd/usbip-go/list_test.go:206-247` |
+| Requirement | 38 | list command defaults local and accepts an optional remote | `cmd/usbip-go/list.go:1-130`; `cmd/usbip-go/list_test.go:1-319`; `README.md:126-181` |
+| Scenario | 41 | list command defaults local and accepts an optional remote / Local listing is selected by default | `cmd/usbip-go/list.go:29-44`; `cmd/usbip-go/list_test.go:177-204`; `README.md:126-136` |
+| Scenario | 45 | list command defaults local and accepts an optional remote / Remote listing is selected | `cmd/usbip-go/list.go:29-71`; `cmd/usbip-go/list_test.go:244-271`; `internal/app/importer.go:1-1082` |
+| Scenario | 49 | list command defaults local and accepts an optional remote / Removed selector flag is supplied | `cmd/usbip-go/list.go:15-44`; `cmd/usbip-go/list_test.go:207-242` |
 | Requirement | 53 | attach uses positional remote and BusID arguments | `cmd/usbip-go/attach.go:1-276`; `cmd/usbip-go/backoff.go:1-92`; `cmd/usbip-go/backoff_test.go:1-68`; `pkg/usbip/options.go:1-280` |
 | Scenario | 56 | attach uses positional remote and BusID arguments / Attach with reconnect flags | `cmd/usbip-go/attach.go:1-276`; `cmd/usbip-go/backoff.go:1-92`; `cmd/usbip-go/backoff_test.go:1-68`; `pkg/usbip/options.go:1-280` |
 | Scenario | 60 | attach uses positional remote and BusID arguments / Backoff spec is invalid | `cmd/usbip-go/attach.go:1-276`; `cmd/usbip-go/backoff.go:1-92`; `cmd/usbip-go/backoff_test.go:1-68`; `pkg/usbip/options.go:1-280` |
@@ -75,8 +75,8 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 100 | drain talks to the status socket / Repeated drain requests occur | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `openspec/specs/operations-observability/spec.md:40-58` |
 | Scenario | 104 | drain talks to the status socket / Drain polls for completion | `cmd/usbip-go/drain.go:1-301`; `cmd/usbip-go/drain_test.go:1-349`; `openspec/specs/operations-observability/spec.md:40-58` |
 | Scenario | 110 | drain talks to the status socket / Drain timeout expires | `cmd/usbip-go/drain.go:1-301`; `cmd/usbip-go/drain_test.go:1-349`; `cmd/usbip-go/exitcode.go:1-266` |
-| Requirement | 115 | JSON output uses schema v1 envelopes | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/output_test.go:1-148`; `docs/json-schema.md:1-363` |
-| Scenario | 118 | JSON output uses schema v1 envelopes / Command succeeds in JSON mode | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/output_test.go:1-148`; `docs/json-schema.md:1-363` |
+| Requirement | 115 | JSON output uses schema v1 envelopes | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/output_test.go:1-148`; `docs/json-schema.md:1-362` |
+| Scenario | 118 | JSON output uses schema v1 envelopes / Command succeeds in JSON mode | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/output_test.go:1-148`; `docs/json-schema.md:1-362` |
 | Requirement | 123 | Exit codes are operator-stable | `cmd/usbip-go/exitcode.go:1-266`; `cmd/usbip-go/exitcode_test.go:1-135`; `cmd/usbip-go/format_module_specific_test.go:1-65` |
 | Scenario | 126 | Exit codes are operator-stable / Permission error occurs | `cmd/usbip-go/exitcode.go:1-266`; `cmd/usbip-go/exitcode_test.go:1-135`; `cmd/usbip-go/format_module_specific_test.go:1-65` |
 | Scenario | 130 | Exit codes are operator-stable / Context is interrupted | `cmd/usbip-go/exitcode.go:1-266`; `cmd/usbip-go/exitcode_test.go:1-135`; `cmd/usbip-go/format_module_specific_test.go:1-65` |
@@ -236,32 +236,32 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 
 | Type | Spec line | Item | Evidence |
 |---|---:|---|---|
-| Requirement | 7 | JSON documents are schema-versioned | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/output_test.go:1-148`; `docs/json-schema.md:1-363` |
-| Scenario | 10 | JSON documents are schema-versioned / JSON renderer emits a document | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/output_test.go:1-148`; `docs/json-schema.md:1-363` |
-| Requirement | 15 | Device view has stable field names | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/table_devices_test.go:1-139`; `docs/json-schema.md:1-363` |
-| Scenario | 18 | Device view has stable field names / Device IDs are rendered | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/table_devices_test.go:1-139`; `docs/json-schema.md:1-363` |
-| Requirement | 22 | Port view has stable field names | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/output_test.go:1-148`; `docs/json-schema.md:1-363` |
-| Scenario | 25 | Port view has stable field names / Local BusID is unknown | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/output_test.go:1-148`; `docs/json-schema.md:1-363` |
-| Requirement | 29 | Session view has stable field names | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-363` |
-| Scenario | 32 | Session view has stable field names / Session start time is serialized | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-363` |
-| Requirement | 36 | List envelopes wrap homogeneous collections | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/list_test.go:1-409`; `docs/json-schema.md:1-363` |
-| Scenario | 39 | List envelopes wrap homogeneous collections / Devices are listed | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/list_test.go:1-409`; `docs/json-schema.md:1-363` |
-| Scenario | 43 | List envelopes wrap homogeneous collections / Ports are listed | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/list_test.go:1-409`; `docs/json-schema.md:1-363` |
-| Requirement | 47 | Mutating command acknowledgements are success-only | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/ack_render_test.go:1-95`; `docs/json-schema.md:1-363` |
-| Scenario | 50 | Mutating command acknowledgements are success-only / Attach succeeds | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/ack_render_test.go:1-95`; `docs/json-schema.md:1-363` |
-| Scenario | 54 | Mutating command acknowledgements are success-only / Detach succeeds | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/ack_render_test.go:1-95`; `docs/json-schema.md:1-363` |
-| Scenario | 58 | Mutating command acknowledgements are success-only / Bind or unbind succeeds | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/ack_render_test.go:1-95`; `docs/json-schema.md:1-363` |
-| Requirement | 62 | Watch event records are discriminated by kind | `cmd/usbip-go/events.go:1-361`; `cmd/usbip-go/events_test.go:1-135`; `docs/json-schema.md:1-363` |
-| Scenario | 65 | Watch event records are discriminated by kind / Port reconnect exhaustion is rendered | `cmd/usbip-go/events.go:1-361`; `cmd/usbip-go/events_test.go:1-135`; `docs/json-schema.md:1-363` |
-| Scenario | 69 | Watch event records are discriminated by kind / Unknown event concrete type is rendered | `cmd/usbip-go/events.go:1-361`; `cmd/usbip-go/events_test.go:1-135`; `docs/json-schema.md:1-363` |
-| Requirement | 73 | Status socket document is schema v1 | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-363` |
-| Scenario | 76 | Status socket document is schema v1 / Bound device rendering succeeds | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-363` |
-| Scenario | 81 | Status socket document is schema v1 / Bound device listing fails | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-363` |
+| Requirement | 7 | JSON documents are schema-versioned | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/output_test.go:1-148`; `docs/json-schema.md:1-362` |
+| Scenario | 10 | JSON documents are schema-versioned / JSON renderer emits a document | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/output_test.go:1-148`; `docs/json-schema.md:1-362` |
+| Requirement | 15 | Device view has stable field names | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/table_devices_test.go:1-139`; `docs/json-schema.md:1-362` |
+| Scenario | 18 | Device view has stable field names / Device IDs are rendered | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/table_devices_test.go:1-139`; `docs/json-schema.md:1-362` |
+| Requirement | 22 | Port view has stable field names | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/output_test.go:1-148`; `docs/json-schema.md:1-362` |
+| Scenario | 25 | Port view has stable field names / Local BusID is unknown | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/output_test.go:1-148`; `docs/json-schema.md:1-362` |
+| Requirement | 29 | Session view has stable field names | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-362` |
+| Scenario | 32 | Session view has stable field names / Session start time is serialized | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-362` |
+| Requirement | 36 | List envelopes wrap homogeneous collections | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/list_test.go:1-319`; `docs/json-schema.md:1-362` |
+| Scenario | 39 | List envelopes wrap homogeneous collections / Devices are listed | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/list_test.go:1-319`; `docs/json-schema.md:1-362` |
+| Scenario | 43 | List envelopes wrap homogeneous collections / Ports are listed | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/list_test.go:1-319`; `docs/json-schema.md:1-362` |
+| Requirement | 47 | Mutating command acknowledgements are success-only | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/ack_render_test.go:1-95`; `docs/json-schema.md:1-362` |
+| Scenario | 50 | Mutating command acknowledgements are success-only / Attach succeeds | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/ack_render_test.go:1-95`; `docs/json-schema.md:1-362` |
+| Scenario | 54 | Mutating command acknowledgements are success-only / Detach succeeds | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/ack_render_test.go:1-95`; `docs/json-schema.md:1-362` |
+| Scenario | 58 | Mutating command acknowledgements are success-only / Bind or unbind succeeds | `cmd/usbip-go/output.go:1-200`; `cmd/usbip-go/ack_render_test.go:1-95`; `docs/json-schema.md:1-362` |
+| Requirement | 62 | Watch event records are discriminated by kind | `cmd/usbip-go/events.go:1-361`; `cmd/usbip-go/events_test.go:1-135`; `docs/json-schema.md:1-362` |
+| Scenario | 65 | Watch event records are discriminated by kind / Port reconnect exhaustion is rendered | `cmd/usbip-go/events.go:1-361`; `cmd/usbip-go/events_test.go:1-135`; `docs/json-schema.md:1-362` |
+| Scenario | 69 | Watch event records are discriminated by kind / Unknown event concrete type is rendered | `cmd/usbip-go/events.go:1-361`; `cmd/usbip-go/events_test.go:1-135`; `docs/json-schema.md:1-362` |
+| Requirement | 73 | Status socket document is schema v1 | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-362` |
+| Scenario | 76 | Status socket document is schema v1 / Bound device rendering succeeds | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-362` |
+| Scenario | 81 | Status socket document is schema v1 / Bound device listing fails | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `cmd/usbip-go/status_exporter_test.go:1-110`; `docs/json-schema.md:1-362` |
 | Requirement | 86 | Kernel module state is tri-state JSON | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `pkg/usbip/modules.go:1-58` |
 | Scenario | 89 | Kernel module state is tri-state JSON / Module probe is blocked | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `pkg/usbip/modules.go:1-58` |
 | Scenario | 93 | Kernel module state is tri-state JSON / Non-Linux status is rendered | `cmd/usbip-go/status.go:1-517`; `cmd/usbip-go/status_test.go:1-782`; `pkg/usbip/modules.go:1-58` |
-| Requirement | 97 | JSON v1 is forward-compatible | `cmd/usbip-go/output_forward_compat_test.go:1-86`; `docs/json-schema.md:1-363` |
-| Scenario | 100 | JSON v1 is forward-compatible / Additive field appears | `cmd/usbip-go/output_forward_compat_test.go:1-86`; `docs/json-schema.md:1-363` |
+| Requirement | 97 | JSON v1 is forward-compatible | `cmd/usbip-go/output_forward_compat_test.go:1-86`; `docs/json-schema.md:1-362` |
+| Scenario | 100 | JSON v1 is forward-compatible / Additive field appears | `cmd/usbip-go/output_forward_compat_test.go:1-86`; `docs/json-schema.md:1-362` |
 
 ## `kernel-adapter`
 
@@ -324,9 +324,9 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 57 | Health endpoints are optional and separate from the USB/IP listener / Liveness is checked | `cmd/usbip-go/health.go:1-200`; `cmd/usbip-go/health_test.go:1-357` |
 | Scenario | 61 | Health endpoints are optional and separate from the USB/IP listener / Readiness is checked | `cmd/usbip-go/health.go:1-200`; `cmd/usbip-go/health_test.go:1-357` |
 | Scenario | 66 | Health endpoints are optional and separate from the USB/IP listener / Readiness probe stalls | `cmd/usbip-go/health.go:1-200`; `cmd/usbip-go/health_test.go:1-357` |
-| Requirement | 70 | JSON schema v1 is additively stable | `docs/json-schema.md:1-363`; `cmd/usbip-go/output_forward_compat_test.go:1-86` |
-| Scenario | 73 | JSON schema v1 is additively stable / New field is added | `docs/json-schema.md:1-363`; `cmd/usbip-go/output_forward_compat_test.go:1-86` |
-| Scenario | 77 | JSON schema v1 is additively stable / Breaking JSON change is needed | `docs/json-schema.md:1-363`; `cmd/usbip-go/output_forward_compat_test.go:1-86` |
+| Requirement | 70 | JSON schema v1 is additively stable | `docs/json-schema.md:1-362`; `cmd/usbip-go/output_forward_compat_test.go:1-86` |
+| Scenario | 73 | JSON schema v1 is additively stable / New field is added | `docs/json-schema.md:1-362`; `cmd/usbip-go/output_forward_compat_test.go:1-86` |
+| Scenario | 77 | JSON schema v1 is additively stable / Breaking JSON change is needed | `docs/json-schema.md:1-362`; `cmd/usbip-go/output_forward_compat_test.go:1-86` |
 | Requirement | 81 | Structured logging is the primary operational signal | `internal/app/exporter.go:1-1013`; `internal/app/logging_test.go:1-684`; `openspec/specs/operations-observability/spec.md:80-90` |
 | Scenario | 84 | Structured logging is the primary operational signal / Handshake is rejected by ACL | `internal/app/exporter.go:1-1013`; `internal/app/logging_test.go:1-684`; `openspec/specs/operations-observability/spec.md:80-90` |
 | Scenario | 88 | Structured logging is the primary operational signal / Reconnect backs off | `internal/app/exporter.go:1-1013`; `internal/app/logging_test.go:1-684`; `openspec/specs/operations-observability/spec.md:80-90` |

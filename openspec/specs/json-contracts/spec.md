@@ -37,11 +37,11 @@ Session JSON views SHALL include `id`, `remote`, `busid`, `started_at`, `bytes_i
 List-style JSON outputs SHALL wrap their collections in schema-v1 envelopes.
 
 #### Scenario: Devices are listed
-- **WHEN** `list`, `list HOST`, or legacy equivalent device rendering succeeds in JSON mode
+- **WHEN** `list` or `list HOST` succeeds in JSON mode
 - **THEN** stdout has shape `{ "schema": "v1", "devices": [...] }`
 
 #### Scenario: Ports are listed
-- **WHEN** `port` or `list --ports` succeeds in JSON mode
+- **WHEN** `port` succeeds in JSON mode
 - **THEN** stdout has shape `{ "schema": "v1", "ports": [...] }`
 
 ### Requirement: Mutating command acknowledgements are success-only

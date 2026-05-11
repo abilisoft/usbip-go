@@ -30,7 +30,7 @@ import (
 // usbip-host's stub_dev) has not yet picked a configuration: bound,
 // enumerated, but unconfigured. Without this branch ListLocalDevices
 // silently skipped any such device with a Warn log and the operator's
-// `usbip-go list -l` returned an empty table — defeating the whole
+// `usbip-go list` returned an empty table — defeating the whole
 // "did my bind take effect" diagnostic.
 func TestListLocalDevices_UnconfiguredDevice_StillListed(t *testing.T) {
 	t.Parallel()
@@ -65,7 +65,7 @@ func TestListLocalDevices_UnconfiguredDevice_StillListed(t *testing.T) {
 			"unconfigured device which is a normal post-bind state")
 	require.Len(t, got, 1,
 		"unconfigured device MUST appear in the local list so operators can "+
-			"verify their bind took effect via `usbip-go list -l`")
+			"verify their bind took effect via `usbip-go list`")
 	require.Equal(t, domain.BusID(busID), got[0].BusID)
 	require.Equal(t, uint8(0), got[0].ConfigValue,
 		"empty bConfigurationValue must read as 0")
