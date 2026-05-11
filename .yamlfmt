@@ -1,0 +1,23 @@
+---
+line_ending: lf
+gitignore_excludes: true
+include:
+  - .github/**/*.yml
+  - .github/**/*.yaml
+  - .golangci.yml
+  - .goreleaser.yml
+  - .gremlins.yaml
+  - .testcoverage.yaml
+  - .yamlfmt
+  - .yamllint
+  - Taskfile.yml
+  - docker-compose.yml
+  - openspec/config.yaml
+exclude:
+  - build/**
+formatter:
+  type: basic
+  indent: 2
+  retain_line_breaks: true
+  trim_trailing_whitespace: true
+  eof_newline: true

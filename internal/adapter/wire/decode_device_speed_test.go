@@ -17,7 +17,7 @@ import (
 // TestDecodeDeviceRejectsUnknownSpeed pins the invariant that the
 // wire decoder rejects a Speed field outside the domain's finite
 // enum. A peer emitting 0xDEADBEEF today round-trips as a
-// domain.Speed(0xDEADBEEF); downstream consumers (metrics cardinality,
+// domain.Speed(0xDEADBEEF); downstream consumers (structured logs,
 // CLI rendering, event delivery) have no way to notice the garbage.
 // Rejecting at decode time forces the protocol mismatch to surface
 // where it can be classified, not after the value has been logged

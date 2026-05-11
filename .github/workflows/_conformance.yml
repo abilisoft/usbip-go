@@ -29,6 +29,6 @@ jobs:
         # codec output against captured wire bytes from upstream
         # usbip-utils. The "optional upstream usbip" half of the job
         # name reflects that the upstream CLI is exercised when the
-        # devShell ships it, otherwise the job runs the captures
+        # `.#dev` shell ships it, otherwise the job runs the captures
         # only. Either way the codec contract holds.
-        run: nix develop --command task ci:test:conformance
+        run: nix develop .#dev --command task ci:test:conformance

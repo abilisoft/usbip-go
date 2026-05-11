@@ -58,8 +58,7 @@ func WithImporterStatusPollInterval(d time.Duration) ImporterOption {
 // Zero-valued fields preserve v1.0.0 behavior. Negative values cause
 // NewImporter to return ErrTransportOptionsInvalid.
 //
-// Recommended values per RTT class are documented in
-// `docs/high-latency-plan.md`. Common WAN starting point:
+// Recommended WAN starting point:
 //
 //	usbip.WithImporterTransportOptions(usbip.TransportOptions{
 //	    DialConnectTimeout:   10 * time.Second,

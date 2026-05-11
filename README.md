@@ -28,51 +28,21 @@ the same kernel sysfs interface, so it interoperates with upstream
 peers in either direction. What differs is the userspace surface
 around the protocol:
 
-| Capability                                                                | upstream `usbip-utils` | `usbip-go` |
-| ------------------------------------------------------------------------- | ---------------------- | ---------- |
-| Wire-compatible with `usbip-utils` peers                                  | ✅                     | ✅         |
-| Uses kernel `vhci_hcd` / `usbip_host` / `usbip_vudc`                      | ✅                     | ✅         |
-| Pure Go, no cgo                                                           | ❌                     | ✅         |
-| Cross-compile to all Linux arches in one command                          | ❌                     | ✅         |
-| Embeddable as a library (`pkg/usbip`)                                     | ❌                     | ✅         |
-| Auto-reconnect on detach (exponential backoff + jitter)                   | ❌                     | ✅         |
-| Concurrent-attach deduplication (per `(remote, busid)`)                   | ❌                     | ✅         |
-| Per-attach `MaxAttempts` / `OnReconnect` callback                         | ❌                     | ✅         |
-| Graceful drain + bounded `ShutdownTimeout`                                | ❌                     | ✅         |
-| Structured logging (`slog` JSON / text)                                   | ❌                     | ✅         |
-| Prometheus metrics on importer + exporter                                 | ❌                     | ✅         |
-| Event subscription API (port / session / reconnect)                       | ❌                     | ✅         |
-| systemd socket activation (`usbip-go.socket`)                             | ❌                     | ✅         |
-| Status UDS for live introspection                                         | ❌                     | ✅         |
-| JSON output mode with versioned schema                                    | ❌                     | ✅         |
-| Allow-list CIDR / rate-limit / session caps                               | ❌                     | ✅         |
-| `TCP_NODELAY` on dialed connections                                       | ✅                     | ✅         |
-| Configurable connect timeout                                              | ❌                     | ✅         |
-| Tunable TCP keepalive (idle / interval / probes)                          | ❌                     | ✅         |
-| Tunable `SO_SNDBUF` / `SO_RCVBUF` for WAN bandwidth-delay                 | ❌                     | ✅         |
-| Static read / write deadlines per `Importer` / `Exporter`                 | ❌                     | ✅         |
-| Tolerance for high-latency / lossy links (50–800 ms RTT)                  | ❌                     | ✅         |
-| Reproducible builds (`-trimpath`, no cgo)                                 | ❌                     | ✅         |
-| Static analysis + vuln scanning (CodeQL, `golangci-lint`, `govulncheck`, Trivy) | ❌               | ✅         |
-| Conformance tests against real wire captures                              | ❌                     | ✅         |
-| Fuzz targets on the wire codec                                            | ❌                     | ✅         |
-| Mutation testing on protocol-critical packages                            | ❌                     | ✅         |
-| Coverage gate (90%+ for pure-logic packages)                              | ❌                     | ✅         |
-| SBOM + `cosign` keyless signed releases                                   | ❌                     | ✅         |
-| SLSA Build Provenance on every release                                    | ❌                     | ✅         |
-| OpenSSF Scorecard / Best Practices                                        | ❌                     | ✅         |
-| Shell completion install (`bash`/`zsh`/`fish`/`pwsh`)                          | ❌                | ✅         |
-| `watch` subcommand for live event observation                                  | ❌                | ✅         |
-| `port` subcommand for active VHCI port introspection                           | ❌                | ✅         |
-| HTTP `/healthz` + `/readyz` endpoints                                          | ❌                | ✅         |
-| Operator-stable versioned exit codes                                           | ❌                | ✅         |
-| Drain admin API (`POST /drain` over the status UDS)                            | ❌                | ✅         |
-| UUIDv7 session IDs for traceability                                            | ❌                | ✅         |
-| `iter.Seq` (Go 1.23+) range-over-func event streams                            | ❌                | ✅         |
-| Dual BusID validation (lenient on the wire, strict in the CLI)                 | ❌                | ✅         |
-| `-race` enforced on every CI run                                               | ❌                | ✅         |
-| `gosec` static-analysis rules in CI (via `golangci-lint`)                      | ❌                | ✅         |
-| TLS or authentication on the wire (out of scope — tunnel via WG/SSH/Tailscale) | ❌                | ❌         |
+| Area | upstream `usbip-utils` | `usbip-go` |
+| --- | --- | --- |
+| Wire/kernel compatibility | USB/IP wire format; kernel modules | same |
+| Packaging | `usbip`, `usbipd`, `libusbip` | one pure-Go `usbip-go` binary + library |
+| Library API | C library only | Go facade with typed domain values and sentinel errors |
+| Importer reliability | attach/detach/list | reconnect, attach dedupe, watch, port JSON |
+| Exporter safety | bind/unbind/daemon | bind guardrails, sessions, drain, status UDS |
+| Operations | process logs | `slog`, systemd socket activation, health/readiness |
+| Network tuning | kernel/default TCP behavior | timeout, keepalive, buffers, deadlines |
+| High-latency links | not a first-class userspace surface | TCP tuning + reconnect recovery |
+| Security posture | plaintext USB/IP | same; tunnel externally, plus CIDR/rate/session caps |
+| Release integrity | distro-dependent | SBOM, cosign, SLSA provenance |
+| Quality gates | upstream project tests | conformance, fuzz, mutation, coverage, lint/vuln CI |
+| Shell UX | shell-generated completions vary by package | built-in install for bash/zsh/fish/pwsh |
+| Not provided | TLS/auth on the USB/IP wire | same; use WireGuard/SSH/Tailscale/etc. |
 
 The underlying invariant — wire-compatible with upstream — does not
 change as new features land.
@@ -99,7 +69,7 @@ change as new features land.
 Prebuilt binaries, `.deb`, and `.rpm` packages are published to
 [GitHub Releases](https://github.com/abilisoft/usbip-go/releases).
 
-```
+```text
 VERSION=1.0.0  # replace with the tag you want; see the Releases page
 curl -LO "https://github.com/abilisoft/usbip-go/releases/download/v${VERSION}/usbip-go_${VERSION}_linux_amd64.tar.gz"
 tar xzf "usbip-go_${VERSION}_linux_amd64.tar.gz"
@@ -120,7 +90,7 @@ installing — `name_template` in `.goreleaser.yml` produces the
 checksum filename as `usbip-go_<version>_checksums.txt`, so the
 matching cosign bundle is `usbip-go_<version>_checksums.txt.sigstore.json`:
 
-```
+```text
 VERSION=1.0.0
 ARCHIVE=usbip-go_${VERSION}_linux_amd64.tar.gz
 CHECKSUMS=usbip-go_${VERSION}_checksums.txt
@@ -163,23 +133,24 @@ once; both are statically linked single binaries.
 
 ### Systemd
 
-The release archive and packages both include systemd units. Drop
-them in place and enable the socket unit:
+The release archive and packages both include systemd units and a
+modules-load snippet. Drop them in place and enable the socket unit:
 
-```
+```text
 sudo install -Dm 0644 contrib/systemd/usbip-go.service /etc/systemd/system/usbip-go.service
 sudo install -Dm 0644 contrib/systemd/usbip-go.socket  /etc/systemd/system/usbip-go.socket
+sudo install -Dm 0644 contrib/modules-load.d/usbip-go.conf /etc/modules-load.d/usbip-go.conf
 sudo systemctl daemon-reload
 sudo systemctl enable --now usbip-go.socket
 ```
 
 Socket activation means the daemon starts on the first inbound
 connection. See [`docs/ops.md`](docs/ops.md) for the full systemd
-hardening recipe, metrics wiring, and drain procedure.
+hardening recipe, status/health endpoints, and drain procedure.
 
 ### `go install`
 
-```
+```text
 go install github.com/abilisoft/usbip-go/cmd/usbip-go@latest
 ```
 
@@ -190,8 +161,8 @@ Requires Go 1.26 or newer.
 Every host running `usbip-go serve` (exporter) or the `usbip-go`
 client needs the relevant kernel modules:
 
-```
-sudo modprobe usbip_core vhci-hcd usbip-host
+```text
+sudo modprobe usbip_core vhci_hcd usbip_host
 echo -e 'usbip_core\nvhci_hcd\nusbip_host' \
   | sudo tee /etc/modules-load.d/usbip-go.conf
 ```
@@ -226,11 +197,18 @@ func main() {
 ```
 
 More patterns under [`examples/`](examples/) — client, server,
-events, reconnect, metrics.
+events, and reconnect.
+
+Library users can also set TCP transport tuning with
+`usbip.WithImporterTransportOptions` and
+`usbip.WithExporterTransportOptions` for WAN links: connect timeout,
+keepalive idle/interval/probe count, send/receive buffers, and static
+handshake read/write deadlines. Zero values preserve Go/kernel
+defaults.
 
 ### 2. CLI attach
 
-```
+```text
 sudo usbip-go attach 10.0.0.5 1-1.2
 sudo usbip-go port
 sudo usbip-go detach 0
@@ -238,23 +216,26 @@ sudo usbip-go detach 0
 
 ### 3. Daemon via systemd
 
-```
+```text
 sudo systemctl enable --now usbip-go.socket
 sudo usbip-go bind 1-1.2           # export a local device
 sudo systemctl status usbip-go
 ```
 
-Metrics, drain, and readiness endpoints are in
+Status, drain, health, and readiness endpoints are in
 [`docs/ops.md`](docs/ops.md).
 
 ## Development
 
 The dev toolchain is hermetic: the only host-side prerequisites are
 **Docker** and **[Task](https://taskfile.dev)**. Go, linters,
-formatters, and every release tool (goreleaser, syft, cosign, nfpm,
-git-cliff) are pinned in `flake.nix` and delivered through a Nix
-container — `task setup` seeds the store once, then `task test`,
-`task lint`, and friends reuse it.
+formatters, spelling checks, release tools, and microVM tooling are pinned in
+`flake.nix` and delivered through Nix containers. The flake is split into fast
+build/test `dev`, formatter `fmt`, lint/analyzer `lint`, vulnerability-scan
+`vuln`, full-QA `qa`, release-only `release`, and microVM-only `vm` shells so
+each task realizes only the tooling it needs. Go and the microVM stay on the
+primary security-patched Nixpkgs pin; formatter/linter/release CLIs come from a
+separate locked `tooling-nixpkgs` input to keep CI on cached tool closures.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md#prerequisites) for the full
 onboarding flow, the hermetic-cache layout under `./build/`, and
@@ -269,13 +250,15 @@ kernel without requiring the USBIP modules on your host.
 - [`docs/security.md`](docs/security.md) — threat model, privilege,
   allow-CIDR, `setcap`.
 - [`docs/ops.md`](docs/ops.md) — daemon install, systemd, status UDS,
-  metrics, drain.
+  health/readiness, structured logs, and drain.
 - [`docs/troubleshooting.md`](docs/troubleshooting.md) — decision
   tree for attach failures.
 - [`docs/wire-trace.md`](docs/wire-trace.md) — pcap recipe for bug
   reports.
 - [`docs/json-schema.md`](docs/json-schema.md) — v1 JSON schema
   contract.
+- [`openspec/specs/`](openspec/specs/) — source-of-truth
+  requirements for current behavior; update these instead of ADRs.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup, TDD discipline,
   commit conventions.
 

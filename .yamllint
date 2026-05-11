@@ -1,0 +1,13 @@
+---
+extends: default
+
+ignore: |
+  build/
+  cmd/**/.t-*/
+
+rules:
+  comments: disable
+  document-start: disable
+  line-length: disable
+  truthy:
+    check-keys: false

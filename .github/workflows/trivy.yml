@@ -82,8 +82,7 @@ jobs:
         # interpolation possible because it sits inside an `if:`
         # expression context.
         if: >-
-          always() &&
-          (github.event_name != 'pull_request' ||
+          always() && (github.event_name != 'pull_request' ||
            github.event.pull_request.head.repo.full_name == github.repository)
         uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7 # v4.35.3
         with:

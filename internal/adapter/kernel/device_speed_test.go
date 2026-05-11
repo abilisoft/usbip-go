@@ -71,8 +71,8 @@ func TestListLocalDevices_AllRealSysfsSpeedStrings(t *testing.T) {
 // TestListLocalDevices_RejectsUnrecognizedSysfsSpeed pins the failure
 // mode for sysfs strings outside speed_show()'s emit set. The walker
 // logs a warning and skips the device rather than surfacing a domain
-// device with a garbage Speed value — downstream consumers (metrics
-// cardinality, CLI rendering, JSON event delivery) never see an
+// device with a garbage Speed value — downstream consumers (structured
+// logs, CLI rendering, JSON event delivery) never see an
 // out-of-enum value.
 func TestListLocalDevices_RejectsUnrecognizedSysfsSpeed(t *testing.T) {
 	t.Parallel()

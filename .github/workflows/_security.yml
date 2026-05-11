@@ -1,11 +1,12 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
 #
-# Reusable workflow: gofmt format check + golangci-lint + govulncheck
-# (SARIF upload to the Security tab). Called from ci.yml on every PR
-# / push and from nightly.yml on the daily cron so a CVE published to
-# the Go vuln DB pages within 24h instead of waiting for the next
-# merge. Single source of truth — bumping the lint config or the
+# Reusable workflow: format checks + module-tidy drift + lint suite +
+# govulncheck (SARIF upload to the Security tab). Called from ci.yml on
+# every PR / push and from nightly.yml on the daily cron so a CVE
+# published to the Go vuln DB pages within 24h instead of waiting for
+# the next merge.
+# Single source of truth — bumping lint/format configs or the
 # upload-sarif action lands here, not in N copies.
 #
 # Underscore prefix marks this as not-directly-triggerable: only
@@ -31,7 +32,7 @@ permissions:
 
 jobs:
   format-lint-vuln:
-    name: Format, lint, and vulnerability scan
+    name: Format, tidy, lint, and vulnerability scan
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -47,20 +48,27 @@ jobs:
       # — lint+vuln don't need history.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/setup-nix-dev
-      - name: Format check (gofmt -s)
-        # Fails fast if any file under cmd/examples/internal/pkg/test
-        # would change under `gofmt -s`. Catches drift that local
-        # `task fmt` would auto-fix; Go Report Card's gofmt check
-        # otherwise surfaces it weeks later as a graded penalty.
-        run: nix develop --command task ci:fmt:check
+      - name: Format check
+        # Fails fast if any Go, YAML, Markdown, shell, Nix, or TOML file
+        # would change under the project formatters. Catches drift that local
+        # `task fmt` would auto-fix.
+        run: nix develop .#fmt --command task ci:fmt:check
+      - name: Module tidy check
+        # Fails if `go mod tidy` would change go.mod or go.sum. This is
+        # the same drift gate local `task check` runs before linting.
+        run: nix develop .#dev --command task ci:tidy:check
       - name: Lint
-        run: nix develop --command task ci:lint
+        # Runs golangci-lint, yamllint, actionlint (+ shellcheck for
+        # workflow run: blocks), rumdl, shellcheck, typos, Nix/TOML
+        # linting, Compose validation, OpenSpec validation, and
+        # goreleaser config validation.
+        run: nix develop .#lint --command task ci:lint
       - name: Vuln (SARIF)
         # govulncheck -format=sarif writes the full SARIF payload to
         # stdout before the nonzero-on-findings exit, so the redirect
         # captures a complete file even when the step fails. Upload
         # below runs with `if: always()` to guarantee delivery.
-        run: nix develop --command task ci:vuln:sarif
+        run: nix develop .#vuln --command task ci:vuln:sarif
       - name: Upload govulncheck SARIF
         # Skip on fork PRs: GitHub clamps GITHUB_TOKEN to read-only
         # there regardless of the job-scope security-events:write
@@ -74,9 +82,7 @@ jobs:
         # because they are compared inside the `if:` expression
         # context, never interpolated into a `run:` script.
         if: >-
-          always() &&
-          inputs.upload-sarif &&
-          (github.event_name != 'pull_request' ||
+          always() && inputs.upload-sarif && (github.event_name != 'pull_request' ||
            github.event.pull_request.head.repo.full_name == github.repository)
         uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7 # v4.35.3
         with:

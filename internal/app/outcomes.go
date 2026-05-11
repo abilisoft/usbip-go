@@ -6,7 +6,7 @@ package app
 // Domain outcome enums. These name the closed set of outcomes for each
 // operation in the project's ubiquitous language. They are emitted as
 // `slog.String("outcome", string(outcome))` at every operation boundary
-// so structured journald queries (`journalctl -u usbipd --output=json`)
+// so structured journald queries (`journalctl -u usbip-go --output=json`)
 // can filter by outcome without parsing free-form messages.
 
 // SessionOutcome classifies how an inbound exporter handshake resolved.

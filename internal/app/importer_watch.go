@@ -108,7 +108,7 @@ func (i *Importer) closeAllImporterSubscribers() {
 // Ordering and cancellation semantics:
 //
 // Ordering between the two source channels is non-deterministic by
-// design (see ADR-0008) — Go's select picks pseudo-randomly among
+// design — Go's select picks pseudo-randomly among
 // ready cases. The same rule means cancellation is cooperative, not
 // instantaneous: if ctx.Done() and an event channel are simultaneously
 // ready, the iterator may yield ONE final event before terminating.

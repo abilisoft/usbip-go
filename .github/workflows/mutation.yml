@@ -37,8 +37,7 @@ jobs:
     # Run on schedule and dispatch unconditionally; on PRs require
     # the `run-mutation` label so the slow gate stays opt-in.
     if: >-
-      github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'run-mutation')
+      github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-mutation')
     permissions:
       contents: read
       id-token: write
@@ -52,4 +51,4 @@ jobs:
         # against pkg/domain + internal/adapter/wire, the two
         # protocol-critical packages where mutation efficacy is the
         # gate that pure line coverage cannot enforce.
-        run: nix develop --command task ci:test:mutation
+        run: nix develop .#dev --command task ci:test:mutation

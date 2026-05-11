@@ -3,7 +3,7 @@
 This document covers installation, systemd integration, the status
 UDS, and health/readiness endpoints for production deployments of
 `usbip-go serve` (the daemon subcommand of the unified `usbip-go` binary;
-see ADR-0011).
+see `openspec/specs/cli-interface/spec.md`).
 
 ## Installation
 
@@ -12,11 +12,12 @@ Three supported install paths:
 1. **Pre-built release archive** from GitHub Releases:
 
    ```
-   curl -LO https://github.com/abilisoft/usbip-go/releases/download/vX.Y.Z/usbip-go_vX.Y.Z_linux_amd64.tar.gz
-   tar xzf usbip-go_vX.Y.Z_linux_amd64.tar.gz
+   curl -LO https://github.com/abilisoft/usbip-go/releases/download/vX.Y.Z/usbip-go_X.Y.Z_linux_amd64.tar.gz
+   tar xzf usbip-go_X.Y.Z_linux_amd64.tar.gz
    sudo install -m 0755 usbip-go /usr/local/bin/
    sudo install -Dm 0644 contrib/systemd/usbip-go.service /etc/systemd/system/usbip-go.service
    sudo install -Dm 0644 contrib/systemd/usbip-go.socket  /etc/systemd/system/usbip-go.socket
+   sudo install -Dm 0644 contrib/modules-load.d/usbip-go.conf /etc/modules-load.d/usbip-go.conf
    ```
 
 2. **Debian / RPM package** from the release assets. Install via
@@ -29,7 +30,8 @@ Three supported install paths:
    ```
 
    Packages drop the binaries under `/usr/bin`, the systemd units
-   under `/usr/lib/systemd/system`.
+   under `/usr/lib/systemd/system`, and the modules-load snippet
+   under `/usr/lib/modules-load.d`.
 
 3. **Source build** for development:
 
@@ -40,7 +42,7 @@ Three supported install paths:
 Kernel modules must be loadable on the target host:
 
 ```
-sudo modprobe usbip_core vhci-hcd usbip-host
+sudo modprobe usbip_core vhci_hcd usbip_host
 ```
 
 Add the modules to `/etc/modules-load.d/usbip-go.conf` for
@@ -61,7 +63,7 @@ Description=USB/IP (Go) daemon socket
 [Socket]
 ListenStream=0.0.0.0:3240
 Accept=no
-FileDescriptorName=usbip
+FileDescriptorName=usbip-go
 
 [Install]
 WantedBy=sockets.target
@@ -70,7 +72,7 @@ WantedBy=sockets.target
 Socket activation means systemd binds the TCP port. The daemon
 receives the listener via `LISTEN_FDS` + `LISTEN_FDNAMES` and never
 races with a previous daemon over port 3240 during upgrades. The
-`FileDescriptorName=usbip` directive lets the Go
+`FileDescriptorName=usbip-go` directive lets the Go
 `activation.ListenersWithNames` helper disambiguate if multiple
 sockets are ever passed to the same unit.
 
@@ -119,7 +121,9 @@ listener.
 
 ## Daemon flags
 
-Authoritative list in v1 contract §7.7. Full flag set:
+Authoritative behavior is captured in
+`openspec/specs/cli-interface/spec.md` and
+`openspec/specs/operations-observability/spec.md`. Full daemon flag set:
 
 | Flag | Default | When to change |
 |---|---|---|
@@ -142,8 +146,9 @@ Run `usbip-go serve --help` for the up-to-date set.
 
 ## Exit codes
 
-The `usbip-go` binary uses a stable numeric exit-code catalog (v1
-contract §7.4). Operators / supervisors can grep on these values:
+The `usbip-go` binary uses a stable numeric exit-code catalog
+documented in `openspec/specs/cli-interface/spec.md`. Operators /
+supervisors can grep on these values:
 
 | Code | Symbol | Meaning |
 |---|---|---|
@@ -178,6 +183,8 @@ Output includes:
 - `version`, `commit`, `uptime_sec`.
 - `listening` — TCP `addr` and whether it was `activation`-received.
 - `bound_devices` — every exported BusID with `vid` / `pid`.
+- `bound_devices_error` — optional diagnostic text when listing
+  bound devices failed and `bound_devices` would otherwise be empty.
 - `kernel_modules` — per-module `loaded` / `missing` / `unknown`.
 - `sessions` — every accepted session with `id`, `remote`, `busid`,
   `started_at`, byte counters.
@@ -191,9 +198,9 @@ sudo usbip-go drain --status-socket /run/usbip-go/status.sock
 Drain instructs the running daemon to refuse new accepts, wait for
 in-flight sessions to end, and exit cleanly. `systemctl restart usbip-go`
 then starts the new version against the same socket-activated
-listener without a connect-refused window. See ADR-0012 for the
-mechanism (HTTP-over-UDS) and the rejected alternatives (signals,
-sd_notify, gRPC, custom binary protocol).
+listener without a connect-refused window. See
+`openspec/specs/operations-observability/spec.md` for the
+HTTP-over-UDS drain behavior.
 
 ### Two timeouts, server-authoritative
 
@@ -236,9 +243,10 @@ library (no third-party dependency):
   listener bound, accept loop armed, status socket writable.
   Readiness gate for Kubernetes-style orchestrators.
 
-Per ADR-0010, this daemon does NOT export Prometheus metrics. Operator
-observability is structured slog (journald) + sysfs + `systemctl
-status`. Every operation that previously emitted a metric now emits a
+Per `openspec/specs/operations-observability/spec.md`, this daemon
+does NOT export Prometheus metrics. Operator observability is
+structured slog (journald) + sysfs + `systemctl status`. Every
+important operation emits a
 slog record with an `outcome` field carrying the closed-set
 classification, so journald queries cover the same dashboards.
 
@@ -260,9 +268,8 @@ journalctl -u usbip-go --output=json \
 ```
 
 Operators who genuinely need Prometheus metrics should run a sidecar
-that parses `journalctl --output=json` and republishes counters in the
-exposition format. The library deliberately does not ship that
-adapter.
+that derives them from journald or sysfs. The library deliberately does
+not ship that adapter.
 
 ## Drain-and-upgrade
 
@@ -270,12 +277,12 @@ For seamless upgrades:
 
 ```
 sudo usbip-go drain --status-socket /run/usbip-go/status.sock
-sudo install -m 0755 /tmp/new-usbip /usr/bin/usbip
+sudo install -m 0755 /tmp/new-usbip-go /usr/bin/usbip-go
 sudo systemctl start usbip-go
 ```
 
 Kernel-owned sessions survive the daemon restart because the kernel
-holds the socket refs (v1 contract §5.4 item 7). Socket activation keeps
+holds the socket refs after handoff. Socket activation keeps
 port 3240 bound across the restart so new clients do not see
 connect-refused.
 

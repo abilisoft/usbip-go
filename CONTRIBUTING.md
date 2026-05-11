@@ -8,10 +8,17 @@ before opening a PR.
 
 ## Prerequisites
 
-The dev environment is hermetic: every tool (Go, golangci-lint,
-gofumpt, govulncheck, goreleaser, syft, cosign, nfpm, git-cliff, gh,
-moq, gotools) is pinned in [`flake.nix`](flake.nix) and delivered
-via a Nix container. The only host-side dependencies are:
+The toolchain is hermetic and split by cost. Go build/test tools, formatters,
+lint/analyzer tools, vulnerability scanning, release tools, and microVM tools
+are pinned in [`flake.nix`](flake.nix) and run through Nix containers. The Go
+toolchain and microVM stay on the primary security-patched Nixpkgs pin; non-Go
+CLI tooling comes from the separate locked `tooling-nixpkgs` input so CI uses
+cached formatter/linter closures instead of source-building Rust-heavy tools.
+The fast `dev` shell carries build/test tooling; `fmt` carries formatters;
+`lint` carries lint, spelling, analyzer, Compose/OpenSpec, and release-config
+validation tooling; `vuln` carries vulnerability scanning; `qa` is the full
+local QA superset; `release` carries GoReleaser, SBOM/signing/package/changelog
+tools; `vm` carries the microVM runner. The only host-side dependencies are:
 
 - **Docker Engine 20.10+** (or a compatible daemon exposing the
   `docker` CLI and `docker compose`). On Linux install via your
@@ -22,68 +29,63 @@ via a Nix container. The only host-side dependencies are:
   `brew install go-task` on macOS, or any of the options on the
   Taskfile install page.
 
-That is everything. No host Go, no host golangci-lint, no host
-goreleaser; the flake closure provides all of them.
+That is everything. No host Go, no host linters/formatters, no host
+GoReleaser; the flake shells provide all of them.
 
 ### Bootstrap
 
-Run `task setup` once per checkout (and again whenever `flake.lock`
-changes). That seeds a `/nix` Docker volume with the full closure
-pulled from `cache.nixos.org` and hands its ownership to your host
-UID/GID so subsequent `task *` invocations can acquire the store
-lock without escalating privileges.
+You do not need to run setup manually for normal use. Top-level tasks seed the
+smallest required Docker/Nix shell before executing:
 
-The volume name includes your UID, GID, and a sha256 prefix of the
-absolute workspace path (see `docker volume ls`), so multiple
-checkouts never alias into one store. To share one store across
-workspaces, export `USBIP_GO_NIX_VOLUME=<your-chosen-name>` before
-running any `task` command.
+- `task test`, `task build`, `task tidy` → `.#dev`
+- `task fmt` → `.#fmt`
+- `task lint` → `.#lint`
+- `task vuln` → `.#vuln`
+- `task check` → `.#qa`
+- `task release:notes`, `task release:snapshot`, `task release` → `.#release`
+- `task vm:build`, `task vm:smoke`, `task vm:test:integration` → `.#vm`
 
-Subsequent commands (`task test`, `task lint`, etc.) reuse the same
-volume, re-entering the hermetic shell automatically. If you ever
-want a REPL inside it, `task shell` drops you into an interactive
-`nix develop` session.
+If you want to prewarm or debug a shell explicitly, use `task setup:dev`,
+`task setup:fmt`, `task setup:lint`, `task setup:vuln`, `task setup:qa`,
+`task setup:release`, `task setup:vm`, `task shell`, `task shell:fmt`,
+`task shell:lint`, `task shell:vuln`, `task shell:qa`,
+`task shell:release`, or `task shell:vm`.
+
+The volume name includes your UID, GID, and a sha256 prefix of the absolute
+workspace path (see `docker volume ls`), so multiple checkouts never alias into
+one store. To share one store across workspaces, export
+`USBIP_GO_NIX_VOLUME=<your-chosen-name>` before running any `task` command.
 
 If the store ever ends up in a bad state (interrupted setup, manual
-`docker volume` edit, a flake pin that produced broken derivations),
-reset it:
+`docker volume` edit, a flake pin that produced broken derivations), reset it:
 
-```
+```text
 docker compose down -v      # removes the named volume
 task clean                  # clears build/ caches
-task setup                  # re-seeds from scratch
-```
-
-When switching back to a pre-migration branch (or reverting the
-hermetic-tooling merge), remove the nested module marker too — its
-presence outside this branch family confuses `go test ./...`:
-
-```
-docker compose down -v
-rm -rf build                # including /build/go.mod on the old branch
+task setup:dev              # re-seeds the fast build/test shell
 ```
 
 ## Dev loop
 
-```
-task fmt      # gofumpt + goimports
-task lint     # golangci-lint (must be "0 issues.")
+```text
+task fmt      # gofmt/gofumpt/goimports + yamlfmt + rumdl + shfmt + nixpkgs-fmt + taplo
+task lint     # Go/YAML/Actions/Markdown/shell/spelling/Nix/TOML/Compose/OpenSpec/release lint gates
 task vuln     # govulncheck
 task test     # -race unit tests
 task build    # release-style build of usbip-go → build/bin/
 ```
 
-`task check` runs `fmt`, `lint`, `vuln`, `test` in sequence — the
+`task check` runs `fmt`, `tidy:check`, `lint`, `vuln`, `test` in sequence — the
 minimum bar before pushing. All build artefacts land under
 `./build/` (binaries in `build/bin/`, coverage under
 `build/coverage/`, goreleaser output under `build/dist/`, and every
 cache — Go, golangci-lint, home — under `build/cache/`). `task
-clean` removes everything except the tracked `build/go.mod` marker.
+clean` removes generated build contents.
 
 Integration and conformance suites live behind build tags so
 ordinary `task test` stays fast:
 
-```
+```text
 task test:conformance   # runs wire/byte comparisons; upstream-binary
                         # checks inside it skip when `usbip` is not on
                         # PATH (it is not in the flake closure)
@@ -97,7 +99,7 @@ Integration tests need a live Linux kernel with `usbip_core`,
 Rather than demanding those modules on every contributor's host,
 the flake builds a hermetic microVM:
 
-```
+```text
 task vm:build               # build the kernel + initrd + runner closure
 task vm:smoke               # boot, assert modules load, power off
 task vm:test:integration    # run ./test/integration/... inside the VM
@@ -157,8 +159,9 @@ pairs SHOULD still keep them adjacent in the same PR; the gate
 won't reject the test-first commit on its own, but reviewers will
 flag a stale `test:` commit at PR review.
 
-The v1 contract's compliance gates 1-4 define the discipline; the CI workflow
-enforces gates 1-6, 8, and 12 mechanically.
+The OpenSpec developer-workflow and security/release capabilities
+define the discipline; the CI workflow enforces gates 1-6, 8, and
+12 mechanically.
 
 ## Commit conventions
 
@@ -179,13 +182,19 @@ enforces gates 1-6, 8, and 12 mechanically.
 
 ## Style rules
 
-- Formatter: `gofumpt` + `goimports`. `task fmt` runs both.
-- Linter: `golangci-lint` with the config at
-  [`.golangci.yml`](.golangci.yml). `default: all` with a minimal,
-  justified disable list.
-- Code review applies v1 contract §9 style rules — comments explain WHY,
-  not WHAT; no `//nolint` without a cited rationale; no `t.Skip`
-  without a tracked reason; magic numbers named.
+- Formatters: `gofmt -s`, `gofumpt`, `goimports`, `yamlfmt`,
+  `rumdl fmt`, `shfmt`, `nixpkgs-fmt`, and `taplo fmt`. `task fmt`
+  runs all of them.
+- Linters: `golangci-lint` with the config at
+  [`.golangci.yml`](.golangci.yml), plus `yamllint`, `actionlint`,
+  `rumdl check`, `shellcheck`, `typos`, `goreleaser check`,
+  `statix`, `deadnix`, `taplo lint`, `docker-compose config --quiet`,
+  and `openspec validate --specs --strict`.
+  `golangci-lint` uses `default: all` with a minimal, justified
+  disable list.
+- Code review applies the repository style rules — comments explain
+  WHY, not WHAT; no `//nolint` without a cited rationale; no
+  `t.Skip` without a tracked reason; magic numbers named.
 - Lines are bounded at 120 chars (`lll` linter). Cyclomatic complexity
   capped at 10 (`cyclop`, `gocyclo`, `gocognit`).
 
@@ -204,7 +213,7 @@ intentionally breaks either surface (subject line begins with
 `BREAKING:`), regenerate the affected baseline in the same PR so the
 next comparison starts from the new contract:
 
-```
+```text
 apidiff -w api/pkg_usbip.json  github.com/abilisoft/usbip-go/pkg/usbip
 apidiff -w api/pkg_domain.json github.com/abilisoft/usbip-go/pkg/domain
 ```
@@ -214,15 +223,16 @@ alongside the `BREAKING:`-prefixed change.
 
 ## Compliance gates
 
-Every PR is validated against the 12 compliance gates defined in the
-release-readiness policy. The CI workflow
+Every PR is validated against the compliance gates summarized below
+and backed by OpenSpec's developer-workflow and security/release
+capabilities. The CI workflow
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) enforces
 gates 1-6, 8, and 12 mechanically; the remainder are code-review
 items per the progressive-enforcement policy:
 
 | Gate | What | Enforcement |
 |---|---|---|
-| 1 | `task lint` clean (gofumpt, wsl_v5, mnd, goconst, nolintlint, complexity ≤ 10, etc.) | CI: `Format, lint, and vulnerability scan` (in `_security.yml`). |
+| 1 | `task lint` clean (Go, YAML, GitHub Actions, Markdown, shell, spelling, Nix, TOML, Compose, OpenSpec, and release config checks), formatter drift checks (`gofmt`, `yamlfmt`, `rumdl`, `shfmt`, `nixpkgs-fmt`, `taplo`), and module-tidy drift checks | CI: `Format, tidy, lint, and vulnerability scan` (in `_security.yml`). |
 | 2 | `task test` clean with `-race` on linux | CI: `Linux unit tests` (in `_unit-tests.yml`). A separate `USB/IP wire conformance` job (in `_conformance.yml`) runs `task ci:test:conformance`; upstream-binary cross-checks inside it skip when `usbip` is not on PATH (the flake closure does not pin usbip-utils). |
 | 3 | RED→GREEN commit chain — every `feat:`/`fix:` commit that adds at least one new `*_test.go` and touches no non-test `.go` outside `internal/tools/` is immediately followed by a commit that touches non-test `.go` outside `internal/tools/` (the GREEN; additions OR modifications both count) OR by a `refactor:` commit (the only accepted break). `test:`-prefixed commits are NOT carried as RED (treated as coverage hardening). Trailing dangling RED at the PR tip also fails. | CI: `TDD commit discipline` job in `ci.yml` (PRs only). |
 | 4 | Coverage thresholds per `.testcoverage.yaml` — per-package floor 80%, total 90% (the achievable floor across the kernel-adapter errno tail and the cmd Cobra-Action surface; pure-logic packages — `pkg/domain`, `pkg/usbip`, `internal/app`, `internal/adapter/wire` — clear 90% comfortably under the current test surface). | CI: `Coverage thresholds` (in `_coverage.yml`) runs `task test:cover` + `vladopajic/go-test-coverage` against `.testcoverage.yaml`. |
@@ -230,14 +240,16 @@ items per the progressive-enforcement policy:
 | 6 | Public API stability for `pkg/usbip` + `pkg/domain`; breaking changes require a `BREAKING:` commit prefix | CI: `API compatibility` (in `_arch-checks.yml`) diffs against `api/pkg_usbip.json` + `api/pkg_domain.json` via `apidiff`; the BREAKING-prefix scan walks `merge-base..HEAD` on PR events. |
 | 7 | No magic values (named constants only) | Code review (enforced indirectly by `mnd` + `goconst` in `task lint`, so rides Gate 1). |
 | 8 | No cgo anywhere in the tree | CI: `Pure Go enforcement` (in `_arch-checks.yml`) uses `go list -f '{{.CgoFiles}}'` + source greps for `import "C"`. |
-| 9 | Structured logging: `slog.DebugContext` + `oops.With(...)`, stable attr keys per §11.5.5 | Code review (enforced indirectly by `sloglint` in `task lint`, so rides Gate 1). |
-| 10 | Metrics registration: new app side-effects register a §11.5.5 catalog entry in the same PR | Code review. |
-| 11 | Error mapping: new sysfs/wire paths map to the v1 contract §6.2 + §6.4 sentinels in the same PR | Code review. |
+| 9 | Structured logging: `slog.DebugContext` + `oops.With(...)`, stable attr keys aligned with `openspec/specs/operations-observability/spec.md` | Code review (enforced indirectly by `sloglint` in `task lint`, so rides Gate 1). |
+| 10 | Observability updates: new app side-effects add or reuse stable `outcome` values and update OpenSpec/docs/tests in the same PR | Code review. |
+| 11 | Error mapping: new sysfs/wire paths map to public domain sentinels and OpenSpec error behavior in the same PR | Code review. |
 | 12 | Cross-compile for `linux/{amd64,arm64,arm}` | CI: `Linux cross-compilation` (in `_arch-checks.yml`); release builds use `goreleaser build --snapshot` wiring. |
 
-The `Format, lint, and vulnerability scan` job ALSO runs `task vuln`
-(govulncheck) — vuln scanning rides the same gate as lint rather than
-appearing as a separate workflow.
+The `Format, tidy, lint, and vulnerability scan` job runs formatter
+drift checks, module-tidy drift checks, the full lint suite, and
+`task vuln` (govulncheck), so config, docs, shell, release metadata,
+dependency metadata, and vulnerability scanning ride the same required
+gate.
 
 ## Code-review checklist
 
@@ -257,7 +269,7 @@ When reviewing a PR, verify:
       every exported identifier.
 - [ ] Tests cover happy path and at least one failure mode per new
       branch.
-- [ ] `task lint` reports `0 issues.` locally.
+- [ ] `task check` reports clean formatter, tidy, lint, vulnerability, and race-test gates locally.
 - [ ] `task test` is race-clean.
 - [ ] No `//nolint` without a rule + rationale comment that cites
       the spec section or linter rule.
@@ -275,20 +287,17 @@ When reviewing a PR, verify:
 Most CI workflows under [`.github/workflows/`](.github/workflows/)
 are replayable on a developer host via
 [`act`](https://github.com/nektos/act), which executes each job
-inside Docker containers shaped like the GitHub-hosted runners. The
-flake devShell ships `act`, but **`task act:*` must run from the
-host shell — not from inside the dev container** — because act
-drives docker-compose itself and the dev container does not mount
-`docker.sock`. From a host with the flake available, run:
+inside Docker containers shaped like the GitHub-hosted runners.
+`task act:*` must run from the host shell — not from inside the dev
+container — because act drives docker-compose itself and the dev
+container does not mount `docker.sock`. Install `act` via your
+package manager or GitHub releases, then run:
 
+```text
+task act:list                    # list jobs act would run for push
+task act:job JOB=security        # run one job
+task act:push                    # run every replayable push-event job
 ```
-nix develop --command task act:list                    # list jobs act would run for push
-nix develop --command task act:job JOB=security        # run one job
-nix develop --command task act:push                    # run every replayable push-event job
-```
-
-(Or install `act` via your package manager / GitHub releases and
-drop the `nix develop --command` prefix.)
 
 The repo-level `.actrc` pins the runner image to
 `catthehacker/ubuntu:act-latest` and architecture to `linux/amd64`.

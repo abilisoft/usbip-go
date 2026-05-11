@@ -156,10 +156,10 @@ func TestRunUninstallRemovesExistingFile(t *testing.T) {
 	require.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
-// TestRunUninstallTolerantsMissingFile covers the os.ErrNotExist
+// TestRunUninstallToleratesMissingFile covers the os.ErrNotExist
 // branch: a missing target is not an error so the install/uninstall
 // pair is idempotent.
-func TestRunUninstallTolerantsMissingFile(t *testing.T) {
+func TestRunUninstallToleratesMissingFile(t *testing.T) {
 	t.Parallel()
 
 	target := filepath.Join(t.TempDir(), "does-not-exist")

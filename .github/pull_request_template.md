@@ -1,3 +1,5 @@
+# Pull request
+
 <!--
 Fill in every section. The reviewer will reject PRs that ship with
 this template still containing placeholders.
@@ -47,10 +49,11 @@ CONTRIBUTING.md "TDD discipline" for the full gate semantics.
 - [ ] This PR does NOT change the public API surface.
 - [ ] OR — this PR is `BREAKING:` and includes regenerated
       `api/pkg_usbip.json` / `api/pkg_domain.json` baselines:
-      ```
-      apidiff -w api/pkg_usbip.json  github.com/abilisoft/usbip-go/pkg/usbip
-      apidiff -w api/pkg_domain.json github.com/abilisoft/usbip-go/pkg/domain
-      ```
+
+  ```text
+  apidiff -w api/pkg_usbip.json  github.com/abilisoft/usbip-go/pkg/usbip
+  apidiff -w api/pkg_domain.json github.com/abilisoft/usbip-go/pkg/domain
+  ```
 
 ## Notes for reviewers
 

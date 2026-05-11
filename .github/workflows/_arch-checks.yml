@@ -65,7 +65,7 @@ jobs:
         # excludes _test.go imports (testify in tests is fine) and
         # self-module imports under github.com/abilisoft/usbip-go/.
         run: |
-          nix develop --command bash -euo pipefail -c '
+          nix develop .#dev --command bash -euo pipefail -c '
             # pkg/domain disappearing is itself a boundary
             # violation (the value-object surface is load-bearing
             # for the whole DDD layering); fail loudly rather than
@@ -138,7 +138,7 @@ jobs:
         # ships cgo files that are only compiled under CGO_ENABLED=1;
         # listing them is irrelevant to our CGO_ENABLED=0 policy.
         run: |
-          nix develop --command bash -euo pipefail -c '
+          nix develop .#dev --command bash -euo pipefail -c '
             # Capture go-list output before filtering so a non-zero
             # go-list exit fails the pipeline LOUDLY instead of
             # being swallowed by the trailing `|| true` (Codex
@@ -200,7 +200,7 @@ jobs:
         # commit subject anywhere in the PR (or, on push, on the tip
         # commit) so consumers see the SemVer-major signal.
         run: |
-          nix develop --command bash -eu -c '
+          nix develop .#dev --command bash -eu -c '
             export GOBIN="$PWD/build/cache/go-bin"
             mkdir -p "$GOBIN"
             go install golang.org/x/exp/cmd/apidiff@v0.0.0-20260410095643-746e56fc9e2f
@@ -265,8 +265,8 @@ jobs:
         # gate plus avoids the host-toolchain cgo trap (cross-arch
         # `gcc` cannot assemble runtime/cgo's per-arch sources;
         # CGO_ENABLED=0 skips them entirely).
-        run: |
-          nix develop --command bash -eu -c '
+        run: |-
+          nix develop .#dev --command bash -eu -c '
             export CGO_ENABLED=0
             GOOS=linux GOARCH=amd64 go build ./...
             GOOS=linux GOARCH=arm64 go build ./...

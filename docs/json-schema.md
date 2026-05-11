@@ -2,12 +2,12 @@
 
 Stable contract for every JSON object emitted by usbip-go. This
 document fixes field names, types, and semantics at schema v1 per
-v1 contract §7.5.
+`openspec/specs/operations-observability/spec.md` and `openspec/specs/cli-interface/spec.md`.
 
-The schema is mutable BEFORE the first stable release (v1.1.0).
+The schema is mutable BEFORE the first stable release (v1.0.0).
 Field semantics may shift between v0.x and v1.0.x without a schema
 bump because no public consumer has shipped against them. Once
-v1.1.0 lands, any breaking change here requires a documented
+v1.0.0 lands, any breaking change here requires a documented
 schema bump and a GitHub Release note at tag time.
 
 The CLI's `--output=table` (default) human-readable format is NOT
@@ -223,7 +223,7 @@ Emitted by `Importer.Watch` when the reconnect watcher gives up after
 the last successful Attach (the kernel slot is gone at emission time);
 `attempts` is the number of reconnect attempts actually made (NOT
 `MaxAttempts`); `last_error` is the stringified final error. See
-ADR-0009.
+`openspec/specs/domain-model/spec.md`.
 
 ```json
 {
@@ -269,7 +269,7 @@ Shape is `statusResponse` in
 ```json
 {
   "schema": "v1",
-  "version": "vX.Y.Z",
+  "version": "X.Y.Z",
   "commit": "<short sha>",
   "uptime_sec": <i64>,
   "listening": {
@@ -281,6 +281,7 @@ Shape is `statusResponse` in
     { "busid": "1-1.2", "vid": "0x0951", "pid": "0x1666" },
     ...
   ],
+  "bound_devices_error": "optional diagnostic text when bound-device listing fails",
   "sessions": [ sessionJSON, ... ],
   "kernel_modules": {
     "usbip_core": "loaded",
@@ -301,22 +302,28 @@ connects), and back to `false` when `Serve` returns. This lets
 `/readyz` distinguish a listener that is merely bound from one
 that has actually armed the accept loop.
 
+`bound_devices_error` is omitted on the happy path. When the daemon
+cannot list bound devices, `bound_devices` remains an empty array and
+`bound_devices_error` carries a human-readable diagnostic so operators
+can distinguish "nothing is exported" from "status collection failed".
+
 `kernel_modules` values are one of `"loaded"`, `"missing"`,
 `"unknown"`. The `/readyz` endpoint also consumes them to gate
 readiness on `usbip_core` and `usbip_host` being loaded.
 
 `sessions` entries use the same `sessionView` shape as the CLI
 list surfaces, with two JSON field name differences that are
-pinned by v1 contract §7.7:
+pinned by `openspec/specs/operations-observability/spec.md`:
 
 - Status socket `sessionJSON.id` is the canonical UUIDv7 form.
 - `started_at` is RFC 3339 nano UTC.
 
 ## Observability via slog
 
-Per ADR-0010, this project ships no Prometheus metrics. Every
-operation that crosses a state boundary emits a structured slog
-record carrying an `outcome` field with a closed-set classification.
+Per `openspec/specs/operations-observability/spec.md`, this project
+ships no Prometheus metrics. Every operation that crosses a state
+boundary emits a structured slog record carrying an `outcome` field
+with a closed-set classification.
 Operators query journald (`journalctl --output=json`) instead of
 scraping `/metrics`.
 
@@ -327,7 +334,7 @@ The closed outcome enumerations:
 | `exporter_bind` | `ok`, `already_bound`, `not_found`, `permission`, `error` |
 | `exporter_unbind` | `ok`, `not_bound`, `permission`, `error` |
 | `exporter_session_handshake` | `handshake_ok`, `rejected_acl`, `rejected_rate`, `rejected_cap`, `handshake_failed` |
-| `exporter_disconnect_reason` | `graceful`, `client_gone`, `kernel_error`, `shutdown` |
+| `exporter_disconnect_reason` | `client_gone`, `kernel_error`, `shutdown`, `protocol_error` |
 | `importer_attach` | `ok`, `permission`, `no_free_port`, `protocol_mismatch`, `dial_failed`, `kernel_error` |
 | `importer_detach` | `ok`, `not_found`, `error` |
 | `importer_reconnect` | `ok`, `backoff`, `exhausted`, `canceled` |
