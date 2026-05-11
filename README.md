@@ -129,7 +129,7 @@ Manual foreground flow on the machine with the physical USB device:
 
 ```sh
 sudo modprobe usbip_core usbip_host
-usbip-go list --local
+usbip-go list
 sudo usbip-go bind 1-1.2
 sudo usbip-go serve
 ```
@@ -146,7 +146,7 @@ sudo usbip-go unbind 1-1.2
 
 ```sh
 sudo modprobe usbip_core vhci_hcd
-usbip-go list --remote 10.0.0.5
+usbip-go list 10.0.0.5
 sudo usbip-go attach 10.0.0.5 1-1.2
 usbip-go port
 sudo usbip-go detach 0
@@ -175,7 +175,7 @@ sudo usbip-go bind 1-1.2
 ### JSON for scripts
 
 ```sh
-usbip-go list --remote 10.0.0.5 --output json
+usbip-go list 10.0.0.5 --output json
 usbip-go port --output json
 usbip-go watch --output json
 ```

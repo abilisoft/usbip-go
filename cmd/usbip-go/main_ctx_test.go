@@ -15,7 +15,7 @@ type probeCtxKey struct{}
 
 // TestRunCtxPropagatesRootContext pins the invariant that the CLI's
 // root context reaches every subcommand through cmd.Context. Long-
-// running subcommands (attach --auto-reconnect, list -r, bind) depend
+// running subcommands (attach --auto-reconnect, list HOST, bind) depend
 // on this propagation to observe SIGINT/SIGTERM via the cobra call
 // chain; a main() that called cmd.Execute() without a context would
 // silently seed a fresh context.Background and swallow the signal.

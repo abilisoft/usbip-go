@@ -174,12 +174,17 @@ func sampleDevice() usbip.Device {
 	}
 }
 
-// TestListRequiresOneOfFlags — running `list` with no -r/-l/-p returns
-// a usage error per v1 contract §7.4.1.
-func TestListRequiresOneOfFlags(t *testing.T) {
+// TestListDefaultsToLocalJSON — `list --output=json` renders local devices by
+// default, keeping the common "what can I export?" flow terse.
+func TestListDefaultsToLocalJSON(t *testing.T) {
 	t.Parallel()
 
-	swapFactories(t, &mockImporter{}, &mockExporter{})
+	exp := &mockExporter{
+		listAvailableFn: func(_ context.Context) ([]usbip.Device, error) {
+			return []usbip.Device{sampleDevice()}, nil
+		},
+	}
+	swapFactories(t, &mockImporter{}, exp)
 
 	cmd := newRootCmd()
 
@@ -187,13 +192,19 @@ func TestListRequiresOneOfFlags(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"list"})
+	cmd.SetArgs([]string{"--output=json", "list"})
 
 	err := cmd.Execute()
-	require.Error(t, err)
+	require.NoError(t, err)
+
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(out.Bytes(), &m))
+	require.Equal(t, "v1", m["schema"])
+	require.Contains(t, m, "devices")
 }
 
-// TestListRemoteAndLocalMutuallyExclusive — v1 contract §7.4.1 rule.
+// TestListRemoteAndLocalMutuallyExclusive — legacy selector flags remain
+// mutually exclusive.
 func TestListRemoteAndLocalMutuallyExclusive(t *testing.T) {
 	t.Parallel()
 
@@ -215,8 +226,58 @@ func TestListRemoteAndLocalMutuallyExclusive(t *testing.T) {
 	require.Contains(t, err.Error(), "remote local ports")
 }
 
-// TestListRemoteJSONHasSchemaV1 — v1 contract §7.5 schema envelope.
+// TestListPositionalRemoteRejectsSourceFlag — positional remote is the
+// preferred selector and cannot be mixed with legacy source flags.
+func TestListPositionalRemoteRejectsSourceFlag(t *testing.T) {
+	t.Parallel()
+
+	swapFactories(t, &mockImporter{}, &mockExporter{})
+
+	cmd := newRootCmd()
+
+	var out bytes.Buffer
+
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"list", "10.0.0.5", "--local"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "remote argument cannot be combined")
+}
+
+// TestListRemoteJSONHasSchemaV1 — positional remote renders the v1 schema
+// envelope.
 func TestListRemoteJSONHasSchemaV1(t *testing.T) {
+	t.Parallel()
+
+	imp := &mockImporter{
+		listRemoteFn: func(_ context.Context, _ usbip.RemoteEndpoint) ([]usbip.Device, error) {
+			return []usbip.Device{sampleDevice()}, nil
+		},
+	}
+	swapFactories(t, imp, &mockExporter{})
+
+	cmd := newRootCmd()
+
+	var out bytes.Buffer
+
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--output=json", "list", "10.0.0.5"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(out.Bytes(), &m))
+	require.Equal(t, "v1", m["schema"])
+	require.Contains(t, m, "devices")
+}
+
+// TestListLegacyRemoteFlagJSONHasSchemaV1 — `list -r` remains supported for
+// older scripts.
+func TestListLegacyRemoteFlagJSONHasSchemaV1(t *testing.T) {
 	t.Parallel()
 
 	imp := &mockImporter{
@@ -243,8 +304,9 @@ func TestListRemoteJSONHasSchemaV1(t *testing.T) {
 	require.Contains(t, m, "devices")
 }
 
-// TestListLocalJSON — `list -l --output=json` renders ListAvailable.
-func TestListLocalJSON(t *testing.T) {
+// TestListLocalFlagJSON — `list -l --output=json` remains a compatibility
+// spelling for local ListAvailable.
+func TestListLocalFlagJSON(t *testing.T) {
 	t.Parallel()
 
 	exp := &mockExporter{
@@ -315,7 +377,7 @@ func TestListRemoteTable(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"list", "-r", "10.0.0.5"})
+	cmd.SetArgs([]string{"list", "10.0.0.5"})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -339,7 +401,7 @@ func TestListRemoteError(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"list", "-r", "10.0.0.5"})
+	cmd.SetArgs([]string{"list", "10.0.0.5"})
 
 	err := cmd.Execute()
 	require.Error(t, err)

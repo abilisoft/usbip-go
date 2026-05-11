@@ -12,9 +12,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// listFlags bundles the list-subcommand flags. Exactly one of Remote /
-// Local / Ports must be set; cobra's MarkFlagsOneRequired +
-// MarkFlagsMutuallyExclusive enforce the rule.
+// listFlags bundles the list-subcommand compatibility flags. The preferred
+// interface is `list` for local devices and `list HOST` for remote devices;
+// the flags remain accepted so older scripts keep working.
 type listFlags struct {
 	Remote string
 	Local  bool
@@ -26,26 +26,45 @@ func newListCmd() *cobra.Command {
 	lf := &listFlags{}
 
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List remote, local, or attached devices",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runList(cmd, lf)
+		Use:   "list [remote]",
+		Short: "List local or remote USB devices",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runList(cmd, lf, args)
 		},
 	}
 
 	flags := cmd.Flags()
-	flags.StringVarP(&lf.Remote, "remote", "r", "", "query a remote USB/IP server")
-	flags.BoolVarP(&lf.Local, "local", "l", false, "list locally-exportable devices")
-	flags.BoolVarP(&lf.Ports, "ports", "p", false, "list attached vhci ports")
+	flags.StringVarP(
+		&lf.Remote,
+		"remote",
+		"r",
+		"",
+		"query a remote USB/IP server (compatibility; prefer positional remote)",
+	)
+	flags.BoolVarP(
+		&lf.Local,
+		"local",
+		"l",
+		false,
+		"list locally-exportable devices (compatibility; default when no remote is supplied)",
+	)
+	flags.BoolVarP(
+		&lf.Ports,
+		"ports",
+		"p",
+		false,
+		"list attached vhci ports (compatibility; prefer the port command)",
+	)
 
-	cmd.MarkFlagsOneRequired("remote", "local", "ports")
 	cmd.MarkFlagsMutuallyExclusive("remote", "local", "ports")
 
 	return cmd
 }
 
-// runList dispatches the list flavour based on which flag was set.
-func runList(cmd *cobra.Command, lf *listFlags) error {
+// runList dispatches the list flavour based on the positional remote or the
+// compatibility flags. With no selector it lists local exportable devices.
+func runList(cmd *cobra.Command, lf *listFlags, args []string) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -53,18 +72,28 @@ func runList(cmd *cobra.Command, lf *listFlags) error {
 
 	r := pickRenderer(outputFromCtx(ctx))
 	out := cmd.OutOrStdout()
+	remoteFlagSet := cmd.Flags().Changed("remote")
+
+	if len(args) == 1 && hasLegacyListSelector(lf, remoteFlagSet) {
+		return errUsage("list: remote argument cannot be combined with --remote, --local, or --ports")
+	}
 
 	switch {
-	case lf.Remote != "":
+	case len(args) == 1:
+		return runListRemote(ctx, r, out, args[0])
+	case remoteFlagSet:
 		return runListRemote(ctx, r, out, lf.Remote)
 	case lf.Local:
 		return runListLocal(ctx, r, out)
 	case lf.Ports:
 		return runListPorts(ctx, r, out)
+	default:
+		return runListLocal(ctx, r, out)
 	}
+}
 
-	// Unreachable: MarkFlagsOneRequired enforced by cobra before RunE.
-	return errUsage("list: no subject flag set")
+func hasLegacyListSelector(lf *listFlags, remoteFlagSet bool) bool {
+	return remoteFlagSet || lf.Local || lf.Ports
 }
 
 // runListRemote queries the remote endpoint and renders the device list.

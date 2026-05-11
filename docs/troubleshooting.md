@@ -35,7 +35,7 @@ START: usbip-go attach HOST BUSID fails.
   |     |
   |     +-- YES -> Is the device actually exported on the server?
   |     |          |
-  |     |          +-- On server: usbip-go list --local
+  |     |          +-- On server: usbip-go list
   |     |          +-- If listed but not bound: usbip-go bind BUSID
   |     |          +-- If not listed: device is not attached to the server host.
   |     |
@@ -89,12 +89,12 @@ in log output so you can grep directly.
 |---|---|---|
 | `ErrKernelModuleMissing` | `vhci_hcd` / `usbip_host` / `usbip_core` not loaded, or no access to `/sys/module/`. | `sudo modprobe vhci_hcd usbip_core usbip_host`. Add to `/etc/modules-load.d/`. |
 | `ErrPermission` | Sysfs write needs `CAP_SYS_ADMIN` + `CAP_DAC_OVERRIDE`. | `sudo` the caller or `setcap` the binary. |
-| `ErrDeviceNotFound` | BusID does not exist on the server, or is not bound. | Server: `usbip-go list --local`; bind the target with `usbip-go bind`. |
+| `ErrDeviceNotFound` | BusID does not exist on the server, or is not bound. | Server: `usbip-go list`; bind the target with `usbip-go bind`. |
 | `ErrDeviceAlreadyBound` | Device is already exported. | Server: `usbip-go unbind BUSID` then retry. |
 | `ErrNoFreePort` | All vhci ports are occupied. | Detach a port, or boot the kernel with more vhci ports. |
 | `ErrProtocolMismatch` | Server sent a version byte != `0x0111` or unknown opcode. | Version mismatch or corrupted wire. Capture with tcpdump. |
 | `ErrProtocolError` | Server sent a well-formed OP frame with a non-zero `status` on a reply other than `OP_REP_IMPORT` (which maps to `ErrDeviceNotFound`). | Check server logs for the underlying reason. |
-| `ErrBusIDInvalid` | Busid does not match `^[0-9]+-[0-9]+(\.[0-9]+)*$`. | Re-read from `usbip-go list --local`; do not edit by hand. |
+| `ErrBusIDInvalid` | Busid does not match `^[0-9]+-[0-9]+(\.[0-9]+)*$`. | Re-read from `usbip-go list`; do not edit by hand. |
 | `ErrImporterClosed` | `Importer.Close()` already ran. | Construct a new `Importer`. |
 | `ErrExporterShutdown` | `Exporter.Shutdown()` already ran. | Construct a new `Exporter`. |
 | `ErrServeAlreadyRunning` | Second `Serve` on the same `Exporter`. | `Serve` instances are single-use. |
