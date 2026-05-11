@@ -126,7 +126,7 @@ const usbipStatusUsed = "2"
 // 172-206) which filters via usbip_host_driver.c::is_my_device()
 // and excludes SDEV_ST_USED.
 //
-// Operators and the CLI's `list -l` continue to use ListLocalDevices
+// Operators and the CLI's `list` continue to use ListLocalDevices
 // to see every USB device on the host regardless of bind state. The
 // daemon's OP_REP_DEVLIST handler must use THIS method so peers do
 // not receive a bus dump including unbound or in-use devices.

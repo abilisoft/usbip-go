@@ -21,7 +21,7 @@ import (
 // final usbip-host/bind write fails, the previously-added
 // match_busid entry MUST be rolled back. Without rollback the busid
 // table is poisoned with an entry whose driver never bound — later
-// `usbip-go list -l` and operator workflows would surface a phantom
+// `usbip-go list` and operator workflows would surface a phantom
 // state.
 //
 // Setup: writeFunc fails on the bind index (call #2). Test

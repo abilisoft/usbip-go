@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"iter"
+	"strings"
 	"sync"
 	"testing"
 
@@ -174,12 +175,17 @@ func sampleDevice() usbip.Device {
 	}
 }
 
-// TestListRequiresOneOfFlags — running `list` with no -r/-l/-p returns
-// a usage error per v1 contract §7.4.1.
-func TestListRequiresOneOfFlags(t *testing.T) {
+// TestListDefaultsToLocalJSON — `list --output=json` renders local devices by
+// default, keeping the common "what can I export?" flow terse.
+func TestListDefaultsToLocalJSON(t *testing.T) {
 	t.Parallel()
 
-	swapFactories(t, &mockImporter{}, &mockExporter{})
+	exp := &mockExporter{
+		listAvailableFn: func(_ context.Context) ([]usbip.Device, error) {
+			return []usbip.Device{sampleDevice()}, nil
+		},
+	}
+	swapFactories(t, &mockImporter{}, exp)
 
 	cmd := newRootCmd()
 
@@ -187,35 +193,55 @@ func TestListRequiresOneOfFlags(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"list"})
+	cmd.SetArgs([]string{"--output=json", "list"})
 
 	err := cmd.Execute()
-	require.Error(t, err)
+	require.NoError(t, err)
+
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(out.Bytes(), &m))
+	require.Equal(t, "v1", m["schema"])
+	require.Contains(t, m, "devices")
 }
 
-// TestListRemoteAndLocalMutuallyExclusive — v1 contract §7.4.1 rule.
-func TestListRemoteAndLocalMutuallyExclusive(t *testing.T) {
+// TestListRejectsRemovedSelectorFlags — list intentionally has no source
+// selector flags; use `list` for local devices, `list HOST` for remote
+// devices, and `port` for attached vhci ports.
+func TestListRejectsRemovedSelectorFlags(t *testing.T) {
 	t.Parallel()
 
-	swapFactories(t, &mockImporter{}, &mockExporter{})
+	cases := [][]string{
+		{"list", "--remote", "10.0.0.5"},
+		{"list", "--local"},
+		{"list", "--ports"},
+		{"list", "-r", "10.0.0.5"},
+		{"list", "-l"},
+		{"list", "-p"},
+	}
 
-	cmd := newRootCmd()
+	for _, args := range cases {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			t.Parallel()
 
-	var out bytes.Buffer
+			swapFactories(t, &mockImporter{}, &mockExporter{})
 
-	cmd.SetOut(&out)
-	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"list", "-r", "10.0.0.5", "-l"})
+			cmd := newRootCmd()
 
-	err := cmd.Execute()
-	require.Error(t, err)
-	// Cobra phrasing: "if any flags in the group ... are set none of the
-	// others can be". We key on the group-name substring since the
-	// library wording has varied across versions.
-	require.Contains(t, err.Error(), "remote local ports")
+			var out bytes.Buffer
+
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
+			cmd.SetArgs(args)
+
+			err := cmd.Execute()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "unknown")
+		})
+	}
 }
 
-// TestListRemoteJSONHasSchemaV1 — v1 contract §7.5 schema envelope.
+// TestListRemoteJSONHasSchemaV1 — positional remote renders the v1 schema
+// envelope.
 func TestListRemoteJSONHasSchemaV1(t *testing.T) {
 	t.Parallel()
 
@@ -232,7 +258,7 @@ func TestListRemoteJSONHasSchemaV1(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--output=json", "list", "-r", "10.0.0.5"})
+	cmd.SetArgs([]string{"--output=json", "list", "10.0.0.5"})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -241,61 +267,6 @@ func TestListRemoteJSONHasSchemaV1(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out.Bytes(), &m))
 	require.Equal(t, "v1", m["schema"])
 	require.Contains(t, m, "devices")
-}
-
-// TestListLocalJSON — `list -l --output=json` renders ListAvailable.
-func TestListLocalJSON(t *testing.T) {
-	t.Parallel()
-
-	exp := &mockExporter{
-		listAvailableFn: func(_ context.Context) ([]usbip.Device, error) {
-			return []usbip.Device{sampleDevice()}, nil
-		},
-	}
-	swapFactories(t, &mockImporter{}, exp)
-
-	cmd := newRootCmd()
-
-	var out bytes.Buffer
-
-	cmd.SetOut(&out)
-	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--output=json", "list", "-l"})
-
-	err := cmd.Execute()
-	require.NoError(t, err)
-
-	var m map[string]any
-	require.NoError(t, json.Unmarshal(out.Bytes(), &m))
-	require.Equal(t, "v1", m["schema"])
-}
-
-// TestListPortsJSON — `list -p --output=json` renders ListPorts.
-func TestListPortsJSON(t *testing.T) {
-	t.Parallel()
-
-	imp := &mockImporter{
-		listPortsFn: func(_ context.Context) ([]usbip.Port, error) {
-			return []usbip.Port{{ID: 0, Status: domain.StatusUsed, BusID: domain.BusID("1-1.2")}}, nil
-		},
-	}
-	swapFactories(t, imp, &mockExporter{})
-
-	cmd := newRootCmd()
-
-	var out bytes.Buffer
-
-	cmd.SetOut(&out)
-	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--output=json", "list", "-p"})
-
-	err := cmd.Execute()
-	require.NoError(t, err)
-
-	var m map[string]any
-	require.NoError(t, json.Unmarshal(out.Bytes(), &m))
-	require.Equal(t, "v1", m["schema"])
-	require.Contains(t, m, "ports")
 }
 
 // TestListRemoteTable — table output contains the busid somewhere.
@@ -315,7 +286,7 @@ func TestListRemoteTable(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"list", "-r", "10.0.0.5"})
+	cmd.SetArgs([]string{"list", "10.0.0.5"})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -339,7 +310,7 @@ func TestListRemoteError(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"list", "-r", "10.0.0.5"})
+	cmd.SetArgs([]string{"list", "10.0.0.5"})
 
 	err := cmd.Execute()
 	require.Error(t, err)

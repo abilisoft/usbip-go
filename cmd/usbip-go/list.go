@@ -12,40 +12,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// listFlags bundles the list-subcommand flags. Exactly one of Remote /
-// Local / Ports must be set; cobra's MarkFlagsOneRequired +
-// MarkFlagsMutuallyExclusive enforce the rule.
-type listFlags struct {
-	Remote string
-	Local  bool
-	Ports  bool
-}
-
 // newListCmd constructs the `usbip-go list` subcommand per v1 contract §7.1.
 func newListCmd() *cobra.Command {
-	lf := &listFlags{}
-
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List remote, local, or attached devices",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runList(cmd, lf)
-		},
+		Use:   "list [remote]",
+		Short: "List local or remote USB devices",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  runList,
 	}
-
-	flags := cmd.Flags()
-	flags.StringVarP(&lf.Remote, "remote", "r", "", "query a remote USB/IP server")
-	flags.BoolVarP(&lf.Local, "local", "l", false, "list locally-exportable devices")
-	flags.BoolVarP(&lf.Ports, "ports", "p", false, "list attached vhci ports")
-
-	cmd.MarkFlagsOneRequired("remote", "local", "ports")
-	cmd.MarkFlagsMutuallyExclusive("remote", "local", "ports")
 
 	return cmd
 }
 
-// runList dispatches the list flavour based on which flag was set.
-func runList(cmd *cobra.Command, lf *listFlags) error {
+// runList dispatches based on the optional positional remote. With no remote
+// it lists local exportable devices.
+func runList(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -54,17 +35,11 @@ func runList(cmd *cobra.Command, lf *listFlags) error {
 	r := pickRenderer(outputFromCtx(ctx))
 	out := cmd.OutOrStdout()
 
-	switch {
-	case lf.Remote != "":
-		return runListRemote(ctx, r, out, lf.Remote)
-	case lf.Local:
-		return runListLocal(ctx, r, out)
-	case lf.Ports:
-		return runListPorts(ctx, r, out)
+	if len(args) == 1 {
+		return runListRemote(ctx, r, out, args[0])
 	}
 
-	// Unreachable: MarkFlagsOneRequired enforced by cobra before RunE.
-	return errUsage("list: no subject flag set")
+	return runListLocal(ctx, r, out)
 }
 
 // runListRemote queries the remote endpoint and renders the device list.
@@ -109,28 +84,6 @@ func runListLocal(ctx context.Context, r Renderer, out ioWriter) error {
 	err = r.Devices(out, devs)
 	if err != nil {
 		return fmt.Errorf("render devices: %w", err)
-	}
-
-	return nil
-}
-
-// runListPorts renders the currently-attached vhci ports.
-func runListPorts(ctx context.Context, r Renderer, out ioWriter) error {
-	imp, err := newImporter(withLoggerFromCtx(ctx)...)
-	if err != nil {
-		return err
-	}
-
-	defer func() { _ = imp.Close() }()
-
-	ports, err := imp.ListPorts(ctx)
-	if err != nil {
-		return fmt.Errorf("list ports: %w", err)
-	}
-
-	err = r.Ports(out, ports)
-	if err != nil {
-		return fmt.Errorf("render ports: %w", err)
 	}
 
 	return nil

@@ -15,7 +15,7 @@ Exporter operations SHALL require `usbip_core` and `usbip_host`, but SHALL NOT r
 Exporter SHALL distinguish all local devices from devices visible to peers.
 
 #### Scenario: Local inventory is requested
-- **WHEN** `ListAvailable` or `usbip-go list --local` runs
+- **WHEN** `ListAvailable` or `usbip-go list` runs
 - **THEN** every local USB Device visible through sysfs is returned regardless of bind state
 
 #### Scenario: Wire-facing inventory is requested

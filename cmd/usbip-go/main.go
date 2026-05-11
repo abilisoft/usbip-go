@@ -80,7 +80,7 @@ var rootCmdFactory = newRootCmd
 // runCtx executes the root cobra command under ctx and returns the
 // mapped exit code. Passing a cancellable ctx lets every subcommand
 // observe shutdown via cmd.Context, which matters for long-running
-// calls (attach --auto-reconnect, list -r, bind) that would
+// calls (attach --auto-reconnect, list HOST, bind) that would
 // otherwise block in a kernel or network call past Ctrl-C.
 //
 // fang.Execute styles the help/error output via lipgloss while
