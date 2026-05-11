@@ -19,6 +19,7 @@ import (
 // probe counts, and buffer sizes at constructor time
 // (NewImporter / NewExporter return ErrTransportOptionsInvalid).
 //
-// See `docs/high-latency-plan.md` for the documented WAN/satellite
-// presets that combine the individual fields below.
+// README.md and openspec/specs/transport-networking/spec.md document
+// how the public facade applies these fields on importer dials and
+// exporter-owned listeners.
 type TransportOptions = netopts.TransportOptions

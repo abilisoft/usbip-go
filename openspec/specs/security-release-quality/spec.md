@@ -57,7 +57,7 @@ Release workflows SHALL build pure-Go artifacts through GoReleaser, publish chec
 - **THEN** they can verify SLSA provenance, cosign bundle for checksums, and per-artifact sha256
 
 ### Requirement: CI enforces security scanning and pinned workflow posture
-The repository SHALL run CodeQL, govulncheck, Trivy/Scorecard-style checks where configured, and keep GitHub Actions dependencies pinned.
+The repository SHALL run CodeQL, govulncheck, Trivy/Scorecard-style checks where configured, and keep GitHub Actions dependencies pinned. The default-branch ruleset SHALL require the current pull-request security, unit, conformance, coverage, architecture, TDD, CodeQL, Trivy, Scorecard, govulncheck, and codecov patch contexts.
 
 #### Scenario: Vulnerability scan runs
 - **WHEN** CI executes the security workflow
@@ -66,6 +66,10 @@ The repository SHALL run CodeQL, govulncheck, Trivy/Scorecard-style checks where
 #### Scenario: Workflow dependency is added
 - **WHEN** a GitHub Actions `uses:` step is committed
 - **THEN** it is pinned according to repository security posture conventions
+
+#### Scenario: Required status check context changes
+- **WHEN** a workflow job name changes
+- **THEN** `docs/security-posture.md` and the default-branch ruleset required status-check context list are updated in the same change
 
 ### Requirement: CI enforces architecture and pure-Go constraints
 The repository SHALL mechanically enforce DDD layering, no cgo, public API compatibility, cross-compilation, formatting, linting, spelling, Nix/TOML/Compose/OpenSpec validation, release-configuration validation, tests, and coverage thresholds.

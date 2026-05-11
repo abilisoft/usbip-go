@@ -4,10 +4,10 @@ Stable contract for every JSON object emitted by usbip-go. This
 document fixes field names, types, and semantics at schema v1 per
 `openspec/specs/operations-observability/spec.md` and `openspec/specs/cli-interface/spec.md`.
 
-The schema is mutable BEFORE the first stable release (v1.1.0).
+The schema is mutable BEFORE the first stable release (v1.0.0).
 Field semantics may shift between v0.x and v1.0.x without a schema
 bump because no public consumer has shipped against them. Once
-v1.1.0 lands, any breaking change here requires a documented
+v1.0.0 lands, any breaking change here requires a documented
 schema bump and a GitHub Release note at tag time.
 
 The CLI's `--output=table` (default) human-readable format is NOT

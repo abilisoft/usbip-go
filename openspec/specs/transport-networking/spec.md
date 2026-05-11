@@ -61,6 +61,13 @@ Transport tuning SHALL use Go's keepalive configuration to apply idle, interval,
 - **WHEN** at least one keepalive TransportOptions field is non-zero
 - **THEN** SO_KEEPALIVE is enabled and the non-zero parameters are forwarded to the TCP connection
 
+### Requirement: WAN and high-latency links are supported through explicit transport tuning
+TransportOptions SHALL expose enough TCP controls for library callers to tune USB/IP handshakes for high-latency, lossy, or bandwidth-delay-product-sensitive links without changing the USB/IP wire format.
+
+#### Scenario: Caller tunes for a high-latency path
+- **WHEN** a caller supplies connect timeout, keepalive, socket-buffer, and handshake-deadline TransportOptions
+- **THEN** outbound importer dials and exporter-owned accepted connections receive those options before the USB/IP handshake begins
+
 ### Requirement: Static read and write deadlines are handshake-scoped
 ReadDeadline and WriteDeadline SHALL set absolute deadlines on userspace handshake connections and allow callers to clear or replace them later.
 
@@ -100,4 +107,3 @@ When Listen receives non-zero TransportOptions, each accepted TCP connection SHA
 #### Scenario: Serve returns early
 - **WHEN** ListenAndServe's Serve call returns before context cancellation
 - **THEN** ListenAndServe closes the listener it created
-

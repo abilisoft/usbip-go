@@ -31,16 +31,18 @@ only).
 These two Scorecard checks require server-side configuration. The
 repo content cannot enable them on its own.
 
-1. **Branch-Protection** on `main`:
+1. **Repository ruleset / Branch-Protection** on `main`:
    - Require pull request reviews (1+).
-   - Require status checks to pass (the reusable-workflow-callee
-     names — `Security / Format, tidy, lint, and vulnerability scan`,
+   - Require status checks to pass. The current required contexts are:
+     `Security / Format, tidy, lint, and vulnerability scan`,
      `Unit / Linux unit tests`, `Conformance / USB/IP wire
-     conformance`, `Architecture / Domain boundary rules`,
-     `Architecture / Pure Go enforcement`, `Architecture / API
-     compatibility`, `Architecture / Linux cross-compilation`,
-     `Coverage / Coverage thresholds`, `TDD commit discipline`,
-     `CodeQL Go analysis`).
+     conformance`, `Coverage / Coverage thresholds`, `Architecture /
+     Domain boundary rules`, `Architecture / Pure Go enforcement`,
+     `Architecture / API compatibility`, `Architecture / Linux
+     cross-compilation`, `TDD commit discipline`, `CodeQL Go analysis`,
+     `Trivy filesystem vulnerability scan`, `OpenSSF Scorecard
+     analysis`, `Analyze (go)`, `CodeQL`, `Trivy`, `govulncheck`, and
+     `codecov/patch`.
    - Require branches to be up to date before merging.
    - Require signed commits.
    - Restrict who can push to matching branches (admins only;
@@ -52,7 +54,7 @@ repo content cannot enable them on its own.
 Recommended GitHub settings:
 
 ```
-Settings → Branches → Add branch ruleset for `main`:
+Settings → Rules → Rulesets → Add branch ruleset for the default branch:
   ✓ Require a pull request before merging
     ✓ Require approvals (1)
     ✓ Dismiss stale pull request approvals when new commits are pushed
@@ -61,13 +63,20 @@ Settings → Branches → Add branch ruleset for `main`:
       Security / Format, tidy, lint, and vulnerability scan
       Unit / Linux unit tests
       Conformance / USB/IP wire conformance
+      Coverage / Coverage thresholds
       Architecture / Domain boundary rules
       Architecture / Pure Go enforcement
       Architecture / API compatibility
       Architecture / Linux cross-compilation
-      Coverage / Coverage thresholds
       TDD commit discipline
       CodeQL Go analysis
+      Trivy filesystem vulnerability scan
+      OpenSSF Scorecard analysis
+      Analyze (go)
+      CodeQL
+      Trivy
+      govulncheck
+      codecov/patch
   ✓ Require signed commits
   ✓ Require linear history
   ✓ Block force pushes
