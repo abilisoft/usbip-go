@@ -84,7 +84,7 @@ func TestReadinessStateZeroValueNotReady(t *testing.T) {
 }
 
 // TestNewLivenessCheckerReturns200 covers /healthz: an unconditional
-// 200 OK while the server is reachable. ADR-0010 / docs/ops.md split
+// 200 OK while the server is reachable. OpenSpec / docs/ops.md split
 // readiness from liveness specifically so a transient kernel-module
 // hiccup does not get the daemon killed and restart-flapped.
 func TestNewLivenessCheckerReturns200(t *testing.T) {

@@ -1,0 +1,11 @@
+include = ["*.toml", ".*.toml"]
+exclude = ["build/**", "cmd/**/.t-*/**"]
+
+[formatting]
+align_comments = true
+align_entries = false
+array_auto_expand = false
+column_width = 100
+indent_string = "  "
+inline_table_expand = false
+reorder_keys = false

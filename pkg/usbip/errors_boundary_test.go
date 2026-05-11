@@ -131,13 +131,13 @@ func TestTranslateInternalErrCovers(t *testing.T) {
 	)
 }
 
-// TestFacadeAttachInProgressIsPublicallyMatchable pins the public
+// TestFacadeAttachInProgressIsPubliclyMatchable pins the public
 // sentinel contract. The internal acquireAttachSlot rejects
 // concurrent Attach calls for the same (remote, busid) with
 // ErrAttachInProgress; the public facade MUST expose an
 // errors.Is-compatible sentinel so callers can classify the rejection
 // without reaching into internal/app.
-func TestFacadeAttachInProgressIsPublicallyMatchable(t *testing.T) {
+func TestFacadeAttachInProgressIsPubliclyMatchable(t *testing.T) {
 	t.Parallel()
 
 	require.Error(t, usbip.ErrAttachInProgress,

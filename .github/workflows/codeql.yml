@@ -66,10 +66,10 @@ jobs:
           queries: security-and-quality
 
       # CodeQL needs a real Go toolchain to autobuild; the flake
-      # devShell pins the same Go that go.mod requires. `go build
+      # `.#dev` shell pins the same Go that go.mod requires. `go build
       # ./...` is enough — CodeQL traces calls from there.
       - name: Build Go module
-        run: nix develop --command go build ./...
+        run: nix develop .#dev --command go build ./...
 
       - name: Perform analysis
         uses: github/codeql-action/analyze@e46ed2cbd01164d986452f91f178727624ae40d7 # v4.35.3

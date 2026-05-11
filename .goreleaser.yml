@@ -1,12 +1,13 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
 #
-# GoReleaser config for usbip-go per spec §10.3.
+# GoReleaser config for usbip-go release packaging requirements.
 #
 # Produces:
 #   - linux/{amd64,arm64,arm} binary for cmd/usbip-go (single binary,
-#     ADR-0011 — flat verbs `usbip-go serve`, `usbip-go attach`, ...)
-#   - tar.gz archives including LICENSE, README, systemd units
+#     OpenSpec cli-interface — flat verbs `usbip-go serve`, `usbip-go attach`, ...)
+#   - tar.gz archives including LICENSE, README, systemd units,
+#     and modules-load config
 #   - deb + rpm packages via nfpms
 #   - SHA-256 checksums file
 #   - SBOM per archive (SPDX) via syft
@@ -48,7 +49,7 @@ builds:
       - -s -w
       - -X main.version={{.Version}}
       - -X main.commit={{.Commit}}
-      - -X main.date={{.CommitDate}}
+      - -X main.buildDate={{.CommitDate}}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
@@ -65,6 +66,7 @@ archives:
       - CONTRIBUTING.md
       - contrib/systemd/usbip-go.service
       - contrib/systemd/usbip-go.socket
+      - contrib/modules-load.d/usbip-go.conf
       - docs/*.md
 
 nfpms:
@@ -77,7 +79,7 @@ nfpms:
     maintainer: abilisoft <oss@abilisoft.com>
     description: |-
       Pure-Go reimplementation of USB/IP userspace for Linux. Single
-      binary `usbip-go` exposes flat verbs (ADR-0011): `usbip-go serve`
+      binary `usbip-go` exposes flat verbs: `usbip-go serve`
       runs the daemon (parallel install alongside upstream `usbipd`);
       `usbip-go attach`, `usbip-go detach`, `usbip-go list`,
       `usbip-go bind`, `usbip-go unbind`, `usbip-go drain` cover
@@ -92,6 +94,8 @@ nfpms:
         dst: /usr/lib/systemd/system/usbip-go.service
       - src: contrib/systemd/usbip-go.socket
         dst: /usr/lib/systemd/system/usbip-go.socket
+      - src: contrib/modules-load.d/usbip-go.conf
+        dst: /usr/lib/modules-load.d/usbip-go.conf
       - src: README.md
         dst: /usr/share/doc/usbip-go/README.md
       - src: LICENSE

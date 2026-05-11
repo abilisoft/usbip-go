@@ -27,8 +27,8 @@ exchange.
 
 The handshake for a successful attach consists of two TCP streams:
 
-- `usbip-go list -r HOST` — `OP_REQ_DEVLIST` then `OP_REP_DEVLIST`.
-- `usbip-go attach -r HOST -b BUSID` — `OP_REQ_IMPORT` then
+- `usbip-go list --remote HOST` — `OP_REQ_DEVLIST` then `OP_REP_DEVLIST`.
+- `usbip-go attach HOST BUSID` — `OP_REQ_IMPORT` then
   `OP_REP_IMPORT`.
 
 Both requests open their own TCP connection and close it after the
@@ -44,8 +44,8 @@ sudo tcpdump -i any -s 0 -w /tmp/usbip-trace.pcap 'tcp port 3240' &
 TCPDUMP_PID=$!
 
 # 2. Drive the failing client command.
-usbip-go list -r 10.0.0.5
-usbip-go attach -r 10.0.0.5 -b 1-1.2
+usbip-go list --remote 10.0.0.5
+usbip-go attach 10.0.0.5 1-1.2
 
 # 3. Stop tcpdump.
 sudo kill "$TCPDUMP_PID"
@@ -98,7 +98,7 @@ replayed against the capture.
 
 ## Size gates
 
-Every payload size is pinned by v1 contract §6.2. Abort any fixture
+Every payload size is pinned by `openspec/specs/usbip-wire-protocol/spec.md`. Abort any fixture
 regeneration where the payload is outside its documented range:
 
 | Frame | Expected size |
@@ -135,8 +135,8 @@ The script:
 3. Starts upstream `usbipd -e` (device/vudc mode) against port
    3240, checking that no foreign daemon already holds the port.
 4. Starts `tcpdump` on loopback.
-5. Runs `usbip-go list -r 127.0.0.1` and
-   `usbip-go attach -r 127.0.0.1 -b $BUSID`.
+5. Runs `usbip-go list --remote 127.0.0.1` and
+   `usbip-go attach 127.0.0.1 $BUSID`.
 6. Stops `tcpdump`, extracts each request and reply payload via
    `tshark`, enforces the size gates, and writes the binaries into
    `internal/adapter/wire/testdata/`.

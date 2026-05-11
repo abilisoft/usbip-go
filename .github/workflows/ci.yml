@@ -10,14 +10,10 @@
 # been split out to mutation.yml (label-gated PRs + weekly cron).
 #
 # Pattern: run every gate on a plain ubuntu-24.04 runner via the
-# Determinate Systems Nix installer + Magic Nix Cache; flake-pinned
-# toolchain (Go, golangci-lint, govulncheck, …) on PATH inside
-# `nix develop --command`. We deliberately do NOT run jobs inside a
-# minimal nix-only container image: GitHub Actions requires Node.js
-# inside any job container so action-shipped JS code (notably
-# actions/cache save/restore) can run, and a node-less Nix base
-# image fails every JS action with "node: executable file not
-# found". The plain runner has node out of the box.
+# Determinate Systems Nix installer + Magic Nix Cache. Reusable jobs enter
+# the smallest flake shell that has the required tools (`.#dev`, `.#fmt`,
+# `.#lint`, `.#vuln`, `.#release`, or `.#vm`) instead of realizing one
+# all-purpose closure.
 
 name: CI
 
@@ -99,7 +95,7 @@ jobs:
         # unfollowed and fails the gate. A trailing dangling RED
         # at the end of the PR also fails so an open RED can never
         # ship to main.
-        run: |
+        run: |-
           set -euo pipefail
           commits=$(git rev-list --reverse "${BASE_SHA}..${HEAD_SHA}")
           if [ -z "$commits" ]; then

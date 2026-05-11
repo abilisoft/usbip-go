@@ -39,12 +39,12 @@ func TestIPFromAddr_Nil(t *testing.T) {
 	require.Nil(t, ipFromAddr(nil))
 }
 
-// TestClassifyDecodeImportErr_AllRejectionSentinels pins the metric
+// TestClassifyDecodeImportErr_AllRejectionSentinels pins the outcome
 // classification for every domain-rejection sentinel that can surface
 // from DecodeOpRepImport. ST_DEV_BUSY (→ ErrDeviceAlreadyBound) and
 // ST_DEV_ERR (→ ErrDeviceUnavailable) historically fell through to
 // AttachOutcomeProtocolMismatch, mis-bucketing peer rejections as
-// wire framing faults in observability dashboards.
+// wire framing faults in logs and observability dashboards.
 func TestClassifyDecodeImportErr_AllRejectionSentinels(t *testing.T) {
 	t.Parallel()
 

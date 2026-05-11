@@ -24,7 +24,7 @@ const binaryBuildTimeout = 5 * time.Minute
 // BuildBinary compiles ./cmd/<name>/ to an absolute-path temp binary
 // the test can exec. Caller passes the leaf command directory name
 // (today only "usbip-go" — the project ships one binary per
-// ADR-0011, but the helper stays generic in case a future cmd/ leaf
+// OpenSpec, but the helper stays generic in case a future cmd/ leaf
 // needs the same TMPDIR + buildvcs handling).
 //
 // Centralised here so binary-smoke tests across `cmd/.../`_test.go

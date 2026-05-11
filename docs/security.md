@@ -6,8 +6,9 @@ protocol, and this library matches upstream `usbip-utils` behaviour.
 Nothing in this implementation makes the protocol safer than the
 network you run it on.
 
-The authoritative statements are in v1 contract §11.5.1 and §11.5.2; this
-document is the consolidated operator reference.
+The authoritative requirements are in
+`openspec/specs/security-release-quality/spec.md`; this document is
+the consolidated operator reference.
 
 ## Threat model
 
@@ -34,7 +35,8 @@ The project does not wrap USB/IP in TLS. The upstream
 kernel/userspace ecosystem does not either; doing so unilaterally
 would break interop and create a false sense of security (the
 kernel-owned URB path after handoff would still be plaintext).
-See v1 contract §2.2 — TLS is in the non-goal list.
+See `openspec/specs/transport-networking/spec.md` — TLS remains out
+of scope for the USB/IP wire path.
 
 If you need confidentiality on the wire, tunnel the TCP connection
 itself: Wireguard, Tailscale, an SSH `-L` forward, or stunnel in
@@ -56,9 +58,9 @@ Example:
 usbip-go serve --allow-cidr 10.0.0.0/8 --allow-cidr 192.168.0.0/16
 ```
 
-Rejected connections are counted on the
-`usbip_exporter_sessions_accepted_total{outcome="rejected_acl"}`
-metric so you can observe probe traffic without parsing logs.
+Rejected connections are emitted as structured `slog` records with
+`outcome="rejected_acl"`, so operators can observe probe traffic
+through journald or log aggregation.
 
 This is an enforcement seam, not authentication. A host inside your
 allow-list is trusted by the daemon regardless of who is at the
@@ -67,8 +69,8 @@ for real protection.
 
 ### Resource limits
 
-The daemon ships with bounds on every accept-side resource (spec
-§11.5.3). Flags, defaults, purpose:
+The daemon ships with bounds on every accept-side resource. Flags,
+defaults, purpose:
 
 | Flag | Default | Purpose |
 |---|---|---|
@@ -79,8 +81,7 @@ The daemon ships with bounds on every accept-side resource (spec
 | `--handshake-timeout` | `10s` | Deadline on completing a handshake. Slowloris defence. |
 | `--shutdown-timeout` | `30s` | Graceful drain budget before force-close. |
 
-Every rejection is counted on
-`usbip_exporter_sessions_accepted_total` with an `outcome` label so
+Every rejection is logged with a closed-set `outcome` field so
 operators can track ambient abuse without packet captures.
 
 ### Systemd hardening
@@ -137,14 +138,14 @@ opaque "permission denied" without context.
 
 ## Kernel modules
 
-The daemon requires the `usbip-core`, `vhci-hcd`, and `usbip-host`
+The daemon requires the `usbip_core`, `vhci_hcd`, and `usbip_host`
 modules to be loadable. Module presence is probed at startup and
 before each operation. Missing modules yield
 `ErrKernelModuleMissing` with a `modprobe` hint.
 
-The status-socket JSON and the `usbip_kernel_modules_loaded` gauge
-both surface module state so operators can alert on regressions.
-See [`ops.md`](ops.md) for the scraping recipe.
+The status-socket JSON surfaces module state so operators can alert
+on regressions through log/status polling. See [`ops.md`](ops.md)
+for the operational recipe.
 
 ## Summary checklist
 
@@ -157,11 +158,10 @@ Before deploying to production:
 - [ ] `--allow-cidr` is set when the daemon accepts from multiple
       IP ranges.
 - [ ] Resource-limit flags are tuned for expected fan-out.
-- [ ] `usbip_exporter_sessions_accepted_total{outcome=~"rejected_.*"}`
-      is wired into alerting.
+- [ ] Structured logs with `outcome="rejected_*"` are wired into alerting.
 - [ ] Systemd unit pins `CapabilityBoundingSet` and standard
       hardening directives.
-- [ ] `usbip_kernel_modules_loaded` is scraped and alerted on.
+- [ ] Status-socket `kernel_modules` state is polled or otherwise alerted on.
 - [ ] You have accepted the plaintext-protocol warning in writing —
       the library does not, and will not, make USB/IP secure on
       its own.

@@ -33,8 +33,8 @@ func TestDecodeOpReqImportRejectsInvalidBusID(t *testing.T) {
 	payload := make([]byte, domain.BusIDSize)
 	// A space byte fails the sysfs-safe charset check, which the wire
 	// validator uses to stop the peer from supplying ambiguous busids
-	// the downstream helpers (sysfs lookup, log correlation, metrics
-	// cardinality) could not reason about.
+	// the downstream helpers (sysfs lookup, log correlation, structured
+	// observability) could not reason about.
 	copy(payload, " 1-1")
 	buf.Write(payload)
 

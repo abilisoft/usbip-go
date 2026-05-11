@@ -140,8 +140,8 @@ func TestWithExporterHandshakeTimeoutStores(t *testing.T) {
 
 // TestWithExporterShutdownTimeoutStores proves the shutdown-timeout
 // option stores the value on the public config. Internal consumption
-// is wired in the metrics/lifecycle phase; the public field is stable
-// across that change.
+// is wired in the exporter lifecycle; the public field is stable
+// across implementation changes.
 func TestWithExporterShutdownTimeoutStores(t *testing.T) {
 	t.Parallel()
 

@@ -7,18 +7,18 @@ consume those devices as if they were locally attached.
 ## Operator vocabulary
 
 One binary — `usbip-go` — exposes flat top-level verbs for every role
-(see ADR-0011). The verb encodes the role; there is no
+(see `openspec/specs/cli-interface/spec.md`). The verb encodes the role; there is no
 `usbip-go device …` or `usbip-go server …` group.
 
 | Subcommand | Role | Notes |
 |---|---|---|
-| `usbip-go list` | Importer | `-l` lists local; `-r <host>` lists a remote peer |
-| `usbip-go attach` | Importer | `-r <host> -b <busid>` |
-| `usbip-go detach` | Importer | `-p <port>` |
+| `usbip-go list` | Importer | `--local` / `-l` lists local; `--remote <host>` / `-r <host>` lists a remote peer |
+| `usbip-go attach` | Importer | positional args: `attach <remote> <busid>` |
+| `usbip-go detach` | Importer | positional arg: `detach <port>` |
 | `usbip-go port` | Importer | lists currently-attached vhci ports; `--id <N>` filters to one |
 | `usbip-go watch` | Importer | streams domain events (jsonlines or table) until interrupted |
-| `usbip-go bind` | Exporter | `-b <busid>` |
-| `usbip-go unbind` | Exporter | `-b <busid>` |
+| `usbip-go bind` | Exporter | positional arg: `bind <busid>` |
+| `usbip-go unbind` | Exporter | positional arg: `unbind <busid>` |
 | `usbip-go serve` | Exporter | runs the daemon (replaces upstream `usbipd`) |
 | `usbip-go drain` | Operator | tells a running daemon to refuse new sessions and exit |
 | `usbip-go version` | — | build provenance |

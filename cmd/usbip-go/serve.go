@@ -228,8 +228,8 @@ func (l *firstAcceptListener) Accept() (net.Conn, error) {
 }
 
 // drainExporter is the deferred Exporter.Shutdown callpoint. Extracted
-// from completeShutdown so the deferred-stack ordering — metrics HTTP
-// server down FIRST, exporter drain SECOND — is visible in runDaemon
+// from completeShutdown so the deferred-stack ordering — status/health
+// servers down FIRST, exporter drain SECOND — is visible in runDaemon
 // without hiding the ordering inside completeShutdown's branch-heavy
 // body.
 func drainExporter(
@@ -471,7 +471,7 @@ func maybeStartStatusServer(
 // completeShutdown waits for the status server goroutine (if any) to
 // exit and then reports why Serve returned. The exporter drain itself
 // is handled by the deferred drainExporter call in runDaemon so the
-// metrics HTTP server is guaranteed to stop BEFORE exporter drain:
+// status/health servers are guaranteed to stop BEFORE exporter drain:
 // completeShutdown runs inside runDaemon's body, the defers run
 // after completeShutdown returns. Serve errors that are merely ctx
 // cancellation or closed-listener signals are suppressed; operators see
