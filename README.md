@@ -131,12 +131,14 @@ Manual foreground flow on the machine with the physical USB device:
 sudo modprobe usbip_core usbip_host
 usbip-go list
 sudo usbip-go bind 1-1.2
-sudo usbip-go serve
+sudo usbip-go serve --status-socket=
 ```
 
 By default, `serve` listens on `0.0.0.0:3240`; use
-`--listen HOST:PORT` to override it. Keep `usbip-go serve` running
-while clients are attached. When you are done:
+`--listen HOST:PORT` to override it. The manual foreground example
+disables the status socket because packaged/systemd installs create
+`/run/usbip-go` for that socket. Keep `usbip-go serve` running while
+clients are attached. When you are done:
 
 ```sh
 sudo usbip-go unbind 1-1.2
@@ -154,16 +156,19 @@ sudo usbip-go detach 0
 
 ### Run as a daemon with systemd
 
+Use the `.deb` or `.rpm` package when you want systemd. Packages
+install the binary, socket/service units, module-loading config, and
+runtime-directory wiring.
+
 ```sh
-sudo install -Dm 0644 contrib/systemd/usbip-go.service /etc/systemd/system/usbip-go.service
-sudo install -Dm 0644 contrib/systemd/usbip-go.socket  /etc/systemd/system/usbip-go.socket
 sudo systemctl daemon-reload
 sudo systemctl enable --now usbip-go.socket
 ```
 
 Socket activation starts `usbip-go serve` on the first inbound
-connection. See [`docs/ops.md`](docs/ops.md) for status, readiness,
-health checks, logs, and graceful `usbip-go drain` rollouts.
+connection. See [`docs/ops.md`](docs/ops.md) for package install
+commands, status, readiness, health checks, logs, and graceful
+`usbip-go drain` rollouts.
 
 After enabling the socket, bind the devices you want to export:
 

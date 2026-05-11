@@ -7,52 +7,43 @@ see `openspec/specs/cli-interface/spec.md`).
 
 ## Installation
 
-Three supported install paths:
-
-1. **Pre-built release archive** from GitHub Releases:
-
-   ```
-   curl -LO https://github.com/abilisoft/usbip-go/releases/download/vX.Y.Z/usbip-go_X.Y.Z_linux_amd64.tar.gz
-   tar xzf usbip-go_X.Y.Z_linux_amd64.tar.gz
-   sudo install -m 0755 usbip-go /usr/local/bin/
-   sudo install -Dm 0644 contrib/systemd/usbip-go.service /etc/systemd/system/usbip-go.service
-   sudo install -Dm 0644 contrib/systemd/usbip-go.socket  /etc/systemd/system/usbip-go.socket
-   sudo install -Dm 0644 contrib/modules-load.d/usbip-go.conf /etc/modules-load.d/usbip-go.conf
-   ```
-
-2. **Debian / RPM package** from the release assets. Install via
-   your package manager:
-
-   ```
-   sudo dpkg -i usbip-go_X.Y.Z_amd64.deb
-   # or
-   sudo rpm -i usbip-go-X.Y.Z.x86_64.rpm
-   ```
-
-   Packages drop the binaries under `/usr/bin`, the systemd units
-   under `/usr/lib/systemd/system`, and the modules-load snippet
-   under `/usr/lib/modules-load.d`.
-
-3. **Source build** for development:
-
-   ```
-   go install github.com/abilisoft/usbip-go/cmd/usbip-go@latest
-   ```
-
-Kernel modules must be loadable on the target host:
+Use the OS package for production/systemd installs. The `.deb` and
+`.rpm` release assets install the binary, systemd units, modules-load
+config, and runtime-directory wiring used by the default status socket:
 
 ```
-sudo modprobe usbip_core vhci_hcd usbip_host
+sudo dpkg -i usbip-go_X.Y.Z_amd64.deb
+# or
+sudo rpm -i usbip-go-X.Y.Z.x86_64.rpm
 ```
 
-Add the modules to `/etc/modules-load.d/usbip-go.conf` for
-persistence across reboots.
+Archive and `go install` builds are best for manual foreground use or
+development:
+
+```
+curl -LO https://github.com/abilisoft/usbip-go/releases/download/vX.Y.Z/usbip-go_X.Y.Z_linux_amd64.tar.gz
+tar xzf usbip-go_X.Y.Z_linux_amd64.tar.gz
+sudo install -m 0755 usbip-go /usr/local/bin/
+
+# or
+go install github.com/abilisoft/usbip-go/cmd/usbip-go@latest
+```
+
+Kernel modules must be loadable on the target host. Packages install
+persistent module-loading config; archive and source installs should
+load the role-specific modules before starting commands:
+
+```
+sudo modprobe usbip_core usbip_host      # exporter/server
+sudo modprobe usbip_core vhci_hcd        # importer/client
+```
 
 ## Systemd units
 
-The project ships two unit files under
-[`contrib/systemd/`](../contrib/systemd/). Both are intentionally
-minimal — operators are expected to copy and customise.
+Packages install the service and socket units under
+`/usr/lib/systemd/system`. The copies under
+[`contrib/systemd/`](../contrib/systemd/) are references for packagers
+and operators who intentionally maintain custom units.
 
 ### `usbip-go.socket`
 
@@ -82,18 +73,23 @@ sockets are ever passed to the same unit.
 [Unit]
 Description=USB/IP (Go) daemon
 Requires=usbip-go.socket
+After=systemd-modules-load.service
 
 [Service]
 Type=simple
+ExecStartPre=-/sbin/modprobe usbip_core
+ExecStartPre=-/sbin/modprobe usbip_host
 ExecStart=/usr/bin/usbip-go serve
 Restart=on-failure
+RuntimeDirectory=usbip-go
+RuntimeDirectoryMode=0755
 CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Copy, then customise:
+Customise package-installed units with drop-ins:
 
 - Add `--allow-cidr=10.0.0.0/8` or similar `ExecStart` flags for
   your network (see [`security.md`](security.md)).
@@ -106,6 +102,10 @@ Copy, then customise:
   `NoNewPrivileges=yes`, `ProtectSystem=strict`,
   `ProtectHome=true`, `PrivateTmp=yes`, `RestrictSUIDSGID=yes`,
   `RestrictNamespaces=yes`, `SystemCallFilter=@system-service`.
+
+If you intentionally copy the reference unit by hand, keep
+`RuntimeDirectory=usbip-go`: it creates `/run/usbip-go` before
+`usbip-go serve` binds the default status socket.
 
 Enable:
 
@@ -143,6 +143,17 @@ Authoritative behavior is captured in
 | `--verbose` / `-v` | `0` | Count flag: `-v` raises log level to `debug`, `-vv` to `trace`. Wins over `--log-level` when set. |
 
 Run `usbip-go serve --help` for the up-to-date set.
+
+For manual foreground runs from an archive or `go install`, either
+disable the status UDS:
+
+```
+sudo usbip-go serve --status-socket=
+```
+
+or choose a status-socket path whose parent directory already exists.
+The packaged systemd unit handles `/run/usbip-go` with
+`RuntimeDirectory=usbip-go`.
 
 ## Exit codes
 

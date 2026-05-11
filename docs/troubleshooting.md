@@ -87,7 +87,7 @@ in log output so you can grep directly.
 
 | Sentinel | Typical cause | First remediation |
 |---|---|---|
-| `ErrKernelModuleMissing` | `vhci_hcd` / `usbip_host` / `usbip_core` not loaded, or no access to `/sys/module/`. | `sudo modprobe vhci_hcd usbip_core usbip_host`. Add to `/etc/modules-load.d/`. |
+| `ErrKernelModuleMissing` | `vhci_hcd` / `usbip_host` / `usbip_core` not loaded, or no access to `/sys/module/`. | Load the role modules with `sudo modprobe usbip_core usbip_host` on exporters or `sudo modprobe usbip_core vhci_hcd` on importers. |
 | `ErrPermission` | Sysfs write needs `CAP_SYS_ADMIN` + `CAP_DAC_OVERRIDE`. | `sudo` the caller or `setcap` the binary. |
 | `ErrDeviceNotFound` | BusID does not exist on the server, or is not bound. | Server: `usbip-go list`; bind the target with `usbip-go bind`. |
 | `ErrDeviceAlreadyBound` | Device is already exported. | Server: `usbip-go unbind BUSID` then retry. |
@@ -119,11 +119,9 @@ and `CONFIG_USBIP_HOST` in your kernel config. Distributions usually
 ship them as loadable modules in `linux-tools-$(uname -r)` or
 `kmod-usbip`.
 
-Make the modules persistent:
-
-```
-echo -e 'usbip_core\nvhci_hcd\nusbip_host' | sudo tee /etc/modules-load.d/usbip-go.conf
-```
+The `.deb` and `.rpm` packages install persistent module-loading
+configuration. Archive and `go install` users should load the needed
+role modules before running commands.
 
 ## Recovering from a stuck port
 
