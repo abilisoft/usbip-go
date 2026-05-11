@@ -61,15 +61,15 @@ func (s *syncBuffer) String() string {
 //
 //  1. SetupDummyHCDGadget enumerates a dummy_hcd-backed gadget and
 //     returns its busid (e.g. "1-1").
-//  2. usbip-go list --local --output=json shows the busid in the
+//  2. usbip-go list --output=json shows the busid in the
 //     enumerated devices.
 //  3. usbip-go bind <busid> succeeds.
 //  4. usbip-go serve --listen :<random-port> --status-socket "" runs
 //     in the background; we wait for the port to bind.
-//  5. usbip-go list -r 127.0.0.1:<port> --output=json returns the
+//  5. usbip-go list 127.0.0.1:<port> --output=json returns the
 //     same busid.
 //  6. usbip-go attach 127.0.0.1:<port> <busid> succeeds.
-//  7. usbip-go list --ports --output=json reports the attached port.
+//  7. usbip-go port --output=json reports the attached port.
 //  8. usbip-go detach <port-id> succeeds.
 //  9. usbip-go unbind <busid> succeeds.
 //
@@ -84,12 +84,12 @@ func TestCLIFullFlow_DummyHCD(t *testing.T) {
 
 	// Step 1: list local devices, expect our busid.
 	{
-		out := mustRunOK(t, ctx, usbipBin, "list", "--local", "--output=json")
+		out := mustRunOK(t, ctx, usbipBin, "list", "--output=json")
 
 		devices := parseDevicesEnvelope(t, out)
 
 		require.True(t, jsonContainsBusID(devices, busID),
-			"list --local must enumerate the dummy_hcd-backed gadget %q; got: %s", busID, out)
+			"list must enumerate the dummy_hcd-backed gadget %q; got: %s", busID, out)
 	}
 
 	// Step 2: bind the device.
@@ -138,22 +138,22 @@ func TestCLIFullFlow_DummyHCD(t *testing.T) {
 
 	// Step 4: list remote, expect the busid.
 	{
-		out := mustRunOK(t, ctx, usbipBin, "list", "--remote", listenAddr, "--output=json")
+		out := mustRunOK(t, ctx, usbipBin, "list", listenAddr, "--output=json")
 
 		devices := parseDevicesEnvelope(t, out)
 
 		require.True(t, jsonContainsBusID(devices, busID),
-			"list --remote must return the bound busid %q; got: %s", busID, out)
+			"list HOST must return the bound busid %q; got: %s", busID, out)
 	}
 
 	// Step 5: attach the device.
 	mustRunOK(t, ctx, usbipBin, "attach", listenAddr, busID)
 
 	// Register a busid-based detach cleanup IMMEDIATELY after the
-	// successful attach. A fatal in the upcoming list-ports step
+	// successful attach. A fatal in the upcoming port lookup step
 	// (findPortIDByBusID) would otherwise leak the vhci port until
 	// the next reboot. The cleanup re-resolves the port id by busid
-	// at run time so a list-ports failure during the test body does
+	// at run time so a port lookup failure during the test body does
 	// not break the cleanup path.
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -167,7 +167,7 @@ func TestCLIFullFlow_DummyHCD(t *testing.T) {
 		_ = exec.Command(usbipBin, "detach", id).Run()
 	})
 
-	// Step 6: list ports — find OUR port by matching the local busid.
+	// Step 6: run `usbip-go port` — find OUR port by matching the local busid.
 	// A naked ports[0] lookup would happily match a port from a
 	// concurrent attach (parallel tests) or a leftover from a prior
 	// run, then detach the wrong port and leave ours behind.
@@ -299,7 +299,7 @@ func waitForListener(addr string, deadline time.Duration) error {
 }
 
 // jsonContainsBusID checks whether any device dict in the slice has
-// "busid" equal to want. Used by both list --local and list --remote
+// "busid" equal to want. Used by both local and remote list
 // assertions; the JSON contract puts the busid under a stable
 // lowercase key per docs/json-schema.md.
 func jsonContainsBusID(devices []map[string]any, want string) bool {
@@ -343,7 +343,7 @@ func parseDevicesEnvelope(t *testing.T, raw []byte) []map[string]any {
 }
 
 // parsePortsEnvelope parses the {schema, ports} envelope from
-// `usbip-go list --ports --output=json`.
+// `usbip-go port --output=json`.
 func parsePortsEnvelope(t *testing.T, raw []byte) []map[string]any {
 	t.Helper()
 
@@ -353,7 +353,7 @@ func parsePortsEnvelope(t *testing.T, raw []byte) []map[string]any {
 	}
 
 	require.NoError(t, json.Unmarshal(raw, &env),
-		"list --ports --output=json must emit a valid envelope; got: %s", raw)
+		"port --output=json must emit a valid envelope; got: %s", raw)
 	require.Equal(t, "v1", env.Schema,
 		"envelope.schema must be the v1 stable identifier; got: %s", raw)
 
@@ -369,7 +369,7 @@ func parsePortsEnvelope(t *testing.T, raw []byte) []map[string]any {
 //	("",   error) when the binary cannot exec or the output is not
 //	              valid JSON — the caller logs and skips
 func lookupPortIDByBusIDForCleanup(ctx context.Context, usbipBin, busID string) (string, error) {
-	cmd := exec.CommandContext(ctx, usbipBin, "list", "--ports", "--output=json")
+	cmd := exec.CommandContext(ctx, usbipBin, "port", "--output=json")
 
 	out, err := cmd.Output()
 	if err != nil {
@@ -420,11 +420,11 @@ func lookupPortIDByBusIDForCleanup(ctx context.Context, usbipBin, busID string) 
 func findPortIDByBusID(t *testing.T, ctx context.Context, usbipBin, busID string) string {
 	t.Helper()
 
-	out := mustRunOK(t, ctx, usbipBin, "list", "--ports", "--output=json")
+	out := mustRunOK(t, ctx, usbipBin, "port", "--output=json")
 
 	ports := parsePortsEnvelope(t, out)
 	require.NotEmpty(t, ports,
-		"after attach, list --ports must report the new port; got: %s", out)
+		"after attach, port must report the new port; got: %s", out)
 
 	for _, p := range ports {
 		// Schema names the local busid as "local_busid" (under
@@ -450,7 +450,7 @@ func findPortIDByBusID(t *testing.T, ctx context.Context, usbipBin, busID string
 		}
 	}
 
-	t.Fatalf("no vhci port row matched busid %q in list --ports output: %s", busID, out)
+	t.Fatalf("no vhci port row matched busid %q in port output: %s", busID, out)
 
 	return ""
 }

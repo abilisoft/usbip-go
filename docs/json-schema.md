@@ -79,8 +79,7 @@ referenced by every envelope below.
 
 ### `list --output=json`
 
-Returned by `usbip-go list --local`, `usbip-go list --remote HOST`, and
-equivalents.
+Returned by `usbip-go list` and `usbip-go list HOST`.
 
 ```json
 {

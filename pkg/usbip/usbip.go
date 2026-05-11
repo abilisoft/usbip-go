@@ -281,7 +281,7 @@ func NewExporter(opts ...ExporterOption) (*Exporter, error) {
 }
 
 // ListAvailable enumerates every USB device on the host regardless
-// of bind state — the CLI's `usbip-go list -l` view.
+// of bind state — the CLI's `usbip-go list` view.
 func (e *Exporter) ListAvailable(ctx context.Context) ([]Device, error) {
 	devs, err := e.inner.ListAvailable(ctx)
 

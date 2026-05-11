@@ -43,7 +43,7 @@ func TestLookupPortIDByBusIDForCleanup_HandlesNonJSONOutput(t *testing.T) {
 	id, err := lookupPortIDByBusIDForCleanup(context.Background(), bin, "1-1")
 	require.Empty(t, id)
 	require.Error(t, err,
-		"non-JSON output from list --ports must surface as an unmarshal error so the cleanup short-circuits")
+		"non-JSON output from port must surface as an unmarshal error so the cleanup short-circuits")
 }
 
 // TestLookupPortIDByBusIDForCleanup_ReturnsEmptyOnNoMatch pins that
@@ -98,7 +98,7 @@ func TestLookupPortIDByBusIDForCleanup_FindsByBusID(t *testing.T) {
 }
 
 // makeStubBinary writes a minimal /bin/sh script that echoes the
-// supplied body to stdout. Used to fake the `usbip-go list --ports`
+// supplied body to stdout. Used to fake the `usbip-go port`
 // output without standing up the real binary or kernel modules.
 func makeStubBinary(t *testing.T, body string) string {
 	t.Helper()
@@ -106,7 +106,7 @@ func makeStubBinary(t *testing.T, body string) string {
 	tmp, err := filepath.Abs(t.TempDir())
 	require.NoError(t, err)
 
-	bin := filepath.Join(tmp, "stub-list-ports")
+	bin := filepath.Join(tmp, "stub-port")
 	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\n"+body+"\n"), 0o755))
 
 	return bin

@@ -27,7 +27,7 @@ exchange.
 
 The handshake for a successful attach consists of two TCP streams:
 
-- `usbip-go list --remote HOST` — `OP_REQ_DEVLIST` then `OP_REP_DEVLIST`.
+- `usbip-go list HOST` — `OP_REQ_DEVLIST` then `OP_REP_DEVLIST`.
 - `usbip-go attach HOST BUSID` — `OP_REQ_IMPORT` then
   `OP_REP_IMPORT`.
 
@@ -44,7 +44,7 @@ sudo tcpdump -i any -s 0 -w /tmp/usbip-trace.pcap 'tcp port 3240' &
 TCPDUMP_PID=$!
 
 # 2. Drive the failing client command.
-usbip-go list --remote 10.0.0.5
+usbip-go list 10.0.0.5
 usbip-go attach 10.0.0.5 1-1.2
 
 # 3. Stop tcpdump.
@@ -135,7 +135,7 @@ The script:
 3. Starts upstream `usbipd -e` (device/vudc mode) against port
    3240, checking that no foreign daemon already holds the port.
 4. Starts `tcpdump` on loopback.
-5. Runs `usbip-go list --remote 127.0.0.1` and
+5. Runs `usbip-go list 127.0.0.1` and
    `usbip-go attach 127.0.0.1 $BUSID`.
 6. Stops `tcpdump`, extracts each request and reply payload via
    `tshark`, enforces the size gates, and writes the binaries into

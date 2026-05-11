@@ -113,6 +113,10 @@ The repository SHALL ship systemd service and socket units suitable for operator
 - **THEN** it attempts to `modprobe usbip_core` and `usbip_host` before launching the daemon
 - **AND** missing modules do not fail unit startup when a custom kernel has built-in USB/IP support
 
+#### Scenario: Service unit creates the status runtime directory
+- **WHEN** the packaged service unit starts
+- **THEN** systemd creates `/run/usbip-go` before the daemon binds the default status socket
+
 #### Scenario: Boot-time module loading is configured
 - **WHEN** operators install `contrib/modules-load.d/usbip-go.conf` under `/etc/modules-load.d`
 - **THEN** `systemd-modules-load.service` loads `usbip_core`, `usbip_host`, and `vhci_hcd` at boot

@@ -40,7 +40,7 @@ type ImporterKernel interface {
 // loaded. See v1 contract §5.1.
 type ExporterKernel interface {
 	// ListLocalDevices returns every USB device on the host regardless
-	// of bind state — the CLI's `list -l` view shows the whole bus.
+	// of bind state — the CLI's `list` view shows the whole bus.
 	ListLocalDevices(ctx context.Context) ([]domain.Device, error)
 
 	// ListExportedDevices returns only devices currently bound to
