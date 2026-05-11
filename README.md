@@ -79,18 +79,37 @@ Load modules for the role each machine plays:
 | exporter/server | `usbip_core`, `usbip_host` | shares physical USB devices |
 | importer/client | `usbip_core`, `vhci_hcd` | attaches remote devices locally |
 
-If a host does both, load all three:
+The `.deb` and `.rpm` packages install a modules-load file under
+`/usr/lib/modules-load.d/usbip-go.conf`. Archive and `go install`
+users should configure modules explicitly.
+
+Copy/paste for an **exporter/server**:
+
+```sh
+sudo modprobe usbip_core usbip_host
+printf '%s\n' usbip_core usbip_host \
+  | sudo tee /etc/modules-load.d/usbip-go.conf
+```
+
+Copy/paste for an **importer/client**:
+
+```sh
+sudo modprobe usbip_core vhci_hcd
+printf '%s\n' usbip_core vhci_hcd \
+  | sudo tee /etc/modules-load.d/usbip-go.conf
+```
+
+If a host does both:
 
 ```sh
 sudo modprobe usbip_core vhci_hcd usbip_host
-```
-
-For boot-time loading on a host that does both:
-
-```sh
 printf '%s\n' usbip_core vhci_hcd usbip_host \
   | sudo tee /etc/modules-load.d/usbip-go.conf
 ```
+
+The systemd service also runs `modprobe usbip_core usbip_host` before
+starting the daemon, but boot-time modules-load configuration is still
+the most predictable setup.
 
 ## Usage
 
