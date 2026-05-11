@@ -56,7 +56,7 @@ jobs:
       - uses: ./.github/actions/setup-nix-dev
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@e46ed2cbd01164d986452f91f178727624ae40d7 # v4.35.3
+        uses: github/codeql-action/init@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
         with:
           languages: go
           # security-and-quality is the strictest pack; it includes
@@ -72,6 +72,6 @@ jobs:
         run: nix develop .#dev --command go build ./...
 
       - name: Perform analysis
-        uses: github/codeql-action/analyze@e46ed2cbd01164d986452f91f178727624ae40d7 # v4.35.3
+        uses: github/codeql-action/analyze@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
         with:
           category: "/language:go"
