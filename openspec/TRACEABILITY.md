@@ -102,7 +102,7 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Type | Line | Name | Evidence |
 | --- | ---: | --- | --- |
 | Requirement | 7 | Host tasks dispatch into the smallest hermetic Nix shell | `Taskfile.yml:55-296`; `docker-compose.yml:1-120`; `flake.nix:7-38`; `flake.nix:281-369` |
-| Scenario | 10 | Host tasks dispatch into the smallest hermetic Nix shell / Tooling uses cached Nixpkgs packages | `flake.nix:17-22`; `flake.nix:25-38`; `flake.nix:292-357`; `flake.lock:1-44`; `CONTRIBUTING.md:11-21`; `README.md:264-272` |
+| Scenario | 10 | Host tasks dispatch into the smallest hermetic Nix shell / Tooling uses cached Nixpkgs packages | `flake.nix:17-22`; `flake.nix:25-38`; `flake.nix:292-357`; `flake.lock:1-44`; `CONTRIBUTING.md:11-21`; `README.md:230-238` |
 | Scenario | 15 | Host tasks dispatch into the smallest hermetic Nix shell / Host runs a daily workflow task | `Taskfile.yml:61-64`; `Taskfile.yml:142-148`; `Taskfile.yml:214-224`; `docker-compose.yml:64-69`; `flake.nix:344` |
 | Scenario | 19 | Host tasks dispatch into the smallest hermetic Nix shell / Host runs a formatting workflow task | `Taskfile.yml:71-74`; `Taskfile.yml:108-112`; `Taskfile.yml:161-167`; `Taskfile.yml:238-248`; `docker-compose.yml:78-83`; `flake.nix:313-321`; `flake.nix:345` |
 | Scenario | 23 | Host tasks dispatch into the smallest hermetic Nix shell / Host runs a lint workflow task | `Taskfile.yml:76-79`; `Taskfile.yml:114-118`; `Taskfile.yml:149-160`; `Taskfile.yml:250-260`; `docker-compose.yml:85-90`; `flake.nix:323-338`; `flake.nix:346` |
@@ -467,7 +467,7 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 53 | Socket buffers are tunable / Linux doubles requested buffer | `internal/adapter/transport/transport.go:1-428`; `internal/adapter/transport/transport_options_linux_test.go:1-436` |
 | Requirement | 57 | TCP keepalive is tunable | `internal/adapter/transport/transport.go:1-428`; `internal/netopts/options.go:1-103`; `internal/adapter/transport/transport_test.go:1-487` |
 | Scenario | 60 | TCP keepalive is tunable / Keepalive field is set | `internal/adapter/transport/transport.go:1-428`; `internal/netopts/options.go:1-103`; `internal/adapter/transport/transport_test.go:1-487` |
-| Requirement | 64 | WAN and high-latency links are supported through explicit transport tuning | `internal/netopts/options.go:24-65`; `pkg/usbip/transport_options_test.go:44-107`; `internal/adapter/transport/transport_options_linux_test.go:26-436`; `README.md:55-62` |
+| Requirement | 64 | WAN and high-latency links are supported through explicit transport tuning | `internal/netopts/options.go:24-65`; `pkg/usbip/transport_options_test.go:44-107`; `internal/adapter/transport/transport_options_linux_test.go:26-436`; `README.md:39-40` |
 | Scenario | 67 | WAN and high-latency links are supported through explicit transport tuning / Caller tunes for a high-latency path | `internal/adapter/transport/transport.go:94-229`; `internal/adapter/transport/transport_options_linux_test.go:26-436`; `pkg/usbip/listen_and_serve_test.go:1-159` |
 | Requirement | 71 | Static read and write deadlines are handshake-scoped | `internal/adapter/transport/transport.go:1-428`; `internal/adapter/transport/transport_test.go:1-487` |
 | Scenario | 74 | Static read and write deadlines are handshake-scoped / Read deadline is configured | `internal/adapter/transport/transport.go:1-428`; `internal/adapter/transport/transport_test.go:1-487` |

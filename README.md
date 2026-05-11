@@ -28,59 +28,21 @@ the same kernel sysfs interface, so it interoperates with upstream
 peers in either direction. What differs is the userspace surface
 around the protocol:
 
-| Capability                                                                | upstream `usbip-utils` | `usbip-go` |
-| ------------------------------------------------------------------------- | ---------------------- | ---------- |
-| Wire-compatible with `usbip-utils` peers                                  | ✅                     | ✅         |
-| Uses kernel `vhci_hcd` / `usbip_host` / `usbip_vudc`                      | ✅                     | ✅         |
-| One unified binary for client, exporter, daemon, ops, and completions      | ❌                     | ✅         |
-| Pure Go, no cgo                                                           | ❌                     | ✅         |
-| Cross-compile supported Linux arches in one command                       | ❌                     | ✅         |
-| Non-Linux builds compile with explicit unsupported behavior                | ❌                     | ✅         |
-| Embeddable as a library (`pkg/usbip`)                                     | ❌                     | ✅         |
-| Public sentinel errors for embedders                                      | ❌                     | ✅         |
-| Auto-reconnect on detach (exponential backoff + jitter)                   | ❌                     | ✅         |
-| Reconnect backstop polling + stale-event generation guards                 | ❌                     | ✅         |
-| Concurrent-attach deduplication (per `(remote, busid)`)                   | ❌                     | ✅         |
-| Per-attach `MaxAttempts` / `OnReconnect` callback                         | ❌                     | ✅         |
-| Safe bind guardrails (hub rejection, per-BusID serialization, rollback)    | ❌                     | ✅         |
-| Embeddable API separates local inventory from peer-exportable device view  | ❌                     | ✅         |
-| Graceful drain + bounded `ShutdownTimeout`                                | ❌                     | ✅         |
-| Structured logging (`slog` JSON / text)                                   | ❌                     | ✅         |
-| Event subscription API (port / session / reconnect)                       | ❌                     | ✅         |
-| systemd socket activation (`usbip-go.socket`)                             | ❌                     | ✅         |
-| Status UDS for live introspection                                         | ❌                     | ✅         |
-| Version / commit provenance in CLI, status JSON, and daemon logs           | ❌                     | ✅         |
-| JSON output mode with versioned schema                                    | ❌                     | ✅         |
-| Allow-list CIDR / rate-limit / session caps                               | ❌                     | ✅         |
-| Handshake byte caps + timeout for slow/stalled peers                       | ❌                     | ✅         |
-| `TCP_NODELAY` on dialed connections                                       | ✅                     | ✅         |
-| Configurable connect timeout                                              | ❌                     | ✅         |
-| Tunable TCP keepalive (idle / interval / probes)                          | ❌                     | ✅         |
-| Tunable `SO_SNDBUF` / `SO_RCVBUF` for WAN bandwidth-delay                 | ❌                     | ✅         |
-| Static read / write deadlines per `Importer` / `Exporter`                 | ❌                     | ✅         |
-| High-latency / lossy-link support via TCP tuning and reconnect recovery    | ❌                     | ✅         |
-| Reproducible builds (`-trimpath`, no cgo)                                 | ❌                     | ✅         |
-| Static analysis + vuln/config linting (CodeQL, `golangci-lint`, YAML/Actions/Markdown/shell/spelling/Nix/TOML/Compose/OpenSpec gates, GoReleaser, `govulncheck`, Trivy) | ❌ | ✅ |
-| Conformance tests against real wire captures                              | ❌                     | ✅         |
-| Fuzz targets on the wire codec                                            | ❌                     | ✅         |
-| Mutation testing on protocol-critical packages                            | ❌                     | ✅         |
-| Coverage gate (90%+ for pure-logic packages)                              | ❌                     | ✅         |
-| SBOM + `cosign` keyless signed releases                                   | ❌                     | ✅         |
-| SLSA Build Provenance on every release                                    | ❌                     | ✅         |
-| OpenSSF Scorecard / Best Practices                                        | ❌                     | ✅         |
-| Shell completion install (`bash`/`zsh`/`fish`/`pwsh`)                     | ❌                     | ✅         |
-| Network-safe completion with private XDG attach-host history              | ❌                     | ✅         |
-| `watch` subcommand for live event observation                             | ❌                     | ✅         |
-| `port` subcommand for active VHCI port introspection                      | ❌                     | ✅         |
-| HTTP `/healthz` + `/readyz` endpoints                                     | ❌                     | ✅         |
-| Operator-stable versioned exit codes                                      | ❌                     | ✅         |
-| Drain admin API (`POST /drain` over the status UDS)                       | ❌                     | ✅         |
-| UUIDv7 session IDs for traceability                                       | ❌                     | ✅         |
-| `iter.Seq` (Go 1.23+) range-over-func event streams                       | ❌                     | ✅         |
-| Dual BusID validation (lenient on the wire, strict in the CLI)            | ❌                     | ✅         |
-| `-race` enforced on every CI run                                          | ❌                     | ✅         |
-| `gosec` static-analysis rules in CI (via `golangci-lint`)                 | ❌                     | ✅         |
-| TLS or authentication on the wire (out of scope — tunnel via WG/SSH/Tailscale) | ❌                | ❌         |
+| Area | upstream `usbip-utils` | `usbip-go` |
+| --- | --- | --- |
+| Wire/kernel compatibility | USB/IP wire format; kernel modules | same |
+| Packaging | `usbip`, `usbipd`, `libusbip` | one pure-Go `usbip-go` binary + library |
+| Library API | C library only | Go facade with typed domain values and sentinel errors |
+| Importer reliability | attach/detach/list | reconnect, attach dedupe, watch, port JSON |
+| Exporter safety | bind/unbind/daemon | bind guardrails, sessions, drain, status UDS |
+| Operations | process logs | `slog`, systemd socket activation, health/readiness |
+| Network tuning | kernel/default TCP behavior | timeout, keepalive, buffers, deadlines |
+| High-latency links | not a first-class userspace surface | TCP tuning + reconnect recovery |
+| Security posture | plaintext USB/IP | same; tunnel externally, plus CIDR/rate/session caps |
+| Release integrity | distro-dependent | SBOM, cosign, SLSA provenance |
+| Quality gates | upstream project tests | conformance, fuzz, mutation, coverage, lint/vuln CI |
+| Shell UX | shell-generated completions vary by package | built-in install for bash/zsh/fish/pwsh |
+| Not provided | TLS/auth on the USB/IP wire | same; use WireGuard/SSH/Tailscale/etc. |
 
 The underlying invariant — wire-compatible with upstream — does not
 change as new features land.
