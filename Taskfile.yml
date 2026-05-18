@@ -7,7 +7,7 @@ version: '3'
 # usbip-go Taskfile — canonical local and CI workflow.
 #
 # Normal build/test tasks use the fast Nix dev shell; format, lint/analyze,
-# vulnerability, release, and VM tasks use separate shells so everyday work
+# vulnerability, mutation, release, and VM tasks use separate shells so everyday work
 # does not realize unrelated tool closures. Local users do not need host Nix:
 # outer tasks dispatch through docker-compose into the appropriate nixos/nix container. CI can call
 # `nix develop .#<shell> --command task ci:<target>` directly.
@@ -56,7 +56,7 @@ tasks:
   # Bootstrap: seed the shared /nix store volume for a specific shell.
   # Local users only need Docker/Compose; CI can call `nix develop .#<shell>`
   # directly. Splitting shells keeps everyday build/test setup from realizing
-  # lint/analyzer, release, or VM closures.
+  # lint/analyzer, mutation, release, or VM closures.
   # ----------------------------------------------------------------------------
   setup:dev:
     desc: Seed local Docker/Nix volume for the fast build/test shell
@@ -82,6 +82,11 @@ tasks:
     desc: Seed local Docker/Nix volume for vulnerability tooling
     cmds:
       - 'docker compose run --rm setup "git config --global --add safe.directory /src && nix develop .#vuln --command true && chown -R {{.UID}}:{{.GID}} /nix"'
+
+  setup:mutation:
+    desc: Seed local Docker/Nix volume for mutation testing tooling
+    cmds:
+      - 'docker compose run --rm setup "git config --global --add safe.directory /src && nix develop .#mutation --command true && chown -R {{.UID}}:{{.GID}} /nix"'
 
   setup:release:
     desc: Seed local Docker/Nix volume for release tooling
@@ -123,6 +128,12 @@ tasks:
     cmds:
       - docker compose run --rm -it --entrypoint 'nix develop .#vuln' vuln
 
+  shell:mutation:
+    desc: Open mutation testing shell inside the local Docker/Nix container
+    deps: ['_prep:identity', 'setup:mutation']
+    cmds:
+      - docker compose run --rm -it --entrypoint 'nix develop .#mutation' mutation
+
   shell:release:
     desc: Open release tooling shell inside the local Docker/Nix container
     deps: ['_prep:identity', 'setup:release']
@@ -145,7 +156,7 @@ tasks:
   test:integration: {desc: 'Integration tests', cmds: [{task: '_run:dev', vars: {INNER: 'ci:test:integration'}}]}
   test:conformance: {desc: 'Conformance tests', cmds: [{task: '_run:dev', vars: {INNER: 'ci:test:conformance'}}]}
   test:cover: {desc: 'Coverage HTML report', cmds: [{task: '_run:dev', vars: {INNER: 'ci:test:cover'}}]}
-  test:mutation: {desc: 'Mutation tests', cmds: [{task: '_run:dev', vars: {INNER: 'ci:test:mutation'}}]}
+  test:mutation: {desc: 'Mutation tests', cmds: [{task: '_run:mutation', vars: {INNER: 'ci:test:mutation'}}]}
   lint: {desc: 'All lint gates', cmds: [{task: '_run:lint', vars: {INNER: 'ci:lint'}}]}
   lint:go: {desc: 'golangci-lint', cmds: [{task: '_run:lint', vars: {INNER: 'ci:lint:go'}}]}
   lint:yaml: {desc: 'yamllint', cmds: [{task: '_run:lint', vars: {INNER: 'ci:lint:yaml'}}]}
@@ -271,6 +282,18 @@ tasks:
           docker compose run --rm vuln task {{.INNER}}
         fi
 
+  _run:mutation:
+    internal: true
+    cmds:
+      - |
+        if [ "${USBIP_GO_NIX_SHELL:-}" = "mutation" ] || [ "${USBIP_GO_NIX_SHELL:-}" = "qa" ]; then
+          task {{.INNER}}
+        else
+          task _prep:identity
+          task setup:mutation
+          docker compose run --rm mutation task {{.INNER}}
+        fi
+
   _run:release:
     internal: true
     cmds:
@@ -370,13 +393,7 @@ tasks:
 
   ci:test:mutation:
     deps: ['_check:tooling']
-    env:
-      GOBIN: '{{.BUILD_DIR}}/cache/go-bin'
     cmds:
-      # Keep a pinned on-demand fallback so mutation testing remains one
-      # command without expanding the fast build/test shell.
-      - mkdir -p "$GOBIN"
-      - 'command -v gremlins >/dev/null 2>&1 || go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0'
       # gremlins copies the ENTIRE module tree per worker via
       # filepath.Walk on the source dir; .gremlins.yaml's
       # `excluded-files` only filters mutation CANDIDATES, NOT the
@@ -389,9 +406,9 @@ tasks:
       # walk hits a symlink loop.
       #
       # Stage a clean copy of the mutation-relevant source tree to
-      # mktemp-d, run gremlins from there. GOMODCACHE stays pointed
-      # at /src/build/cache/go-mod (set above by the env block) so
-      # gremlins resolves modules without re-downloading. Trap on
+      # mktemp-d, run gremlins from there. When the caller sets
+      # GOMODCACHE to the project cache, gremlins resolves modules
+      # without re-downloading. Trap on
       # EXIT cleans the stage even on failure.
       - |
         set -eu

@@ -47,8 +47,10 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup-nix-dev
       - name: Mutation tests
+        # The dedicated mutation shell provides gremlins without expanding
+        # the fast dev shell or installing tools at runtime.
         # task ci:test:mutation drives gremlins (or equivalent)
         # against pkg/domain + internal/adapter/wire, the two
         # protocol-critical packages where mutation efficacy is the
         # gate that pure line coverage cannot enforce.
-        run: nix develop .#dev --command task ci:test:mutation
+        run: nix develop .#mutation --command task ci:test:mutation
