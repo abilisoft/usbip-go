@@ -311,6 +311,21 @@
             '';
           };
 
+          gremlinsCli = toolPkgs.buildGoModule rec {
+            pname = "gremlins";
+            version = "0.6.0";
+
+            src = toolPkgs.fetchFromGitHub {
+              owner = "go-gremlins";
+              repo = "gremlins";
+              rev = "v${version}";
+              hash = "sha256-QwMj7aA4eafMT25gBLAomZMliCbueoEsDHD/nxtnmk4=";
+            };
+
+            vendorHash = "sha256-TYbbDN2V6GLj+YRNQIKggCnNspk3M96cP1DSe8P9qlY=";
+            subPackages = [ "cmd/gremlins" ];
+          };
+
           formatterPackages = [
             toolPkgs.gofumpt
             toolPkgs.gotools # goimports, stringer, guru, etc.
@@ -342,12 +357,17 @@
             toolPkgs.govulncheck
           ];
 
+          mutationPackages = [
+            gremlinsCli
+          ];
+
           dev = mkShell "usbip-go-dev" "dev" commonPackages;
           fmt = mkShell "usbip-go-fmt" "fmt" (commonPackages ++ formatterPackages);
           lint = mkShell "usbip-go-lint" "lint" (commonPackages ++ linterPackages);
           vuln = mkShell "usbip-go-vuln" "vuln" (commonPackages ++ vulnPackages);
+          mutation = mkShell "usbip-go-mutation" "mutation" (commonPackages ++ mutationPackages);
 
-          qa = mkShell "usbip-go-qa" "qa" (commonPackages ++ formatterPackages ++ linterPackages ++ vulnPackages);
+          qa = mkShell "usbip-go-qa" "qa" (commonPackages ++ formatterPackages ++ linterPackages ++ vulnPackages ++ mutationPackages);
 
           release = mkShell "usbip-go-release" "release" (commonPackages ++ [
             toolPkgs.goreleaser
@@ -367,7 +387,7 @@
         in
         {
           default = dev;
-          inherit dev fmt lint vuln qa release vm;
+          inherit dev fmt lint vuln mutation qa release vm;
         });
 
       # integration-test microVM: produced with nixpkgs's standard

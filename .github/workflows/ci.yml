@@ -12,7 +12,7 @@
 # Pattern: run every gate on a plain ubuntu-24.04 runner via the
 # Determinate Systems Nix installer + Magic Nix Cache. Reusable jobs enter
 # the smallest flake shell that has the required tools (`.#dev`, `.#fmt`,
-# `.#lint`, `.#vuln`, `.#release`, or `.#vm`) instead of realizing one
+# `.#lint`, `.#vuln`, `.#mutation`, `.#release`, or `.#vm`) instead of realizing one
 # all-purpose closure.
 
 name: CI

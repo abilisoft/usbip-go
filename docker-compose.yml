@@ -5,7 +5,8 @@
 #
 # The shared /nix volume is seeded by the root `setup` service for one named
 # shell at a time (`task setup:dev`, `task setup:fmt`, `task setup:lint`,
-# `task setup:vuln`, `task setup:qa`, `task setup:release`, `task setup:vm`).
+# `task setup:vuln`, `task setup:mutation`, `task setup:qa`, `task setup:release`,
+# `task setup:vm`).
 # Normal work then runs as the host UID in the smallest shell that contains the
 # requested tools:
 #
@@ -13,6 +14,7 @@
 #   * fmt     — formatter shell
 #   * lint    — lint/analyzer shell
 #   * vuln    — vulnerability scanner shell
+#   * mutation — mutation testing shell
 #   * qa      — full QA shell for combined local checks
 #   * release — GoReleaser, signing, SBOM, package, and changelog tooling
 #   * vm      — microVM runner shell with /dev/kvm access
@@ -95,6 +97,13 @@ services:
       !!merge <<: *dev-environment
       USBIP_GO_NIX_SHELL: vuln
     entrypoint: ["nix", "develop", ".#vuln", "--command"]
+
+  mutation:
+    !!merge <<: *shell-service
+    environment:
+      !!merge <<: *dev-environment
+      USBIP_GO_NIX_SHELL: mutation
+    entrypoint: ["nix", "develop", ".#mutation", "--command"]
 
   release:
     !!merge <<: *shell-service

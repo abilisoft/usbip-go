@@ -5,7 +5,7 @@ Specify the repository's contributor workflow, hermetic toolchain, local task di
 ## Requirements
 
 ### Requirement: Host tasks dispatch into the smallest hermetic Nix shell
-Top-level Taskfile targets SHALL dispatch through Docker-backed Nix shells for local users unless the process is already inside the expected shell. Routine build and test tasks SHALL use the fast `dev` shell; formatting tasks SHALL use the `fmt` shell; lint, spelling, analyzer, Compose/OpenSpec, and release-configuration validation tasks SHALL use the `lint` shell; vulnerability scanning SHALL use the `vuln` shell; full local QA checks MAY use the `qa` superset shell; release tasks SHALL use the `release` shell; microVM tasks SHALL use the `vm` shell.
+Top-level Taskfile targets SHALL dispatch through Docker-backed Nix shells for local users unless the process is already inside the expected shell. Routine build and test tasks SHALL use the fast `dev` shell; formatting tasks SHALL use the `fmt` shell; lint, spelling, analyzer, Compose/OpenSpec, and release-configuration validation tasks SHALL use the `lint` shell; vulnerability scanning SHALL use the `vuln` shell; mutation testing SHALL use the `mutation` shell; full local QA checks MAY use the `qa` superset shell; release tasks SHALL use the `release` shell; microVM tasks SHALL use the `vm` shell.
 
 #### Scenario: Tooling uses cached Nixpkgs packages
 - **WHEN** formatter, linter, vulnerability, or release CLI tools are evaluated
@@ -31,6 +31,10 @@ Top-level Taskfile targets SHALL dispatch through Docker-backed Nix shells for l
 #### Scenario: Host runs the combined QA workflow
 - **WHEN** a contributor runs `task check` from the host
 - **THEN** the task seeds `.#qa` if needed and invokes the combined `ci:check` task inside `docker compose run --rm qa`
+
+#### Scenario: Host runs a mutation workflow task
+- **WHEN** a contributor runs `task test:mutation` from the host
+- **THEN** the task seeds `.#mutation` if needed and invokes `ci:test:mutation` inside `docker compose run --rm mutation`
 
 #### Scenario: Host runs a release workflow task
 - **WHEN** a contributor runs `task release:notes`, `task release:snapshot`, or `task release` from the host
@@ -109,7 +113,8 @@ The repository SHALL separate race-enabled unit tests, conformance tests, integr
 
 #### Scenario: Mutation tests run
 - **WHEN** `task test:mutation` dispatches to `ci:test:mutation`
-- **THEN** gremlins is installed into `build/cache/go-bin`
+- **THEN** gremlins is provided by the dedicated `mutation` Nix shell
+- **AND** no runtime `go install` is required to provision mutation tooling
 - **AND** mutation runs against protocol-critical packages from a staged copy that excludes the repository's build cache
 
 ### Requirement: microVM workflow provides kernel-module integration coverage
