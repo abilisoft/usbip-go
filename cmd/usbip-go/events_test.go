@@ -13,9 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type unknownEvent struct{}
+type unknownEvent struct {
+	kind domain.EventKind
+}
 
-func (unknownEvent) EventKind() domain.EventKind { return domain.EventKind(255) }
+func (e unknownEvent) EventKind() domain.EventKind { return e.kind }
 
 func mustParseAddrPort(t *testing.T, s string) netip.AddrPort {
 	t.Helper()
@@ -93,7 +95,7 @@ func TestClassifyEventCoversEveryKind(t *testing.T) {
 func TestClassifyEventReturnsNilOnUnknown(t *testing.T) {
 	t.Parallel()
 
-	require.Nil(t, classifyEvent(unknownEvent{}))
+	require.Nil(t, classifyEvent(unknownEvent{kind: domain.EventPortAttached}))
 }
 
 func TestEventHeaderRejectsUnknownRecord(t *testing.T) {
@@ -101,18 +103,4 @@ func TestEventHeaderRejectsUnknownRecord(t *testing.T) {
 
 	_, _, ok := eventHeader("a string is not an event record")
 	require.False(t, ok)
-}
-
-func TestAdaptersRejectMismatchedDynamicType(t *testing.T) {
-	t.Parallel()
-
-	wrong := domain.PortAttachedEvent{At: time.Now()}
-
-	require.Nil(t, adaptPortDetached(wrong))
-	require.Nil(t, adaptPortErrored(wrong))
-	require.Nil(t, adaptPortReconnectExhausted(wrong))
-	require.Nil(t, adaptDeviceBound(wrong))
-	require.Nil(t, adaptDeviceUnbound(wrong))
-	require.Nil(t, adaptSessionStarted(wrong))
-	require.Nil(t, adaptSessionEnded(wrong))
 }

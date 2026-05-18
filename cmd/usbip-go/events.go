@@ -143,23 +143,52 @@ func newAckEnvelope(op string) ackEnvelope {
 }
 
 func classifyEvent(ev usbip.Event) any {
-	switch ev.EventKind() {
-	case domain.EventPortAttached:
-		return adaptPortAttached(ev)
-	case domain.EventPortDetached:
-		return adaptPortDetached(ev)
-	case domain.EventPortErrored:
-		return adaptPortErrored(ev)
-	case domain.EventPortReconnectExhausted:
-		return adaptPortReconnectExhausted(ev)
-	case domain.EventDeviceBound:
-		return adaptDeviceBound(ev)
-	case domain.EventDeviceUnbound:
-		return adaptDeviceUnbound(ev)
-	case domain.EventSessionStarted:
-		return adaptSessionStarted(ev)
-	case domain.EventSessionEnded:
-		return adaptSessionEnded(ev)
+	switch e := ev.(type) {
+	case domain.PortAttachedEvent:
+		return portAttachedRecord{
+			eventBase: newEventBase(e.EventKind(), e.At),
+			Port:      newPortView(e.Port),
+		}
+	case domain.PortDetachedEvent:
+		return portDetachedRecord{
+			eventBase: newEventBase(e.EventKind(), e.At),
+			Port:      newPortView(e.Port),
+			Reason:    e.Reason,
+		}
+	case domain.PortErroredEvent:
+		return portErroredRecord{
+			eventBase: newEventBase(e.EventKind(), e.At),
+			Port:      newPortView(e.Port),
+			Err:       e.Err,
+		}
+	case domain.PortReconnectExhaustedEvent:
+		return portReconnectExhaustedRecord{
+			eventBase: newEventBase(e.EventKind(), e.At),
+			Port:      newPortView(e.Port),
+			Attempts:  e.Attempts,
+			LastError: e.LastError,
+		}
+	case domain.DeviceBoundEvent:
+		return deviceBoundRecord{
+			eventBase: newEventBase(e.EventKind(), e.At),
+			Device:    newDeviceView(e.Device),
+		}
+	case domain.DeviceUnboundEvent:
+		return deviceUnboundRecord{
+			eventBase: newEventBase(e.EventKind(), e.At),
+			Device:    newDeviceView(e.Device),
+		}
+	case domain.SessionStartedEvent:
+		return sessionStartedRecord{
+			eventBase: newEventBase(e.EventKind(), e.At),
+			Session:   newSessionView(e.Session),
+		}
+	case domain.SessionEndedEvent:
+		return sessionEndedRecord{
+			eventBase: newEventBase(e.EventKind(), e.At),
+			Session:   newSessionView(e.Session),
+			Reason:    e.Reason,
+		}
 	default:
 		return nil
 	}
@@ -193,107 +222,6 @@ func newEventBase(k domain.EventKind, at time.Time) eventBase {
 		Schema: schemaVersion,
 		Kind:   k.String(),
 		At:     formatTime(at),
-	}
-}
-
-func adaptPortAttached(ev usbip.Event) any {
-	e, ok := ev.(domain.PortAttachedEvent)
-	if !ok {
-		return nil
-	}
-
-	return portAttachedRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Port:      newPortView(e.Port),
-	}
-}
-
-func adaptPortDetached(ev usbip.Event) any {
-	e, ok := ev.(domain.PortDetachedEvent)
-	if !ok {
-		return nil
-	}
-
-	return portDetachedRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Port:      newPortView(e.Port),
-		Reason:    e.Reason,
-	}
-}
-
-func adaptPortErrored(ev usbip.Event) any {
-	e, ok := ev.(domain.PortErroredEvent)
-	if !ok {
-		return nil
-	}
-
-	return portErroredRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Port:      newPortView(e.Port),
-		Err:       e.Err,
-	}
-}
-
-func adaptPortReconnectExhausted(ev usbip.Event) any {
-	e, ok := ev.(domain.PortReconnectExhaustedEvent)
-	if !ok {
-		return nil
-	}
-
-	return portReconnectExhaustedRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Port:      newPortView(e.Port),
-		Attempts:  e.Attempts,
-		LastError: e.LastError,
-	}
-}
-
-func adaptDeviceBound(ev usbip.Event) any {
-	e, ok := ev.(domain.DeviceBoundEvent)
-	if !ok {
-		return nil
-	}
-
-	return deviceBoundRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Device:    newDeviceView(e.Device),
-	}
-}
-
-func adaptDeviceUnbound(ev usbip.Event) any {
-	e, ok := ev.(domain.DeviceUnboundEvent)
-	if !ok {
-		return nil
-	}
-
-	return deviceUnboundRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Device:    newDeviceView(e.Device),
-	}
-}
-
-func adaptSessionStarted(ev usbip.Event) any {
-	e, ok := ev.(domain.SessionStartedEvent)
-	if !ok {
-		return nil
-	}
-
-	return sessionStartedRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Session:   newSessionView(e.Session),
-	}
-}
-
-func adaptSessionEnded(ev usbip.Event) any {
-	e, ok := ev.(domain.SessionEndedEvent)
-	if !ok {
-		return nil
-	}
-
-	return sessionEndedRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Session:   newSessionView(e.Session),
-		Reason:    e.Reason,
 	}
 }
 
