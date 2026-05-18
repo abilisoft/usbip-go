@@ -162,17 +162,9 @@ func TestExporterWatchSessions_StartEnd(t *testing.T) {
 
 	exp, client, release, serveDone, cancel := startExporterImportSession(t)
 
-	// Subscribe BEFORE releasing export so we see SessionStartedEvent,
-	// but AFTER the session is accepted so the Started event path has
-	// already published to the internal queue — consumers see future
-	// deltas per v1 contract §3.4.
 	watchCtx, watchCancel := context.WithCancel(context.Background())
 	t.Cleanup(watchCancel)
 
-	// Subscribe SYNCHRONOUSLY on the test goroutine so the subscriber
-	// is registered before we drive session-end — otherwise the
-	// in-goroutine subscribe can lose the race to close(release) and
-	// miss SessionEndedEvent. Iterate the returned seq in a worker.
 	seq := exp.WatchSessions(watchCtx)
 
 	evs := make(chan domain.Event, 8)
@@ -187,11 +179,14 @@ func TestExporterWatchSessions_StartEnd(t *testing.T) {
 		}
 	}()
 
-	// Give the watcher a moment to subscribe; session end happens when
-	// release fires and the outer ctx cancel unwinds the post-ExportOnConn
-	// waitForSessionEnd helper. In the real kernel the analogue of the
-	// release-channel is the kernel detach uevent; here the test uses
-	// ctx cancel since the default KernelEvents mock never delivers.
+	// WatchSessions registers lazily when the iterator is ranged, so
+	// wait for the worker to occupy the subscriber slot before ending
+	// the session. Otherwise this future-only stream can legitimately
+	// miss SessionEndedEvent.
+	require.Eventually(t, func() bool {
+		return app.SessionSubscribersLenForTest(exp) == 1
+	}, 2*time.Second, 10*time.Millisecond)
+
 	require.Eventually(t, func() bool {
 		return len(exp.Sessions(context.Background())) == 1
 	}, 2*time.Second, 10*time.Millisecond)
@@ -199,18 +194,6 @@ func TestExporterWatchSessions_StartEnd(t *testing.T) {
 	close(release)
 	cancel()
 
-	// Expect a SessionEndedEvent after the handler unwinds. We
-	// poll the receiver in a non-blocking select inside
-	// require.Eventually (10 s budget, 5 ms tick) instead of a
-	// fixed `time.After(2*time.Second)` deadline because that
-	// shorter budget flaked on the GHA hosted runner under -race
-	// + nix-cache contention: the kernel-events fan-out plus the
-	// goroutine scheduling round-trip from close(release) ->
-	// handler unwind -> publish -> worker forward -> evs consumer
-	// can take >2 s under load even when nothing is wrong. 10 s
-	// is safely below `task ci:test`'s per-test 180 s wall and
-	// matches the budget the other "wait for an event" assertions
-	// in this file already use.
 	gotEnded := false
 
 	require.Eventually(t, func() bool {

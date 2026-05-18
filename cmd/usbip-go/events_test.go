@@ -13,9 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// unknownEvent is a stand-in event whose dynamic type the
-// classifier does NOT recognise; used to exercise the nil-return
-// branch of classifyEvent.
 type unknownEvent struct{}
 
 func (unknownEvent) EventKind() domain.EventKind { return domain.EventKind(255) }
@@ -29,12 +26,8 @@ func mustParseAddrPort(t *testing.T, s string) netip.AddrPort {
 	return a
 }
 
-// TestClassifyEventCoversEveryKind sweeps every concrete event the
-// CLI is required to render, verifies classifyEvent returns a typed
-// record and eventHeader extracts the expected kind + ISO-8601
-// timestamp. Parametric so a new EventKind that lands in pkg/domain
-// without an adapter here fails this test instead of silently
-// rendering as fmt.Sprintf garbage.
+// TestClassifyEventCoversEveryKind keeps the CLI renderer in lockstep
+// with pkg/domain's event union.
 func TestClassifyEventCoversEveryKind(t *testing.T) {
 	t.Parallel()
 
@@ -99,9 +92,6 @@ func TestClassifyEventCoversEveryKind(t *testing.T) {
 	}
 }
 
-// TestClassifyEventReturnsNilOnUnknown pins the silent-failure path:
-// an event whose dynamic type is not in the kind→adapter table must
-// return nil so the JSON renderer can skip it without panicking.
 func TestClassifyEventReturnsNilOnUnknown(t *testing.T) {
 	t.Parallel()
 

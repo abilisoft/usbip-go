@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"strconv"
 
 	"github.com/abilisoft/usbip-go/pkg/usbip"
@@ -56,7 +57,7 @@ func runDetach(cmd *cobra.Command, args []string) error {
 // renderDetachResult writes the detach acknowledgement using the
 // renderer selected by --output. Extracted from runDetach so the
 // human-table path is unit-testable without a live importer.
-func renderDetachResult(out ioWriter, format string, pid usbip.PortID) error {
+func renderDetachResult(out io.Writer, format string, pid usbip.PortID) error {
 	if format == outputJSON {
 		err := (jsonRenderer{}).DetachAck(out, pid)
 		if err != nil {

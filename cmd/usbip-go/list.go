@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
 	"github.com/abilisoft/usbip-go/pkg/usbip"
@@ -43,7 +44,7 @@ func runList(cmd *cobra.Command, args []string) error {
 }
 
 // runListRemote queries the remote endpoint and renders the device list.
-func runListRemote(ctx context.Context, r Renderer, out ioWriter, remote string) error {
+func runListRemote(ctx context.Context, r Renderer, out io.Writer, remote string) error {
 	ep, err := domain.ParseRemote(remote)
 	if err != nil {
 		return errUsage("invalid remote %q: %s", remote, err)
@@ -70,7 +71,7 @@ func runListRemote(ctx context.Context, r Renderer, out ioWriter, remote string)
 }
 
 // runListLocal enumerates local exportable devices.
-func runListLocal(ctx context.Context, r Renderer, out ioWriter) error {
+func runListLocal(ctx context.Context, r Renderer, out io.Writer) error {
 	exp, err := newExporter(withExporterLoggerFromCtx(ctx)...)
 	if err != nil {
 		return err
@@ -87,11 +88,6 @@ func runListLocal(ctx context.Context, r Renderer, out ioWriter) error {
 	}
 
 	return nil
-}
-
-// ioWriter is a tiny alias that lets us keep the list.go imports lean.
-type ioWriter = interface {
-	Write(p []byte) (n int, err error)
 }
 
 // outputFromCtx reads the globalFlags.Output stashed by

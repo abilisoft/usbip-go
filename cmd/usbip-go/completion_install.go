@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -78,7 +79,7 @@ func runCompletionInstall(cmd *cobra.Command, root *cobra.Command, cf *completio
 
 // writeCompletionScript renders the cobra script for shell and writes
 // it to target, creating parent dirs as needed.
-func writeCompletionScript(out ioWriter, root *cobra.Command, shell, target string) error {
+func writeCompletionScript(out io.Writer, root *cobra.Command, shell, target string) error {
 	var buf bytes.Buffer
 
 	err := generateScript(root, shell, &buf)
@@ -105,7 +106,7 @@ func writeCompletionScript(out ioWriter, root *cobra.Command, shell, target stri
 }
 
 // runUninstall removes the installed script at target. Missing is OK.
-func runUninstall(out ioWriter, target string) error {
+func runUninstall(out io.Writer, target string) error {
 	err := os.Remove(target)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove completion script: %w", err)
@@ -197,7 +198,7 @@ func xdgDataHome() (string, error) {
 
 // generateScript invokes the cobra completion generator for shell and
 // writes the script bytes to out.
-func generateScript(root *cobra.Command, shell string, out ioWriter) error {
+func generateScript(root *cobra.Command, shell string, out io.Writer) error {
 	switch shell {
 	case shellBash:
 		err := root.GenBashCompletion(out)

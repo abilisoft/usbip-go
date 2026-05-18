@@ -72,7 +72,8 @@ Each successful import Session SHALL have a UUIDv7 SessionID, remote address, Bu
 - **THEN** it returns a point-in-time list sorted by start time
 
 ### Requirement: Session events are observable
-`Exporter.WatchSessions` SHALL emit session lifecycle events while its context is live.
+`Exporter.WatchSessions` SHALL emit future session lifecycle events while its
+context is live and once the returned iterator is consumed.
 
 #### Scenario: Import handshake completes
 - **WHEN** a Session is registered
@@ -81,6 +82,15 @@ Each successful import Session SHALL have a UUIDv7 SessionID, remote address, Bu
 #### Scenario: Session ends
 - **WHEN** the kernel-owned connection closes, disconnects, or shutdown ends it
 - **THEN** a `session_ended` event is emitted with the final Session snapshot and reason
+
+#### Scenario: Watch iterator is constructed but not consumed
+- **WHEN** a caller constructs a `WatchSessions` iterator and does not range over it
+- **THEN** the exporter does not register a subscriber
+
+#### Scenario: Watch iterator is consumed
+- **WHEN** a caller ranges over a `WatchSessions` iterator before a session lifecycle event occurs
+- **THEN** the caller receives subsequent `session_started` and `session_ended`
+  events until its context is cancelled or the exporter shuts down
 
 ### Requirement: Shutdown performs graceful drain
 Exporter Shutdown SHALL stop new accepts, signal active sessions, wait for in-flight sessions subject to context/deadline semantics, and return a classified error on timeout or lifecycle misuse.

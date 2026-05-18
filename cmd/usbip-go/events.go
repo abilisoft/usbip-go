@@ -87,17 +87,6 @@ type unbindAck struct {
 	BusID string `json:"busid"`
 }
 
-// newAckEnvelope builds a v1 ackEnvelope for the given op name with
-// OK=true. All ack records in the CLI today report success (failures
-// surface as non-zero exit codes, never as {"ok":false}).
-func newAckEnvelope(op string) ackEnvelope {
-	return ackEnvelope{
-		Schema: schemaVersion,
-		Op:     op,
-		OK:     true,
-	}
-}
-
 type portAttachedRecord struct {
 	eventBase
 
@@ -151,23 +140,14 @@ type sessionEndedRecord struct {
 	Reason  string      `json:"reason"`
 }
 
-// eventRecorder converts a domain event into its v1-schema record struct.
-// Returns nil when ev's concrete type does not match the expected kind.
-type eventRecorder func(usbip.Event) any
-
-// eventRecorders is the closed dispatch table from EventKind to the
-// concrete-type-aware recorder. Map-over-switch keeps classifyEvent
-// under the cyclop cap of 10.
-func eventRecorders() map[domain.EventKind]eventRecorder {
-	return map[domain.EventKind]eventRecorder{
-		domain.EventPortAttached:           adaptPortAttached,
-		domain.EventPortDetached:           adaptPortDetached,
-		domain.EventPortErrored:            adaptPortErrored,
-		domain.EventPortReconnectExhausted: adaptPortReconnectExhausted,
-		domain.EventDeviceBound:            adaptDeviceBound,
-		domain.EventDeviceUnbound:          adaptDeviceUnbound,
-		domain.EventSessionStarted:         adaptSessionStarted,
-		domain.EventSessionEnded:           adaptSessionEnded,
+// newAckEnvelope builds a v1 ackEnvelope for the given op name with
+// OK=true. All ack records in the CLI today report success (failures
+// surface as non-zero exit codes, never as {"ok":false}).
+func newAckEnvelope(op string) ackEnvelope {
+	return ackEnvelope{
+		Schema: schemaVersion,
+		Op:     op,
+		OK:     true,
 	}
 }
 
@@ -175,12 +155,26 @@ func eventRecorders() map[domain.EventKind]eventRecorder {
 // struct. nil is returned for unknown concrete types so the caller can
 // surface the classification failure.
 func classifyEvent(ev usbip.Event) any {
-	rec, ok := eventRecorders()[ev.EventKind()]
-	if !ok {
+	switch ev.EventKind() {
+	case domain.EventPortAttached:
+		return adaptPortAttached(ev)
+	case domain.EventPortDetached:
+		return adaptPortDetached(ev)
+	case domain.EventPortErrored:
+		return adaptPortErrored(ev)
+	case domain.EventPortReconnectExhausted:
+		return adaptPortReconnectExhausted(ev)
+	case domain.EventDeviceBound:
+		return adaptDeviceBound(ev)
+	case domain.EventDeviceUnbound:
+		return adaptDeviceUnbound(ev)
+	case domain.EventSessionStarted:
+		return adaptSessionStarted(ev)
+	case domain.EventSessionEnded:
+		return adaptSessionEnded(ev)
+	default:
 		return nil
 	}
-
-	return rec(ev)
 }
 
 // eventHeader extracts the Kind and At from a record returned by

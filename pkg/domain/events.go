@@ -25,31 +25,29 @@ const (
 	EventSessionEnded
 )
 
-// eventKindNames is indexed by EventKind value; an entry is present iff
-// the index < len(eventKindNames). Using a slice avoids the cyclomatic
-// complexity of a long switch and keeps the String implementation O(1).
-func eventKindNames() []string {
-	return []string{
-		"port_attached",
-		"port_detached",
-		"port_errored",
-		"port_reconnect_exhausted",
-		"device_bound",
-		"device_unbound",
-		"session_started",
-		"session_ended",
-	}
-}
-
 // String returns the canonical snake_case kind discriminator.
 // Unknown values return "event(N)" with N in decimal.
 func (k EventKind) String() string {
-	names := eventKindNames()
-	if int(k) < len(names) {
-		return names[k]
+	switch k {
+	case EventPortAttached:
+		return "port_attached"
+	case EventPortDetached:
+		return "port_detached"
+	case EventPortErrored:
+		return "port_errored"
+	case EventPortReconnectExhausted:
+		return "port_reconnect_exhausted"
+	case EventDeviceBound:
+		return "device_bound"
+	case EventDeviceUnbound:
+		return "device_unbound"
+	case EventSessionStarted:
+		return "session_started"
+	case EventSessionEnded:
+		return "session_ended"
+	default:
+		return "event(" + strconv.FormatUint(uint64(k), 10) + ")"
 	}
-
-	return "event(" + strconv.FormatUint(uint64(k), 10) + ")"
 }
 
 // Event is the closed polymorphic union of domain events. Each concrete
