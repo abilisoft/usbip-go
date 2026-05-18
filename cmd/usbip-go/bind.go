@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
 	"github.com/spf13/cobra"
@@ -105,7 +106,7 @@ func writeBindAck(cmd *cobra.Command, op string, busID domain.BusID) error {
 // writeBindAckJSON dispatches to the correct typed ack method by op
 // name. bind and unbind each have their own envelope type so the JSON
 // shape is locked per op; a typed switch keeps the dispatch obvious.
-func writeBindAckJSON(w ioWriter, op string, busID domain.BusID) error {
+func writeBindAckJSON(w io.Writer, op string, busID domain.BusID) error {
 	switch op {
 	case "bind":
 		return (jsonRenderer{}).BindAck(w, busID)

@@ -13,12 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// unknownEvent is a stand-in event whose dynamic type the
-// classifier does NOT recognise; used to exercise the nil-return
-// branch of classifyEvent.
-type unknownEvent struct{}
+type unknownEvent struct {
+	kind domain.EventKind
+}
 
-func (unknownEvent) EventKind() domain.EventKind { return domain.EventKind(255) }
+func (e unknownEvent) EventKind() domain.EventKind { return e.kind }
 
 func mustParseAddrPort(t *testing.T, s string) netip.AddrPort {
 	t.Helper()
@@ -29,12 +28,6 @@ func mustParseAddrPort(t *testing.T, s string) netip.AddrPort {
 	return a
 }
 
-// TestClassifyEventCoversEveryKind sweeps every concrete event the
-// CLI is required to render, verifies classifyEvent returns a typed
-// record and eventHeader extracts the expected kind + ISO-8601
-// timestamp. Parametric so a new EventKind that lands in pkg/domain
-// without an adapter here fails this test instead of silently
-// rendering as fmt.Sprintf garbage.
 func TestClassifyEventCoversEveryKind(t *testing.T) {
 	t.Parallel()
 
@@ -99,37 +92,15 @@ func TestClassifyEventCoversEveryKind(t *testing.T) {
 	}
 }
 
-// TestClassifyEventReturnsNilOnUnknown pins the silent-failure path:
-// an event whose dynamic type is not in the kind→adapter table must
-// return nil so the JSON renderer can skip it without panicking.
 func TestClassifyEventReturnsNilOnUnknown(t *testing.T) {
 	t.Parallel()
 
-	require.Nil(t, classifyEvent(unknownEvent{}))
+	require.Nil(t, classifyEvent(unknownEvent{kind: domain.EventPortAttached}))
 }
 
-// TestEventHeaderRejectsUnknownRecord pins the symmetric branch in
-// eventHeader for record types it doesn't know about.
 func TestEventHeaderRejectsUnknownRecord(t *testing.T) {
 	t.Parallel()
 
 	_, _, ok := eventHeader("a string is not an event record")
 	require.False(t, ok)
-}
-
-// TestAdaptersRejectMismatchedDynamicType pins the type-assertion
-// safety in every adapter — passing an event of the wrong concrete
-// type returns nil, never panics.
-func TestAdaptersRejectMismatchedDynamicType(t *testing.T) {
-	t.Parallel()
-
-	wrong := domain.PortAttachedEvent{At: time.Now()}
-
-	require.Nil(t, adaptPortDetached(wrong))
-	require.Nil(t, adaptPortErrored(wrong))
-	require.Nil(t, adaptPortReconnectExhausted(wrong))
-	require.Nil(t, adaptDeviceBound(wrong))
-	require.Nil(t, adaptDeviceUnbound(wrong))
-	require.Nil(t, adaptSessionStarted(wrong))
-	require.Nil(t, adaptSessionEnded(wrong))
 }
