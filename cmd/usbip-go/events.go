@@ -57,45 +57,28 @@ type ackEnvelope struct {
 	OK     bool   `json:"ok"`
 }
 
-// attachAck is the `attach --output=json` response envelope.
 type attachAck struct {
 	ackEnvelope
 
 	Port portView `json:"port"`
 }
 
-// detachAck is the `detach --output=json` response envelope.
 type detachAck struct {
 	ackEnvelope
 
 	PortID uint64 `json:"port_id"`
 }
 
-// bindAck is the `bind --output=json` response envelope.
 type bindAck struct {
 	ackEnvelope
 
 	BusID string `json:"busid"`
 }
 
-// unbindAck is the `unbind --output=json` response envelope. A
-// dedicated type (vs. reusing bindAck) keeps op→struct mapping
-// monomorphic and makes future per-op evolution local.
 type unbindAck struct {
 	ackEnvelope
 
 	BusID string `json:"busid"`
-}
-
-// newAckEnvelope builds a v1 ackEnvelope for the given op name with
-// OK=true. All ack records in the CLI today report success (failures
-// surface as non-zero exit codes, never as {"ok":false}).
-func newAckEnvelope(op string) ackEnvelope {
-	return ackEnvelope{
-		Schema: schemaVersion,
-		Op:     op,
-		OK:     true,
-	}
 }
 
 type portAttachedRecord struct {
@@ -151,44 +134,66 @@ type sessionEndedRecord struct {
 	Reason  string      `json:"reason"`
 }
 
-// eventRecorder converts a domain event into its v1-schema record struct.
-// Returns nil when ev's concrete type does not match the expected kind.
-type eventRecorder func(usbip.Event) any
-
-// eventRecorders is the closed dispatch table from EventKind to the
-// concrete-type-aware recorder. Map-over-switch keeps classifyEvent
-// under the cyclop cap of 10.
-func eventRecorders() map[domain.EventKind]eventRecorder {
-	return map[domain.EventKind]eventRecorder{
-		domain.EventPortAttached:           adaptPortAttached,
-		domain.EventPortDetached:           adaptPortDetached,
-		domain.EventPortErrored:            adaptPortErrored,
-		domain.EventPortReconnectExhausted: adaptPortReconnectExhausted,
-		domain.EventDeviceBound:            adaptDeviceBound,
-		domain.EventDeviceUnbound:          adaptDeviceUnbound,
-		domain.EventSessionStarted:         adaptSessionStarted,
-		domain.EventSessionEnded:           adaptSessionEnded,
+func newAckEnvelope(op string) ackEnvelope {
+	return ackEnvelope{
+		Schema: schemaVersion,
+		Op:     op,
+		OK:     true,
 	}
 }
 
-// classifyEvent converts a domain event into its v1-schema record
-// struct. nil is returned for unknown concrete types so the caller can
-// surface the classification failure.
 func classifyEvent(ev usbip.Event) any {
-	rec, ok := eventRecorders()[ev.EventKind()]
-	if !ok {
+	switch e := ev.(type) {
+	case domain.PortAttachedEvent:
+		return portAttachedRecord{
+			eventBase: newEventBase(e.EventKind(), e.At),
+			Port:      newPortView(e.Port),
+		}
+	case domain.PortDetachedEvent:
+		return portDetachedRecord{
+			eventBase: newEventBase(e.EventKind(), e.At),
+			Port:      newPortView(e.Port),
+			Reason:    e.Reason,
+		}
+	case domain.PortErroredEvent:
+		return portErroredRecord{
+			eventBase: newEventBase(e.EventKind(), e.At),
+			Port:      newPortView(e.Port),
+			Err:       e.Err,
+		}
+	case domain.PortReconnectExhaustedEvent:
+		return portReconnectExhaustedRecord{
+			eventBase: newEventBase(e.EventKind(), e.At),
+			Port:      newPortView(e.Port),
+			Attempts:  e.Attempts,
+			LastError: e.LastError,
+		}
+	case domain.DeviceBoundEvent:
+		return deviceBoundRecord{
+			eventBase: newEventBase(e.EventKind(), e.At),
+			Device:    newDeviceView(e.Device),
+		}
+	case domain.DeviceUnboundEvent:
+		return deviceUnboundRecord{
+			eventBase: newEventBase(e.EventKind(), e.At),
+			Device:    newDeviceView(e.Device),
+		}
+	case domain.SessionStartedEvent:
+		return sessionStartedRecord{
+			eventBase: newEventBase(e.EventKind(), e.At),
+			Session:   newSessionView(e.Session),
+		}
+	case domain.SessionEndedEvent:
+		return sessionEndedRecord{
+			eventBase: newEventBase(e.EventKind(), e.At),
+			Session:   newSessionView(e.Session),
+			Reason:    e.Reason,
+		}
+	default:
 		return nil
 	}
-
-	return rec(ev)
 }
 
-// eventHeader extracts the Kind and At from a record returned by
-// classifyEvent. All event records embed eventBase, so a type
-// assertion to that embedded struct would be noise; returning via a
-// small helper keeps callers out of reflection and stringly-typed
-// lookups. The boolean is false only when rec is of an unknown type
-// (classifyEvent returned nil).
 func eventHeader(rec any) (string, string, bool) {
 	switch r := rec.(type) {
 	case portAttachedRecord:
@@ -217,107 +222,6 @@ func newEventBase(k domain.EventKind, at time.Time) eventBase {
 		Schema: schemaVersion,
 		Kind:   k.String(),
 		At:     formatTime(at),
-	}
-}
-
-func adaptPortAttached(ev usbip.Event) any {
-	e, ok := ev.(domain.PortAttachedEvent)
-	if !ok {
-		return nil
-	}
-
-	return portAttachedRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Port:      newPortView(e.Port),
-	}
-}
-
-func adaptPortDetached(ev usbip.Event) any {
-	e, ok := ev.(domain.PortDetachedEvent)
-	if !ok {
-		return nil
-	}
-
-	return portDetachedRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Port:      newPortView(e.Port),
-		Reason:    e.Reason,
-	}
-}
-
-func adaptPortErrored(ev usbip.Event) any {
-	e, ok := ev.(domain.PortErroredEvent)
-	if !ok {
-		return nil
-	}
-
-	return portErroredRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Port:      newPortView(e.Port),
-		Err:       e.Err,
-	}
-}
-
-func adaptPortReconnectExhausted(ev usbip.Event) any {
-	e, ok := ev.(domain.PortReconnectExhaustedEvent)
-	if !ok {
-		return nil
-	}
-
-	return portReconnectExhaustedRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Port:      newPortView(e.Port),
-		Attempts:  e.Attempts,
-		LastError: e.LastError,
-	}
-}
-
-func adaptDeviceBound(ev usbip.Event) any {
-	e, ok := ev.(domain.DeviceBoundEvent)
-	if !ok {
-		return nil
-	}
-
-	return deviceBoundRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Device:    newDeviceView(e.Device),
-	}
-}
-
-func adaptDeviceUnbound(ev usbip.Event) any {
-	e, ok := ev.(domain.DeviceUnboundEvent)
-	if !ok {
-		return nil
-	}
-
-	return deviceUnboundRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Device:    newDeviceView(e.Device),
-	}
-}
-
-func adaptSessionStarted(ev usbip.Event) any {
-	e, ok := ev.(domain.SessionStartedEvent)
-	if !ok {
-		return nil
-	}
-
-	return sessionStartedRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Session:   newSessionView(e.Session),
-	}
-}
-
-func adaptSessionEnded(ev usbip.Event) any {
-	e, ok := ev.(domain.SessionEndedEvent)
-	if !ok {
-		return nil
-	}
-
-	return sessionEndedRecord{
-		eventBase: newEventBase(e.EventKind(), e.At),
-		Session:   newSessionView(e.Session),
-		Reason:    e.Reason,
 	}
 }
 

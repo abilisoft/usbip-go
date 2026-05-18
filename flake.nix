@@ -37,10 +37,13 @@
             (import nixpkgs { inherit system; })
             (import tooling-nixpkgs { inherit system; }));
 
-      # Minor version of the Go toolchain to select from nixpkgs. Must match
-      # the `go X.Y` directive in go.mod at least at the minor level; the
-      # shellHook asserts patch-level parity at activation time.
+      # Minor version of the Go toolchain to select from nixpkgs. Must match the
+      # `go X.Y` directive in go.mod at least at the minor level.
       goMinor = "1.26";
+      goAttr = "go_${builtins.replaceStrings ["."] ["_"] goMinor}";
+
+      goPackage = pkgs: pkgs.${goAttr} or (throw
+        "flake.nix: nixpkgs does not expose ${goAttr}; bump goMinor or the nixpkgs input");
 
       # Modules needed to drive the integration suite's usbip gadget setup
       # and configfs tree. Declared once so the kernel config and the
@@ -170,7 +173,7 @@
           kmod
           iproute2
           procps
-          pkgs."go_${builtins.replaceStrings ["."] ["_"] goMinor}"
+          (goPackage pkgs)
           git
           gotools
         ];
@@ -198,7 +201,7 @@
             # Go + goimports + git visible to the oneshot so integration
             # payloads can run `go test ./...` against the bind-mounted
             # /src without needing to re-install anything inside the VM.
-            pkgs."go_${builtins.replaceStrings ["."] ["_"] goMinor}"
+            (goPackage pkgs)
             pkgs.git
             pkgs.gotools
             pkgs.gcc
@@ -280,9 +283,7 @@
     {
       devShells = forAllSystems (pkgs: toolPkgs:
         let
-          goAttr = "go_${builtins.replaceStrings ["."] ["_"] goMinor}";
-          go = pkgs.${goAttr} or (throw
-            "flake.nix: nixpkgs does not expose ${goAttr}; bump goMinor or the nixpkgs input");
+          go = goPackage pkgs;
 
           commonEnv = {
             GOTOOLCHAIN = "local";

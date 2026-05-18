@@ -480,17 +480,6 @@ func TestOutputFromCtx_MissingFlagsFallsBackToTable(t *testing.T) {
 	require.Equal(t, "table", got)
 }
 
-// TestAdaptPortAttached_RejectsWrongType pins the !ok branch of
-// adaptPortAttached: passing an event whose concrete type is not
-// domain.PortAttachedEvent must return nil without panicking.
-func TestAdaptPortAttached_RejectsWrongType(t *testing.T) {
-	t.Parallel()
-
-	wrong := domain.PortDetachedEvent{}
-	require.Nil(t, adaptPortAttached(wrong),
-		"adaptPortAttached must return nil for a non-PortAttachedEvent")
-}
-
 // TestTableRenderer_Event_UnknownType pins the !ok branch of
 // tableRenderer.Event: when eventHeader does not recognise the event
 // record the fallback fmt.Fprintf branch must render %T/%v without
