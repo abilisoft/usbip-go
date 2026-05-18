@@ -34,7 +34,7 @@ func TestEventKind_DistinctValues(t *testing.T) {
 		seen[k] = struct{}{}
 	}
 
-	require.Len(t, seen, 8)
+	require.Len(t, seen, len(kinds))
 }
 
 func TestEventKind_String(t *testing.T) {

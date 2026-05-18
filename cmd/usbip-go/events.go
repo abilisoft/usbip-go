@@ -57,30 +57,24 @@ type ackEnvelope struct {
 	OK     bool   `json:"ok"`
 }
 
-// attachAck is the `attach --output=json` response envelope.
 type attachAck struct {
 	ackEnvelope
 
 	Port portView `json:"port"`
 }
 
-// detachAck is the `detach --output=json` response envelope.
 type detachAck struct {
 	ackEnvelope
 
 	PortID uint64 `json:"port_id"`
 }
 
-// bindAck is the `bind --output=json` response envelope.
 type bindAck struct {
 	ackEnvelope
 
 	BusID string `json:"busid"`
 }
 
-// unbindAck is the `unbind --output=json` response envelope. A
-// dedicated type (vs. reusing bindAck) keeps op→struct mapping
-// monomorphic and makes future per-op evolution local.
 type unbindAck struct {
 	ackEnvelope
 
@@ -140,9 +134,6 @@ type sessionEndedRecord struct {
 	Reason  string      `json:"reason"`
 }
 
-// newAckEnvelope builds a v1 ackEnvelope for the given op name with
-// OK=true. All ack records in the CLI today report success (failures
-// surface as non-zero exit codes, never as {"ok":false}).
 func newAckEnvelope(op string) ackEnvelope {
 	return ackEnvelope{
 		Schema: schemaVersion,
@@ -151,9 +142,6 @@ func newAckEnvelope(op string) ackEnvelope {
 	}
 }
 
-// classifyEvent converts a domain event into its v1-schema record
-// struct. nil is returned for unknown concrete types so the caller can
-// surface the classification failure.
 func classifyEvent(ev usbip.Event) any {
 	switch ev.EventKind() {
 	case domain.EventPortAttached:
@@ -177,12 +165,6 @@ func classifyEvent(ev usbip.Event) any {
 	}
 }
 
-// eventHeader extracts the Kind and At from a record returned by
-// classifyEvent. All event records embed eventBase, so a type
-// assertion to that embedded struct would be noise; returning via a
-// small helper keeps callers out of reflection and stringly-typed
-// lookups. The boolean is false only when rec is of an unknown type
-// (classifyEvent returned nil).
 func eventHeader(rec any) (string, string, bool) {
 	switch r := rec.(type) {
 	case portAttachedRecord:

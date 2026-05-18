@@ -26,8 +26,6 @@ func mustParseAddrPort(t *testing.T, s string) netip.AddrPort {
 	return a
 }
 
-// TestClassifyEventCoversEveryKind keeps the CLI renderer in lockstep
-// with pkg/domain's event union.
 func TestClassifyEventCoversEveryKind(t *testing.T) {
 	t.Parallel()
 
@@ -98,8 +96,6 @@ func TestClassifyEventReturnsNilOnUnknown(t *testing.T) {
 	require.Nil(t, classifyEvent(unknownEvent{}))
 }
 
-// TestEventHeaderRejectsUnknownRecord pins the symmetric branch in
-// eventHeader for record types it doesn't know about.
 func TestEventHeaderRejectsUnknownRecord(t *testing.T) {
 	t.Parallel()
 
@@ -107,9 +103,6 @@ func TestEventHeaderRejectsUnknownRecord(t *testing.T) {
 	require.False(t, ok)
 }
 
-// TestAdaptersRejectMismatchedDynamicType pins the type-assertion
-// safety in every adapter — passing an event of the wrong concrete
-// type returns nil, never panics.
 func TestAdaptersRejectMismatchedDynamicType(t *testing.T) {
 	t.Parallel()
 
