@@ -32,7 +32,7 @@ jobs:
       # needs the Nix-pinned Go toolchain.
       id-token: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: ./.github/actions/setup-nix-dev
       - name: pkg/domain must not import internal/
         # pkg/domain is the pure-stdlib value-object surface; it must
@@ -128,7 +128,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: ./.github/actions/setup-nix-dev
       - name: Authoritative cgo detection via go list
         # `go list -f '{{.CgoFiles}}'` surfaces every OUR package
@@ -189,7 +189,7 @@ jobs:
       # Full history needed because the BREAKING-prefix scan below
       # walks the merge-base..HEAD commit range on PRs, falling back
       # to the tip commit on push.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup-nix-dev
@@ -258,7 +258,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: ./.github/actions/setup-nix-dev
       - name: Cross-platform build
         # CGO_ENABLED=0 for cross-builds: matches the no-cgo policy
