@@ -9,6 +9,10 @@
 # configures Codecov's separate project and patch status checks.
 
 ignore:
+  # Generated third-party module sources committed only to make Go lint analysis
+  # network-independent. Patch coverage remains exact for repository-owned code.
+  - "vendor/**"
+
   # Internal scaffolding never reached by `go test ./...`.
   - "internal/tools/**"
   - "internal/testutil/**"

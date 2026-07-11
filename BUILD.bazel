@@ -9,6 +9,7 @@ load("//tools/bazel:toolwrap.bzl", "toolwrap_binary", "toolwrap_test")
 # gazelle:exclude dist
 # gazelle:exclude .local
 # gazelle:exclude .rumdl_cache
+# gazelle:exclude vendor
 # gazelle:exclude **/.t-*
 
 exports_files([
@@ -268,6 +269,16 @@ filegroup(
 )
 
 filegroup(
+    name = "vendor_files",
+    srcs = glob(
+        ["vendor/**"],
+        allow_empty = False,
+        exclude_directories = 1,
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
     name = "repo_bazel_files",
     srcs = glob(
         [
@@ -372,17 +383,20 @@ toolwrap_test(
         ":.golangci.yml",
         ":all_go_sources",
         ":repo_testdata_files",
+        ":vendor_files",
     ],
     dereference = True,
     path_tools = ["@go_sdk//:bin/go"],
     tags = [
-        "exclusive",
+        "block-network",
+        "exclusive-if-local",
         "lint",
     ],
     tool = "@com_github_golangci_golangci_lint_v2//cmd/golangci-lint",
     tool_args = [
         "run",
         "--config=$(rootpath :.golangci.yml)",
+        "--modules-download-mode=vendor",
         "./...",
     ],
 )
@@ -420,6 +434,7 @@ toolwrap_test(
         "go.sum",
         ":all_go_sources",
         ":repo_testdata_files",
+        ":vendor_files",
         "//tools:go_module_files",
     ],
     dereference = True,

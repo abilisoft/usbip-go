@@ -10,6 +10,7 @@ readonly runfiles_name="__RUNFILES_NAME__"
 readonly quiet_stdout="__QUIET_STDOUT__"
 readonly args=(__ARGS__)
 readonly extensions=(__EXTENSIONS__)
+readonly excluded_prefixes=("vendor/")
 
 execroot() {
 	local self
@@ -60,6 +61,17 @@ matches_extension() {
 	return 1
 }
 
+is_excluded() {
+	local file=$1
+	local prefix
+
+	for prefix in "${excluded_prefixes[@]}"; do
+		[[ "${file}" == "${prefix}"* ]] && return 0
+	done
+
+	return 1
+}
+
 selected_files() {
 	local file
 
@@ -68,7 +80,7 @@ selected_files() {
 	fi
 
 	while IFS= read -r -d '' file; do
-		if [[ -e "${workspace}/${file}" ]] && matches_extension "${file}"; then
+		if [[ -e "${workspace}/${file}" ]] && ! is_excluded "${file}" && matches_extension "${file}"; then
 			printf '%s\0' "${file}"
 		fi
 	done < <(workspace_files)

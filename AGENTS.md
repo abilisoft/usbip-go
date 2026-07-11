@@ -58,13 +58,20 @@ policy, not suggestions.
 
 ## Build, Dependencies, and CI
 
-- Keep routine build, test, lint, security, packaging, and release operations
-  hermetic through Bazel/Bzlmod. Do not reintroduce Nix or Task as parallel build
+- Keep build and test actions fully hermetic wherever technically possible so
+  they support remote caching and remote execution: declare every tool, input,
+  environment dependency, and execution requirement; do not rely on ambient
+  host tools, writable home directories, or undeclared network access. Keep
+  routine build, test, lint, security, packaging, and release operations
+  hermetic through Bazel/Bzlmod. Document and narrowly scope any unavoidable
+  non-hermetic exception. Do not reintroduce Nix or Task as parallel build
   systems.
 - Keep Make as the stable human/CI entry point over Bazel. Keep visible Make
   targets alphabetically ordered.
 - Keep dependencies and actions current and reproducibly pinned. Update locks,
-  checksums, API baselines, generated metadata, and documentation together.
+  checksums, the committed lint-only Go vendor tree, API baselines, generated
+  metadata, and documentation together. Regenerate `vendor/` with
+  `make update-go-vendor`; do not edit third-party vendored sources manually.
 - GitHub workflows should call the corresponding Make/Bazel entry points rather
   than duplicate project logic. Preserve required status-check context names.
 - Keep linting strict. Never disable a lint, add a blanket exclusion, lower a
@@ -72,6 +79,10 @@ policy, not suggestions.
   CI pass. Correct the code or configuration instead.
 - Preserve Bazel sandboxing and hermeticity. Grant only the narrow execution
   capabilities a test genuinely requires.
+- Keep manual CodeQL extraction behind `make build-codeql`. It is the narrow
+  exception that invokes CodeQL's injected Go wrapper directly because Bazel
+  deliberately ignores the tracer's `LD_PRELOAD`; ordinary builds remain
+  Bazel-backed.
 - Stable releases must remain gated on tests, API compatibility, security,
   architecture, coverage, mutation quality, cross-compilation, packaging, and
   dedicated kernel integration. Publish only after provenance and required

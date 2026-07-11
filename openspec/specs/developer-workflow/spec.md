@@ -6,7 +6,7 @@ Specify the repository's contributor workflow, hermetic Bazel toolchain, local M
 
 ### Requirement: Host tasks dispatch through hermetic Bazel targets
 
-Top-level Make targets SHALL be the local and CI entrypoint for build, test, lint, formatting, vulnerability, mutation, integration, conformance, and release workflows. Make targets SHALL bootstrap repo-local Bazelisk and Go when needed, then delegate work to Bazel targets or Bazel test suites. Bazel SHALL resolve the Go SDK and Go module graph from repository manifests so routine workflows do not depend on host Go, Nix, or Task installs.
+Top-level Make targets SHALL be the local and CI entrypoint for build, test, lint, formatting, vulnerability, mutation, integration, conformance, and release workflows. Make targets SHALL bootstrap repo-local Bazelisk and Go when needed, then delegate work to Bazel targets or Bazel test suites. Bazel SHALL resolve the Go SDK and Go module graph from repository manifests so routine workflows do not depend on host Go, Nix, or Task installs. Build and test actions SHALL declare their tools, inputs, environment, and execution requirements wherever technically possible so they remain compatible with sandboxing, remote caching, and remote execution; unavoidable host, kernel, network, or tracing exceptions SHALL be explicit and narrowly scoped.
 
 #### Scenario: Tooling is provisioned under repo-local state
 
@@ -80,7 +80,7 @@ The development workflow SHALL keep repo-local tool state, Bazel caches, and Baz
 
 ### Requirement: Formatting and linting are scoped to owned repository surfaces
 
-Formatting and linting tasks SHALL operate on repository-owned Go, YAML, Markdown, shell, Starlark, TOML, workflow, spelling, module, and release-configuration surfaces while avoiding generated caches, Bazel outputs, release output, and third-party module sources. CI SHALL call the same Make targets that contributors run locally.
+Formatting and linting tasks SHALL operate on repository-owned Go, YAML, Markdown, shell, Starlark, TOML, workflow, spelling, module, and release-configuration surfaces while avoiding generated caches, Bazel outputs, release output, and third-party module sources. CI SHALL call the same Make targets that contributors run locally. Go lint analysis SHALL use the synchronized committed vendor tree with network access blocked so the Bazel test remains sandboxed and remote-execution eligible.
 
 #### Scenario: Formatting runs
 
@@ -138,8 +138,9 @@ GitHub Actions workflows SHALL invoke Make targets for repository build, test, l
 #### Scenario: CodeQL traces the production binary
 
 - **WHEN** the CodeQL workflow runs its manual Go build
-- **THEN** it invokes `make build-codeql`
-- **AND** the Make target enables Go build tracing and performs an uncached local Bazel build of `//cmd/usbip-go:usbip-go`
+- **THEN** it pins the `go.mod` toolchain and invokes `make CODEQL_GO=go build-codeql`
+- **AND** the Make target builds only `./cmd/usbip-go` through CodeQL's injected Go wrapper because Bazel deliberately ignores the tracer's `LD_PRELOAD`
+- **AND** the direct build isolates its caches under `.local/codeql`, disables ambient Go configuration, workspace discovery, and toolchain switching, and resolves dependencies from the synchronized vendor tree without network access
 
 #### Scenario: Pull request CI runs
 

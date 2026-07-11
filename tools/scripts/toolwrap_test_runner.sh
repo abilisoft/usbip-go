@@ -80,7 +80,7 @@ stage_dereferenced_tree() {
 	while IFS= read -r -d '' source; do
 		rel=${source#"${source_root}/"}
 		case "${rel}" in
-		*.go | *.yaml | *.yml | *.toml | *.json | *.work | go.mod | go.sum | */go.mod | */go.sum)
+		vendor/* | *.go | *.yaml | *.yml | *.toml | *.json | *.work | go.mod | go.sum | */go.mod | */go.sum)
 			stage_file "${source}" "${stage}/${rel}"
 			;;
 		esac

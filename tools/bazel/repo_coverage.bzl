@@ -37,6 +37,7 @@ repo_coverage_test = rule(
                 "bazel-",
                 "bazel-out/",
                 "build/",
+                "vendor/",
             ],
             doc = "Repo-relative prefixes to skip.",
         ),

@@ -89,6 +89,23 @@ lint/release tools hermetically. Add an opt-in container wrapper only if a
 future CI-only OS dependency appears. Nightly reuses the security, unit,
 conformance, and coverage jobs and adds a snapshot release packaging pass.
 
+Ordinary compile and unit-test actions declare their Bazel toolchains, inputs,
+and runfiles so they remain eligible for remote caching and execution. Targets
+such as `golangci_lint` use `exclusive-if-local` when they only need serialized
+local execution, so remote workers may still execute them. Targets
+tagged `local`, `requires-network`, `integration`, or `manual` are explicit
+exceptions: repository-coverage checks inspect the live Git checkout, network
+and conformance checks need external or loopback networking, kernel integration
+needs host USB/IP facilities, and CodeQL must trace its direct Go wrapper build.
+`bazel run` entrypoints also execute their final command on the Bazel client.
+
+The committed `vendor/` tree exists only so `golangci_lint` can analyze the Go
+module with network access blocked; Bazel/rules_go remains the production build
+dependency resolver. After changing `go.mod` or `go.sum`, run
+`make update-go-vendor` and commit the synchronized vendor tree. The module
+hygiene gate checks that the vendored module graph loads without network access
+and that regenerating it produces no byte-level diff.
+
 Integration tests interact with kernel USB/IP surfaces and may require a Linux
 host with suitable kernel modules and privileges. They are exposed as
 `make test-integration` and are not part of the default unit-test target.

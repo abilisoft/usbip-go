@@ -10,13 +10,23 @@ BAZEL_BUILD_FLAGS ?=
 BAZEL_TEST_FLAGS ?=
 BAZEL_UNIT_TEST_FLAGS ?= --test_tag_filters=-integration,-conformance,-mutation,-lint,-manual,-external
 BAZEL_BUILD_TARGETS ?= //...
-BAZEL_CODEQL_FLAGS ?= --spawn_strategy=local --nouse_action_cache --noremote_accept_cached --noremote_upload_local_results --disk_cache=
-BAZEL_CODEQL_TARGETS ?= //cmd/usbip-go:usbip-go
 BAZEL_TEST_TARGETS ?= //:test
 BAZEL_INTEGRATION_TEST_TARGETS ?= //:integration
 BAZEL_CONFORMANCE_TEST_TARGETS ?= //:conformance
 BAZEL_COVERAGE_TARGETS ?= //:test
 BAZEL_DIST_TARGETS ?= //cmd/usbip-go:usbip-go //test/integration/killable:killable
+CODEQL_BUILD_OUTPUT ?= $(CURDIR)/build/codeql/usbip-go
+CODEQL_BUILD_PACKAGE ?= ./cmd/usbip-go
+CODEQL_CACHE_ROOT ?= $(CURDIR)/.local/codeql
+CODEQL_GOCACHE ?= $(CODEQL_CACHE_ROOT)/go-build
+CODEQL_GOMODCACHE ?= $(CODEQL_CACHE_ROOT)/go-mod
+CODEQL_GOTMPDIR ?= $(CODEQL_CACHE_ROOT)/tmp
+GO_VENDOR_CACHE_ROOT ?= $(CURDIR)/.local/go-vendor
+GO_VENDOR_GOCACHE ?= $(GO_VENDOR_CACHE_ROOT)/go-build
+GO_VENDOR_GOMODCACHE ?= $(GO_VENDOR_CACHE_ROOT)/go-mod
+GO_VENDOR_GOTMPDIR ?= $(GO_VENDOR_CACHE_ROOT)/tmp
+REPO_GO ?= $(TOOLS_DIR)/go/bin/go
+CODEQL_GO ?= $(REPO_GO)
 
 export BAZELISK_HOME
 
@@ -47,7 +57,8 @@ build: bootstrap
 ## Build the production binary for focused CodeQL tracing
 .PHONY: build-codeql
 build-codeql: bootstrap
-	CODEQL_EXTRACTOR_GO_BUILD_TRACING=on $(BAZEL) build $(BAZEL_CODEQL_FLAGS) $(BAZEL_BUILD_FLAGS) $(BAZEL_CODEQL_TARGETS)
+	@mkdir -p "$(dir $(CODEQL_BUILD_OUTPUT))" "$(CODEQL_GOCACHE)" "$(CODEQL_GOMODCACHE)" "$(CODEQL_GOTMPDIR)"
+	CGO_ENABLED=0 GOCACHE="$(CODEQL_GOCACHE)" GOENV=off GOFLAGS= GOMODCACHE="$(CODEQL_GOMODCACHE)" GOTOOLCHAIN=local GOTMPDIR="$(CODEQL_GOTMPDIR)" GOWORK=off $(CODEQL_GO) build -mod=vendor -trimpath -o "$(CODEQL_BUILD_OUTPUT)" $(CODEQL_BUILD_PACKAGE)
 
 ## Generate changelog output
 .PHONY: changelog
@@ -182,3 +193,9 @@ test-race: bootstrap
 .PHONY: update-bazel-lock
 update-bazel-lock: bootstrap
 	$(BAZEL) mod tidy --lockfile_mode=update
+
+## Regenerate vendored Go dependencies for hermetic linting
+.PHONY: update-go-vendor
+update-go-vendor: bootstrap
+	@mkdir -p "$(GO_VENDOR_GOCACHE)" "$(GO_VENDOR_GOMODCACHE)" "$(GO_VENDOR_GOTMPDIR)"
+	GOCACHE="$(GO_VENDOR_GOCACHE)" GOENV=off GOFLAGS= GOMODCACHE="$(GO_VENDOR_GOMODCACHE)" GOTOOLCHAIN=local GOTMPDIR="$(GO_VENDOR_GOTMPDIR)" GOWORK=off $(REPO_GO) mod vendor

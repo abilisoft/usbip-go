@@ -121,7 +121,7 @@ The repository SHALL organize tests across fast unit tests, wire conformance tes
 
 #### Scenario: Pull request changes executable lines
 
-- **WHEN** Codecov evaluates changed executable lines
+- **WHEN** Codecov evaluates repository-owned changed executable lines, excluding the generated third-party vendor tree
 - **THEN** the `codecov/patch` gate requires 100% patch coverage with no threshold allowance
 - **AND** repository-wide total and per-package coverage remain independently enforced
 
