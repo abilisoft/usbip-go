@@ -10,6 +10,7 @@ BAZEL_BUILD_FLAGS ?=
 BAZEL_TEST_FLAGS ?=
 BAZEL_UNIT_TEST_FLAGS ?= --test_tag_filters=-integration,-conformance,-mutation,-lint,-manual,-external
 BAZEL_BUILD_TARGETS ?= //...
+BAZEL_CODEQL_TARGETS ?= //cmd/usbip-go:usbip-go
 BAZEL_TEST_TARGETS ?= //:test
 BAZEL_INTEGRATION_TEST_TARGETS ?= //:integration
 BAZEL_CONFORMANCE_TEST_TARGETS ?= //:conformance
@@ -41,6 +42,11 @@ bootstrap:
 .PHONY: build
 build: bootstrap
 	$(BAZEL) build $(BAZEL_BUILD_FLAGS) $(BAZEL_BUILD_TARGETS)
+
+## Build the production binary for focused CodeQL tracing
+.PHONY: build-codeql
+build-codeql: bootstrap
+	$(BAZEL) build $(BAZEL_BUILD_FLAGS) $(BAZEL_CODEQL_TARGETS)
 
 ## Generate changelog output
 .PHONY: changelog

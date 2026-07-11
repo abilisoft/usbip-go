@@ -12,7 +12,7 @@ only).
 | Check                  | How                                                                                                              |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Pinned-Dependencies    | Every workflow `uses:` is a 40-char SHA with a trailing `# vN` Dependabot anchor.                                |
-| SAST                   | `.github/workflows/codeql.yml` runs CodeQL `security-and-quality` on every push/PR + weekly cron.                |
+| SAST                   | `.github/workflows/codeql.yml` traces the production Bazel binary through `make build-codeql`, then runs CodeQL `security-and-quality` on every push/PR + weekly cron. |
 | Lint / config hygiene  | CI runs strict Bazel-backed formatter/lint drift checks for Go, Bazel, YAML, Markdown, shell, spelling, TOML, repository coverage, and GoReleaser config. |
 | Vulnerabilities        | `make govulncheck` in PR, nightly, release, and local `make ci-local` gates; SARIF upload feeds code scanning.        |
 | Token-Permissions      | Every workflow declares minimal top-level `permissions:`; jobs widen only when required (release / scorecard).   |
