@@ -86,6 +86,13 @@ script_test(
     data = ["ci_local_runner.sh"],
 )
 
+script_test(
+    name = "govulncheck_sarif_test",
+    size = "small",
+    src = "govulncheck_sarif_test.sh",
+    data = ["govulncheck_sarif.sh"],
+)
+
 script_binary(
     name = "nfpm_package",
     src = "nfpm_package.sh",

@@ -729,6 +729,7 @@ test_suite(
         "//pkg/domain:domain_test",
         "//pkg/usbip:usbip_test",
         "//tools/scripts:ci_local_runner_test",
+        "//tools/scripts:govulncheck_sarif_test",
     ],
     visibility = ["//visibility:public"],
 )
