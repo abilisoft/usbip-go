@@ -10,9 +10,9 @@
 # — the public result store rejects writes from private repos and
 # the default GITHUB_TOKEN lacks the GraphQL read scopes scorecard
 # needs against private metadata ("Resource not accessible by
-# integration"). The `if:` guard on the job below skips the run
-# until the repository is flipped public. To run scorecard against
-# a private repo, set a PAT with `repo` + `read:org` scopes as the
+# integration"). The `if:` guard on the job below skips the run if repository
+# visibility is changed to private. To run scorecard against a private repo,
+# set a PAT with `repo` + `read:org` scopes as the
 # `SCORECARD_TOKEN` secret and uncomment the `repo_token:` line.
 #
 # https://github.com/ossf/scorecard-action
@@ -30,6 +30,8 @@ on:
     #   04:10  codeql (Wed only)
     - cron: '10 6 * * 2'
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -51,8 +53,7 @@ jobs:
     timeout-minutes: 30
     # Skip on private repos — scorecard.dev publishing requires
     # public visibility, and the default GITHUB_TOKEN cannot read
-    # private GraphQL metadata. Flips on automatically when the
-    # repo's visibility is changed to public.
+    # private GraphQL metadata. The condition follows repository visibility.
     if: github.event.repository.private == false
     permissions:
       # `security-events: write` lets the action upload SARIF results.
@@ -75,7 +76,7 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
-          publish_results: true
+          publish_results: ${{ github.event_name != 'pull_request' }}
           # Uncomment + provide a PAT in SCORECARD_TOKEN to run
           # against a private repo. Default GITHUB_TOKEN suffices
           # for public.
@@ -89,6 +90,8 @@ jobs:
           retention-days: 5
 
       - name: Upload to code-scanning
+        if: >-
+          github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
           sarif_file: results.sarif

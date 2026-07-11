@@ -5,8 +5,8 @@ common --lockfile_mode=error
 common --repository_cache=.local/bazel-repository-cache
 common --ui_event_filters=-debug
 common --repo_contents_cache=
-# Bazel 9.1.0 can crash while collecting host network metrics in constrained
-# netns/bwrap environments; the metrics are not needed for local/CI builds.
+# Host network-metric collection is unnecessary for this build and has failed
+# in constrained netns/bwrap environments, so keep it disabled.
 common --noexperimental_collect_system_network_usage
 
 # Keep Bazel output symlinks under ignored local state to avoid repo-root

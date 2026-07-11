@@ -1,18 +1,13 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
 #
-# Per-package coverage thresholds per spec §8.7.
-# Enforced by vladopajic/go-test-coverage@v2 in the CI "coverage" job.
-profile: build/coverage/coverage.out
-local-prefix: github.com/abilisoft/usbip-go
+# Per-package and total coverage thresholds per security-release-quality OpenSpec. Enforced against
+# build/coverage/coverage.lcov by tools/scripts/coverage_check.sh through
+# `make test-coverage` and `make ci-local`.
 
-# Top-level thresholds. Per-package coverage is what gets measured;
-# go-test-coverage's `override` applies to both file and package
-# checks simultaneously, so file-level enforcement is set to 0 and
-# the package-level threshold reflects the achievable floor across
-# every package, with a documented rationale per the user-facing
-# rule "90%+ unless infeasible or would require production code
-# changes just for the sake of testing".
+# The custom LCOV checker enforces package and total thresholds. The package
+# threshold reflects the achievable floor across every package, with a
+# documented rationale for the gap from the total target.
 #
 # Why 80% as the per-package floor and 90% as the total:
 #
@@ -21,10 +16,10 @@ local-prefix: github.com/abilisoft/usbip-go
 #     logic packages.
 #   * internal/adapter/{kernel,transport} carry a long tail of
 #     errno-/sysfs-/netlink-specific error paths that the hermetic
-#     dev container's userspace cannot synthesise (EFAULT from
+#     Bazel unit-test environment cannot synthesise (EFAULT from
 #     configfs, ENOMEM mid-bind, vhci_hcd module gone mid-attach).
-#     The integration suite (test/integration) provokes those via
-#     the microVM; raising the unit-test threshold beyond ~85%
+#     The integration suite (test/integration) provokes those on the
+#     dedicated kernel runner; raising the unit-test threshold beyond ~85%
 #     would force test-only error injectors through every syscall.
 #   * cmd/usbip-go is Cobra Action functions that wire pkg/usbip
 #     Importer/Exporter through I/O. The package-level
@@ -39,7 +34,6 @@ local-prefix: github.com/abilisoft/usbip-go
 # package 80% absorbs the cmd / kernel-adapter errno tail without
 # forcing test-only production seams.
 threshold:
-  file: 0
   # Per-package floor at 80%. Total is the headline metric (90% below).
   # Per-package 80 is a regression alarm: most packages clear 90%
   # comfortably. Cobra-Action-heavy cmd packages and the kernel
@@ -78,7 +72,7 @@ exclude:
     # per-package floor reflects real testable surface.
     - ^cmd/usbip-go/main\.go$
     # Real syscall paths in the kernel adapter cannot be synthesised
-    # under the hermetic dev container; exercised by the integration
+    # under the hermetic Bazel unit-test environment; exercised by the integration
     # suite. See refactor commit isolating these to dedicated files.
     - ^internal/adapter/kernel/sysfs_real_linux\.go$
     - ^internal/adapter/kernel/netlink_real_linux\.go$

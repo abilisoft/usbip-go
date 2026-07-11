@@ -81,6 +81,23 @@ workspace_root() {
 
 	for candidate in "${candidates[@]}"; do
 		root=$(git -C "${candidate}" rev-parse --show-toplevel 2>/dev/null) || continue
+		# Bazel 9.1.1 exposes the real repository's .git directory as a
+		# symlink in the execroot. Git then treats the generated execroot as
+		# the worktree and recursively scans bazel-out while enumerating
+		# untracked files. Resolve that source symlink back to the actual
+		# checkout so coverage still includes real untracked source files
+		# without walking generated runfile cycles.
+		if [[ -L "${root}/.git" ]]; then
+			local git_dir
+			git_dir=$(readlink -f "${root}/.git")
+			if [[ "${git_dir}" == */.git ]]; then
+				local source_root=${git_dir%/.git}
+				if git -C "${source_root}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+					printf '%s\n' "${source_root}"
+					return
+				fi
+			fi
+		fi
 		printf '%s\n' "${root}"
 		return
 	done

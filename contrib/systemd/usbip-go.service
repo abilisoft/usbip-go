@@ -23,7 +23,7 @@ ExecStart=/usr/bin/usbip-go serve
 Restart=on-failure
 RuntimeDirectory=usbip-go
 RuntimeDirectoryMode=0755
-CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE CAP_CHOWN
 
 [Install]
 WantedBy=multi-user.target

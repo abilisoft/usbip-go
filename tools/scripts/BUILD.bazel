@@ -55,6 +55,13 @@ script_binary(
     visibility = PUBLIC_VISIBILITY,
 )
 
+script_test(
+    name = "api_compatibility_check_test",
+    size = "small",
+    src = "api_compatibility_check_test.sh",
+    data = ["api_compatibility_check.sh"],
+)
+
 script_binary(
     name = "coverage_check",
     src = "coverage_check.sh",
@@ -93,6 +100,13 @@ script_test(
     data = ["govulncheck_sarif.sh"],
 )
 
+script_test(
+    name = "systemd_unit_test",
+    size = "small",
+    src = "systemd_unit_test.sh",
+    data = ["//:contrib/systemd/usbip-go.service"],
+)
+
 script_binary(
     name = "nfpm_package",
     src = "nfpm_package.sh",
@@ -103,6 +117,13 @@ script_binary(
     name = "repo_coverage_test_runner",
     src = "repo_coverage_test_runner.sh",
     visibility = PUBLIC_VISIBILITY,
+)
+
+script_test(
+    name = "repo_coverage_test_runner_test",
+    size = "small",
+    src = "repo_coverage_test_runner_test.sh",
+    data = ["repo_coverage_test_runner.sh"],
 )
 
 script_binary(

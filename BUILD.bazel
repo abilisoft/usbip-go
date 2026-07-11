@@ -32,6 +32,11 @@ exports_files([
     "go.sum",
 ])
 
+exports_files(
+    ["contrib/systemd/usbip-go.service"],
+    visibility = ["//visibility:public"],
+)
+
 filegroup(
     name = "rumdl_config",
     srcs = [".rumdl.toml"],
@@ -728,8 +733,11 @@ test_suite(
         "//internal/testutil:testutil_test",
         "//pkg/domain:domain_test",
         "//pkg/usbip:usbip_test",
+        "//tools/scripts:api_compatibility_check_test",
         "//tools/scripts:ci_local_runner_test",
         "//tools/scripts:govulncheck_sarif_test",
+        "//tools/scripts:repo_coverage_test_runner_test",
+        "//tools/scripts:systemd_unit_test",
     ],
     visibility = ["//visibility:public"],
 )

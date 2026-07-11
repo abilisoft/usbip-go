@@ -235,8 +235,8 @@ func TestStatusAlreadyRunning(t *testing.T) {
 	require.ErrorIs(t, err, errAlreadyRunning)
 }
 
-// TestStatusGetJSON proves the §7.7 schema-v1 JSON is rendered by
-// GET /. Every required key is asserted.
+// TestStatusGetJSON proves the operations-observability and json-contracts
+// OpenSpec v1 schema is rendered by GET /. Every required key is asserted.
 func TestStatusGetJSON(t *testing.T) {
 	t.Parallel()
 
