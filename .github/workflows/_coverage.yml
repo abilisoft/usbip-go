@@ -28,7 +28,7 @@ jobs:
       # fetch-depth: 0 lets vladopajic/go-test-coverage diff against
       # the base branch when configured to compute the patch
       # threshold; the default shallow checkout would break that.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup-nix-dev
@@ -56,7 +56,7 @@ jobs:
         # repos; the action exchanges the runner's id-token for a
         # short-lived Codecov upload credential. Private repo
         # support would require setting CODECOV_TOKEN.
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: ./build/coverage/coverage.out
           use_oidc: true
