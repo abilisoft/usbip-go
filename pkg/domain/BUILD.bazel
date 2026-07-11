@@ -37,6 +37,7 @@ go_test(
         "remote_boundary_test.go",
         "remote_test.go",
         "remote_validate_test.go",
+        "session_internal_test.go",
         "session_test.go",
         "speed_isknown_test.go",
         "speed_test.go",
@@ -44,10 +45,8 @@ go_test(
         "test_constants_test.go",
         "wire_busid_test.go",
     ],
-    deps = [
-        ":domain",
-        "@com_github_stretchr_testify//require",
-    ],
+    embed = [":domain"],
+    deps = ["@com_github_stretchr_testify//require"],
 )
 
 filegroup(

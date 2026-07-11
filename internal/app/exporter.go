@@ -25,11 +25,12 @@ import (
 // per-session handler goroutines, Sessions(), and Shutdown() can all
 // interleave safely under the race detector.
 type Exporter struct {
-	kernel ExporterKernel
-	events KernelEvents
-	codec  ProtocolCodec
-	clock  Clock
-	logger *slog.Logger
+	kernel       ExporterKernel
+	events       KernelEvents
+	codec        ProtocolCodec
+	clock        Clock
+	logger       *slog.Logger
+	newSessionID func() (domain.SessionID, error)
 
 	cfg             exporterLimits
 	acceptLim       acceptLimiter
@@ -50,7 +51,7 @@ type Exporter struct {
 
 	// sessionsWG tracks per-connection handler goroutines and their
 	// handshake-timeout watchers. Serve deliberately does NOT wait on
-	// sessionsWG (v1 contract §3.4: Serve returns on ctx cancel; Shutdown
+	// sessionsWG (importer-lifecycle and exporter-daemon OpenSpec documents: Serve returns on ctx cancel; Shutdown
 	// drains in-flight sessions bounded by its own ctx).
 	sessionsWG lifecycleWaitGroup
 
@@ -209,7 +210,11 @@ func NewExporter(opts ...ExporterOption) *Exporter {
 // error (today only ErrACLInvalid). Missing-dependency errors still
 // panic — those are programming bugs, not runtime conditions.
 func NewExporterWithError(opts ...ExporterOption) (*Exporter, error) {
-	cfg := exporterConfig{clock: RealClock{}, logger: slog.Default()}
+	cfg := exporterConfig{
+		clock:        RealClock{},
+		logger:       slog.Default(),
+		newSessionID: domain.NewSessionID,
+	}
 
 	for _, opt := range opts {
 		opt(&cfg)
@@ -232,6 +237,7 @@ func NewExporterWithError(opts ...ExporterOption) (*Exporter, error) {
 		codec:           cfg.codec,
 		clock:           cfg.clock,
 		logger:          cfg.logger,
+		newSessionID:    cfg.newSessionID,
 		cfg:             resolveExporterLimits(&cfg),
 		acceptLim:       newAcceptLimiter(resolveAcceptRate(&cfg), resolveAcceptBurst(&cfg)),
 		acl:             acl,
@@ -258,7 +264,7 @@ func requireExporterDeps(cfg *exporterConfig) {
 	}
 }
 
-// Bind delegates to kernel.Bind per v1 contract §5.3. Errors are
+// Bind delegates to kernel.Bind per exporter-daemon OpenSpec. Errors are
 // wrapped with the busid so callers that bind many devices can
 // identify which failed. Every terminal branch logs a structured slog
 // record with an outcome field so journald queries can filter by
@@ -299,7 +305,7 @@ func (e *Exporter) Bind(ctx context.Context, busID domain.BusID) error {
 	return nil
 }
 
-// Unbind delegates to kernel.Unbind per v1 contract §5.3. Errors are
+// Unbind delegates to kernel.Unbind per exporter-daemon OpenSpec. Errors are
 // wrapped with the busid. Outcome is logged structurally per Bind's
 // contract. The same BusID validity gate as Bind applies — see Bind
 // for the boundary rationale.
@@ -332,7 +338,7 @@ func (e *Exporter) Unbind(ctx context.Context, busID domain.BusID) error {
 	return nil
 }
 
-// classifyBindError maps a kernel Bind error onto the §11.5.5
+// classifyBindError maps a kernel Bind error onto the operations-observability OpenSpec
 // bind_total outcome label. Only the well-known domain sentinels get
 // a specific label; anything else falls through to "error" so the
 // catalog never grows an unbounded outcome string.
@@ -361,7 +367,7 @@ func classifyUnbindError(err error) UnbindOutcome {
 	return UnbindOutcomeError
 }
 
-// ListAvailable forwards to kernel.ListLocalDevices per v1 contract §5.3. The
+// ListAvailable forwards to kernel.ListLocalDevices per exporter-daemon OpenSpec. The
 // kernel adapter is the authoritative source; the Exporter does not
 // maintain a cache of its own.
 func (e *Exporter) ListAvailable(ctx context.Context) ([]domain.Device, error) {
@@ -389,7 +395,7 @@ func (e *Exporter) ListExported(ctx context.Context) ([]domain.Device, error) {
 	return devs, nil
 }
 
-// Serve runs the accept loop per v1 contract §5.3. Each accepted connection
+// Serve runs the accept loop per exporter-daemon OpenSpec. Each accepted connection
 // is dispatched to a per-connection goroutine via handleConn; the
 // accept loop returns when ctx is cancelled, the listener returns a
 // permanent error, or Shutdown is called. Returns ErrAlreadyShutdown
@@ -433,7 +439,7 @@ func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
 
 	// Wait for the ctx-listener-closer only. Session handlers run on
 	// sessionsWG; Shutdown drains them with a bounded deadline per
-	// v1 contract §3.4. If Serve also waited on sessionsWG here, an in-flight
+	// importer-lifecycle and exporter-daemon OpenSpec documents. If Serve also waited on sessionsWG here, an in-flight
 	// ExportOnConn would block Serve's return past ctx cancel.
 	e.wg.Wait()
 
@@ -441,7 +447,7 @@ func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
 }
 
 // Shutdown stops accepting new connections and drains in-flight
-// session handlers. Per v1 contract §3.4: new accepts are refused, existing
+// session handlers. Per importer-lifecycle and exporter-daemon OpenSpec documents: new accepts are refused, existing
 // handlers are signalled to exit, and the call waits for them bounded
 // by the provided ctx deadline. Returns nil when the drain completes
 // before the deadline; a ctx.Err-wrapped error when it does not.

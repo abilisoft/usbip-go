@@ -313,3 +313,49 @@ func TestExporterServe_DevlistWriteErrorClosesConn(t *testing.T) {
 		t.Fatal("Serve did not return within 3s of ctx cancel")
 	}
 }
+
+func TestExporterServe_SessionIDGenerationErrorRepliesWithDeviceError(t *testing.T) {
+	t.Parallel()
+
+	const busID = domain.BusID("3-2")
+
+	kernel := &ExporterKernelMock{
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: busID}}, nil
+		},
+	}
+	codec := newSessionImportCodec(busID)
+	listener := newPipeListener()
+
+	exporter := newExporterForTest(
+		t,
+		app.WithExporterKernel(kernel),
+		app.WithExporterCodec(codec),
+		app.WithSessionIDGeneratorForTest(func() (domain.SessionID, error) {
+			return domain.SessionID{}, errBoom
+		}),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	serveDone := make(chan error, 1)
+
+	go func() { serveDone <- exporter.Serve(ctx, listener) }()
+
+	client, err := listener.dial(ctx)
+	require.NoError(t, err)
+
+	_, err = client.Write(opHeader(wire.OpReqImport))
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return len(codec.EncodeOpRepImportErrorCalls()) == 1
+	}, 2*time.Second, 10*time.Millisecond)
+
+	calls := codec.EncodeOpRepImportErrorCalls()
+	require.Equal(t, wire.ImportStatusDevErr, calls[0].Status)
+	require.Empty(t, kernel.ExportOnConnCalls())
+
+	require.NoError(t, client.Close())
+	cancel()
+	require.NoError(t, <-serveDone)
+}

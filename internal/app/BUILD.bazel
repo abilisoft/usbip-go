@@ -79,6 +79,7 @@ go_test(
     embed = [":app"],
     deps = [
         "//internal/adapter/wire",
+        "//internal/protocol",
         "//internal/testutil",
         "//pkg/domain",
         "@com_github_stretchr_testify//require",
