@@ -36,6 +36,9 @@ policy, not suggestions.
   the race detector and use deterministic synchronization instead of sleeps.
 - Maintain exhaustive unit, integration, conformance, mutation, coverage, and
   cross-platform/cross-architecture validation appropriate to the change.
+- Treat patch coverage as a required gate as well as total and per-package
+  coverage. Investigate every uncovered changed line; do not hide patch gaps
+  behind a healthy repository-wide percentage.
 
 ## Specifications and Documentation
 
