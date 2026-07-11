@@ -85,6 +85,20 @@ type VUDCDevice struct {
 	// Name is the configfs subdirectory name holding the gadget
 	// structure; t.TempDir-style cleanup removes the tree on test exit.
 	Name string
+
+	cleanup func()
+}
+
+// Release tears down the configfs gadget before the test ends. SetupVUDC
+// also registers the same cleanup with testing.T, so Release is optional and
+// idempotent; callers use it when a subsequent scenario must reuse a finite
+// usbip_vudc instance during the same test.
+func (d *VUDCDevice) Release() {
+	if d == nil || d.cleanup == nil {
+		return
+	}
+
+	d.cleanup()
 }
 
 // SetupVUDC creates a single usbip-vudc gadget in configfs and binds it
@@ -151,7 +165,7 @@ func setupVUDCWithBacking(t *testing.T, backing []byte) *VUDCDevice {
 		t.Skipf("integration harness: UDC bind failed: %v", err)
 	}
 
-	return &VUDCDevice{BusID: udc, Name: name}
+	return &VUDCDevice{BusID: udc, Name: name, cleanup: cleanup}
 }
 
 // RealBusIDEnv names the environment variable operators set to a real
@@ -568,7 +582,8 @@ func writeGadgetFunctionWithBacking(t *testing.T, root string, backing []byte) e
 // Tracking used instances in-process and always picking a fresh one
 // eliminates the race — the vudc kernel module's `num=` param
 // must provision enough instances for every test case the integration
-// suite runs in one invocation.
+// suite runs concurrently in one invocation. When the pool is exhausted,
+// idle instances may be recycled after their prior configfs gadget is released.
 var vudcUsageTracker = struct {
 	mu   sync.Mutex
 	used map[string]bool
@@ -579,9 +594,10 @@ var vudcUsageTracker = struct {
 //  1. has not yet been handed out in this test-binary process, AND
 //  2. is not currently in SDEV_ST_USED state (an active session)
 //
-// and records the selection so the next caller gets a different
-// instance. Exhausting the pool returns an error so the harness
-// skips cleanly instead of hanging on a racy UDC write.
+// and records the selection so the next caller first prefers a different
+// instance. If every instance has been used, the tracker is cleared and an
+// idle instance may be recycled; callers reusing a finite pool must Release
+// the previous gadget before asking for another one.
 func firstAvailableVUDC() (string, error) {
 	entries, err := os.ReadDir("/sys/class/udc")
 	if err != nil {

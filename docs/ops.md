@@ -301,15 +301,19 @@ sudo install -m 0755 /tmp/new-usbip-go /usr/bin/usbip-go
 sudo systemctl start usbip-go
 ```
 
-Kernel-owned sessions survive the daemon restart because the kernel
-holds the socket refs after handoff. Socket activation keeps
-port 3240 bound across the restart so new clients do not see
-connect-refused.
+Active USB/IP sessions do not migrate to the replacement daemon.
+Graceful drain deliberately disconnects them, and an abrupt daemon exit
+causes remote VHCI ports to leave the used state. An abrupt exit can leave the
+exporter-side kernel session marked used; reconcile each affected device before
+starting replacement traffic:
 
-The new daemon process does **not** reclaim accounting state for
-pre-existing sessions. They appear in the kernel's view (via sysfs)
-but not in the new daemon's `Sessions()` snapshot. Operators who
-need accounting continuity should drain before upgrading.
+```text
+printf '%s' -1 | sudo tee /sys/bus/usb/devices/BUSID/usbip_sockfd
+```
+
+Clients must attach again after the replacement daemon is ready. Socket
+activation keeps port 3240 bound across the restart so new connection attempts
+avoid a listener gap; it does not preserve established USB/IP sessions.
 
 ## Troubleshooting entry points
 

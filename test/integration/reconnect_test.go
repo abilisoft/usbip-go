@@ -82,7 +82,7 @@ func TestReconnectIntegrationEndToEnd(t *testing.T) {
 	// Start a replacement exporter on the SAME host:port. net.Listen
 	// may briefly return EADDRINUSE until the first exporter's
 	// listener actually closes; retry a few times.
-	addr2, err := bindReplacementExporter(t, ctx, busID, addr)
+	exp2, addr2, err := bindReplacementExporter(t, ctx, addr)
 	require.NoError(t, err)
 	require.Equal(t, addr.Port, addr2.Port, "replacement listener must reuse the original port")
 
@@ -94,15 +94,20 @@ func TestReconnectIntegrationEndToEnd(t *testing.T) {
 		t.Fatal("watcher did not fire OnReconnect within deadline")
 	}
 
-	// Eventually, ListPorts from the Importer shows a port again
-	// (either the original id or a fresh one depending on kernel
-	// slot-reuse policy).
+	// The replacement Exporter's in-memory session table starts empty,
+	// so observing this bus ID there proves a new import handshake reached
+	// the replacement process rather than merely finding the stale VHCI row
+	// that triggered the reconnect watcher.
 	require.Eventually(t, func() bool {
-		ports, listErr := imp.ListPorts(ctx)
+		for _, session := range exp2.Sessions(ctx) {
+			if session.BusID == busID {
+				return true
+			}
+		}
 
-		return listErr == nil && len(ports) > 0
+		return false
 	}, reconnectIntegrationDeadline, 200*time.Millisecond,
-		"importer must see a reattached port after reconnect")
+		"replacement exporter must accept a new session after reconnect")
 
 	// Clean up by detaching whatever port is live; errors are
 	// tolerated because the scenario's contract is "reconnect works",
@@ -110,7 +115,9 @@ func TestReconnectIntegrationEndToEnd(t *testing.T) {
 	ports, _ := imp.ListPorts(ctx)
 
 	for _, p := range ports {
-		_ = imp.Detach(ctx, p.ID)
+		if p.Status == domain.StatusUsed {
+			_ = imp.Detach(ctx, p.ID)
+		}
 	}
 
 	_ = port1
@@ -160,9 +167,8 @@ func startExporterForReconnect(
 func bindReplacementExporter(
 	t *testing.T,
 	ctx context.Context,
-	busID domain.BusID,
 	addr domain.RemoteEndpoint,
-) (domain.RemoteEndpoint, error) {
+) (*usbip.Exporter, domain.RemoteEndpoint, error) {
 	t.Helper()
 
 	deadline := time.Now().Add(5 * time.Second)
@@ -170,24 +176,18 @@ func bindReplacementExporter(
 	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
-			return domain.RemoteEndpoint{}, ctx.Err() //nolint:wrapcheck // test context error passes through
+			return nil, domain.RemoteEndpoint{}, ctx.Err() //nolint:wrapcheck // test context error passes through
 		default:
 		}
 
 		exp, err := usbip.NewExporter()
 		if err != nil {
-			return domain.RemoteEndpoint{}, err //nolint:wrapcheck // surface construction error verbatim to the test
-		}
-
-		err = exp.Bind(ctx, busID)
-		if err != nil {
-			return domain.RemoteEndpoint{}, err //nolint:wrapcheck // bind error surfaces to the test verbatim
+			return nil, domain.RemoteEndpoint{}, err //nolint:wrapcheck // surface construction error verbatim to the test
 		}
 
 		lis, addr2, listenErr := integration.TCPListen(addr.Host + ":" + uintToStr(addr.Port))
 		if listenErr != nil {
-			_ = exp.Unbind(ctx, busID)
-
+			_ = exp.Shutdown(ctx)
 			time.Sleep(200 * time.Millisecond)
 
 			continue
@@ -210,13 +210,12 @@ func bindReplacementExporter(
 			case <-time.After(2 * time.Second):
 			}
 
-			_ = exp.Unbind(sctx, busID)
 		})
 
-		return addr2, nil
+		return exp, addr2, nil
 	}
 
-	return domain.RemoteEndpoint{}, context.DeadlineExceeded
+	return nil, domain.RemoteEndpoint{}, context.DeadlineExceeded
 }
 
 // uintToStr renders a uint16 as decimal so TCPListen can be fed a

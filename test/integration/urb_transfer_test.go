@@ -32,9 +32,11 @@
 // vudc usbip_status SDEV_ST_AVAILABLE, every vhci port back to
 // VDEV_ST_NULL, vudc_rx / vudc_tx kthreads exited) before allowing
 // the next attach; waitForVHCIBlockDevice gates on /sys/block/<name>/
-// size to defeat the symlink-visible-but-not-readable window;
-// firstAvailableVUDC threads an in-process tracker so back-to-back
-// tests never share a vudc instance. The residual flake is past
+// size and a successful device open to defeat the
+// symlink-visible-but-not-readable window; firstAvailableVUDC threads
+// an in-process tracker so back-to-back tests prefer separate vudc
+// instances and safely recycle a released idle instance when the
+// kernel exposes only one. The residual flake is past
 // what userspace can deterministically observe.
 package integration_test
 
@@ -47,6 +49,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -79,6 +82,17 @@ const (
 // The usbip_* attributes live on the platform device, not on the
 // /sys/class/udc/<name> symlink — verified on Linux 6.18.
 const vudcSockfdPathFmt = "/sys/devices/platform/%s/usbip_sockfd"
+
+// The public importer accepts Linux USB topology bus IDs, while usbip_vudc
+// exposes a platform-device name such as "usbip-vudc.0". The synthetic
+// server therefore presents a stable, valid remote topology identity during
+// the USB/IP handshake and uses the platform name only for the server-side
+// usbip_sockfd handoff.
+const (
+	vudcRemoteBusID  = domain.BusID("1-1")
+	vudcRemoteBusNum = uint16(1)
+	vudcRemoteDevNum = uint16(1)
+)
 
 // TestURBDataTransferLoopback is the rock-solid E2E: plant a known
 // payload on a usbip-vudc mass_storage LUN, let our Importer attach
@@ -138,7 +152,7 @@ func skipIfVUDCExportUnavailable(t *testing.T, busID string) {
 // URB traffic) from that point. Splitting phase-1 off into userspace
 // matches what upstream's usbipd daemon does for vudc devices — the
 // in-kernel vudc entry only implements the URB half of the protocol.
-func serveVUDCSocket(lis net.Listener, busID string) error {
+func serveVUDCSocket(lis net.Listener, remoteBusID domain.BusID, vudcBusID string) error {
 	conn, err := lis.Accept()
 	if err != nil {
 		return fmt.Errorf("accept: %w", err)
@@ -154,8 +168,8 @@ func serveVUDCSocket(lis net.Listener, busID string) error {
 		return fmt.Errorf("decode OP_REQ_IMPORT: %w", err)
 	}
 
-	if string(reqBusID) != busID {
-		return fmt.Errorf("client requested busid %q, expected %q", reqBusID, busID)
+	if reqBusID != remoteBusID {
+		return fmt.Errorf("client requested busid %q, expected %q", reqBusID, remoteBusID)
 	}
 
 	// Phase 1b: send OP_REP_IMPORT describing the vudc-backed gadget.
@@ -163,9 +177,11 @@ func serveVUDCSocket(lis net.Listener, busID string) error {
 	// the bus id itself plus a non-zero speed — the kernel vudc side
 	// fills in the rest of the descriptors once the URB phase starts.
 	dev := domain.Device{
-		BusID: domain.BusID(busID),
-		Speed: domain.SpeedHigh,
-		Path:  "/sys/devices/platform/" + busID,
+		BusID:  remoteBusID,
+		BusNum: vudcRemoteBusNum,
+		DevNum: vudcRemoteDevNum,
+		Speed:  domain.SpeedHigh,
+		Path:   "/sys/devices/platform/" + vudcBusID,
 	}
 
 	err = codec.EncodeOpRepImport(conn, dev)
@@ -188,7 +204,7 @@ func serveVUDCSocket(lis net.Listener, busID string) error {
 
 	defer func() { _ = f.Close() }()
 
-	sockfdPath := fmt.Sprintf(vudcSockfdPathFmt, busID)
+	sockfdPath := fmt.Sprintf(vudcSockfdPathFmt, vudcBusID)
 	fdStr := strconv.Itoa(int(f.Fd()))
 
 	err = os.WriteFile(sockfdPath, []byte(fdStr), 0o644)
@@ -216,14 +232,14 @@ func deterministicPayload(size int) []byte {
 // waitForVHCIBlockDevice polls /sys/class/block/* until a SCSI disk
 // appears whose device-parent chain resolves under /sys/devices/
 // platform/vhci_hcd.0/ AND whose /sys/block/<name>/size reports the
-// expected sector count (expectBytes / 512). The size check is the
-// storage-readiness signal: usb_storage registers the sysfs node
-// before sd_mod finishes the INQUIRY / READ CAPACITY handshake,
-// so the symlink is visible before the block device is actually
-// readable. Without gating on size, TestURBLargeTransfer's byte
-// compare can fast-fail with a short read on a legitimately fresh
-// device that is not yet addressable. `since` filters stale
-// symlinks surviving from a previous attach cycle.
+// expected sector count (expectBytes / 512) and /dev/<name> can be
+// opened. Both checks form the storage-readiness signal: usb_storage
+// registers the sysfs node before sd_mod finishes the INQUIRY / READ
+// CAPACITY handshake,
+// so the symlink and nonzero size are visible before the block device
+// necessarily accepts opens. Without both gates, a payload read can
+// fast-fail while a legitimately fresh device is not yet addressable.
+// `since` filters stale symlinks surviving from a previous attach cycle.
 func waitForVHCIBlockDevice(t *testing.T, timeout time.Duration, since time.Time, expectBytes int) string {
 	t.Helper()
 
@@ -273,7 +289,18 @@ func waitForVHCIBlockDevice(t *testing.T, timeout time.Duration, since time.Time
 				continue
 			}
 
-			return "/dev/" + name
+			blockDev := "/dev/" + name
+
+			f, err := os.Open(blockDev)
+			if err != nil {
+				continue
+			}
+
+			if err := f.Close(); err != nil {
+				continue
+			}
+
+			return blockDev
 		}
 
 		time.Sleep(blockDevPollInterval)
@@ -298,6 +325,7 @@ type urbHarness struct {
 	port     domain.Port
 	blockDev string
 	want     []byte
+	detached *sync.Once
 }
 
 // attachVUDCWithPayload plants payload on a fresh vudc gadget, runs the
@@ -328,7 +356,7 @@ func attachVUDCWithPayload(t *testing.T, payload []byte) urbHarness {
 	serverDone := make(chan error, 1)
 
 	go func() {
-		serverDone <- serveVUDCSocket(lis, dev.BusID)
+		serverDone <- serveVUDCSocket(lis, vudcRemoteBusID, dev.BusID)
 	}()
 
 	imp, err := usbip.NewImporter()
@@ -347,7 +375,7 @@ func attachVUDCWithPayload(t *testing.T, payload []byte) urbHarness {
 	port, err := imp.Attach(ctx, domain.RemoteEndpoint{
 		Host: addr.IP.String(),
 		Port: uint16(addr.Port),
-	}, domain.BusID(dev.BusID), usbip.AttachOptions{})
+	}, vudcRemoteBusID, usbip.AttachOptions{})
 	require.NoError(t, err, "importer attach must succeed over loopback")
 
 	select {
@@ -359,6 +387,8 @@ func attachVUDCWithPayload(t *testing.T, payload []byte) urbHarness {
 
 	blockDev := waitForVHCIBlockDevice(t, blockDevDeadline, attachStart, len(payload))
 
+	detached := &sync.Once{}
+
 	// Explicit detach on cleanup so the vhci port is released and
 	// /sys/block/<name> is torn down before the next test case binds
 	// to the same vudc UDC. The trailing poll on /sys/block/<name>
@@ -368,12 +398,14 @@ func attachVUDCWithPayload(t *testing.T, payload []byte) urbHarness {
 	// "vhci_hcd: cannot find a urb of seqnum ..." in dmesg and a
 	// hung Attach waiting for a /dev/sdN that never appears.
 	t.Cleanup(func() {
-		dctx, dcancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer dcancel()
+		detached.Do(func() {
+			dctx, dcancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer dcancel()
 
-		_ = imp.Detach(dctx, port.ID)
+			_ = imp.Detach(dctx, port.ID)
 
-		settleAfterDetach(t, dev.BusID, blockDev)
+			settleAfterDetach(t, dev.BusID, blockDev)
+		})
 	})
 
 	return urbHarness{
@@ -382,6 +414,7 @@ func attachVUDCWithPayload(t *testing.T, payload []byte) urbHarness {
 		port:     port,
 		blockDev: blockDev,
 		want:     payload,
+		detached: detached,
 	}
 }
 
@@ -552,16 +585,18 @@ func waitVUDCAvailable(t *testing.T, busID string) {
 func (h *urbHarness) detach(t *testing.T) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	h.detached.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
-	err := h.imp.Detach(ctx, h.port.ID)
-	require.NoError(t, err, "Detach must succeed on port %d", h.port.ID)
+		err := h.imp.Detach(ctx, h.port.ID)
+		require.NoError(t, err, "Detach must succeed on port %d", h.port.ID)
 
-	// Wait for the kernel to release the vudc + vhci state so follow-
-	// up assertions (and any reattach in the test body) see a clean
-	// post-detach world.
-	settleAfterDetach(t, h.dev.BusID, h.blockDev)
+		// Wait for the kernel to release the vudc + vhci state so follow-
+		// up assertions (and any reattach in the test body) see a clean
+		// post-detach world.
+		settleAfterDetach(t, h.dev.BusID, h.blockDev)
+	})
 }
 
 // TestURBLargeTransfer verifies the URB pipeline survives a transfer
@@ -656,9 +691,11 @@ func TestURBReattachCycle(t *testing.T) {
 	require.Equal(t, payload, got[:len(payload)], "first attach roundtrip")
 
 	h.detach(t) // polls vhci status until every port is VDEV_ST_NULL
+	h.dev.Release()
 
-	// Second attach goes to a fresh vudc gadget — firstAvailableVUDC
-	// hands out a distinct instance via the in-process usage tracker.
+	// Second attach goes to a fresh configfs gadget. The usage tracker
+	// prefers a distinct vudc instance when the kernel provides one and
+	// safely recycles the released idle instance on single-vudc hosts.
 	// The same Importer drives both cycles, catching any stale port-
 	// table state it might have kept around across attaches.
 	// reattachFreshVUDC registers its own t.Cleanup that detaches the
@@ -674,10 +711,10 @@ func TestURBReattachCycle(t *testing.T) {
 }
 
 // reattachFreshVUDC runs a second attach against a brand-new vudc
-// instance on the same Importer. Takes its own TCP listener +
+// gadget on the same Importer. Takes its own TCP listener +
 // fd-handoff goroutine and delegates gadget provisioning to
-// SetupVUDCWithData, which the in-process tracker (firstAvailableVUDC)
-// forces onto a previously-unused usbip-vudc.N slot.
+// SetupVUDCWithData, which the in-process tracker prefers to place on
+// a previously-unused usbip-vudc.N slot and otherwise recycles an idle one.
 func reattachFreshVUDC(t *testing.T, imp *usbip.Importer, payload []byte) string {
 	t.Helper()
 
@@ -694,7 +731,7 @@ func reattachFreshVUDC(t *testing.T, imp *usbip.Importer, payload []byte) string
 
 	serverDone := make(chan error, 1)
 
-	go func() { serverDone <- serveVUDCSocket(lis, dev.BusID) }()
+	go func() { serverDone <- serveVUDCSocket(lis, vudcRemoteBusID, dev.BusID) }()
 
 	addr, ok := lis.Addr().(*net.TCPAddr)
 	require.True(t, ok)
@@ -707,7 +744,7 @@ func reattachFreshVUDC(t *testing.T, imp *usbip.Importer, payload []byte) string
 	port, err := imp.Attach(ctx, domain.RemoteEndpoint{
 		Host: addr.IP.String(),
 		Port: uint16(addr.Port),
-	}, domain.BusID(dev.BusID), usbip.AttachOptions{})
+	}, vudcRemoteBusID, usbip.AttachOptions{})
 	require.NoError(t, err, "reattach: Attach must succeed")
 
 	select {

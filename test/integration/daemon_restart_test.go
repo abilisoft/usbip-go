@@ -25,10 +25,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// daemonRestartDeadline bounds the full scenario. Three daemon starts
-// + one attach + one recovery sequence is comfortably under 30 s even
-// on slow VMs.
-const daemonRestartDeadline = 30 * time.Second
+const (
+	// daemonRestartDeadline bounds the full scenario. Three daemon starts
+	// plus one attach and one recovery sequence is comfortably under this
+	// budget even on slow VMs.
+	daemonRestartDeadline = 30 * time.Second
+
+	// daemonStateDeadline bounds individual userspace-to-kernel state
+	// transitions within the larger restart scenario.
+	daemonStateDeadline = 5 * time.Second
+	daemonPollInterval  = 50 * time.Millisecond
+
+	// usbipExporterStatusUsed is SDEV_ST_USED from the Linux usbip-host
+	// sysfs ABI. Reaching this state proves the daemon completed its
+	// socket handoff before the test terminates the process.
+	usbipExporterStatusAvailable = "1"
+	usbipExporterStatusUsed      = "2"
+	usbipSockfdDisconnect        = "-1"
+	usbipSysfsWriteMode          = 0o200
+)
 
 // daemonStartSignal is the substring the daemon logs when its
 // accept-path listener is bound — used as a synchronisation point so
@@ -37,13 +52,13 @@ const daemonRestartDeadline = 30 * time.Second
 // accepting connections" info log.
 const daemonStartSignal = "usbip-go serve accepting connections"
 
-// TestDaemonRestartSessionsSurvive pins the operator-visible fd-ownership
-// invariant across daemon restarts.
-// recovery sequence: once the daemon dies, the kernel still holds
-// its own ref per bound device so the vhci attachment continues to
-// work, but the daemon's in-memory session table is empty after a
-// restart. Recovery is the operator writing -1 to the device's
-// usbip_sockfd.
+// TestDaemonRestartRequiresSessionReconnect pins the observed Linux
+// lifecycle across an abrupt exporter process restart. Kernel socket
+// handoff keeps traffic outside the userspace data path while the daemon
+// is running; it does not make the active remote attachment portable to
+// a replacement process. The client port is released after SIGKILL, while
+// the exporter-side kernel session requires explicit reconciliation before
+// the client can attach to the replacement daemon.
 //
 // Test flow:
 //  1. Harness vudc + env-supplied usbip-host busid.
@@ -51,19 +66,17 @@ const daemonStartSignal = "usbip-go serve accepting connections"
 //     already bound (Bind happens from the parent before spawning).
 //  3. Parent (as importer) attaches the device via TCP.
 //  4. Kill the daemon (SIGKILL).
-//  5. Assert the kernel still lists the attachment (kernel-owned
-//     ref persists after userspace death).
-//  6. Start a replacement daemon subprocess on the same port;
-//     Sessions() via its status socket returns empty.
-//  7. Operator recovery: write -1 to
-//     /sys/bus/usb/devices/<busid>/usbip_sockfd. The port's status
-//     flips to StatusNull / StatusNotAssigned.
+//  5. Assert the client VHCI port is released, then reconcile the orphaned
+//     exporter kernel session through usbip_sockfd=-1.
+//  6. Start a replacement daemon subprocess on the same address.
+//  7. Attach again and prove the replacement session reaches both
+//     client and exporter kernel-owned states.
 //  8. Cleanup.
 //
 // Env-gated on USBIPGO_INTEGRATION_BUSID because the scenario
 // requires usbip-host semantics; vudc-only devices do not carry a
 // usbip_sockfd attribute.
-func TestDaemonRestartSessionsSurvive(t *testing.T) {
+func TestDaemonRestartRequiresSessionReconnect(t *testing.T) {
 	integration.SetupVUDC(t)
 
 	busID := integration.RequireRealBusID(t)
@@ -97,11 +110,18 @@ func TestDaemonRestartSessionsSurvive(t *testing.T) {
 
 	port, err := imp.Attach(ctx, addr, busID, usbip.AttachOptions{})
 	require.NoError(t, err)
-	require.NotZero(t, port.ID)
+	require.Equal(t, busID, port.BusID)
+	require.Equal(t, domain.StatusUsed, port.Status)
 
-	// SIGKILL daemon #1. The kernel's session ref persists; the
-	// importer's attached port stays alive because the kernel retains its
-	// duplicated socket fd.
+	// The importer can finish its own handshake and VHCI handoff after
+	// reading OP_REP_IMPORT but before the exporter subprocess completes
+	// its usbip_sockfd write. Killing the subprocess in that window tests
+	// an interrupted handoff, not daemon-restart survival. Wait for the
+	// exporter-side kernel state to prove both kernels own socket refs.
+	waitForExporterKernelStatus(t, busID, usbipExporterStatusUsed)
+
+	// SIGKILL daemon #1. Linux tears down this exported connection and the
+	// remote VHCI port transitions back to a free state.
 	require.NoError(t, daemon1.proc.Signal(syscall.SIGKILL))
 
 	_, err = daemon1.proc.Wait()
@@ -112,38 +132,9 @@ func TestDaemonRestartSessionsSurvive(t *testing.T) {
 		t.Fatalf("daemon1 Wait: %v", err)
 	}
 
-	// The kernel-side ref survives the daemon's death. Importer.ListPorts
-	// still sees the attachment. This verifies kernel-held session
-	// persists across daemon restart via sysfs status; full URB round-
-	// trip is out of scope (requires a real-device gadget, not the
-	// vudc+mass_storage harness which does not answer bulk URBs).
-	ports, err := imp.ListPorts(ctx)
-	require.NoError(t, err)
-
-	var survivor domain.Port
-
-	for _, p := range ports {
-		if p.ID == port.ID {
-			survivor = p
-
-			break
-		}
-	}
-
-	require.Equal(t, port.ID, survivor.ID,
-		"kernel-owned session must survive daemon death")
-
-	// Status probe: the vhci port must remain StatusUsed, not
-	// StatusNull/StatusNotAssigned, to prove the kernel-side session
-	// is still live after the daemon process was killed. StatusNull
-	// would mean the kernel tore the port down on daemon death —
-	// that would contradict the kernel-owned fd lifecycle. This is the
-	// sysfs-level
-	// analogue of a URB round-trip; without a real gadget we can't
-	// push bytes through the attached device but the port flag alone
-	// is sufficient evidence the session is still owned by the kernel.
-	require.Equal(t, domain.StatusUsed, survivor.Status,
-		"post-SIGKILL vhci port status must remain StatusUsed (kernel-held session)")
+	waitForClientPortRelease(t, ctx, imp, port.ID)
+	reconcileExporterKernelSession(t, busID)
+	waitForExporterKernelStatus(t, busID, usbipExporterStatusAvailable)
 
 	// Start daemon #2 reusing the same port. bindReplacementExporter
 	// was our in-test loopback reuse helper; the equivalent for the
@@ -166,43 +157,109 @@ func TestDaemonRestartSessionsSurvive(t *testing.T) {
 
 	require.NotNil(t, daemon2, "daemon2 must start")
 
-	// Daemon #2 does NOT see the in-memory session (empty table).
-	// That observation requires the status-socket endpoint which
-	// cmd/usbip-go exposes when --status is passed; our subprocess
-	// helper does not wire it by default so we rely on the
-	// negative assertion via the Importer's own ListPorts instead:
-	// the importer-side port MUST still be present (kernel ref),
-	// and a fresh dial to daemon2 must NOT discover the existing
-	// session (stateless).
-	//
-	// Operator recovery sequence — write -1 to usbip_sockfd. The
-	// vhci port flips to StatusNull.
-	recoveryPath := "/sys/bus/usb/devices/" + string(busID) + "/usbip_sockfd"
+	replacement, err := imp.Attach(ctx, addr, busID, usbip.AttachOptions{})
+	require.NoError(t, err)
+	require.Equal(t, busID, replacement.BusID)
+	require.Equal(t, domain.StatusUsed, replacement.Status)
 
-	err = os.WriteFile(recoveryPath, []byte("-1\n"), 0o644)
-	// Recovery MAY fail if the kernel already cleaned up the
-	// attachment on daemon death; either outcome is acceptable per
-	// the spec's "operators reconcile" wording. Log but don't fail.
-	if err != nil {
-		t.Logf("operator recovery write (%s): %v", recoveryPath, err)
+	waitForExporterKernelStatus(t, busID, usbipExporterStatusUsed)
+	require.NoError(t, imp.Detach(ctx, replacement.ID))
+}
+
+func waitForExporterKernelStatus(t *testing.T, busID domain.BusID, want string) {
+	t.Helper()
+
+	statusPath := exporterSysfsPath(busID, "usbip_status")
+	deadline := time.NewTimer(daemonStateDeadline)
+	ticker := time.NewTicker(daemonPollInterval)
+	defer deadline.Stop()
+	defer ticker.Stop()
+
+	var lastErr error
+	var lastStatus string
+
+	for {
+		lastStatus, lastErr = readExporterKernelStatus(statusPath)
+		if lastErr == nil && lastStatus == want {
+			return
+		}
+
+		select {
+		case <-deadline.C:
+			t.Fatalf(
+				"exporter kernel status did not reach %q at %s; last status=%q last error=%v",
+				want,
+				statusPath,
+				lastStatus,
+				lastErr,
+			)
+		case <-ticker.C:
+		}
+	}
+}
+
+func reconcileExporterKernelSession(t *testing.T, busID domain.BusID) {
+	t.Helper()
+
+	statusPath := exporterSysfsPath(busID, "usbip_status")
+	status, err := readExporterKernelStatus(statusPath)
+	require.NoError(t, err)
+
+	if status == usbipExporterStatusAvailable {
+		return
 	}
 
-	// Eventually the vhci port moves to StatusNull.
+	require.Equal(t, usbipExporterStatusUsed, status,
+		"abrupt daemon death must leave either an available or explicitly reconcilable export")
+
+	sockfdPath := exporterSysfsPath(busID, "usbip_sockfd")
+	require.NoError(t, os.WriteFile(
+		sockfdPath,
+		[]byte(usbipSockfdDisconnect),
+		usbipSysfsWriteMode,
+	), "reconcile orphaned exporter kernel session")
+}
+
+func exporterSysfsPath(busID domain.BusID, attribute string) string {
+	return filepath.Join("/sys/bus/usb/devices", string(busID), attribute)
+}
+
+func readExporterKernelStatus(statusPath string) (string, error) {
+	contents, err := os.ReadFile(statusPath)
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(contents)), nil
+}
+
+func waitForClientPortRelease(
+	t *testing.T,
+	ctx context.Context,
+	imp *usbip.Importer,
+	portID domain.PortID,
+) {
+	t.Helper()
+
 	require.Eventually(t, func() bool {
-		cur, listErr := imp.ListPorts(ctx)
-		if listErr != nil {
+		ports, err := imp.ListPorts(ctx)
+		if err != nil {
 			return false
 		}
 
-		for _, p := range cur {
-			if p.ID == port.ID {
-				return p.Status == domain.StatusNull
+		for _, port := range ports {
+			if port.ID != portID {
+				continue
 			}
+
+			return port.Status == domain.StatusNull ||
+				port.Status == domain.StatusNotAssigned ||
+				port.Status == domain.StatusAvailable
 		}
 
-		return true // port vanished entirely — also acceptable
-	}, daemonRestartDeadline, 500*time.Millisecond,
-		"vhci port must reach StatusNull after operator recovery write")
+		return true
+	}, daemonStateDeadline, daemonPollInterval,
+		"client VHCI port %d must be released after daemon death", portID)
 }
 
 // daemonSubprocess carries the exec.Cmd handle and the path to the
@@ -226,7 +283,15 @@ func startDaemonSubprocess(
 
 	ctx := context.Background()
 
-	cmd := exec.CommandContext(ctx, binary, "serve", "--listen", addr)
+	cmd := exec.CommandContext(
+		ctx,
+		binary,
+		"--log-format", "pretty",
+		"--no-color",
+		"serve",
+		"--listen", addr,
+		"--status-socket", "",
+	)
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 
 	stderr, err := cmd.StderrPipe()
@@ -271,9 +336,11 @@ func waitForDaemonReady(r pipeReader, signal string) (domain.RemoteEndpoint, err
 	scanner := bufio.NewScanner(r)
 
 	deadline := time.Now().Add(5 * time.Second)
+	var observed []string
 
 	for scanner.Scan() && time.Now().Before(deadline) {
 		line := scanner.Text()
+		observed = append(observed, line)
 
 		if !strings.Contains(line, signal) {
 			continue
@@ -287,7 +354,15 @@ func waitForDaemonReady(r pipeReader, signal string) (domain.RemoteEndpoint, err
 		return endpoint, nil
 	}
 
-	return domain.RemoteEndpoint{}, errors.New("daemon ready signal not seen within 5s")
+	if err := scanner.Err(); err != nil {
+		return domain.RemoteEndpoint{}, fmt.Errorf("scan daemon readiness log: %w", err)
+	}
+
+	return domain.RemoteEndpoint{}, fmt.Errorf(
+		"%w; stderr=%q",
+		errors.New("daemon ready signal not seen within 5s"),
+		strings.Join(observed, "\n"),
+	)
 }
 
 // parseAddrFromReadyLog extracts the addr=<host:port> token emitted
