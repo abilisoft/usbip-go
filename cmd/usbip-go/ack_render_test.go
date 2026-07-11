@@ -60,8 +60,8 @@ func TestWriteBindAck_TableBindAndUnbind(t *testing.T) {
 		want  string
 		busID domain.BusID
 	}{
-		{op: "bind", want: "binded", busID: "1-2"},
-		{op: "unbind", want: "unbinded", busID: "3-1"},
+		{op: testBindCommand, want: "binded", busID: "1-2"},
+		{op: testUnbindCommand, want: "unbinded", busID: "3-1"},
 	}
 
 	for _, tc := range cases {
@@ -91,5 +91,5 @@ func TestWriteBindAck_TableBindAndUnbind(t *testing.T) {
 // via outputFromCtx; mirrors the production PersistentPreRunE
 // wiring without dragging in the full root command.
 func withOutputCtx(parent context.Context, format string) context.Context {
-	return context.WithValue(parent, flagsCtxKey, &globalFlags{Output: format})
+	return context.WithValue(parent, flagsContextKey{}, &globalFlags{Output: format})
 }

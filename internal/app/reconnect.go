@@ -13,20 +13,20 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
-// defaultStatusPollInterval is the §5.5 backstop poll period applied
+// defaultStatusPollInterval is the importer-lifecycle OpenSpec backstop poll period applied
 // when AttachOptions.StatusPollInterval is zero. A negative value
 // disables the poll entirely.
 const defaultStatusPollInterval = 5 * time.Second
 
 // defaultReconnectBackoffFloor is the first-attempt delay for the
-// default exponential backoff per v1 contract §5.5.
+// default exponential backoff per importer-lifecycle OpenSpec.
 const defaultReconnectBackoffFloor = 1 * time.Second
 
 // defaultReconnectBackoffCeiling is the delay ceiling for the default
-// exponential backoff per v1 contract §5.5.
+// exponential backoff per importer-lifecycle OpenSpec.
 const defaultReconnectBackoffCeiling = 60 * time.Second
 
-// defaultReconnectBackoffJitter matches the v1 contract §5.5 default
+// defaultReconnectBackoffJitter matches the importer-lifecycle OpenSpec default
 // multiplicative jitter fraction.
 const defaultReconnectBackoffJitter = 0.2
 
@@ -37,6 +37,11 @@ const reconnectSourceUevent = "uevent"
 // reconnectSourcePoll tags watcher log lines whose detection came from
 // the ListPorts backstop sweep.
 const reconnectSourcePoll = "poll"
+
+// reconnectCallbackQueueSize keeps one latest pending notification
+// behind the callback currently executing. Slow callbacks therefore
+// coalesce attempts instead of creating unbounded goroutines.
+const reconnectCallbackQueueSize = 1
 
 // reconnectParams bundles everything spawnReconnectWatcher needs for a
 // single watcher lifecycle. Extracting the struct keeps the watcher
@@ -50,6 +55,23 @@ type reconnectParams struct {
 	opts     AttachOptions
 }
 
+type reconnectCallbackRequest struct {
+	attempt int
+	err     error
+}
+
+// reconnectCallbackRunner invokes OnReconnect sequentially. It owns
+// one worker and one pending slot per reconnect watcher; when both are
+// occupied, Notify replaces the pending request with the latest
+// attempt.
+type reconnectCallbackRunner struct {
+	requests chan reconnectCallbackRequest
+	callback func(int, error)
+	portID   domain.PortID
+	source   string
+	logger   *slog.Logger
+}
+
 // spawnReconnectWatcher enrols a new reconnect goroutine in the
 // Importer waitgroup and starts it. The handle's watcherDone channel
 // is allocated under mu inside registerHandle when AutoReconnect is
@@ -59,7 +81,7 @@ type reconnectParams struct {
 // observe the channel to synchronise with the watcher's exit.
 //
 // The Attach caller's ctx is detached via context.WithoutCancel: the
-// watcher must outlive the Attach call (v1 contract §5.5) and its only
+// watcher must outlive the Attach call (importer-lifecycle OpenSpec) and its only
 // termination signals are handle.done (cancelled by Detach/Close) and
 // the events-source channel closing. Passing the caller ctx in and
 // detaching here keeps the call graph honest for contextcheck while
@@ -91,7 +113,7 @@ func (i *Importer) spawnReconnectWatcher(
 }
 
 // resolveReconnectOptions populates the zero-valued AttachOptions fields
-// with the §5.5 defaults. Mutates a copy so the caller's opts stay
+// with the importer-lifecycle OpenSpec defaults. Mutates a copy so the caller's opts stay
 // unchanged — opts is passed by value through the recursive Attach.
 func resolveReconnectOptions(opts AttachOptions) AttachOptions {
 	if opts.Backoff == nil {
@@ -110,7 +132,7 @@ func resolveReconnectOptions(opts AttachOptions) AttachOptions {
 }
 
 // runReconnectWatcher is the watcher goroutine body. It runs in two
-// phases per v1 contract §5.5: (1) wait for a detach signal from either the
+// phases per importer-lifecycle OpenSpec: (1) wait for a detach signal from either the
 // uevent subscription or the ListPorts backstop, (2) loop reconnect
 // attempts gated by the configured backoff until success, MaxAttempts
 // exhaustion, or cancellation. The watcher exits by closing
@@ -158,7 +180,12 @@ func (i *Importer) runReconnectWatcher(parent context.Context, p reconnectParams
 		return
 	}
 
-	i.runReconnectLoop(ctx, p, detected)
+	callbacks := i.newReconnectCallbackRunner(p.opts.OnReconnect, p.portID, detected)
+	if callbacks != nil {
+		defer callbacks.Close()
+	}
+
+	i.runReconnectLoop(ctx, p, detected, callbacks)
 }
 
 // detectTick is the outcome of a single waitForDetach select iteration.
@@ -230,7 +257,7 @@ func (i *Importer) waitForDetachTick(
 // isDetachSignal returns true iff ev is a legitimate detach signal for
 // the watcher's port: a PortDetachedEvent whose id matches p.portID,
 // whose handle slot still belongs to p.handle (generation check per
-// v1 contract §5.5), AND whose detached status is confirmed by the kernel
+// importer-lifecycle OpenSpec), AND whose detached status is confirmed by the kernel
 // (defence against stale uevents that arrive after a same-slot reuse).
 // The kernel confirmation step re-runs ListPorts because uevents can
 // be reordered or duplicated relative to the actual sysfs state; if the
@@ -279,7 +306,7 @@ func (i *Importer) isDetachSignal(ctx context.Context, ev domain.Event, p reconn
 // can lock the wording in (see reconnect_generation_test.go).
 const staleEventLogMessage = "stale event ignored"
 
-// logStaleEventDrop emits the §5.5 stale-event debug line with both
+// logStaleEventDrop emits the importer-lifecycle OpenSpec stale-event debug line with both
 // generations and the event's port id. Current is the generation that
 // currently owns the port (0 if no live handle); watcher is the
 // generation held by the receiving watcher. Both names are stable
@@ -328,7 +355,7 @@ func (i *Importer) isCurrentHandle(id domain.PortID, h *portHandle) bool {
 
 // portIsDetached returns true when ListPorts cannot find our port id
 // OR finds it in StatusNull — either outcome is the backstop signal for
-// a detach per v1 contract §5.5 item 2. ListPorts errors are swallowed at
+// a detach per importer-lifecycle OpenSpec item 2. ListPorts errors are swallowed at
 // debug-level: the uevent path still covers the common case and a
 // noisy failing sysfs probe would drown out legitimate signal.
 func (i *Importer) portIsDetached(ctx context.Context, id domain.PortID) bool {
@@ -354,7 +381,7 @@ func (i *Importer) portIsDetached(ctx context.Context, id domain.PortID) bool {
 
 // runReconnectLoop runs attempts 1..MaxAttempts (0 = infinite) gated by
 // the Backoff. Each iteration sleeps, then re-attaches via the public
-// Attach path so the whole dial-handshake-handoff sequence (v1 contract §5.2)
+// Attach path so the whole dial-handshake-handoff sequence (importer-lifecycle OpenSpec)
 // is exercised. On success, the old handle is removed and the loop
 // exits; the replacement watcher is already running inside the
 // successful Attach return.
@@ -364,7 +391,12 @@ func (i *Importer) portIsDetached(ctx context.Context, id domain.PortID) bool {
 // before cancel; the watcher checks the flag after Attach returns and
 // issues kernel.DetachPort on the replacement port so the device the
 // user asked to release does not silently reappear.
-func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, source string) {
+func (i *Importer) runReconnectLoop(
+	ctx context.Context,
+	p reconnectParams,
+	source string,
+	callbacks *reconnectCallbackRunner,
+) {
 	lastErr := fmt.Errorf("%w: port %d via %s", ErrPortDetached, p.portID, source)
 
 	// attempt is declared outside the for-init so the give-up log line
@@ -385,7 +417,7 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 		// sound sync point for deterministic clock control.
 		delayCh := i.armBackoff(p, attempt)
 
-		i.fireOnReconnect(p.opts.OnReconnect, attempt, lastErr, p.portID, source)
+		callbacks.Notify(attempt, lastErr)
 
 		if !i.waitBackoffChan(ctx, delayCh) {
 			i.logger.Info("reconnect canceled",
@@ -481,7 +513,7 @@ func (i *Importer) finishReconnectSuccess(
 	// inflated by one. The rollback path does the same refresh; the
 	// success path needs the symmetric refresh too.
 
-	// Per v1 contract §5.5 / BackoffStrategy contract (internal/app/backoff.go:20
+	// Per importer-lifecycle OpenSpec / BackoffStrategy contract (internal/app/backoff.go:20
 	// and pkg/usbip/backoff.go:19): "Reset is called after a successful
 	// reconnect so the next failure starts from the smallest delay
 	// again." Without this call a stateful backoff stays escalated
@@ -625,49 +657,90 @@ func (i *Importer) removeHandle(id domain.PortID, owned *portHandle) {
 	}
 }
 
-// fireOnReconnect invokes cb in a fresh goroutine with panic recovery.
-// Running off the watcher goroutine isolates a slow callback from the
-// retry cadence (the watcher must stay responsive to ctx cancellation);
-// the recover block logs and drops panics so a buggy caller cannot
-// crash the process or leave the watcher in an indeterminate state.
-// cb may run concurrently with other Importer operations — callers who
-// need synchronous semantics must wire their own buffering.
-//
-// portID and source are logged on the panic-recovery path so
-// operators can correlate the panic with the affected device and the
-// detach-detection source (uevent vs poll) that drove the retry loop.
-//
-// The callback goroutine is enrolled in i.wg so Close's bounded drain
-// observes it. Without wg enrolment a blocking callback could outlive
-// Close indefinitely; Close.waitGroupBounded waits up to
-// shutdownTimeout on the tracked goroutine before returning.
-func (i *Importer) fireOnReconnect(
-	cb func(int, error),
-	attempt int,
-	err error,
+// newReconnectCallbackRunner starts the single callback worker while
+// the parent reconnect watcher is still enrolled in i.wg. This keeps
+// Close's drain-channel capture safe from a late zero-to-one add.
+func (i *Importer) newReconnectCallbackRunner(
+	callback func(int, error),
 	portID domain.PortID,
 	source string,
-) {
-	if cb == nil {
+) *reconnectCallbackRunner {
+	if callback == nil {
+		return nil
+	}
+
+	runner := &reconnectCallbackRunner{
+		requests: make(chan reconnectCallbackRequest, reconnectCallbackQueueSize),
+		callback: callback,
+		portID:   portID,
+		source:   source,
+		logger:   i.logger,
+	}
+
+	i.wg.Go(runner.run)
+
+	return runner
+}
+
+// Notify queues the latest callback request without blocking the
+// reconnect watcher. A nil runner is a no-op so the loop does not need
+// a branch when OnReconnect is unset.
+func (r *reconnectCallbackRunner) Notify(attempt int, err error) {
+	if r == nil {
 		return
 	}
 
-	i.wg.Go(func() {
-		defer func() {
-			r := recover()
-			if r == nil {
-				return
-			}
+	request := reconnectCallbackRequest{attempt: attempt, err: err}
+	select {
+	case r.requests <- request:
+		return
+	default:
+	}
 
-			i.logger.Error(
-				"OnReconnect callback panicked",
-				slog.Uint64("port_id", uint64(portID)),
-				slog.Int("attempt", attempt),
-				slog.String("source", source),
-				slog.Any("panic", r),
-			)
-		}()
+	// The sole producer is the reconnect watcher, so replacing the
+	// queued item cannot race another Notify. The worker may drain
+	// between these selects; the final non-blocking send handles both
+	// interleavings.
+	select {
+	case <-r.requests:
+	default:
+	}
 
-		cb(attempt, err)
-	})
+	select {
+	case r.requests <- request:
+	default:
+	}
+}
+
+// Close stops the worker after it finishes the running and latest
+// queued callbacks. Only the owning reconnect watcher calls Close.
+func (r *reconnectCallbackRunner) Close() {
+	close(r.requests)
+}
+
+func (r *reconnectCallbackRunner) run() {
+	for request := range r.requests {
+		r.invoke(request)
+	}
+}
+
+// invoke isolates callback panics so a caller cannot terminate the
+// process or the callback worker.
+func (r *reconnectCallbackRunner) invoke(request reconnectCallbackRequest) {
+	defer func() {
+		panicValue := recover()
+		if panicValue == nil {
+			return
+		}
+
+		r.logger.Error(
+			"OnReconnect callback panicked",
+			slog.Uint64("port_id", uint64(r.portID)),
+			slog.Int("attempt", request.attempt),
+			slog.String("source", r.source),
+			slog.Any("panic", panicValue),
+		)
+	}()
+
+	r.callback(request.attempt, request.err)
 }

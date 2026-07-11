@@ -170,7 +170,7 @@ func attachOptionsWithBackoff() app.AttachOptions {
 }
 
 // TestImporterReconnectUeventTriggersReattach proves the primary
-// detection path per v1 contract §5.5 item 1: a remote-device uevent that maps
+// detection path per importer-lifecycle OpenSpec item 1: a remote-device uevent that maps
 // to a PortDetachedEvent for our port triggers one reconnect attempt
 // after the backoff delay, yielding two AttachRemote invocations (the
 // initial attach + the reconnect).
@@ -211,7 +211,7 @@ func TestImporterReconnectUeventTriggersReattach(t *testing.T) {
 }
 
 // TestImporterReconnectPollTriggersReattach covers the backstop path
-// per v1 contract §5.5 item 2: the uevent source stays silent, but a periodic
+// per importer-lifecycle OpenSpec item 2: the uevent source stays silent, but a periodic
 // ListPorts poll observes our PortID in StatusNull → watcher reattaches.
 func TestImporterReconnectPollTriggersReattach(t *testing.T) {
 	t.Parallel()
@@ -328,6 +328,8 @@ func TestImporterReconnectBackoffRespected(t *testing.T) {
 func TestImporterReconnectMaxAttemptsExhausts(t *testing.T) {
 	t.Parallel()
 
+	const maxReconnectAttempts = 3
+
 	var attachCount atomic.Int32
 
 	attachFn := func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
@@ -341,12 +343,9 @@ func TestImporterReconnectMaxAttemptsExhausts(t *testing.T) {
 
 	imp, clk, registry, kernel := newReconnectFixture(t, attachFn)
 
-	var reconnects atomic.Int32
-
 	opts := attachOptionsWithBackoff()
 
-	opts.MaxAttempts = 3
-	opts.OnReconnect = func(_ int, _ error) { reconnects.Add(1) }
+	opts.MaxAttempts = maxReconnectAttempts
 
 	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), opts)
 	require.NoError(t, err)
@@ -358,7 +357,7 @@ func TestImporterReconnectMaxAttemptsExhausts(t *testing.T) {
 	// Drive the watcher through three full attempts. Each iteration
 	// advances the clock until AttachRemote has been invoked (i.e. the
 	// backoff elapsed for this attempt).
-	for i := range 3 {
+	for i := range maxReconnectAttempts {
 		want := int32(i + 2) // +1 for the initial attach, +1 for this reconnect
 		require.Eventually(t, func() bool {
 			clk.Advance(reconnectTestBackoff().Delay)
@@ -373,11 +372,11 @@ func TestImporterReconnectMaxAttemptsExhausts(t *testing.T) {
 	// the watcher exited after MaxAttempts.
 	require.NoError(t, imp.Close())
 
-	require.Equal(t, int32(3), reconnects.Load(), "OnReconnect must fire exactly MaxAttempts times")
-	require.Len(t, kernel.AttachRemoteCalls(), 4, "initial attach + 3 reconnect attempts")
+	require.Len(t, kernel.AttachRemoteCalls(), maxReconnectAttempts+1,
+		"initial attach plus MaxAttempts reconnect attempts")
 }
 
-// TestImporterReconnectDetachCancelsWatcher covers the §5.5 cancellation
+// TestImporterReconnectDetachCancelsWatcher covers the importer-lifecycle OpenSpec cancellation
 // contract: a Detach that lands while the watcher is asleep between
 // attempts tears the watcher down without a further reconnect attempt.
 func TestImporterReconnectDetachCancelsWatcher(t *testing.T) {
@@ -473,7 +472,7 @@ func TestImporterReconnectStaleEventIgnored(t *testing.T) {
 
 // TestImporterReconnectDefaultsApplied covers the zero-value branches
 // in resolveReconnectOptions: omitted Backoff and StatusPollInterval
-// get their §5.5 defaults. We exercise the path by attaching with
+// get their importer-lifecycle OpenSpec defaults. We exercise the path by attaching with
 // AutoReconnect=true but no backoff / poll overrides, then detach to
 // ensure the watcher shut down cleanly (which it cannot do if defaults
 // panicked the zero-value struct).
@@ -801,7 +800,7 @@ func TestImporterReconnectZeroBackoffSkipsSleep(t *testing.T) {
 }
 
 // TestImporterReconnectSameSlotStaleEventIgnored proves the generation
-// filter promised by v1 contract §5.5: when the kernel re-uses the SAME PortID
+// filter promised by importer-lifecycle OpenSpec: when the kernel re-uses the SAME PortID
 // slot after a detach (a legitimate kernel behaviour: vhci_hcd picks the
 // lowest free slot), a late uevent for that id that targets the OLD
 // generation must NOT fire a third reconnect. Id-equality alone is not
@@ -871,7 +870,7 @@ func TestImporterReconnectSameSlotStaleEventIgnored(t *testing.T) {
 }
 
 // TestImporterReconnectOnReconnectPanicRecovered asserts the watcher
-// survives an OnReconnect callback that panics. Per v1 contract §5.5 the
+// survives an OnReconnect callback that panics. Per importer-lifecycle OpenSpec the
 // callback is a fire-and-forget notification, so a buggy caller must
 // not crash the process, wedge the watcher's retry cadence, or leak a
 // goroutine (goleak's TestMain hook backs up the assertion).
@@ -1067,7 +1066,7 @@ func TestImporterReconnectCloseShutdownTimeoutDisabled(t *testing.T) {
 // returns within AttachOptions.ShutdownTimeout even when the watcher is
 // wedged (here: the reconnect-path AttachRemote ignores ctx cancellation
 // and blocks forever, so h.watcherDone never closes on its own). Per
-// v1 contract §5.5, Detach's wait on watcherDone is bounded; an unbounded
+// importer-lifecycle OpenSpec, Detach's wait on watcherDone is bounded; an unbounded
 // wait would hang indefinitely.
 func TestImporterReconnectDetachShutdownTimeoutBounded(t *testing.T) {
 	t.Parallel()

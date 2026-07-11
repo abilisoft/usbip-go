@@ -20,15 +20,15 @@ func TestParseBusID(t *testing.T) {
 		want domain.BusID
 		err  bool
 	}{
-		{"simple", "1-1", domain.BusID("1-1"), false},
-		{"nested", "1-1.2", domain.BusID("1-1.2"), false},
+		{"simple", testRootBusID, domain.BusID(testRootBusID), false},
+		{"nested", testNestedBusID, domain.BusID(testNestedBusID), false},
 		{"nested_deeper", "2-3.4.5.6", domain.BusID("2-3.4.5.6"), false},
 		{"max_length_digits", "1-" + strings.Repeat("1", 29), domain.BusID("1-" + strings.Repeat("1", 29)), false},
 		{"empty", "", "", true},
 		{"whitespace", " ", "", true},
 		{"over_limit", "1-" + strings.Repeat("1", 31), "", true},
 		{"contains_null", "1-\x00", "", true},
-		// Malformed topology per v1 contract §4.1 (pattern must be ^\d+-[\d\.]+$).
+		// Malformed topology per domain-model OpenSpec (pattern must be ^\d+-[\d\.]+$).
 		{"no_dash", "abc", "", true},
 		{"trailing_dash", "1-", "", true},
 		{"leading_dash", "-1", "", true},
@@ -73,5 +73,5 @@ func TestBusID_IsValid_Branches(t *testing.T) {
 	require.False(t, domain.BusID(strings.Repeat("a", 32)).IsValid())
 	require.False(t, domain.BusID("a\x00b").IsValid())
 	require.False(t, domain.BusID("   ").IsValid())
-	require.True(t, domain.BusID("1-1").IsValid())
+	require.True(t, domain.BusID(testRootBusID).IsValid())
 }

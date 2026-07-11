@@ -18,7 +18,7 @@ import (
 )
 
 // defaultShutdownTimeout bounds Detach and Close's wait on the reconnect
-// watcher per v1 contract §5.5 when AttachOptions.ShutdownTimeout is zero. A
+// watcher per importer-lifecycle OpenSpec when AttachOptions.ShutdownTimeout is zero. A
 // negative ShutdownTimeout disables the bound (wait indefinitely).
 const defaultShutdownTimeout = 5 * time.Second
 
@@ -92,7 +92,7 @@ func (g *lifecycleWaitGroup) DoneChan() <-chan struct{} {
 //
 // The handle map tracks every successfully-attached port along with a
 // per-handle cancel signal and a monotonically increasing generation.
-// The reconnect watcher (v1 contract §5.5) reads the generation to filter
+// The reconnect watcher (importer-lifecycle OpenSpec) reads the generation to filter
 // stale kernel events whose port id was replaced by a successful
 // reattach.
 type Importer struct {
@@ -148,7 +148,7 @@ type attachKey struct {
 // generation is assigned at registerHandle time from Importer.nextGen
 // and stays constant for the lifetime of the handle; it lets the
 // reconnect watcher reject stale uevents whose port id was already
-// replaced by a successful reattach (v1 contract §5.5).
+// replaced by a successful reattach (importer-lifecycle OpenSpec).
 //
 // watcherDone is closed by the reconnect watcher goroutine when it
 // exits. Non-AutoReconnect handles leave it nil; Detach and Close read
@@ -307,7 +307,7 @@ func (i *Importer) Close() error {
 // OP_REQ_DEVLIST, and returns the decoded []domain.Device. The TCP
 // connection is owned for the entire call: it is always closed before
 // ListRemote returns (success or failure). OP_REP_DEVLIST does not
-// involve fd-passing, so the v1 contract §5.4 handoff contract does not apply
+// involve fd-passing, so the kernel-adapter and importer-lifecycle OpenSpec documents handoff contract does not apply
 // here — the connection is a short-lived query channel.
 //
 // Returned errors are wrapped with the peer endpoint so callers can
@@ -378,8 +378,8 @@ func (i *Importer) ListRemote(ctx context.Context, endpoint domain.RemoteEndpoin
 // has already completed; a close failure is informational only.
 func closeConnLogging(conn net.Conn, logger *slog.Logger) {
 	err := conn.Close()
-	if err != nil {
-		logger.Warn("close importer conn", slog.Any("err", err))
+	if err != nil && !errors.Is(err, net.ErrClosed) {
+		logger.Warn("close connection", slog.Any("err", err))
 	}
 }
 
@@ -389,7 +389,7 @@ func closeConnLogging(conn net.Conn, logger *slog.Logger) {
 // that the domain package does not provide.
 const deviceIDBusShift = 16
 
-// Attach runs the full USB/IP import sequence per v1 contract §5.2:
+// Attach runs the full USB/IP import sequence per importer-lifecycle OpenSpec:
 //
 //  1. kernel.ModulesAvailable probes vhci_hcd + usbip_core.
 //  2. transport.Dial establishes the TCP connection to endpoint.
@@ -397,7 +397,7 @@ const deviceIDBusShift = 16
 //  4. codec.DecodeOpRepImport(conn) reads back the device body.
 //  5. kernel.AttachRemote(ctx, conn, spec) hands the fd to the kernel.
 //
-// Step 5 is the fd-passing handoff defined in v1 contract §5.4 item 4. Until
+// Step 5 is the fd-passing handoff defined in the kernel-adapter and importer-lifecycle OpenSpec documents. Until
 // AttachRemote returns success, Attach owns the conn and MUST close it
 // on any error path. After success, the kernel owns the fd and Attach
 // MUST NOT touch it — closing it there would tear down the just-opened
@@ -406,7 +406,7 @@ const deviceIDBusShift = 16
 //
 // When AttachOptions.AutoReconnect is set, the successful-return path
 // also spawns a reconnect watcher goroutine bound to the fresh handle
-// (v1 contract §5.5). The watcher is enrolled in i.wg so Close drains it.
+// (importer-lifecycle OpenSpec). The watcher is enrolled in i.wg so Close drains it.
 func (i *Importer) Attach(
 	ctx context.Context,
 	endpoint domain.RemoteEndpoint,
@@ -459,7 +459,7 @@ func (i *Importer) Attach(
 }
 
 // Detach tears down a previously-imported port by id. It cancels the
-// handle's context BEFORE issuing the sysfs-backed detach per v1 contract §5.5
+// handle's context BEFORE issuing the sysfs-backed detach per importer-lifecycle OpenSpec
 // so any auto-reconnect watcher sees cancel ahead of the status
 // transition and does not race a reattempt, and blocks on the watcher
 // goroutine's done channel before touching the kernel so an in-flight
@@ -509,7 +509,7 @@ func (i *Importer) Detach(ctx context.Context, id domain.PortID) error {
 
 	i.mu.Unlock()
 
-	// Cancel first (v1 contract §5.5) so any reconnect watcher observes
+	// Cancel first (importer-lifecycle OpenSpec) so any reconnect watcher observes
 	// termination and exits. Waiting on watcherDone guarantees the
 	// watcher has drained before DetachPort runs; a nil watcherDone
 	// means this handle was attached with AutoReconnect=false. The
@@ -548,8 +548,8 @@ func (i *Importer) Detach(ctx context.Context, id domain.PortID) error {
 // ListPorts forwards to the kernel's view of attached vhci ports. The
 // Importer's local handle map is internal bookkeeping; the kernel's
 // sysfs-derived list is the authoritative source, especially after a
-// daemon restart (§5.4 item 7) where our handles are empty but the
-// kernel still tracks live ports.
+// daemon restart where our handles are empty but the kernel still owns imported
+// sockets and tracks live ports.
 func (i *Importer) ListPorts(ctx context.Context) ([]domain.Port, error) {
 	i.mu.RLock()
 
@@ -672,7 +672,7 @@ func (i *Importer) waitGroupBounded(handles []*portHandle) {
 }
 
 // longestShutdownTimeout returns the largest shutdownTimeout among the
-// supplied handles, or the §5.5 default when the slice is empty. A
+// supplied handles, or the importer-lifecycle OpenSpec default when the slice is empty. A
 // negative on any handle poisons the result to -1 (wait forever).
 // registerHandle normalises zero to the default before storing, so the
 // "every handle has zero" branch is unreachable in production; the
@@ -735,7 +735,7 @@ func (i *Importer) acquireAttachSlot(
 }
 
 // classifyDecodeImportErr maps a DecodeOpRepImport failure onto the
-// closest §11.5.5 AttachOutcome label. A non-zero OP_REP_IMPORT
+// closest operations-observability OpenSpec AttachOutcome label. A non-zero OP_REP_IMPORT
 // status is a domain-level peer rejection (one of ST_NA, ST_NODEV,
 // ST_DEV_BUSY, ST_DEV_ERR per upstream usbip_common.h) — NOT a
 // wire framing fault. Any of those rejections must be classified
@@ -745,7 +745,7 @@ func (i *Importer) acquireAttachSlot(
 // parse, device-body underrun) remain protocol_mismatch.
 //
 // The closed-set outcome label still stays kernel_error for all
-// peer rejections because the v1 contract §11.5.5 enum does not
+// peer rejections because the operations-observability OpenSpec enum does not
 // yet split "rejected" from "kernel_error"; what matters is that
 // errors.Is on the returned Attach error reaches the precise
 // sentinel (NotFound, AlreadyBound, Unavailable) so callers can
@@ -779,7 +779,7 @@ func classifyKernelAttachErr(err error) AttachOutcome {
 
 // attachOverDialed factors out the dial-through-handoff portion of
 // Attach. Splitting it keeps Attach under the project's cyclomatic cap
-// and isolates the fd-passing deferred cleanup per v1 contract §5.4. opts is
+// and isolates the fd-passing deferred cleanup per kernel-adapter and importer-lifecycle OpenSpec documents. opts is
 // forwarded unchanged so registerHandle can hand the resulting handle
 // to a reconnect watcher when AutoReconnect is enabled.
 func (i *Importer) attachOverDialed(
@@ -799,7 +799,7 @@ func (i *Importer) attachOverDialed(
 
 	i.logger.Debug("attach: dialed", "endpoint", endpoint.String(), "local", conn.LocalAddr().String())
 
-	// Per v1 contract §5.4 item 4: Attach owns the fd until AttachRemote
+	// Per the kernel-adapter and importer-lifecycle OpenSpec documents, Attach owns the fd until AttachRemote
 	// succeeds. The deferred close below runs on every return; the
 	// handedOff flag suppresses it exactly once, right after the
 	// kernel takes ownership.
@@ -911,7 +911,7 @@ func (i *Importer) performImportHandshake(
 	// could attach the wrong USB device under the caller's requested
 	// handle (the kernel would happily wire the returned dev_id to the
 	// vhci port; the caller would then control a device they did not
-	// authorize). v1 contract §6.2: the reply MUST identify the same
+	// authorize). wire-protocol OpenSpec: the reply MUST identify the same
 	// busid the request named.
 	if dev.BusID != busID {
 		mismatchErr := fmt.Errorf("%w: requested busid %s but peer replied %s",
@@ -1065,7 +1065,7 @@ func (i *Importer) registerHandle(
 }
 
 // resolveShutdownTimeout maps the user-supplied AttachOptions.ShutdownTimeout
-// to its effective value: zero picks up the §5.5 default; any other
+// to its effective value: zero picks up the importer-lifecycle OpenSpec default; any other
 // value (including negative) is passed through so callers can disable
 // the bound by setting a negative value.
 func resolveShutdownTimeout(t time.Duration) time.Duration {

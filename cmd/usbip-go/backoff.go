@@ -80,7 +80,7 @@ func parseExpBackoff(rest string) (usbip.BackoffStrategy, error) {
 		return nil, fmt.Errorf("%w: exp min/max invalid (min=%s max=%s)", errInvalidBackoff, minD, maxD)
 	}
 
-	return usbip.NewExponentialBackoff(usbip.ExponentialBackoffConfig{
+	return usbip.MustNewExponentialBackoff(usbip.ExponentialBackoffConfig{
 		Min:    minD,
 		Max:    maxD,
 		Jitter: defaultBackoffJitter,

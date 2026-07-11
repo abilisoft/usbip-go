@@ -36,7 +36,7 @@ func TestListLocalDevices_SkipsMissingOptionalInterface(t *testing.T) {
 	// ListLocalDevices would break that tolerance.
 	attrs["bNumInterfaces"] = "2\n"
 
-	mfs := mergeFS(deviceSysfs("1-1", attrs), moduleDirs())
+	mfs := mergeFS(deviceSysfs(testRootBusID, attrs), moduleDirs())
 
 	a, err := kernel.NewExporterAdapter(kernel.WithFS(mfs))
 	require.NoError(t, err)

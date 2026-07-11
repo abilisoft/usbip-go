@@ -26,7 +26,7 @@ func TestWatchEmitsJSONLines(t *testing.T) {
 	events := []usbip.Event{
 		domain.PortAttachedEvent{
 			At:   time.Unix(100, 0).UTC(),
-			Port: usbip.Port{ID: 1, BusID: "1-1.2"},
+			Port: usbip.Port{ID: 1, BusID: testNestedBusID},
 		},
 		domain.PortErroredEvent{
 			At:   time.Unix(101, 0).UTC(),
@@ -59,7 +59,7 @@ func TestWatchEmitsJSONLines(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--output=json", "watch"})
+	cmd.SetArgs([]string{testOutputJSONFlag, testWatchCommand})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -89,6 +89,8 @@ func TestWatchEmitsJSONLines(t *testing.T) {
 func TestWatchStopsOnContextCancel(t *testing.T) {
 	t.Parallel()
 
+	yielded := make(chan struct{})
+
 	imp := &mockImporter{
 		watchFn: func(ctx context.Context) iter.Seq[usbip.Event] {
 			return func(yield func(usbip.Event) bool) {
@@ -100,6 +102,7 @@ func TestWatchStopsOnContextCancel(t *testing.T) {
 					return
 				}
 
+				close(yielded)
 				<-ctx.Done()
 			}
 		},
@@ -112,14 +115,15 @@ func TestWatchStopsOnContextCancel(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--output=json", "watch"})
+	cmd.SetArgs([]string{testOutputJSONFlag, testWatchCommand})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd.SetContext(ctx)
 
-	// Cancel shortly after the command starts so the watcher exits.
+	// Cancel only after the iterator has yielded its first event, so the
+	// cancellation path is deterministic without a scheduler delay.
 	go func() {
-		time.Sleep(10 * time.Millisecond)
+		<-yielded
 		cancel()
 	}()
 
@@ -150,7 +154,7 @@ func TestWatchTableFormat(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"watch"})
+	cmd.SetArgs([]string{testWatchCommand})
 
 	err := cmd.Execute()
 	require.NoError(t, err)

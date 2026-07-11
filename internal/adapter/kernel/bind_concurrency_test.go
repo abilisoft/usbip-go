@@ -31,7 +31,7 @@ import (
 func TestBind_ConcurrentSameBusid_Serialized(t *testing.T) {
 	t.Parallel()
 
-	const busID = "1-1"
+	const busID = testRootBusID
 
 	var (
 		inFlight atomic.Int32

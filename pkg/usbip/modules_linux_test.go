@@ -17,7 +17,8 @@ import (
 )
 
 // TestModuleStateMarshalJSON proves the tri-state ModuleState renders
-// as a lowercase string matching the §7.7 status-JSON contract. The
+// as a lowercase string matching the operations-observability and json-contracts
+// OpenSpec status-JSON contract. The
 // previous two-state design collapsed EACCES / EIO onto "missing"; the
 // new Unknown value preserves that signal for operators.
 func TestModuleStateMarshalJSON(t *testing.T) {
@@ -54,7 +55,7 @@ func TestProbeKernelModulesReturnsTriState(t *testing.T) {
 	mods, err := usbip.ProbeKernelModules(context.Background())
 	require.NoError(t, err)
 	require.Len(t, mods, 3,
-		"probe must return the §11.5.4 triple")
+		"probe must return the security-release-quality and operations-observability OpenSpec documents triple")
 
 	for name, state := range mods {
 		switch state {
@@ -78,14 +79,15 @@ func TestProbeOneAtEACCESReturnsUnknown(t *testing.T) {
 
 	// Inject a stat function that always returns EACCES. No chmod
 	// dance, no t.TempDir cleanup hazard — just a direct simulation of
-	// the "probe blocked" signal v1 contract §11.5.4 expects Unknown for.
+	// the "probe blocked" signal for which the security-release-quality and
+	// operations-observability OpenSpec documents require Unknown.
 	old := usbip.SwapProbeStatFnForTest(func(_ string) (fs.FileInfo, error) {
 		return nil, syscall.EACCES
 	})
 
 	t.Cleanup(func() { usbip.SwapProbeStatFnForTest(old) })
 
-	state := usbip.ProbeOneAtForTest("/any-root", "usbip_core")
+	state := usbip.ProbeOneAtForTest("/any-root", usbip.KernelModuleUSBIPCore)
 	require.Equal(t, usbip.ModuleStateUnknown, state,
 		"EACCES under parent must classify as Unknown, got %q", state)
 }

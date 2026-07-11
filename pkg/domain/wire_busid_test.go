@@ -29,9 +29,9 @@ func TestValidateWireBusID(t *testing.T) {
 		wantErr bool
 	}{
 		{"empty rejected", "", "", true},
-		{"topology shape", "1-1.2", "1-1.2", false},
+		{"topology shape", testNestedBusID, testNestedBusID, false},
 		{"vudc shape", "usbip-vudc.0", "usbip-vudc.0", false},
-		{"bus root", "1-1", "1-1", false},
+		{"bus root", testRootBusID, testRootBusID, false},
 		{"underscore allowed", "usb_root_2-1", "usb_root_2-1", false},
 		{"max length OK", strings.Repeat("a", maxLen), strings.Repeat("a", maxLen), false},
 		{"length exceeds cap", strings.Repeat("a", maxLen+1), "", true},

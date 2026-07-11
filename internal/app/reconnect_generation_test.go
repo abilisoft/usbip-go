@@ -20,13 +20,13 @@ import (
 )
 
 // staleEventLogMessage is the exact msg field the watcher MUST emit
-// on the generation-mismatch drop path (v1 contract §5.5). Tests assert
+// on the generation-mismatch drop path (importer-lifecycle OpenSpec). Tests assert
 // against this string; changing the wording is a user-visible log
 // contract change that must move in lockstep with the test.
 const staleEventLogMessage = "stale event ignored"
 
 // TestReconnectGenerationMismatchDropsStaleEvent is the reconnect-generation
-// unit-level v1 contract §5.5 lock-in: when an initial attach holds
+// unit-level importer-lifecycle OpenSpec lock-in: when an initial attach holds
 // generation=1 and a successful reconnect bumps the new watcher to
 // generation=2, a delayed uevent that names the OLD port id must be
 // rejected by the current watcher without firing a second reconnect
@@ -92,7 +92,7 @@ func TestReconnectGenerationMismatchDropsStaleEvent(t *testing.T) {
 			// the watcher progresses to reconnect. Post-reattach:
 			// report Used so any stale uevent that arrives on
 			// watcher2's channel fails the backstop and is dropped
-			// per the §5.5 stale-event contract — that drop is
+			// per the importer-lifecycle OpenSpec stale-event contract — that drop is
 			// what this test asserts via the structured log.
 			if postReattach.Load() {
 				return []domain.Port{{ID: 1, Status: domain.StatusUsed}}, nil

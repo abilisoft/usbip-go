@@ -131,31 +131,68 @@ func completeBindableBusIDs(
 
 	exp, err := newExporter(withExporterLoggerFromCtx(ctx)...)
 	if err != nil {
-		return nil, cobra.ShellCompDirectiveError
+		return nil, completionErrorDirective
 	}
 
 	devs, err := exp.ListAvailable(ctx)
 	if err != nil {
-		return nil, cobra.ShellCompDirectiveError
+		return nil, completionErrorDirective
 	}
 
-	out := make([]cobra.Completion, 0, len(devs))
-
-	for _, d := range devs {
-		out = append(out, fmt.Sprintf("%s\t%04x:%04x", d.BusID, d.VendorID, d.ProductID))
+	exported, err := exp.ListExported(ctx)
+	if err != nil {
+		return nil, completionErrorDirective
 	}
 
-	return out, cobra.ShellCompDirectiveNoFileComp
+	bound := make(map[domain.BusID]struct{}, len(exported))
+
+	for _, device := range exported {
+		bound[device.BusID] = struct{}{}
+	}
+
+	bindable := make([]domain.Device, 0, len(devs))
+
+	for _, device := range devs {
+		if _, ok := bound[device.BusID]; !ok {
+			bindable = append(bindable, device)
+		}
+	}
+
+	return completeDevices(bindable), cobra.ShellCompDirectiveNoFileComp
 }
 
-// completeBoundBusIDs lists devices currently bound to usbip-host. The
-// current public facade does not yet distinguish bound vs available, so
-// we reuse ListAvailable as the closest approximation; this preserves
-// v1 contract §7.6 behaviour once the facade grows a dedicated method.
+// completeBoundBusIDs lists devices currently bound to usbip-host.
 func completeBoundBusIDs(
 	cmd *cobra.Command,
 	_ []string,
 	_ string,
 ) ([]cobra.Completion, cobra.ShellCompDirective) {
-	return completeBindableBusIDs(cmd, nil, "")
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	exp, err := newExporter(withExporterLoggerFromCtx(ctx)...)
+	if err != nil {
+		return nil, completionErrorDirective
+	}
+
+	devices, err := exp.ListExported(ctx)
+	if err != nil {
+		return nil, completionErrorDirective
+	}
+
+	return completeDevices(devices), cobra.ShellCompDirectiveNoFileComp
+}
+
+const completionErrorDirective = cobra.ShellCompDirectiveError | cobra.ShellCompDirectiveNoFileComp
+
+func completeDevices(devices []domain.Device) []cobra.Completion {
+	completions := make([]cobra.Completion, 0, len(devices))
+
+	for _, device := range devices {
+		completions = append(completions, fmt.Sprintf("%s\t%04x:%04x", device.BusID, device.VendorID, device.ProductID))
+	}
+
+	return completions
 }

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/abilisoft/usbip-go/pkg/usbip"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,7 +29,7 @@ func TestCompletionBashScript(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"completion", "bash"})
+	cmd.SetArgs([]string{testCompletionCommand, "bash"})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -47,21 +48,27 @@ func TestCompletionZshScript(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"completion", "zsh"})
+	cmd.SetArgs([]string{testCompletionCommand, "zsh"})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
 	require.Contains(t, strings.ToLower(out.String()), "zsh")
 }
 
-// TestCompletionBindDynamic — the bind ValidArgsFunction queries the
-// mocked Exporter.ListAvailable and returns each busid.
+// TestCompletionBindDynamic — bind completion excludes devices already
+// exported through usbip-host.
 func TestCompletionBindDynamic(t *testing.T) {
 	t.Parallel()
 
 	exp := &mockExporter{
 		listAvailableFn: func(_ context.Context) ([]usbip.Device, error) {
-			return []usbip.Device{{BusID: "1-1.2", VendorID: 0xabcd, ProductID: 0x0001}}, nil
+			return []usbip.Device{
+				{BusID: testNestedBusID, VendorID: 0xabcd, ProductID: 0x0001},
+				{BusID: testSecondaryBusID, VendorID: 0x1234, ProductID: 0x5678},
+			}, nil
+		},
+		listExportedFn: func(_ context.Context) ([]usbip.Device, error) {
+			return []usbip.Device{{BusID: testSecondaryBusID}}, nil
 		},
 	}
 	swapFactories(t, &mockImporter{}, exp)
@@ -69,6 +76,102 @@ func TestCompletionBindDynamic(t *testing.T) {
 	completions, directive := completeBindableBusIDs(newRootCmd(), nil, "")
 	require.Equal(t, []string{"1-1.2\tabcd:0001"}, cobraCompletionStrings(completions))
 	require.NotZero(t, directive)
+}
+
+func TestCompletionUnbindDynamic(t *testing.T) {
+	t.Parallel()
+
+	exp := &mockExporter{
+		listExportedFn: func(_ context.Context) ([]usbip.Device, error) {
+			return []usbip.Device{{BusID: testSecondaryBusID, VendorID: 0x1234, ProductID: 0x5678}}, nil
+		},
+	}
+	swapFactories(t, &mockImporter{}, exp)
+
+	completions, directive := completeBoundBusIDs(newRootCmd(), nil, "")
+	require.Equal(t, []string{"2-1\t1234:5678"}, cobraCompletionStrings(completions))
+	require.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+}
+
+func TestCompletionBindErrorsReturnErrorDirective(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		exporter *mockExporter
+	}{
+		{
+			name: "list available",
+			exporter: &mockExporter{
+				listAvailableFn: func(_ context.Context) ([]usbip.Device, error) {
+					return nil, errTest
+				},
+			},
+		},
+		{
+			name: "list exported",
+			exporter: &mockExporter{
+				listAvailableFn: func(_ context.Context) ([]usbip.Device, error) {
+					return []usbip.Device{sampleDevice()}, nil
+				},
+				listExportedFn: func(_ context.Context) ([]usbip.Device, error) {
+					return nil, errTest
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			swapFactories(t, &mockImporter{}, test.exporter)
+
+			completions, directive := completeBindableBusIDs(newRootCmd(), nil, "")
+			require.Nil(t, completions)
+			require.Equal(t, completionErrorDirective, directive)
+		})
+	}
+}
+
+func TestCompletionUnbindListErrorReturnsErrorDirective(t *testing.T) {
+	t.Parallel()
+
+	exp := &mockExporter{
+		listExportedFn: func(_ context.Context) ([]usbip.Device, error) {
+			return nil, errTest
+		},
+	}
+	swapFactories(t, &mockImporter{}, exp)
+
+	completions, directive := completeBoundBusIDs(newRootCmd(), nil, "")
+	require.Nil(t, completions)
+	require.Equal(t, completionErrorDirective, directive)
+}
+
+func TestCompletionExporterConstructionErrorsReturnErrorDirective(t *testing.T) {
+	t.Parallel()
+
+	factoriesMu.Lock()
+
+	original := newExporter
+
+	newExporter = func(_ ...usbip.ExporterOption) (Exporter, error) {
+		return nil, errTest
+	}
+
+	t.Cleanup(func() {
+		newExporter = original
+		factoriesMu.Unlock()
+	})
+
+	bindCompletions, bindDirective := completeBindableBusIDs(newRootCmd(), nil, "")
+	require.Nil(t, bindCompletions)
+	require.Equal(t, completionErrorDirective, bindDirective)
+
+	unbindCompletions, unbindDirective := completeBoundBusIDs(newRootCmd(), nil, "")
+	require.Nil(t, unbindCompletions)
+	require.Equal(t, completionErrorDirective, unbindDirective)
 }
 
 // TestCompletionInstallDryRun — `completion install --shell=zsh
@@ -88,7 +191,7 @@ func TestCompletionInstallDryRun(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"completion", "install", "--shell=zsh", "--dry-run"})
+	cmd.SetArgs([]string{testCompletionCommand, testInstallCommand, "--shell=zsh", "--dry-run"})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -115,7 +218,7 @@ func TestCompletionInstallWrites(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"completion", "install", "--shell=zsh"})
+	cmd.SetArgs([]string{testCompletionCommand, testInstallCommand, "--shell=zsh"})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -147,7 +250,7 @@ func TestCompletionInstallUndetectable(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"completion", "install"})
+	cmd.SetArgs([]string{testCompletionCommand, testInstallCommand})
 
 	err := cmd.Execute()
 	require.Error(t, err)

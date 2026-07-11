@@ -27,7 +27,7 @@ func TestMapErrorCanceledIsInterrupt(t *testing.T) {
 // TestFormatErrorCanceledNotTimeout pins the stderr template for
 // context.Canceled: it must NOT use the "operation timed out" wording
 // reserved for context.DeadlineExceeded. Operators parsing stderr
-// against the §7.4 table need the interrupted case to be visually
+// against the cli-interface OpenSpec table need the interrupted case to be visually
 // distinct.
 func TestFormatErrorCanceledNotTimeout(t *testing.T) {
 	t.Parallel()

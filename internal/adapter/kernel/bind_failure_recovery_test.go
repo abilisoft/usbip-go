@@ -37,7 +37,7 @@ import (
 func TestBind_FailureTriggersDriversProbe(t *testing.T) {
 	t.Parallel()
 
-	const busID = "1-1"
+	const busID = testRootBusID
 
 	rec := &writeRecord{}
 

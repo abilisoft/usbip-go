@@ -26,7 +26,10 @@ import (
 func TestExporterSession_LifecycleFollowsKernelDetachEvent(t *testing.T) {
 	t.Parallel()
 
-	const sessionBusID = domain.BusID("4-1")
+	const (
+		sessionBusID          = domain.BusID("4-1")
+		unrelatedSessionBusID = domain.BusID("4-9")
+	)
 
 	kernel := &ExporterKernelMock{
 		// serveImport now looks the requested device up in the
@@ -42,7 +45,7 @@ func TestExporterSession_LifecycleFollowsKernelDetachEvent(t *testing.T) {
 		},
 	}
 
-	events := make(chan domain.Event, 4)
+	events := make(chan domain.Event)
 
 	kernelEvents := &KernelEventsMock{
 		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
@@ -80,11 +83,14 @@ func TestExporterSession_LifecycleFollowsKernelDetachEvent(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond,
 		"Sessions() must report the session after ExportOnConn returns — the kernel still owns the fd")
 
-	// Give an extra beat to guarantee that a regression where the
-	// handler returned after ExportOnConn would have already
-	// unregistered the session. The handler must stay blocked waiting
-	// on kernelEvents.
-	time.Sleep(50 * time.Millisecond)
+	// An unbuffered unrelated event can be delivered only after the handler
+	// has entered its kernel-event receive loop. That handoff proves the
+	// session remains owned without a scheduler delay.
+	select {
+	case events <- domain.PortDetachedEvent{Port: domain.Port{BusID: unrelatedSessionBusID}}:
+	case <-time.After(2 * time.Second):
+		t.Fatal("session handler did not start waiting for kernel events")
+	}
 
 	require.Len(t, exp.Sessions(context.Background()), 1,
 		"session must stay listed until a kernel detach event arrives")
@@ -94,10 +100,14 @@ func TestExporterSession_LifecycleFollowsKernelDetachEvent(t *testing.T) {
 
 	// Push a detach event keyed to the session's busid. The handler's
 	// waitForSessionEnd helper matches this event and unwinds.
-	events <- domain.PortDetachedEvent{
+	select {
+	case events <- domain.PortDetachedEvent{
 		At:     time.Now(),
 		Port:   domain.Port{BusID: sessionBusID},
-		Reason: "kernel session-end",
+		Reason: testKernelSessionEndReason,
+	}:
+	case <-time.After(2 * time.Second):
+		t.Fatal("session handler stopped receiving kernel events")
 	}
 
 	require.Eventually(t, func() bool {

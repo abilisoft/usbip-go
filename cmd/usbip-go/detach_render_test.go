@@ -35,7 +35,7 @@ func TestRenderDetachResult_Table(t *testing.T) {
 }
 
 // TestRenderDetachResult_JSON pins the schema-stable JSON path:
-// {"schema":"v1","op":"detach","ok":true,"port_id":<id>}.
+// {"schema":"v1","op":testDetachCommand,"ok":true,"port_id":<id>}.
 // The JSON contract is the subprocess-facing surface; the styled
 // table is operator-only.
 func TestRenderDetachResult_JSON(t *testing.T) {
@@ -49,7 +49,7 @@ func TestRenderDetachResult_JSON(t *testing.T) {
 		"JSON-mode ack must emit valid JSON; got: %s", out.String())
 
 	require.Equal(t, "v1", got["schema"])
-	require.Equal(t, "detach", got["op"])
+	require.Equal(t, testDetachCommand, got["op"])
 	require.Equal(t, true, got["ok"])
 	// json.Unmarshal decodes JSON numbers as float64, so the
 	// comparison must use a float-aware assertion. The port-id is an

@@ -45,7 +45,7 @@ func styleWriter(w io.Writer) io.Writer {
 }
 
 // tableRenderer implements Renderer over a styled human-readable
-// table layout. Layout is NOT a stable contract (v1 contract §7.5
+// table layout. Layout is NOT a stable contract (json-contracts OpenSpec
 // note); the JSON renderer is the stable counterpart for scripts.
 //
 // Styling is delegated to lipgloss/v2; color profile detection is
@@ -154,21 +154,19 @@ func deviceLabel(d usbip.Device) string {
 func (tableRenderer) Ports(w io.Writer, ports []usbip.Port) error {
 	rows := make([][]string, 0, len(ports))
 	speeds := make([]usbip.Speed, 0, len(ports))
-	statuses := make([]string, 0, len(ports))
+	statuses := make([]usbip.Status, 0, len(ports))
 
 	for _, p := range ports {
-		statusStr := p.Status.String()
-
 		rows = append(rows, []string{
 			strconv.FormatUint(uint64(p.ID), 10),
-			statusStr,
+			p.Status.String(),
 			p.Speed.String(),
 			p.Remote.String(),
 			string(p.BusID),
 			string(p.LocalBusID),
 		})
 		speeds = append(speeds, p.Speed)
-		statuses = append(statuses, statusStr)
+		statuses = append(statuses, p.Status)
 	}
 
 	const (

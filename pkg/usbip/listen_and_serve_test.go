@@ -31,7 +31,7 @@ func TestExporterListenAndServeUsesTransport(t *testing.T) {
 
 	s := newInternalExporterForTest(t)
 
-	wantOpts := netopts.TransportOptions{
+	wantOpts := usbip.TransportOptions{
 		DialConnectTimeout: 7 * time.Second,
 		TCPKeepAliveProbes: 4,
 		ReceiveBufferBytes: 128 * 1024,
@@ -64,7 +64,11 @@ func TestExporterListenAndServeUsesTransport(t *testing.T) {
 
 	require.True(t, gotCalled, "Transport.Listen must be invoked")
 	require.Equal(t, "127.0.0.1:0", gotAddr)
-	require.Equal(t, wantOpts, gotOpts,
+	require.Equal(t, netopts.TransportOptions{
+		DialConnectTimeout: 7 * time.Second,
+		TCPKeepAliveProbes: 4,
+		ReceiveBufferBytes: 128 * 1024,
+	}, gotOpts,
 		"Transport.Listen must receive the importer-config TransportOptions snapshot")
 }
 
@@ -87,7 +91,7 @@ func TestExporterListenAndServeReturnsListenErrorVerbatim(t *testing.T) {
 
 	exp := usbip.NewExporterFromInternalForTestWithTransportOptions(
 		s.inner, s.trans,
-		netopts.TransportOptions{},
+		usbip.TransportOptions{},
 	)
 
 	err := exp.ListenAndServe(t.Context(), "127.0.0.1:0")
@@ -142,7 +146,7 @@ func TestExporterListenAndServeClosesListenerOnServeReturn(t *testing.T) {
 
 	exp := usbip.NewExporterFromInternalForTestWithTransportOptions(
 		s.inner, s.trans,
-		netopts.TransportOptions{},
+		usbip.TransportOptions{},
 	)
 
 	ctx, cancel := context.WithCancel(t.Context())

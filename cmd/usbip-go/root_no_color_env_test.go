@@ -29,7 +29,7 @@ func TestPersistentPreRunE_NoColorSetsEnv(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--no-color", "version"})
+	cmd.SetArgs([]string{"--no-color", testVersionToken})
 
 	err := cmd.Execute()
 	require.NoError(t, err)

@@ -1,0 +1,68 @@
+# gazelle:ignore
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "integration",
+    srcs = [
+        "dummy_hcd_helpers.go",
+        "harness.go",
+        "netutil.go",
+    ],
+    importpath = "github.com/abilisoft/usbip-go/test/integration",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/domain",
+        "//pkg/usbip",
+    ],
+)
+
+go_test(
+    name = "integration_test",
+    srcs = [
+        "cli_full_flow_test.go",
+        "cli_lookup_cleanup_test.go",
+        "daemon_restart_test.go",
+        "dummy_hcd_unique_name_test.go",
+        "events_test.go",
+        "harness_test.go",
+        "loopback_test.go",
+        "main_test.go",
+        "process_death_test.go",
+        "reconnect_test.go",
+        "urb_transfer_test.go",
+    ],
+    data = [
+        "//cmd/usbip-go",
+        "//test/integration/killable",
+    ],
+    tags = ["integration"],
+    deps = [
+        ":integration",
+        "//internal/adapter/wire",
+        "//pkg/domain",
+        "//pkg/usbip",
+        "@com_github_stretchr_testify//require",
+        "@org_uber_go_goleak//:goleak",
+    ],
+)
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(["*.go"]),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_bazel_files",
+    srcs = ["BUILD.bazel"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "testdata_files",
+    srcs = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)

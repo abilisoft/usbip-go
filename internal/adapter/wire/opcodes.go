@@ -3,25 +3,26 @@
 
 package wire
 
-// OpCode is a USBIP handshake opcode as transmitted in the 8-byte
-// OP header (v1 contract §6.2). Values are big-endian u16 on the wire.
-type OpCode uint16
+import "github.com/abilisoft/usbip-go/internal/protocol"
 
-// OpCode constants as defined in v1 contract §6.2.
+// OpCode is the shared USB/IP handshake opcode type.
+type OpCode = protocol.OpCode
+
+// OpCode constants as defined in wire-protocol OpenSpec.
 const (
 	// OpReqDevlist is the client's request to list exportable devices.
-	OpReqDevlist OpCode = 0x8005
+	OpReqDevlist = protocol.OpReqDevlist
 	// OpRepDevlist is the server's response to OpReqDevlist.
-	OpRepDevlist OpCode = 0x0005
+	OpRepDevlist = protocol.OpRepDevlist
 	// OpReqImport is the client's request to import (attach) a device.
-	OpReqImport OpCode = 0x8003
+	OpReqImport = protocol.OpReqImport
 	// OpRepImport is the server's response to OpReqImport.
-	OpRepImport OpCode = 0x0003
+	OpRepImport = protocol.OpRepImport
 )
 
 // isKnownOpCode reports whether op is one of the four supported USBIP
 // handshake opcodes. Anything else triggers ErrProtocolMismatch per the
-// spec error matrix (§6.2).
+// spec error matrix (wire-protocol OpenSpec).
 func isKnownOpCode(op OpCode) bool {
 	switch op {
 	case OpReqDevlist, OpRepDevlist, OpReqImport, OpRepImport:

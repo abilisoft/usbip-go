@@ -27,6 +27,8 @@ import (
 func TestImporterAttachConcurrentSameEndpoint(t *testing.T) {
 	t.Parallel()
 
+	const concurrentAttaches = 2
+
 	// releaseAttach gates kernel.AttachRemote so we can be certain
 	// both goroutines have entered Attach before the first handoff
 	// completes — the exact ordering the dedup guards against.
@@ -72,14 +74,15 @@ func TestImporterAttachConcurrentSameEndpoint(t *testing.T) {
 
 	var (
 		wg        sync.WaitGroup
-		results   = make([]error, 2)
+		results   = make([]error, concurrentAttaches)
 		resultsMu sync.Mutex
-		ports     [2]domain.Port
+		ports     [concurrentAttaches]domain.Port
 	)
 
 	start := make(chan struct{})
+	completed := make(chan int, concurrentAttaches)
 
-	for i := range 2 {
+	for i := range concurrentAttaches {
 		wg.Add(1)
 
 		go func(idx int) {
@@ -93,6 +96,8 @@ func TestImporterAttachConcurrentSameEndpoint(t *testing.T) {
 			results[idx] = err
 			ports[idx] = port
 			resultsMu.Unlock()
+
+			completed <- idx
 		}(i)
 	}
 
@@ -105,9 +110,21 @@ func TestImporterAttachConcurrentSameEndpoint(t *testing.T) {
 		return concurrentIn.Load() >= 1
 	}, 2*time.Second, 5*time.Millisecond)
 
-	// Hold briefly so the losing goroutine has a chance to return
-	// ErrAttachInProgress.
-	time.Sleep(50 * time.Millisecond)
+	var loser int
+
+	select {
+	case loser = <-completed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("deduplicated Attach did not return while the winner was blocked")
+	}
+
+	resultsMu.Lock()
+	loserErr := results[loser]
+	resultsMu.Unlock()
+
+	require.ErrorIs(t, loserErr, app.ErrAttachInProgress)
+	require.Equal(t, int32(1), concurrentIn.Load(),
+		"only the winning Attach may enter the kernel handoff")
 
 	close(releaseAttach)
 	wg.Wait()

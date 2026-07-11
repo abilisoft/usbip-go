@@ -40,6 +40,7 @@ func TestExponentialBackoffConfigValidateRejectsOutOfRange(t *testing.T) {
 
 			err := tc.cfg.Validate()
 			require.Error(t, err, "expected %s to fail Validate", tc.name)
+			require.ErrorIs(t, err, usbip.ErrExponentialBackoffConfigInvalid)
 		})
 	}
 }

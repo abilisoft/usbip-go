@@ -1,38 +1,57 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
-#
-# Nightly re-run of the security gate against `main`. Catches new
-# CVEs published to the Go vuln DB and lint-rule additions in
-# golangci-lint releases without waiting for a push or PR. The
-# regular CI workflow (.github/workflows/ci.yml) already runs the
-# same gate on every push and pull request via the SAME reusable
-# workflow (_security.yml) — this nightly call is a zero-code-change
-# rerun so an upstream regression pages within 24h instead of
-# waiting for the next merge.
-#
-# Manual dispatch is enabled for ad-hoc reruns (e.g. immediately
-# after a CVE disclosure) without waiting for the cron tick.
 
 name: Nightly
 
 on:
   schedule:
-    # Daily 03:30 UTC — well clear of all weekly crons:
-    #   Mon 05:15  mutation testing
-    #   Tue 06:10  scorecard
-    #   Wed 04:10  codeql
-    # and the daily 04:30 trivy run.
     - cron: '30 3 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
   security:
     name: Security
     permissions:
       contents: read
-      id-token: write
       security-events: write
     uses: ./.github/workflows/_security.yml
+
+  unit-tests:
+    name: Unit
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_unit-tests.yml
+
+  conformance:
+    name: Conformance
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_conformance.yml
+
+  coverage:
+    name: Coverage
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/_coverage.yml
+
+  snapshot:
+    name: Snapshot release packaging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-bazel
+      - name: Snapshot release packaging
+        run: make release-snapshot

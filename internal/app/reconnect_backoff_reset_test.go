@@ -41,7 +41,7 @@ func (c *countingBackoff) NextCalls() int32 { return c.next.Load() }
 // ResetCalls returns the current Reset-invocation count.
 func (c *countingBackoff) ResetCalls() int32 { return c.reset.Load() }
 
-// TestReconnect_ResetsBackoffAfterSuccess locks in the v1 contract §5.5
+// TestReconnect_ResetsBackoffAfterSuccess locks in the importer-lifecycle OpenSpec
 // Backoff.Reset contract (internal/app/backoff.go:20 — "Reset is
 // called after a successful reconnect so the next failure starts
 // from the smallest delay again"). If finishReconnectSuccess did not

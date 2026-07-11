@@ -25,7 +25,7 @@ func TestParseRemoteHostLabelChars(t *testing.T) {
 		input   string
 		wantErr bool
 	}{
-		{"lowercase only", "host", false},
+		{"lowercase only", testHostLabel, false},
 		{"uppercase only", "HOST", false},
 		{"mixed alpha", "MixedHost", false},
 		{"digits in label", "host123", false},

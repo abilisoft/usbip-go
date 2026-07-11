@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestJSONEventForwardCompatTolerant asserts the v1 contract §7.5 v1 stability
+// TestJSONEventForwardCompatTolerant asserts the json-contracts OpenSpec v1 stability
 // rule: a downstream consumer decoding a CLI jsonlines record with an
 // unknown field MUST NOT fail. stdlib json.Unmarshal is the reference
 // consumer implementation — DisallowUnknownFields would violate the
@@ -23,7 +23,7 @@ func TestJSONEventForwardCompatTolerant(t *testing.T) {
 
 	// Round-trip a PortAttachedEvent through jsonRenderer.Event.
 	ev := domain.PortAttachedEvent{
-		Port: usbip.Port{ID: 1, Status: domain.StatusUsed, BusID: "1-1.2"},
+		Port: usbip.Port{ID: 1, Status: domain.StatusUsed, BusID: testNestedBusID},
 	}
 
 	var buf bytes.Buffer
@@ -35,7 +35,7 @@ func TestJSONEventForwardCompatTolerant(t *testing.T) {
 	var rec map[string]any
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
 
-	// v1 contract §7.5 guarantees schema + kind discriminator + payload fields.
+	// json-contracts OpenSpec guarantees schema + kind discriminator + payload fields.
 	require.Equal(t, "v1", rec["schema"])
 	require.Equal(t, "port_attached", rec["kind"])
 	require.Contains(t, rec, "port")

@@ -7,10 +7,10 @@ run:
   tests: true
 formatters:
   # golangci-lint v2 splits formatters out of the linters list. Enable
-  # the same trio that `task fmt` runs locally (gofmt -s -w, gofumpt -w,
-  # goimports -w) so `task lint` enforces zero drift between developer
+  # the same trio that `make format` runs locally (gofmt -s -w, gofumpt -w,
+  # goimports -w) so `make lint` enforces zero drift between developer
   # machines and Go Report Card's gofmt check. Without this block,
-  # formatting violations only surface in the dedicated ci:fmt:check
+  # formatting violations only surface in the dedicated Bazel format-check
   # gate; routing them through golangci-lint as well keeps the IDE
   # integration honest (golangci-lint-langserver flags drift as you
   # type).
@@ -22,20 +22,41 @@ formatters:
     gofmt:
       # simplify rewrites the `gofmt -s` patterns: composite-literal
       # type elision, `for _ = range x` -> `for range x`, redundant
-      # type info on slice/map elements. Matches Taskfile.yml's
-      # `gofmt -s -w`.
+      # type info on slice/map elements. Matches the Bazel-backed
+      # `make format` path's `gofmt -s -w`.
       simplify: true
 linters:
   default: all
   disable:
-    # Each disable requires a rationale per spec §9.4.
-    - depguard # enable once we configure an allowed-deps list (tracked as an open item)
+    # Each disable requires a rationale per developer-workflow OpenSpec.
     - exhaustruct # fights functional options and zero-value defaults
     - gomodguard # superseded by gomodguard_v2
     - varnamelen # flags idiomatic short names (err, ctx, i)
     - wsl # superseded by wsl_v5
     - nlreturn # overlaps with wsl_v5
   settings:
+    depguard:
+      rules:
+        modern-imports:
+          files:
+            - $all
+          deny:
+            - pkg: github.com/pkg/errors
+              desc: use the standard errors package and %w wrapping
+            - pkg: io/ioutil
+              desc: use the modern os and io replacements
+            - pkg: log$
+              desc: use structured log/slog logging
+            - pkg: math/rand$
+              desc: use math/rand/v2 for non-cryptographic randomness
+        production-test-boundary:
+          files:
+            - "!$test"
+          deny:
+            - pkg: github.com/abilisoft/usbip-go/internal/testutil
+              desc: production code must not depend on test helpers
+            - pkg: github.com/abilisoft/usbip-go/test
+              desc: production code must not depend on test packages
     gocyclo:
       min-complexity: 10
     gocognit:
@@ -65,6 +86,11 @@ linters:
     goconst:
       min-occurrences: 3
       min-len: 3
+    gomodguard_v2:
+      check-module-path: true
+      exclude-forbidden: true
+      ignore-forbidden: true
+      local-replace-directives: true
     ireturn:
       # domain.Event and kernel.NetlinkSocket are internal adapter
       # contracts — their whole purpose is to be returned across package
@@ -98,7 +124,7 @@ linters:
         - 'strconv.FormatInt'
         - 'strconv.FormatUint'
     tagliatelle:
-      # cmd/usbip-go emits the public jsonlines schema v1 (spec §7.5) with
+      # cmd/usbip-go emits the public jsonlines schema v1 (json-contracts OpenSpec) with
       # snake_case field names. The schema is frozen; camelCase would
       # silently break operators grep-ing field names.
       case:
@@ -106,9 +132,7 @@ linters:
           json: snake
   exclusions:
     rules:
-      - path: cmd/.+/.+\.go
-        linters: [gochecknoglobals] # cobra cmd vars are unavoidable; scoped here only
-      - path: test/integration/killable/.+\.go
+      - path: test/integration/killable/main\.go
         # The killable subprocess is a hand-rolled main package whose
         # checkpoint writer must be reachable from package-level
         # init/run helpers; replicating cmd-style globals scoping
@@ -131,7 +155,7 @@ linters:
         linters: [contextcheck]
       - path: pkg/usbip/usbip\.go
         # The pkg/usbip facade is intentional 1:1 forwarding to
-        # internal/app (spec §5.7). Wrapping each forwarded error with
+        # internal/app (public-library-api OpenSpec). Wrapping each forwarded error with
         # fmt.Errorf would obscure sentinels and duplicate the
         # error-wrapping already performed inside internal/app. The
         # errors.Is chain relies on identity; this file must NOT wrap.
@@ -142,27 +166,15 @@ linters:
         # additional fmt.Errorf here would obscure the offending field
         # name without adding new context.
         linters: [wrapcheck]
-      - path: cmd/usbip-go
-        # The CLI surface is built from cobra subcommand definitions
-        # whose Use strings ("bind", "unbind", "list", "version", …)
-        # appear in dispatch logic, parent registration, and tests by
-        # the same literal value. Extracting each cobra Use to a
-        # const adds noise without preventing real bugs — the strings
-        # are identifier-shaped command names, not magic configuration.
-        # Same rationale applies to log-level / format strings ("debug",
-        # "info", "json", "pretty") and style enum strings used by the
-        # styled-output renderers.
-        linters: [goconst]
       - path: _test\.go
-        # Test files are exempt from complexity, magic-number, and
-        # repeated-string linters because table-driven tests with 10+
-        # cases hit gocyclo / mnd trivially, and tests routinely assert
-        # specific string and numeric literals that goconst would flag
-        # (busids "1-1", IPs "::1", peer hostnames). They are NOT exempt
-        # from gochecknoglobals, paralleltest, or err113 — shared test
-        # state, missing t.Parallel(), and ad-hoc errors.New() are
-        # real smells even in tests.
-        linters: [funlen, gocyclo, cyclop, gocognit, dupl, mnd, goconst]
+        # Table-driven tests with 10+ cases trivially hit complexity and
+        # duplication thresholds, so those structural checks remain scoped to
+        # production code. Tests are NOT exempt from goconst: semantic fixtures
+        # such as bus IDs, sysfs paths, endpoints, command names, and flags must
+        # use named shared constants too. They are also not exempt from
+        # gochecknoglobals, paralleltest, or err113 — shared state, missing
+        # t.Parallel(), and ad-hoc errors.New() are real smells in tests.
+        linters: [funlen, gocyclo, cyclop, gocognit, dupl]
       - path: _test\.go
         # Tests legitimately use math/rand/v2 for deterministic, seeded
         # PRNG streams (backoff jitter, etc.). crypto/rand would defeat
@@ -274,6 +286,53 @@ linters:
         # listenersWithNames is a test-injection seam for the
         # activation.ListenersWithNames call; the var is set once at
         # package init and swapped only in activation_test.go.
+        linters: [gochecknoglobals]
+      - path: cmd/usbip-go/factories\.go
+        # newImporter/newExporter are the CLI's concrete composition-root
+        # seams. Tests replace them under factoriesMu; production assigns
+        # them once and reads them as immutable constructors.
+        linters: [gochecknoglobals]
+      - path: cmd/usbip-go/main\.go
+        # rootCmdFactory is the narrow seam that lets runCtx tests observe
+        # context propagation through fang/cobra without invoking os.Exit.
+        linters: [gochecknoglobals]
+      - path: cmd/usbip-go/root\.go
+        # TestMain sets skipFlagCompletionRegistration once before parallel
+        # tests start so cobra's process-global completion registry cannot
+        # race. Production never mutates the false default.
+        linters: [gochecknoglobals]
+      - path: cmd/usbip-go/serve\.go
+        # serveStatusFn is an ownership/cleanup fault-injection seam guarded
+        # by serveStatusFnMu for both reads and test swaps.
+        linters: [gochecknoglobals]
+      - path: cmd/usbip-go/status\.go
+        # processStartTime intentionally captures package initialization once
+        # so every status response reports uptime from the same origin.
+        linters: [gochecknoglobals]
+      - path: cmd/usbip-go/style\.go
+        # lipgloss styles are immutable value objects precomputed once and
+        # reused across every rendered row; rebuilding them per cell adds work
+        # without removing mutable state because Style methods return copies.
+        linters: [gochecknoglobals]
+      - path: cmd/usbip-go/table\.go
+        # borderStyle is the same immutable, precomputed lipgloss value pattern
+        # as style.go and is shared by all table renderers.
+        linters: [gochecknoglobals]
+      - path: cmd/usbip-go/version\.go
+        # commit and buildDate must remain variables because GoReleaser/Bazel
+        # stamp them through linker -X assignments.
+        linters: [gochecknoglobals]
+      - path: cmd/usbip-go/gen_golden_test\.go
+        # updateGolden is a standard package-level testing flag parsed by the
+        # test binary before individual tests run.
+        linters: [gochecknoglobals]
+      - path: cmd/usbip-go/list_test\.go
+        # factoriesMu serializes tests that replace the composition-root
+        # importer/exporter seams, preventing concurrent global mutation.
+        linters: [gochecknoglobals]
+      - path: cmd/usbip-go/serve_integration_test\.go
+        # runDaemonTestMu serializes full-daemon tests that share the guarded
+        # status-server seam and process-level lifecycle state.
         linters: [gochecknoglobals]
       - path: cmd/usbip-go/activation_test\.go
         # TestListenOrActivation_ErrorPath swaps the listenersWithNames

@@ -1,12 +1,5 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
-#
-# CodeQL static analysis. Complements golangci-lint (lint-rule
-# enforcement) and govulncheck (known-CVE scan) with deeper
-# data-flow analysis tuned for security smells. SARIF results land
-# in the GitHub Security tab.
-#
-# https://github.com/github/codeql-action
 
 name: CodeQL
 
@@ -16,62 +9,42 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    # Weekly Wednesday 04:10 UTC. Each scheduled workflow lands on
-    # a distinct UTC minute so two crons never compete for the same
-    # flakehub-cache shard:
-    #   03:30  nightly (daily)
-    #   04:30  trivy   (daily)
-    #   04:45  vm-integration (daily)
-    #   05:15  mutation (Mon only)
-    #   06:10  scorecard (Tue only)
     - cron: '10 4 * * 3'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     name: CodeQL Go analysis
     runs-on: ubuntu-24.04
-    # Skip on private repos until GitHub Advanced Security is enabled.
-    # CodeQL's analyze step uploads SARIF via the code-scanning API,
-    # which requires Advanced Security on private repositories
-    # ("Advanced Security must be enabled for this repository to use
-    # code scanning"). Public repos get code scanning for free, so
-    # this gate flips on automatically when the repo is made public.
-    # To run CodeQL on a private repo, enable Advanced Security in
-    # repo settings and remove this guard.
+    timeout-minutes: 45
     if: github.event.repository.private == false
     permissions:
-      security-events: write
-      actions: read
-      # id-token: write — required by DeterminateSystems/flakehub-cache-action
-      # to mint a workflow-scoped OIDC token for FlakeHub Cache auth.
-      id-token: write
       contents: read
-
+      actions: read
+      security-events: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: ./.github/actions/setup-nix-dev
-
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: ./.github/actions/setup-bazel
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
+        uses: github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
           languages: go
-          # security-and-quality is the strictest pack; it includes
-          # the security-extended pack plus code-quality smells. Use
-          # `security-extended` if false-positive volume becomes a
-          # problem.
+          build-mode: manual
           queries: security-and-quality
-
-      # CodeQL needs a real Go toolchain to autobuild; the flake
-      # `.#dev` shell pins the same Go that go.mod requires. `go build
-      # ./...` is enough — CodeQL traces calls from there.
-      - name: Build Go module
-        run: nix develop .#dev --command go build ./...
-
+      - name: Build through CodeQL Go tracer
+        run: make CODEQL_GO=go build-codeql
       - name: Perform analysis
-        uses: github/codeql-action/analyze@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
+        uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
-          category: "/language:go"
+          category: /language:go

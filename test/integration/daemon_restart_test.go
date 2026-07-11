@@ -37,7 +37,8 @@ const daemonRestartDeadline = 30 * time.Second
 // accepting connections" info log.
 const daemonStartSignal = "usbip-go serve accepting connections"
 
-// TestDaemonRestartSessionsSurvive pins v1 contract §5.4 item 7's operator
+// TestDaemonRestartSessionsSurvive pins the operator-visible fd-ownership
+// invariant across daemon restarts.
 // recovery sequence: once the daemon dies, the kernel still holds
 // its own ref per bound device so the vhci attachment continues to
 // work, but the daemon's in-memory session table is empty after a
@@ -99,7 +100,8 @@ func TestDaemonRestartSessionsSurvive(t *testing.T) {
 	require.NotZero(t, port.ID)
 
 	// SIGKILL daemon #1. The kernel's session ref persists; the
-	// importer's attached port stays alive (v1 contract §5.4 item 7).
+	// importer's attached port stays alive because the kernel retains its
+	// duplicated socket fd.
 	require.NoError(t, daemon1.proc.Signal(syscall.SIGKILL))
 
 	_, err = daemon1.proc.Wait()
@@ -135,7 +137,8 @@ func TestDaemonRestartSessionsSurvive(t *testing.T) {
 	// StatusNull/StatusNotAssigned, to prove the kernel-side session
 	// is still live after the daemon process was killed. StatusNull
 	// would mean the kernel tore the port down on daemon death —
-	// that would contradict v1 contract §5.4 item 7. This is the sysfs-level
+	// that would contradict the kernel-owned fd lifecycle. This is the
+	// sysfs-level
 	// analogue of a URB round-trip; without a real gadget we can't
 	// push bytes through the attached device but the port flag alone
 	// is sufficient evidence the session is still owned by the kernel.
@@ -338,6 +341,10 @@ func splitHostPortLog(s string) (string, string, error) {
 // findModuleRoot helper defined in process_death_test.go.
 func buildDaemonBinary(t *testing.T) string {
 	t.Helper()
+
+	if bin, ok := integration.BazelRunfilePath(filepath.Join("cmd", "usbip-go", "usbip-go_", "usbip-go")); ok {
+		return bin
+	}
 
 	out := filepath.Join(t.TempDir(), "usbip-go")
 	repoRoot := findModuleRoot(t)

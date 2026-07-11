@@ -1,0 +1,39 @@
+load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
+
+string_flag(
+    name = "harness_package_version",
+    build_setting_default = "0.0.0.dev0+g0000000",
+    visibility = ["//visibility:public"],
+)
+
+string_flag(
+    name = "harness_package_release",
+    build_setting_default = "1",
+    visibility = ["//visibility:public"],
+)
+
+string_flag(
+    name = "harness_apk_package_release",
+    build_setting_default = "0",
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_bazel_files",
+    srcs = ["BUILD.bazel"] + glob(
+        ["*.bzl"],
+        allow_empty = True,
+        exclude = ["build/**"],
+        exclude_directories = 1,
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "testdata_files",
+    srcs = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)

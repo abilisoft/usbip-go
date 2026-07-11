@@ -21,19 +21,17 @@ import (
 // require.ErrorIs assertions specific instead of matching any error.
 var errStubDial = errors.New("stub dial: skip handshake")
 
-// TestTransportOptionsZeroValueIsAllowed locks in the zero-valued
-// struct as the inherits-current-behavior baseline. PR 1a defines the
-// type; PR 1b wires it into the adapter. Validation must accept zero.
+// TestTransportOptionsZeroValueIsAllowed locks in the zero-valued struct as
+// the inherits-current-behavior baseline. Validation must accept zero.
 func TestTransportOptionsZeroValueIsAllowed(t *testing.T) {
 	t.Parallel()
 
 	require.NoError(t, app.ValidateTransportOptions(app.TransportOptions{}))
 }
 
-// TestTransportOptionsRejectsNegativeFields locks in the validation
-// contract: negative durations, probe counts, and buffer sizes are
-// rejected before adapters are constructed. Caller paths that surface
-// this error are wired up in PR 1b; PR 1a only proves the predicate.
+// TestTransportOptionsRejectsNegativeFields locks in the validation contract:
+// negative durations, probe counts, and buffer sizes are rejected before
+// adapters are constructed.
 func TestTransportOptionsRejectsNegativeFields(t *testing.T) {
 	t.Parallel()
 
@@ -95,7 +93,7 @@ func TestImporterListRemotePassesTransportOptions(t *testing.T) {
 }
 
 // TestImporterAttachPassesImporterTransportOptions asserts Attach uses
-// the importer-level options. Per the latency plan §3, v1.x has no
+// the importer-level options. Per the latency domain-model and transport-networking OpenSpec documents, v1.x has no
 // per-attach transport override; importer-level is authoritative.
 func TestImporterAttachPassesImporterTransportOptions(t *testing.T) {
 	t.Parallel()
@@ -153,8 +151,8 @@ func TestImporterTransportOptionsZeroValuePreservesDialCall(t *testing.T) {
 // TestNewImporterPanicsOnInvalidTransportOptions proves the validation
 // firing inside the importer constructor — a negative-valued field on
 // WithImporterTransportOptions causes NewImporter to panic, matching
-// the existing missing-dependency convention until PR 1b adds the
-// public error-returning entry point.
+// the existing internal missing-dependency convention. The public facade
+// translates this validation into its error-returning constructor contract.
 func TestNewImporterPanicsOnInvalidTransportOptions(t *testing.T) {
 	t.Parallel()
 
@@ -171,21 +169,4 @@ func TestNewImporterPanicsOnInvalidTransportOptions(t *testing.T) {
 				app.WithImporterTransportOptions(app.TransportOptions{TCPKeepAliveProbes: -1}),
 			)
 		})
-}
-
-// TestNewExporterWithErrorRejectsInvalidTransportOptions proves the
-// fallible exporter constructor surfaces TransportOptions validation
-// as an error (no panic, mirroring the ACL-validation precedent).
-func TestNewExporterWithErrorRejectsInvalidTransportOptions(t *testing.T) {
-	t.Parallel()
-
-	_, err := app.NewExporterWithError(
-		app.WithExporterKernel(&ExporterKernelMock{}),
-		app.WithExporterEvents(&KernelEventsMock{}),
-		app.WithExporterTransport(&TransportMock{}),
-		app.WithExporterCodec(&ProtocolCodecMock{}),
-		app.WithExporterTransportOptions(app.TransportOptions{SendBufferBytes: -1}),
-	)
-	require.Error(t, err)
-	require.ErrorIs(t, err, app.ErrTransportOptionsInvalid)
 }

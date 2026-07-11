@@ -25,12 +25,10 @@ import (
 func TestUSBIPGoBinary_HelpListsAllSubcommands(t *testing.T) {
 	t.Parallel()
 
-	bin := buildUsbipGoBinary(t)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	out, err := exec.CommandContext(ctx, bin, "--help").CombinedOutput()
+	out, err := buildUsbipGoCommand(ctx, t, "--help").CombinedOutput()
 	require.NoError(t, err, "--help must exit 0; got: %s", out)
 
 	// fang renders subcommands under a "COMMANDS" section, each on its
@@ -55,12 +53,10 @@ func TestUSBIPGoBinary_HelpListsAllSubcommands(t *testing.T) {
 func TestUSBIPGoBinary_VersionEmitsBuildMetadata(t *testing.T) {
 	t.Parallel()
 
-	bin := buildUsbipGoBinary(t)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	out, err := exec.CommandContext(ctx, bin, "version").CombinedOutput()
+	out, err := buildUsbipGoCommand(ctx, t, "version").CombinedOutput()
 	require.NoError(t, err, "version must exit 0; got: %s", out)
 
 	got := string(out)
@@ -76,12 +72,10 @@ func TestUSBIPGoBinary_VersionEmitsBuildMetadata(t *testing.T) {
 func TestUSBIPGoBinary_RejectsInvalidOutputFlag(t *testing.T) {
 	t.Parallel()
 
-	bin := buildUsbipGoBinary(t)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	out, err := exec.CommandContext(ctx, bin, "--output", "xml", "version").CombinedOutput()
+	out, err := buildUsbipGoCommand(ctx, t, "--output", "xml", "version").CombinedOutput()
 	require.Error(t, err,
 		"unrecognized --output value must fail, not silently fall through")
 
@@ -97,12 +91,10 @@ func TestUSBIPGoBinary_RejectsInvalidOutputFlag(t *testing.T) {
 func TestUSBIPGoBinary_CompletionEmitsBashScript(t *testing.T) {
 	t.Parallel()
 
-	bin := buildUsbipGoBinary(t)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	out, err := exec.CommandContext(ctx, bin, "completion", "bash").CombinedOutput()
+	out, err := buildUsbipGoCommand(ctx, t, "completion", "bash").CombinedOutput()
 	require.NoError(t, err, "completion bash must exit 0; got: %s", out)
 
 	script := string(out)
@@ -121,12 +113,10 @@ func firstN(s string, n int) string {
 	return s[:n]
 }
 
-// buildUsbipGoBinary compiles ./cmd/usbip-go into an absolute-path
-// temp binary, returning the path. Thin wrapper over the canonical
-// testutil.BuildBinary so a regression to the build flags lands in
-// one place.
-func buildUsbipGoBinary(t *testing.T) string {
+// buildUsbipGoCommand returns a command for the Bazel-provided usbip-go
+// executable or the direct-go-test fallback build.
+func buildUsbipGoCommand(ctx context.Context, t *testing.T, args ...string) *exec.Cmd {
 	t.Helper()
 
-	return testutil.BuildBinary(t, "usbip-go")
+	return testutil.BinaryCommandContext(ctx, t, "usbip-go", args...)
 }

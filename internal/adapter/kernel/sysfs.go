@@ -141,7 +141,8 @@ func readFileBytes(fsys fs.FS, path string) ([]byte, error) {
 }
 
 // pathKind classifies a sysfs path for errno-dispatch. Per spec
-// §11.5.4 the adapter must surface ErrKernelModuleMissing when a
+// The security-release-quality and operations-observability OpenSpec documents
+// require the adapter to surface ErrKernelModuleMissing when a
 // driver, module, or controller path disappears mid-flight; absent a
 // classifier we would report ErrDeviceNotFound uniformly.
 type pathKind uint8
@@ -242,8 +243,7 @@ func classifySyscallErr(op, path string, err error) error {
 // equivalent if the underlying cause is an errno or fs.ErrNotExist.
 // Unrecognised errors pass through unchanged.
 func classifyErrAny(path string, err error) error {
-	var errno unix.Errno
-	if errors.As(err, &errno) {
+	if errno, ok := errors.AsType[unix.Errno](err); ok {
 		return classifyErrnoKind(classifyPath(path), errno)
 	}
 

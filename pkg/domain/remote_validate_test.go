@@ -34,7 +34,7 @@ func TestRemoteEndpointValidateAcceptsWellFormed(t *testing.T) {
 	cases := []domain.RemoteEndpoint{
 		{Host: "peer.example"},
 		{Host: "192.0.2.1", Port: 3240},
-		{Host: "::1"},
+		{Host: testIPv6Loopback},
 		{Host: "peer.example", Port: 4000},
 	}
 

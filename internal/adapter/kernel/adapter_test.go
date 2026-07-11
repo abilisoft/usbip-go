@@ -74,7 +74,7 @@ var errTestSocketClosed = errors.New("fake netlink socket closed")
 func TestOptionsApplyToImporter(t *testing.T) {
 	t.Parallel()
 
-	myFS := fstest.MapFS{"sys/module/usbip_core": &fstest.MapFile{Mode: fs.ModeDir}}
+	myFS := fstest.MapFS{testFSModuleUSBIPCorePath: &fstest.MapFile{Mode: fs.ModeDir}}
 	writer := func(string, string) error { return nil }
 	dialer := func() (kernel.NetlinkSocket, error) { return fakeNetlinkSocket{}, nil }
 	logger := slog.New(slog.DiscardHandler)

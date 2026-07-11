@@ -13,7 +13,7 @@ import (
 	"net/netip"
 	"sync"
 
-	"github.com/abilisoft/usbip-go/internal/adapter/wire"
+	"github.com/abilisoft/usbip-go/internal/protocol"
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
@@ -39,9 +39,9 @@ func (c *connCloser) close() error {
 }
 
 // handleConn is the per-connection entry point spawned by the accept
-// loop. The handshake flow per v1 contract §5.3:
+// loop. The handshake flow per exporter-daemon OpenSpec:
 //
-//  1. Wrap the conn reader in a handshake-bytes cap (v1 contract §11.5.3).
+//  1. Wrap the conn reader in a handshake-bytes cap (security-release-quality OpenSpec).
 //  2. Arm a handshake timeout that closes the conn if no progress is
 //     made in time.
 //  3. Decode the OP header via the codec.
@@ -53,7 +53,7 @@ func (c *connCloser) close() error {
 //     kernel via ExportOnConn, block until waitForSessionEnd observes
 //     kernel-side session end.
 //
-// fd-passing contract (v1 contract §5.4 item 4): the kernel dups the accepted
+// fd-passing contract in the kernel-adapter and importer-lifecycle OpenSpec documents: the kernel dups the accepted
 // fd on ExportOnConn success and holds its own ref; the app's original
 // ref is released here exactly once via connCloser (sync.Once). The
 // deferred close fires on every handler exit regardless of outcome so
@@ -90,15 +90,15 @@ func (e *Exporter) handleConn(ctx context.Context, conn net.Conn) {
 	// the deadline right after the header would leave a
 	// DecodeOpReqImport body-decode stall uncovered.
 	switch op {
-	case wire.OpReqDevlist:
+	case protocol.OpReqDevlist:
 		// Do NOT disarm the handshake timeout here — keep it armed during
 		// the EncodeOpRepDevlist write so a client that stops reading is
 		// torn down by the timeout rather than stalling the handler forever.
 		// serveDevlist disarms the timeout after the write completes.
 		e.serveDevlist(ctx, reader, conn, stopTimeout)
-	case wire.OpReqImport:
+	case protocol.OpReqImport:
 		e.serveImport(ctx, reader, conn, stopTimeout)
-	case wire.OpRepDevlist, wire.OpRepImport:
+	case protocol.OpRepDevlist, protocol.OpRepImport:
 		stopTimeout()
 		// Reply opcodes arriving on an accepted connection indicate a
 		// misbehaving peer (or a reversed-role misconfiguration).
@@ -222,7 +222,7 @@ func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn,
 // fires on every return path; sync.Once guards against double-close
 // (handshake-timeout watcher, failure-path adapter self-close). The
 // accepted fd is released after ExportOnConn returns regardless of
-// outcome — per v1 contract §5.4 the kernel holds its own dup on success and
+// outcome — per kernel-adapter and importer-lifecycle OpenSpec documents the kernel holds its own dup on success and
 // the app's remaining ref must be released so only the kernel's ref
 // keeps the socket alive.
 //
@@ -277,7 +277,7 @@ func (e *Exporter) serveImport(
 	// Look up the requested device BEFORE building any session state.
 	// The exporter MUST send an OP_REP_IMPORT reply (success or error)
 	// before the kernel sockfd handoff, otherwise a real client parks
-	// forever waiting for the reply (v1 contract §6.2 + upstream
+	// forever waiting for the reply (wire-protocol OpenSpec + upstream
 	// libsrc/usbip_protocol.c::recv_op_common semantics).
 	dev, lookupErr := e.lookupExportedDevice(ctx, busID)
 	if lookupErr != nil {
@@ -289,7 +289,7 @@ func (e *Exporter) serveImport(
 
 	sess, err := e.buildSession(conn, busID)
 	if err != nil {
-		e.replyImportError(conn, busID, wire.ImportStatusDevErr, err)
+		e.replyImportError(conn, busID, protocol.ImportStatusDevErr, err)
 		stopTimeout()
 
 		return
@@ -308,11 +308,11 @@ func (e *Exporter) serveImport(
 		// Cap, per-peer-limit, or busid-collision decline → ST_DEV_BUSY
 		// (server cannot take another importer for this device right
 		// now). Other register failures fall through to ST_DEV_ERR.
-		status := wire.ImportStatusDevErr
+		status := protocol.ImportStatusDevErr
 		if errors.Is(err, ErrMaxSessionsExceeded) ||
 			errors.Is(err, ErrPerPeerLimitExceeded) ||
 			errors.Is(err, domain.ErrDeviceAlreadyBound) {
-			status = wire.ImportStatusDevBusy
+			status = protocol.ImportStatusDevBusy
 		}
 
 		encErr := e.codec.EncodeOpRepImportError(conn, status)
@@ -355,10 +355,10 @@ func (e *Exporter) lookupExportedDevice(ctx context.Context, busID domain.BusID)
 // failure (ST_DEV_ERR).
 func classifyImportLookupStatus(err error) uint32 {
 	if errors.Is(err, domain.ErrDeviceNotFound) {
-		return wire.ImportStatusNA
+		return protocol.ImportStatusNA
 	}
 
-	return wire.ImportStatusDevErr
+	return protocol.ImportStatusDevErr
 }
 
 // replyImportError sends an OP_REP_IMPORT error reply with the given
@@ -463,7 +463,7 @@ func (e *Exporter) runRegisteredSession(
 		// (we would park forever after a successful handoff). The
 		// importer side has nothing to read otherwise; emit ST_DEV_ERR
 		// so it surfaces the rejection rather than EOF.
-		encErr := e.codec.EncodeOpRepImportError(conn, wire.ImportStatusDevErr)
+		encErr := e.codec.EncodeOpRepImportError(conn, protocol.ImportStatusDevErr)
 		if encErr != nil {
 			e.logger.Debug("exporter encode import error reply on subscribe failure",
 				slog.Any("busid", busID),
@@ -523,15 +523,11 @@ func (e *Exporter) runHandoffAndPark(
 	// ownership of it.
 	stopTimeout()
 
-	// runHandoff invokes ExportOnConn UNDER handle.handoffMu so a
-	// concurrent Shutdown's signalCancel waits on the lock — by the
-	// time signalCancel returns, the handoff has either fully completed
-	// (handedOff=true, kernel owns the fd) or never started
-	// (handedOff=false, ExportOnConn was not invoked). This eliminates
-	// the race where Shutdown observes handedOff=true and runs
-	// Disconnect BEFORE ExportOnConn actually wrote the fd, leaving
-	// the kernel with an untracked export.
-	ran, err := handle.runHandoff(func() error {
+	// runHandoff marks success only after ExportOnConn returns nil. If
+	// Shutdown arrives while the sysfs handoff is in progress, this
+	// handler owns the exactly-once Disconnect after success; Shutdown
+	// must not issue it early against kernel state that does not exist.
+	ran, disconnectAfterHandoff, err := handle.runHandoff(func() error {
 		return e.kernel.ExportOnConn(ctx, conn, busID)
 	})
 	if !ran {
@@ -550,6 +546,25 @@ func (e *Exporter) runHandoffAndPark(
 				slog.Any("busid", busID),
 				slog.String("disconnect_reason", reason),
 				slog.Any("err", err))
+		}
+
+		return
+	}
+
+	if disconnectAfterHandoff {
+		reason := string(DisconnectReasonShutdown)
+		handle.disconnectReason.Store(&reason)
+
+		// The Serve/request context may already be cancelled. This kernel
+		// cleanup must outlive that cancellation to avoid orphaning the
+		// export created by the just-completed handoff.
+		cleanupCtx := context.WithoutCancel(ctx)
+
+		disconnectErr := e.kernel.Disconnect(cleanupCtx, busID)
+		if disconnectErr != nil {
+			e.logger.Warn("disconnect after cancelled kernel handoff",
+				slog.Any("busid", busID),
+				slog.Any("err", disconnectErr))
 		}
 
 		return
@@ -619,7 +634,7 @@ func (e *Exporter) waitForSessionEnd(
 }
 
 // eventEndsSessionForBusID returns true iff ev is a kernel-side signal
-// that the exporter session for busID has ended. v1 contract §5.4
+// that the exporter session for busID has ended. kernel-adapter and importer-lifecycle OpenSpec documents
 // says the kernel emits a `remove` uevent on the exported device's
 // DEVPATH when the session tears down; the EventsAdapter's dispatcher
 // turns that into a PortDetachedEvent or DeviceUnboundEvent depending
@@ -684,10 +699,10 @@ func (e *Exporter) endSession(h *sessionHandle, reason string) {
 
 // buildSession assembles the domain.Session recorded for the accepted
 // connection. The session id is UUIDv7 (chronologically sortable) per
-// v1 contract §11.5.5. A failure to generate the id is a process-level
+// operations-observability OpenSpec. A failure to generate the id is a process-level
 // problem (rand source exhausted); surfaced to the caller.
 func (e *Exporter) buildSession(conn net.Conn, busID domain.BusID) (domain.Session, error) {
-	id, err := domain.NewSessionID()
+	id, err := e.newSessionID()
 	if err != nil {
 		return domain.Session{}, newSessionIDError(err)
 	}

@@ -15,7 +15,7 @@ import (
 
 // activationFdName is the expected LISTEN_FDNAMES label for our socket
 // unit. Operators should set FileDescriptorName=usbip-go on the .socket
-// unit (v1 contract §7.8); mismatches fail loudly rather than silently
+// unit (operations-observability OpenSpec); mismatches fail loudly rather than silently
 // bind a neighbouring socket.
 const activationFdName = "usbip-go"
 
@@ -35,7 +35,7 @@ var listenersWithNames = activation.ListenersWithNames
 // It prefers systemd-passed named sockets, falls back to an unnamed
 // single fd, and finally falls back to a plain net.Listen on cfg.Listen.
 //
-// The policy matches v1 contract §7.7:
+// The policy matches operations-observability and json-contracts OpenSpec documents:
 //   - If LISTEN_FDNAMES contains "usbip-go" with exactly one fd, use it.
 //   - If LISTEN_FDS=1 and no names are present, accept the single fd.
 //   - If multiple fds are passed without a matching name, refuse to
@@ -66,7 +66,8 @@ func listenOrActivation(ctx context.Context, cfg *ServeConfig) (net.Listener, er
 	return netListenCtx(ctx, cfg.Listen)
 }
 
-// pickNamedListener implements the §7.7 decision table. The boolean
+// pickNamedListener implements the operations-observability and json-contracts
+// OpenSpec decision table. The boolean
 // return disambiguates the "no listener, no error, caller should fall
 // back" state from the "error" state — nil-nil returns are a known
 // trip hazard (nilnil lint) so the tri-state is explicit instead.

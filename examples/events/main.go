@@ -102,7 +102,7 @@ func run() error {
 }
 
 // emit serialises the event as one JSON line with a source tag and
-// the event's kind discriminator per §7.5. Encode errors on stdout
+// the event's kind discriminator per json-contracts OpenSpec. Encode errors on stdout
 // are logged and skipped: missing one event record is preferable to
 // crashing the watch loop on a transient write failure.
 func emit(mu *sync.Mutex, enc *json.Encoder, source string, ev usbip.Event) {

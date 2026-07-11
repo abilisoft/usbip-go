@@ -309,7 +309,7 @@ func deriveHCPorts(nports, nControllers uint32) (uint32, error) {
 // resulting map keys every bus owned by VHCI and excludes buses owned
 // by other HCDs.
 func buildBusMap(fsys fs.FS, nControllers uint32) (map[uint32]VHCILocation, error) {
-	busMap := make(map[uint32]VHCILocation, nControllers*2)
+	busMap := make(map[uint32]VHCILocation, nControllers*hubsPerController)
 
 	for idx := range nControllers {
 		err := appendControllerBusMap(fsys, idx, busMap)

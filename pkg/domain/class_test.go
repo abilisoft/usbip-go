@@ -38,7 +38,7 @@ func TestUSBClass_String(t *testing.T) {
 		{"billboard", domain.USBClass(0x11), "billboard"},
 		{"typec_bridge", domain.USBClass(0x12), "usb-type-c-bridge"},
 		{"diagnostic", domain.USBClass(0xDC), "diagnostic"},
-		{"wireless", domain.USBClass(0xE0), "wireless"},
+		{testWirelessLabel, domain.USBClass(0xE0), testWirelessLabel},
 		{"miscellaneous", domain.USBClass(0xEF), "miscellaneous"},
 		{"application_specific", domain.USBClass(0xFE), "application-specific"},
 		{"vendor_specific", domain.USBClass(0xFF), "vendor-specific"},

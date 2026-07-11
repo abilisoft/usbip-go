@@ -40,7 +40,7 @@ func TestHistoryReadExisting(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "history"), body, 0o600))
 
 	got := readHistory()
-	require.Equal(t, []string{"10.0.0.5", "10.0.0.6", "192.168.1.1"}, got)
+	require.Equal(t, []string{testRemoteHost, "10.0.0.6", "192.168.1.1"}, got)
 }
 
 // TestHistoryRecordNew — a fresh recordHistory call creates the state
@@ -50,7 +50,7 @@ func TestHistoryRecordNew(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", tmp)
 	t.Setenv("HOME", tmp)
 
-	require.NoError(t, recordHistory("10.0.0.5"))
+	require.NoError(t, recordHistory(testRemoteHost))
 
 	info, err := os.Stat(filepath.Join(tmp, "usbip-go"))
 	require.NoError(t, err)
@@ -58,7 +58,7 @@ func TestHistoryRecordNew(t *testing.T) {
 	require.Equal(t, os.FileMode(0o700), info.Mode().Perm())
 
 	got := readHistory()
-	require.Equal(t, []string{"10.0.0.5"}, got)
+	require.Equal(t, []string{testRemoteHost}, got)
 }
 
 // TestHistoryRecordDedup — recording an existing host promotes it to
@@ -68,12 +68,12 @@ func TestHistoryRecordDedup(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", tmp)
 	t.Setenv("HOME", tmp)
 
-	require.NoError(t, recordHistory("10.0.0.5"))
+	require.NoError(t, recordHistory(testRemoteHost))
 	require.NoError(t, recordHistory("10.0.0.6"))
-	require.NoError(t, recordHistory("10.0.0.5"))
+	require.NoError(t, recordHistory(testRemoteHost))
 
 	// Most-recent-first: 10.0.0.5 moved to front, 10.0.0.6 follows, no dup.
-	require.Equal(t, []string{"10.0.0.5", "10.0.0.6"}, readHistory())
+	require.Equal(t, []string{testRemoteHost, "10.0.0.6"}, readHistory())
 }
 
 // TestHistoryRecordCap — the history file is capped at 20 entries.
@@ -120,7 +120,7 @@ func TestAttachFirstArgCompletionUsesHistory(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", tmp)
 	t.Setenv("HOME", tmp)
 
-	require.NoError(t, recordHistory("10.0.0.5"))
+	require.NoError(t, recordHistory(testRemoteHost))
 	require.NoError(t, recordHistory("server.local"))
 
 	swapFactories(t, &mockImporter{}, &mockExporter{})
@@ -129,7 +129,7 @@ func TestAttachFirstArgCompletionUsesHistory(t *testing.T) {
 	got, _ := cmd.ValidArgsFunction(cmd, nil, "")
 
 	// Most-recent first.
-	require.Equal(t, []string{"server.local", "10.0.0.5"}, got)
+	require.Equal(t, []string{"server.local", testRemoteHost}, got)
 }
 
 // TestAttachSecondArgCompletionDisabledByDefault — when neither
@@ -150,7 +150,7 @@ func TestAttachSecondArgCompletionDisabledByDefault(t *testing.T) {
 	swapFactories(t, imp, &mockExporter{})
 
 	cmd := newAttachCmd()
-	got, _ := cmd.ValidArgsFunction(cmd, []string{"10.0.0.5"}, "")
+	got, _ := cmd.ValidArgsFunction(cmd, []string{testRemoteHost}, "")
 
 	require.Empty(t, got)
 	require.False(t, dialed, "network completion must not dial when disabled")
@@ -170,23 +170,23 @@ func TestAttachSecondArgCompletionEnabledByEnv(t *testing.T) {
 			require.LessOrEqual(t, time.Until(dl), 800*time.Millisecond)
 
 			return []usbip.Device{
-				{BusID: "1-1.2", VendorID: 0xabcd, ProductID: 0x0001},
-				{BusID: "2-1", VendorID: 0x1111, ProductID: 0x2222},
+				{BusID: testNestedBusID, VendorID: 0xabcd, ProductID: 0x0001},
+				{BusID: testSecondaryBusID, VendorID: 0x1111, ProductID: 0x2222},
 			}, nil
 		},
 	}
 	swapFactories(t, imp, &mockExporter{})
 
 	cmd := newAttachCmd()
-	got, _ := cmd.ValidArgsFunction(cmd, []string{"10.0.0.5"}, "")
+	got, _ := cmd.ValidArgsFunction(cmd, []string{testRemoteHost}, "")
 
 	require.Len(t, got, 2)
-	require.Contains(t, got[0], "1-1.2")
-	require.Contains(t, got[1], "2-1")
+	require.Contains(t, got[0], testNestedBusID)
+	require.Contains(t, got[1], testSecondaryBusID)
 }
 
 // TestAttachSecondArgCompletionSilentOnError — ListRemote failure
-// returns empty + no error (v1 contract §7.6 silent-on-failure rule).
+// returns empty + no error (cli-interface OpenSpec silent-on-failure rule).
 func TestAttachSecondArgCompletionSilentOnError(t *testing.T) {
 	t.Setenv("USBIP_COMPLETE_NETWORK", "1")
 
@@ -198,6 +198,6 @@ func TestAttachSecondArgCompletionSilentOnError(t *testing.T) {
 	swapFactories(t, imp, &mockExporter{})
 
 	cmd := newAttachCmd()
-	got, _ := cmd.ValidArgsFunction(cmd, []string{"10.0.0.5"}, "")
+	got, _ := cmd.ValidArgsFunction(cmd, []string{testRemoteHost}, "")
 	require.Empty(t, got)
 }

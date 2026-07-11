@@ -27,13 +27,13 @@ func bindFSWithConfig(busID string, configValue int) fstest.MapFS {
 	iface := fmtIface(busID, configValue, 0)
 
 	return fstest.MapFS{
-		"sys/module/usbip_core":                                 &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host":                                 &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host":                        &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host/match_busid":            &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/bind":                   &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/unbind":                 &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/rebind":                 &fstest.MapFile{Data: []byte("")},
+		testFSModuleUSBIPCorePath:                               &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleUSBIPHostPath:                               &fstest.MapFile{Mode: fs.ModeDir},
+		testFSUSBIPHostDir:                                      &fstest.MapFile{Mode: fs.ModeDir},
+		testFSUSBIPHostMatchBusIDPath:                           &fstest.MapFile{Data: []byte("")},
+		testFSUSBIPHostBindPath:                                 &fstest.MapFile{Data: []byte("")},
+		testFSUSBIPHostUnbindPath:                               &fstest.MapFile{Data: []byte("")},
+		testFSUSBIPHostRebindPath:                               &fstest.MapFile{Data: []byte("")},
 		"sys/bus/usb/devices/" + busID:                          &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + busID + "/bConfigurationValue": &fstest.MapFile{Data: []byte(fmtInt(configValue) + "\n")},
 		"sys/bus/usb/devices/" + iface:                          &fstest.MapFile{Mode: fs.ModeDir},
@@ -78,7 +78,7 @@ func TestBind_HighConfigurationValue_ProceedsViaBareDeviceUnbind(t *testing.T) {
 	busID := domain.BusID("3-1")
 
 	mfs := bindFSWithConfig(string(busID), 2)
-	// Bare-device driver = "usb" (kernel default). Bind must unbind
+	// Bare-device driver = testUeventSubsystemUSB (kernel default). Bind must unbind
 	// it as the FIRST write, not poke the interface at all.
 	mfs["sys/bus/usb/devices/"+string(busID)+"/driver/driver_name"] = &fstest.MapFile{Data: []byte("usb\n")}
 	mfs["sys/bus/usb/devices/"+string(busID)+"/driver"] = &fstest.MapFile{Data: []byte("usb\n")}
@@ -101,7 +101,7 @@ func TestBind_HighConfigurationValue_ProceedsViaBareDeviceUnbind(t *testing.T) {
 	// match_busid add MUST be first — populating the table before the
 	// unbind cascade triggers kernel auto-probe ensures usbip-host's
 	// stub_probe wins the race against the original interface driver.
-	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/match_busid", rec.calls[0].Path,
+	require.Equal(t, testUSBIPHostMatchBusIDPath, rec.calls[0].Path,
 		"first write must populate match_busid before any unbind")
 	require.Equal(t, "add "+string(busID), rec.calls[0].Data,
 		"match_busid takes the 'add <busid>' command form")
@@ -113,7 +113,7 @@ func TestBind_HighConfigurationValue_ProceedsViaBareDeviceUnbind(t *testing.T) {
 		"bare-device unbind takes the BARE busid, not iface")
 
 	// Final write: bind to usbip-host with the BARE busid.
-	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/bind", rec.calls[2].Path)
+	require.Equal(t, testUSBIPHostBindPath, rec.calls[2].Path)
 	require.Equal(t, string(busID), rec.calls[2].Data,
 		"usbip-host is a usb_device_driver — its bind sysfs accepts BARE busid, never iface")
 }

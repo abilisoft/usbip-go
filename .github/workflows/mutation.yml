@@ -1,23 +1,10 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
-#
-# Mutation testing on protocol-critical packages. Split out from
-# ci.yml so it doesn't add 3-4 minutes to every PR check; instead
-# it runs:
-#   * weekly on Mondays via cron (background efficacy regression
-#     catch);
-#   * on PRs that opt in by carrying the `run-mutation` label
-#     (intentional pre-release or post-refactor verification);
-#   * on demand via `workflow_dispatch`.
 
 name: Mutation testing
 
 on:
   schedule:
-    # Weekly Monday 05:15 UTC — well clear of nightly (03:30) and
-    # daily Trivy (04:30) and weekly CodeQL (Wed 04:10). Each
-    # weekly cron lands on a distinct UTC minute so two scheduled
-    # runs never compete for the same flakehub-cache shard.
     - cron: '15 5 * * 1'
   pull_request:
     types: [opened, synchronize, reopened, labeled]
@@ -25,6 +12,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 defaults:
   run:
@@ -34,23 +25,11 @@ jobs:
   mutation:
     name: Mutation testing
     runs-on: ubuntu-24.04
-    # Run on schedule and dispatch unconditionally; on PRs require
-    # the `run-mutation` label so the slow gate stays opt-in.
+    timeout-minutes: 120
     if: >-
       github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-mutation')
-    permissions:
-      contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/setup-nix-dev
+      - uses: ./.github/actions/setup-bazel
       - name: Mutation tests
-        # The dedicated mutation shell provides gremlins without expanding
-        # the fast dev shell or installing tools at runtime.
-        # task ci:test:mutation drives gremlins (or equivalent)
-        # against pkg/domain + internal/adapter/wire, the two
-        # protocol-critical packages where mutation efficacy is the
-        # gate that pure line coverage cannot enforce.
-        run: nix develop .#mutation --command task ci:test:mutation
+        run: make test-mutation

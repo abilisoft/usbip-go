@@ -4,11 +4,15 @@
 # Codecov configuration. Mirrors `.testcoverage.yaml` exclude paths so
 # the README badge percentage matches the gate-enforced number rather
 # than showing a deflated headline pulled down by demo examples and
-# the test-only kill-helper subprocess. The gate file remains the
-# source of truth for ENFORCEMENT (per-package threshold);
-# this file's role is purely display alignment.
+# the test-only kill-helper subprocess. `.testcoverage.yaml` remains the
+# source of truth for local total and per-package enforcement; this file also
+# configures Codecov's separate project and patch status checks.
 
 ignore:
+  # Generated third-party module sources committed only to make Go lint analysis
+  # network-independent. Patch coverage remains exact for repository-owned code.
+  - "vendor/**"
+
   # Internal scaffolding never reached by `go test ./...`.
   - "internal/tools/**"
   - "internal/testutil/**"
@@ -32,15 +36,13 @@ ignore:
   # main.go in the cmd/usbip-go binary: 5-line cobra Execute +
   # os.Exit wrapper; covered end-to-end via integration tests
   # rather than the unit suite. Mirrors the .testcoverage.yaml
-  # carve-out. (Listed once — there is one binary; an earlier
-  # revision duplicated the entry from when the project shipped
-  # both `usbip-go` and `usbipd-go`.)
+  # carve-out.
   - "cmd/usbip-go/main.go"
 
   # Real syscall paths in the kernel adapter — sysfs writes and
   # AF_NETLINK socket operations whose error branches cannot be
-  # synthesised hermetically. Exercised by the integration suite
-  # under the microVM. Mirrors the .testcoverage.yaml carve-out.
+  # synthesised hermetically. Exercised by the integration suite on
+  # the dedicated kernel runner. Mirrors the .testcoverage.yaml carve-out.
   - "internal/adapter/kernel/sysfs_real_linux.go"
   - "internal/adapter/kernel/netlink_real_linux.go"
 
@@ -66,12 +68,11 @@ coverage:
         # Hard floor matches `.testcoverage.yaml` total. PR builds
         # fail this check if total coverage drops below the floor.
         target: 90%
-        # Codecov tolerates a small per-PR delta to absorb noise
-        # from line shuffling without a real coverage drop.
-        threshold: 1%
+        # Match the local floor exactly; do not hide regressions behind drift.
+        threshold: 0%
     patch:
       default:
-        # New code in a PR must clear the same floor; prevents
-        # ratcheting down via "nobody is testing the new lines".
-        target: 90%
-        threshold: 1%
+        # Every executable changed line must be covered. Patch coverage is a
+        # separate hard gate from the repository-wide 90% floor.
+        target: 100%
+        threshold: 0%

@@ -1,160 +1,40 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
-#
-# End-to-end tests against a real Linux kernel with usbip_core,
-# vhci_hcd, usbip_host, usbip_vudc, and libcomposite loaded. The
-# kernel boots via the Nix flake's microVM derivation under
-# qemu_kvm; the test payload runs inside the VM with the project
-# tree mounted via 9p.
-#
-# Trigger paths (slow workflow, NOT gated on every push):
-#   - schedule: nightly so kernel-surface regressions page within 24h
-#   - workflow_dispatch: manual reruns (e.g. after a flake bump or
-#     for forced runs against PRs whose diff did not match the
-#     `paths:` filter — note that GitHub does NOT run a workflow at
-#     all on label events when `pull_request: paths:` is set and the
-#     diff misses, so a "run-vm-integration" label gate is not
-#     possible inline; use workflow_dispatch instead)
-#   - pull_request when the PR touches integration tree, harness,
-#     flake, Taskfile, the workflow file itself, OR any production
-#     source under cmd/, internal/, pkg/ (a USB/IP stack change
-#     SHOULD be gated by the kernel-surface check), OR go.mod/sum
-#
-# Runner: hosted ubuntu-24.04. The microvm-run helper boots qemu
-# with `accel=kvm:tcg` so it picks KVM when /dev/kvm exists (fast)
-# and falls back to TCG software emulation when it doesn't. The
-# hosted ubuntu-24.04 SKU stopped exposing /dev/kvm in 2026; TCG
-# keeps the gate functional on hosted infra. Self-hosted runners
-# with /dev/kvm passthrough still execute the full sweep at KVM
-# speed.
 
-name: VM Integration
+name: VM integration
 
 on:
+  workflow_call:
   schedule:
-    # Daily 04:45 UTC. Each scheduled workflow lands on a distinct
-    # UTC minute so two crons never compete for the same
-    # flakehub-cache shard:
-    #   03:30  nightly (daily)
-    #   04:10  codeql (Wed only)
-    #   04:30  trivy (daily)
-    #   05:15  mutation (Mon only)
-    #   06:10  scorecard (Tue only)
     - cron: '45 4 * * *'
   workflow_dispatch:
-  pull_request:
-    paths:
-      - 'cmd/**'
-      - 'internal/**'
-      - 'pkg/**'
-      - 'test/integration/**'
-      - 'go.mod'
-      - 'go.sum'
-      - 'flake.nix'
-      - 'flake.lock'
-      - 'Taskfile.yml'
-      - '.github/workflows/vm-integration.yml'
 
 permissions:
   contents: read
 
-defaults:
-  run:
-    shell: bash
-
-# Concurrency: cancel superseded runs on the same ref EXCEPT for
-# manual workflow_dispatch — those should not be killed by the next
-# scheduled tick or PR push.
 concurrency:
-  group: vm-integration-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+  group: kernel-integration-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  # detect-acceleration runs first and decides whether the
-  # downstream vm-tests job runs at all. Splitting the gate from
-  # the suite means GitHub marks vm-tests as SKIPPED (gray) when
-  # the gate condition is false — not "passed in 3 s" (green) —
-  # which is the honest signal: nothing was exercised.
-  detect-acceleration:
-    name: Detect VM acceleration
-    runs-on: ubuntu-24.04
-    outputs:
-      run: ${{ steps.vm.outputs.run }}
-      accel: ${{ steps.vm.outputs.accel }}
-    # USBIP_GO_VM_ALLOW_TCG=1 ONLY on schedule + dispatch. PR/push
-    # runs require real KVM. If the env is empty AND no /dev/kvm,
-    # the gate writes run=false and the dependent job is skipped.
-    env:
-      USBIP_GO_VM_ALLOW_TCG: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '1' || '' }}
+  integration:
+    name: Kernel integration tests
+    runs-on: [self-hosted, linux, x64, usbip-kernel]
+    timeout-minutes: 45
     steps:
-      - name: Inspect /dev/kvm + TCG opt-in
-        id: vm
-        # Three outcomes encode the gate state:
-        #   run=true,  accel=kvm  — runner has /dev/kvm
-        #   run=true,  accel=tcg  — schedule/dispatch + no KVM
-        #                            (TCG fallback enabled by env)
-        #   run=false, accel=skip — PR/push + no KVM
-        #                            (vm-tests will be skipped)
-        run: |
-          allow_tcg="${USBIP_GO_VM_ALLOW_TCG:-}"
-          if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "accel=kvm" >> "$GITHUB_OUTPUT"
-            echo "::notice title=KVM available::Booting microVM with hardware virtualisation."
-            ls -la /dev/kvm
-          elif [ -n "$allow_tcg" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "accel=tcg" >> "$GITHUB_OUTPUT"
-            echo "::notice title=TCG fallback::No /dev/kvm; falling back to qemu software emulation. Slow but functional. (Triggered by ${{ github.event_name }}.)"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "accel=skip" >> "$GITHUB_OUTPUT"
-            echo "::notice title=KVM unavailable::Hosted ubuntu-24.04 SKU does not expose /dev/kvm. PR/push runs of vm-integration require KVM. Kernel-surface coverage runs nightly via the schedule trigger (TCG fallback) and on workflow_dispatch. The downstream vm-tests job will report Skipped on this run."
-          fi
-
-  vm-tests:
-    name: Kernel module smoke + integration suite
-    needs: detect-acceleration
-    # Skip cleanly when the gate said run=false. GitHub renders
-    # this as "Skipped" (gray) rather than "Passed" (green) — the
-    # honest signal that nothing was exercised on this run.
-    if: needs.detect-acceleration.outputs.run == 'true'
-    runs-on: ubuntu-24.04
-    # Trigger-conditional timeout: 30 min on KVM-fast PR runs;
-    # 90 min on TCG-slow nightly cron / dispatch.
-    timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 90 || 30 }}
-    # Advisory tripwire: ruleset 15547082 does not include this
-    # check in required_status_checks. continue-on-error keeps a
-    # nightly TCG cold-cache failure from reddening the workflow.
-    continue-on-error: true
-    permissions:
-      contents: read
-      # id-token: write — required by DeterminateSystems/flakehub-cache-action
-      # (v3.19.0+) to exchange the runner's OIDC token for cache auth.
-      id-token: write
-    env:
-      USBIP_GO_VM_ALLOW_TCG: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '1' || '' }}
-    steps:
-      - name: Echo accel mode
-        # Surface the acceleration path the detect job picked so
-        # the run log shows whether this is a fast (KVM) or slow
-        # (TCG) sweep at a glance.
-        run: |
-          echo "VM acceleration: ${{ needs.detect-acceleration.outputs.accel }}"
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: ./.github/actions/setup-nix-dev
-      - name: VM smoke (kernel modules load)
-        # Boots the microVM, asserts usbip_core / vhci_hcd /
-        # usbip_host / usbip_vudc / libcomposite all loaded.
-        # ~15 s on KVM; ~60-180 s on TCG; runs first so an
-        # integration suite never starts against a broken VM
-        # image.
-        run: nix develop .#vm --command task ci:vm:smoke
-      - name: Integration suite inside microVM
-        # Runs `go test -tags=integration_linux ./test/integration/...`
-        # inside the booted microVM via 9p split mounts (/src ro,
-        # /src/build/cache rw). 15-25 min on KVM, 30-60 min on
-        # TCG (cold cache can push closer to the 90-min schedule
-        # timeout above). The smoke check above gates wasted
-        # runner time on a dead image.
-        run: nix develop .#vm --command task ci:vm:test:integration
+      - uses: ./.github/actions/setup-bazel
+      - name: Verify kernel integration environment
+        run: |
+          set -euo pipefail
+          test "$(id -u)" -eq 0
+          for module in usbip_core vhci_hcd usbip_host usbip_vudc; do
+            test -d "/sys/module/${module}" || {
+              echo "::error::required kernel module is not loaded: ${module}"
+              exit 1
+            }
+          done
+          test -d /sys/kernel/config/usb_gadget
+          test -w /sys/kernel/config/usb_gadget
+      - name: Run integration target
+        run: make test-integration

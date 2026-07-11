@@ -1,17 +1,17 @@
 # ---------------------------------------------------------------------------
 # Build artifacts
 # ---------------------------------------------------------------------------
-# All build output consolidates under /build/ (bin, dist, vm, coverage, cache).
+# Produced artifacts consolidate under /build/; bootstrapped tools and Bazel/Go
+# working caches stay under the repository-local /.local/ tree.
 /build/
+/.local/
 
-# Legacy output paths produced by the current Taskfile before the /build/
-# migration lands. Safe to drop once every task writes into /build/.
+# Legacy/manual output paths that should not be committed.
 /bin/
 /dist/
 /coverage.out
 /coverage.html
 *.log
-.task/
 .test-tmp-*/
 # go test creates .t-* / TempDir-* sandbox directories under the
 # package being tested when t.TempDir / t.MkdirTemp opt out of $TMPDIR.
@@ -28,14 +28,8 @@ TempDir-*/
 *.prof
 *.pprof
 
-# Buck2 experiment tombstones. The experiment was reverted in 8ce92bc, but
-# the local output dirs survive a `git reset` — keep them ignored so they
-# do not reappear as untracked noise.
-buck-out/
-.buckd/
-
 # ---------------------------------------------------------------------------
-# Nix / direnv / devshell
+# Local environment managers
 # ---------------------------------------------------------------------------
 /result
 /result-*
@@ -91,11 +85,9 @@ Thumbs.db
 .tabnine/
 .ai/
 /.mcp.json
-# AI-tool convention pointer files. Project workflow lives in
-# docs/agents/ which IS committed; these root-level files are
-# pointer/index artifacts agents can grep for if they want.
+# Tool-specific pointer file. Durable repository policy lives in the
+# committed root AGENTS.md.
 /CLAUDE.md
-/AGENTS.md
 
 # Per-tool log/scratch dumps under the system tmp dir.
 codex-*.log

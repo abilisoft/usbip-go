@@ -11,7 +11,7 @@ import (
 
 // Sentinel errors re-exported from pkg/domain. Assignment — not wrapping
 // — preserves identity so errors.Is(err, usbip.ErrX) and
-// errors.Is(err, domain.ErrX) match the same underlying value. v1 contract §5.7.
+// errors.Is(err, domain.ErrX) match the same underlying value. public-library-api OpenSpec.
 var (
 	// ErrDeviceNotFound indicates the requested busid is not present.
 	ErrDeviceNotFound = domain.ErrDeviceNotFound
@@ -56,7 +56,7 @@ var (
 	// ErrAlreadyShutdown indicates the exporter has been shut down and
 	// cannot accept further requests. Aliased to pkg/domain because the
 	// domain package already publishes this lifecycle sentinel on the
-	// public surface (v1 contract §5.7).
+	// public surface (public-library-api OpenSpec).
 	ErrAlreadyShutdown = domain.ErrAlreadyShutdown
 
 	// ErrAttachInProgress indicates Attach is already running for the
@@ -113,4 +113,16 @@ var (
 	// so errors.Is classification is available through the public
 	// surface without a cross-package import.
 	ErrAttachOptionsInvalid = errors.New("attach options invalid")
+
+	// ErrTransportOptionsInvalid indicates a negative TCP tuning value
+	// was passed to NewImporter or NewExporter.
+	ErrTransportOptionsInvalid = errors.New("transport options invalid")
+
+	// ErrACLInvalid indicates an exporter allow-list entry is not a
+	// valid CIDR prefix.
+	ErrACLInvalid = errors.New("acl cidr invalid")
+
+	// ErrExponentialBackoffConfigInvalid indicates an exponential
+	// backoff configuration failed validation.
+	ErrExponentialBackoffConfigInvalid = errors.New("exponential backoff config invalid")
 )

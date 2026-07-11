@@ -32,7 +32,7 @@ const (
 	outputJSON  = "json"
 )
 
-// globalFlags bundles the shared top-level flags from v1 contract §7.2. The
+// globalFlags bundles the shared top-level flags from cli-interface OpenSpec. The
 // struct is populated by cobra's flag bindings during ParseFlags; each
 // subcommand reads from the shared pointer stored on the root cobra
 // command via context.
@@ -52,20 +52,15 @@ type globalFlags struct {
 	// false (the default), second-arg completion for `usbip-go attach`
 	// returns an empty list to avoid silently dialing remotes during
 	// tab-completion. The USBIP_COMPLETE_NETWORK=1 env var is the
-	// equivalent opt-in (v1 contract §7.6).
+	// equivalent opt-in (cli-interface OpenSpec).
 	CompleteNetwork bool
 }
 
-// ctxKey is a private context-key type (avoids collisions with other
-// packages that might stash values in the same context).
-type ctxKey struct{ name string }
+// Private zero-sized context-key types avoid collisions without mutable
+// package-level key values.
+type loggerContextKey struct{}
 
-// loggerCtxKey is the context key under which PersistentPreRunE
-// stores the *slog.Logger built from the parsed flags.
-var loggerCtxKey = ctxKey{name: "logger"}
-
-// flagsCtxKey is the context key storing the parsed globalFlags.
-var flagsCtxKey = ctxKey{name: "flags"}
+type flagsContextKey struct{}
 
 // newRootCmd constructs the top-level `usbip-go` cobra command with global
 // flags, version subcommand, and a PersistentPreRunE that builds the
@@ -113,8 +108,8 @@ func newRootCmd() *cobra.Command {
 				ctx = context.Background()
 			}
 
-			ctx = context.WithValue(ctx, loggerCtxKey, log)
-			ctx = context.WithValue(ctx, flagsCtxKey, gf)
+			ctx = context.WithValue(ctx, loggerContextKey{}, log)
+			ctx = context.WithValue(ctx, flagsContextKey{}, gf)
 			cmd.SetContext(ctx)
 
 			return nil
@@ -123,14 +118,14 @@ func newRootCmd() *cobra.Command {
 
 	flags := cmd.PersistentFlags()
 	flags.StringVarP(&gf.Output, "output", "o", outputTable, "output format: table or json")
-	flags.StringVar(&gf.LogLevel, "log-level", "info", "log level: error/warn/info/debug/trace")
-	flags.StringVar(&gf.LogFormat, "log-format", "auto", "log handler: auto/pretty/json")
+	flags.StringVar(&gf.LogLevel, "log-level", defaultLogLevel, "log level: error/warn/info/debug/trace")
+	flags.StringVar(&gf.LogFormat, "log-format", defaultLogFormat, "log handler: auto/pretty/json")
 	flags.CountVarP(&gf.VerboseCount, "verbose", "v", "verbose counter: -v=debug, -vv=trace")
 	flags.BoolVar(&gf.NoColor, "no-color", false, "disable ANSI color output")
 	flags.BoolVar(&gf.CompleteNetwork, "complete-network", false,
 		"allow network-dialing shell completion (same as USBIP_COMPLETE_NETWORK=1)")
 
-	// Fixed-completion hints for enum flags (v1 contract §7.6 static
+	// Fixed-completion hints for enum flags (cli-interface OpenSpec static
 	// completion). These calls intentionally touch cobra's global
 	// flagCompletionFunctions map; because the production binary
 	// builds exactly one root command, the global state causes no
@@ -138,16 +133,7 @@ func newRootCmd() *cobra.Command {
 	// `skipFlagCompletionRegistration` hook to avoid data races with
 	// cobra's internal bash-completion annotation writer.
 	if !skipFlagCompletionRegistration {
-		_ = cmd.RegisterFlagCompletionFunc("output", cobra.FixedCompletions(
-			[]cobra.Completion{outputTable, outputJSON}, cobra.ShellCompDirectiveNoFileComp,
-		))
-		_ = cmd.RegisterFlagCompletionFunc("log-level", cobra.FixedCompletions(
-			[]cobra.Completion{"error", "warn", "info", "debug", "trace"},
-			cobra.ShellCompDirectiveNoFileComp,
-		))
-		_ = cmd.RegisterFlagCompletionFunc("log-format", cobra.FixedCompletions(
-			[]cobra.Completion{"auto", "pretty", "json"}, cobra.ShellCompDirectiveNoFileComp,
-		))
+		registerRootFlagCompletions(cmd)
 	}
 
 	cmd.AddCommand(newVersionCmd())
@@ -168,6 +154,29 @@ func newRootCmd() *cobra.Command {
 	return cmd
 }
 
+// registerRootFlagCompletions installs the fixed completions for global enum
+// flags. Registration is isolated from command construction because Cobra
+// stores these callbacks in process-global state.
+func registerRootFlagCompletions(cmd *cobra.Command) {
+	_ = cmd.RegisterFlagCompletionFunc("output", cobra.FixedCompletions(
+		[]cobra.Completion{outputTable, outputJSON}, cobra.ShellCompDirectiveNoFileComp,
+	))
+	_ = cmd.RegisterFlagCompletionFunc("log-level", cobra.FixedCompletions(
+		[]cobra.Completion{
+			logLevelError,
+			logLevelWarn,
+			logLevelInfo,
+			logLevelDebug,
+			logLevelTrace,
+		},
+		cobra.ShellCompDirectiveNoFileComp,
+	))
+	_ = cmd.RegisterFlagCompletionFunc("log-format", cobra.FixedCompletions(
+		[]cobra.Completion{logFormatAuto, logFormatPretty, logFormatJSON},
+		cobra.ShellCompDirectiveNoFileComp,
+	))
+}
+
 // validateGlobalFlags enforces the enum constraints on --output (the
 // other enum flags are validated inside buildLogger). Cobra does not
 // provide StringVar enum validation out of the box, so this runs in
@@ -185,7 +194,7 @@ func validateGlobalFlags(f *globalFlags) error {
 // Returns nil when no logger is installed; callers apply a default at
 // that point.
 func loggerFromCtx(ctx context.Context) *slog.Logger {
-	v, ok := ctx.Value(loggerCtxKey).(*slog.Logger)
+	v, ok := ctx.Value(loggerContextKey{}).(*slog.Logger)
 	if !ok {
 		return nil
 	}

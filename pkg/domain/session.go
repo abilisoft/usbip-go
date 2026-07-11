@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/netip"
 	"time"
 )
@@ -79,12 +80,15 @@ const (
 //
 // Implemented inline against crypto/rand instead of a third-party UUID
 // package so pkg/domain stays a pure-stdlib value-object surface (the
-// invariant the `domain-boundary` job in `_arch-checks.yml`
-// protects).
+// invariant the Bazel-backed lint suite protects).
 func NewSessionID() (SessionID, error) {
+	return newSessionID(rand.Reader, time.Now())
+}
+
+func newSessionID(random io.Reader, now time.Time) (SessionID, error) {
 	var id SessionID
 
-	_, err := rand.Read(id[:])
+	_, err := io.ReadFull(random, id[:])
 	if err != nil {
 		return SessionID{}, fmt.Errorf("generate session id: %w", err)
 	}
@@ -99,7 +103,7 @@ func NewSessionID() (SessionID, error) {
 	// the host's endianness; the uint16 / uint32 conversions are
 	// preceded by an explicit low-order mask so gosec G115 sees
 	// proven-safe truncation instead of a bare narrow.
-	ms := uint64(time.Now().UnixMilli())
+	ms := uint64(now.UnixMilli())
 	high := uint16((ms >> uuidVersionShift) & uuidLowMask16)
 	low := uint32(ms & uuidLowMask32)
 

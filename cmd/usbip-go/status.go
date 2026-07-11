@@ -29,7 +29,7 @@ import (
 // without a Linux kernel.
 //
 // BoundDevices returns (devices, nil) on success and (nil, err) when
-// the underlying ListAvailable fails. The handler surfaces the err
+// the underlying ListExported fails. The handler surfaces the err
 // via the bound_devices_error JSON field rather than silently serving
 // an empty bound_devices array.
 type statusSource interface {
@@ -41,7 +41,7 @@ type statusSource interface {
 }
 
 // listeningState is the JSON-serialised view of the accept-path state
-// rendered under `listening` in the §7.7 schema-v1 response.
+// rendered under `listening` in the operations-observability and json-contracts OpenSpec documents schema-v1 response.
 type listeningState struct {
 	Addr       string `json:"addr"`
 	Activation bool   `json:"activation"`
@@ -50,9 +50,9 @@ type listeningState struct {
 
 // statusResponse is the typed JSON envelope served on GET /. Declared
 // as a concrete struct (not map[string]any) so the compiler guards the
-// schema-v1 contract against drift (v1 contract §7.7).
+// v1 schema against drift (operations-observability and json-contracts OpenSpec documents).
 //
-// BoundDevicesError carries the human-readable reason ListAvailable
+// BoundDevicesError carries the human-readable reason ListExported
 // failed when bound_devices would otherwise be an empty slice (RANK
 // 12). The field is omitempty so the happy-path JSON stays unchanged.
 type statusResponse struct {
@@ -101,8 +101,9 @@ const statusReadHeaderTimeout = 5 * time.Second
 
 // statusSocketMode is the permission mask applied to the UDS
 // immediately after net.Listen via os.Chmod while the sidecar flock is
-// still held. 0660 matches v1 contract §7.7: the socket-group user can read
-// status without root. Written as a named constant so gosec G302's
+// still held. 0660 matches the operations-observability and json-contracts
+// OpenSpec documents: the socket-group user can read status without root.
+// Written as a named constant so gosec G302's
 // "prefer 0600" default can be pointed at this declaration (intent is
 // explicit, not accidental).
 //
@@ -348,7 +349,7 @@ func bindStatusSocket(ctx context.Context, path, group string) (net.Listener, er
 
 // applyStatusSocketACL chowns the UDS to the configured group.
 // Lookup / chown failures are logged via the ctx-bound logger but do
-// NOT fail startup (v1 contract §7.7: chown is an ops-facing
+// NOT fail startup (operations-observability and json-contracts OpenSpec documents: chown is an ops-facing
 // convenience, not a hard gate — a dev machine without a `usbip-go`
 // group still boots). Mode is set by bindStatusSocket's post-bind
 // os.Chmod call, so this helper is chown-only. Returns nothing:
@@ -405,7 +406,7 @@ func handleStatusGet(w http.ResponseWriter, r *http.Request, src statusSource) {
 
 	bdErrStr := ""
 	if bdErr != nil {
-		// ListAvailable failure (typically /sys inaccessible). Surface
+		// ListExported failure (typically /sys inaccessible). Surface
 		// via bound_devices_error rather than pretending the export
 		// list is empty. Operators polling / can distinguish "no
 		// exports" from "sysfs unreachable".
@@ -415,7 +416,7 @@ func handleStatusGet(w http.ResponseWriter, r *http.Request, src statusSource) {
 	}
 
 	resp := statusResponse{
-		Schema:            "v1",
+		Schema:            schemaVersion,
 		Version:           version,
 		Commit:            commit,
 		UptimeSec:         int64(time.Since(processStartTime).Seconds()),

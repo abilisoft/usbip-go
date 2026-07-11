@@ -42,6 +42,12 @@ USBIPD_PORT=3240
 USBIPD_PIDFILE="/tmp/usbip-fixture-usbipd.pid"
 TCPDUMP_PIDFILE="/tmp/usbip-fixture-tcpdump.pid"
 
+OP_HEADER_BYTES=8
+OP_REQ_IMPORT_BYTES=40
+OP_REP_IMPORT_SUCCESS_BYTES=320
+OP_REP_DEVLIST_ONE_DEVICE_MIN_BYTES=324
+MAX_CAPTURE_MESSAGE_BYTES=$((1024 * 1024))
+
 UPSTREAM_USBIP="$(command -v usbip || echo /usr/bin/usbip)"
 UPSTREAM_USBIPD="$(command -v usbipd || echo /usr/bin/usbipd)"
 
@@ -267,11 +273,9 @@ sudo kill "$(cat "${USBIPD_PIDFILE}")" 2>/dev/null
 sudo kill "$(cat "${TCPDUMP_PIDFILE}")" 2>/dev/null
 sleep 1
 
-# Use tshark to extract the raw TCP payload bytes in hex per packet,
-# then pick out the first packet in each direction to split into REQ/REP
-# files. This is the hands-on part — adjust stream indices if the
-# capture has more than one session (the trap in this script means only
-# one client session should be present).
+# Use tshark to extract raw TCP payload bytes in hex, grouping by TCP stream
+# and direction before concatenation. The list and attach commands necessarily
+# create two streams; size gates below reject truncated or duplicated payloads.
 echo "==> extracting payloads from ${CAPTURE_PCAP}"
 
 # `usbip list` and `usbip attach` are separate invocations and therefore
@@ -322,7 +326,7 @@ hex_to_bin "${REP_LIST_HEX}" "${TESTDATA_DIR}/real_op_rep_devlist_1.bin"
 hex_to_bin "${REQ_IMPORT_HEX}" "${TESTDATA_DIR}/real_op_req_import.bin"
 hex_to_bin "${REP_IMPORT_HEX}" "${TESTDATA_DIR}/real_op_rep_import.bin"
 
-# Enforce exact on-wire sizes per spec §6.2. A size mismatch means the
+# Enforce exact on-wire sizes per wire-protocol OpenSpec. A size mismatch means the
 # capture window caught either too little (truncated TCP) or too much
 # (post-handshake URB bytes concatenated onto the reply), and either
 # case must abort — a warn would let corrupt bytes land as fixture truth.
@@ -338,21 +342,26 @@ abort_on_size() {
 	size_fail=1
 }
 
-[[ "${req_devlist_sz}" -eq 8 ]] || abort_on_size OP_REQ_DEVLIST "${req_devlist_sz}" 8
-[[ "${req_import_sz}" -eq 40 ]] || abort_on_size OP_REQ_IMPORT "${req_import_sz}" 40
+[[ "${req_devlist_sz}" -eq ${OP_HEADER_BYTES} ]] ||
+	abort_on_size OP_REQ_DEVLIST "${req_devlist_sz}" "${OP_HEADER_BYTES}"
+[[ "${req_import_sz}" -eq ${OP_REQ_IMPORT_BYTES} ]] ||
+	abort_on_size OP_REQ_IMPORT "${req_import_sz}" "${OP_REQ_IMPORT_BYTES}"
 # OP_REP_IMPORT is 320 on success (status=0 + 312-byte body) or exactly
 # 8 on error (header-only with non-zero status). Anything else means
 # the capture either truncated the body or tacked on extra URB traffic.
 case "${rep_import_sz}" in
-8 | 320) ;;
-*) abort_on_size OP_REP_IMPORT "${rep_import_sz}" "8 (error) or 320 (success)" ;;
+"${OP_HEADER_BYTES}" | "${OP_REP_IMPORT_SUCCESS_BYTES}") ;;
+*) abort_on_size OP_REP_IMPORT "${rep_import_sz}" \
+	"${OP_HEADER_BYTES} (error) or ${OP_REP_IMPORT_SUCCESS_BYTES} (success)" ;;
 esac
 # OP_REP_DEVLIST minimum for one device with zero interfaces = 324.
 # Upper bound depends on bNumInterfaces of the advertised device, so
 # accept >= 324 but bail on anything unreasonable (>1 MiB is certainly
 # not a single handshake reply).
-if [[ "${rep_devlist_sz}" -lt 324 || "${rep_devlist_sz}" -gt 1048576 ]]; then
-	abort_on_size OP_REP_DEVLIST "${rep_devlist_sz}" ">=324 and <=1MiB"
+if [[ "${rep_devlist_sz}" -lt ${OP_REP_DEVLIST_ONE_DEVICE_MIN_BYTES} ||
+	"${rep_devlist_sz}" -gt ${MAX_CAPTURE_MESSAGE_BYTES} ]]; then
+	abort_on_size OP_REP_DEVLIST "${rep_devlist_sz}" \
+		">=${OP_REP_DEVLIST_ONE_DEVICE_MIN_BYTES} and <=${MAX_CAPTURE_MESSAGE_BYTES}"
 fi
 
 [[ "${size_fail}" -eq 0 ]] || exit 2
@@ -397,13 +406,12 @@ rm -f "${TESTDATA_DIR}/real_capture.directed.tsv"
 echo "==> done. Fixtures in ${TESTDATA_DIR}:"
 find "${TESTDATA_DIR}" -maxdepth 1 -type f -name 'real_*' -printf '    %f\n' | sort
 echo ""
-echo "Next step: run the codec tests against the real fixtures and diff"
-echo "against the synthetic ones to find any byte-level discrepancies:"
+echo "Next step: inspect the temporary captures and compare their hex with"
+echo "the inline constants in internal/adapter/wire/conformance_test.go:"
 echo ""
 echo "    cd ${REPO_ROOT}"
-echo "    diff <(xxd internal/adapter/wire/testdata/device_hs_kingston.bin) \\"
-echo "         <(xxd internal/adapter/wire/testdata/real_op_rep_import.bin | tail -n +2)"
+echo "    xxd -p internal/adapter/wire/testdata/real_op_rep_import.bin"
 echo ""
-echo "If the fixtures differ, review the diff and decide whether the codec"
-echo "needs adjustment (spec drift) or whether the synthetic fixtures"
-echo "were simply wrong (replace them)."
+echo "If the bytes differ, review the pcap and protocol evidence before"
+echo "updating the inline constants. The generated binaries, pcap, and"
+echo "manifest are ignored audit intermediates and must not be committed."

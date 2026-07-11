@@ -41,7 +41,6 @@ func newInternalExporterForTest(t *testing.T) exporterStubs {
 	s.inner = internalapp.NewExporter(
 		internalapp.WithExporterKernel(s.kernel),
 		internalapp.WithExporterEvents(s.events),
-		internalapp.WithExporterTransport(s.trans),
 		internalapp.WithExporterCodec(s.codec),
 	)
 
@@ -67,7 +66,7 @@ func TestExporterListAvailableForwards(t *testing.T) {
 
 	s := newInternalExporterForTest(t)
 
-	want := []domain.Device{{BusID: "1-1"}, {BusID: "2-1"}}
+	want := []domain.Device{{BusID: testRootBusID}, {BusID: "2-1"}}
 
 	s.kernel.listLocalDevicesFn = func(_ context.Context) ([]domain.Device, error) {
 		return want, nil
@@ -93,7 +92,7 @@ func TestExporterListExportedForwards(t *testing.T) {
 
 	s := newInternalExporterForTest(t)
 
-	want := []domain.Device{{BusID: "1-1"}}
+	want := []domain.Device{{BusID: testRootBusID}}
 
 	// stubExporterKernel.ListExportedDevices delegates to the same
 	// listLocalDevicesFn hook; tests that need to distinguish the two
@@ -140,8 +139,8 @@ func TestExporterBindUnbindForwards(t *testing.T) {
 
 	t.Cleanup(shutdownCleanup(t, exp))
 
-	require.NoError(t, exp.Bind(t.Context(), usbip.BusID("1-1")))
-	require.Equal(t, usbip.BusID("1-1"), boundBus)
+	require.NoError(t, exp.Bind(t.Context(), usbip.BusID(testRootBusID)))
+	require.Equal(t, usbip.BusID(testRootBusID), boundBus)
 
 	require.NoError(t, exp.Unbind(t.Context(), usbip.BusID("2-1")))
 	require.Equal(t, usbip.BusID("2-1"), unboundBus)

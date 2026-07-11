@@ -1,0 +1,109 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "app",
+    srcs = [
+        "backoff.go",
+        "cidr.go",
+        "clock.go",
+        "doc.go",
+        "errors.go",
+        "exporter.go",
+        "exporter_watch.go",
+        "importer.go",
+        "importer_watch.go",
+        "interfaces.go",
+        "limits.go",
+        "options.go",
+        "outcomes.go",
+        "reconnect.go",
+        "session.go",
+        "spec.go",
+        "transport_options.go",
+    ],
+    importpath = "github.com/abilisoft/usbip-go/internal/app",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//internal/netopts",
+        "//internal/protocol",
+        "//pkg/domain",
+        "@org_golang_x_time//rate",
+    ],
+)
+
+go_test(
+    name = "app_test",
+    size = "small",
+    srcs = [
+        "attach_options_validation_test.go",
+        "backoff_test.go",
+        "cidr_test.go",
+        "clock_test.go",
+        "codec_mock_test.go",
+        "coverage_whitebox_test.go",
+        "export_test.go",
+        "exporter_arm_handshake_timeout_test.go",
+        "exporter_close_once_test.go",
+        "exporter_lifecycle_test.go",
+        "exporter_limits_test.go",
+        "exporter_serve_test.go",
+        "exporter_session_lifecycle_test.go",
+        "exporter_session_opcodes_test.go",
+        "exporter_session_pass2_test.go",
+        "exporter_sessions_sort_test.go",
+        "exporter_shutdown_accept_test.go",
+        "exporter_shutdown_timeout_test.go",
+        "exporter_test.go",
+        "exporter_watch_race_test.go",
+        "importer_attach_dedup_test.go",
+        "importer_close_attach_drain_test.go",
+        "importer_close_leak_test.go",
+        "importer_detach_rollback_test.go",
+        "importer_rollback_pass2_test.go",
+        "importer_test.go",
+        "importer_watcher_done_race_test.go",
+        "interfaces_test.go",
+        "kernel_events_mock_test.go",
+        "kernel_exporter_mock_test.go",
+        "kernel_importer_mock_test.go",
+        "logging_test.go",
+        "main_test.go",
+        "reconnect_backoff_reset_test.go",
+        "reconnect_generation_test.go",
+        "reconnect_test.go",
+        "spec_test.go",
+        "test_constants_test.go",
+        "transport_mock_test.go",
+        "transport_options_test.go",
+    ],
+    embed = [":app"],
+    deps = [
+        "//internal/adapter/wire",
+        "//internal/protocol",
+        "//internal/testutil",
+        "//pkg/domain",
+        "@com_github_stretchr_testify//require",
+        "@org_uber_go_goleak//:goleak",
+    ],
+)
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(["*.go"]),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_bazel_files",
+    srcs = ["BUILD.bazel"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "testdata_files",
+    srcs = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)

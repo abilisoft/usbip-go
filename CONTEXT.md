@@ -12,7 +12,8 @@ One binary — `usbip-go` — exposes flat top-level verbs for every role
 
 | Subcommand | Role | Notes |
 |---|---|---|
-| `usbip-go list` | Importer | `--local` / `-l` lists local; `--remote <host>` / `-r <host>` lists a remote peer |
+| `usbip-go list` | Exporter | lists every readable local USB device, regardless of bind state |
+| `usbip-go list <remote>` | Importer | lists devices that the remote Exporter currently advertises |
 | `usbip-go attach` | Importer | positional args: `attach <remote> <busid>` |
 | `usbip-go detach` | Importer | positional arg: `detach <port>` |
 | `usbip-go port` | Importer | lists currently-attached vhci ports; `--id <N>` filters to one |
@@ -100,7 +101,9 @@ _Avoid_: connection, link, session (Session belongs to the exporter side).
 **Session**:
 A single active connection on the **exporter** side, identified by a UUIDv7
 SessionID. Created when the Handshake completes; destroyed when the socket
-closes or Disconnect is called. Tracks bytes in/out and the peer address.
+closes or Disconnect is called. Carries reserved byte-counter fields and the
+peer address; the counters currently remain zero because the kernel owns URB
+forwarding.
 _Avoid_: connection, stream, client connection.
 
 **SessionID**:
@@ -164,7 +167,8 @@ implements Wire encode/decode).
 > **Domain expert:** "No — each Handshake produces a brand new Session with a new
 > SessionID. From the importer's perspective the Port ID is the same, but from the
 > exporter's accounting the previous Session ended and a new one started. That's why
-> byte counters reset."
+> reserved byte counters start at zero. The current implementation does not
+> meter kernel-owned URB traffic."
 >
 > **Dev:** "And if two importers try to Attach the same BusID at once?"
 >

@@ -48,7 +48,7 @@ func WithImporterBackoff(b BackoffStrategy) ImporterOption {
 
 // WithImporterStatusPollInterval sets the reconnect watcher's backstop
 // poll period. Zero picks up the library default (5 seconds); a
-// negative value disables polling entirely. v1 contract §5.5.
+// negative value disables polling entirely. importer-lifecycle OpenSpec.
 func WithImporterStatusPollInterval(d time.Duration) ImporterOption {
 	return func(c *importerConfig) { c.statusPollInterval = d }
 }
@@ -95,7 +95,7 @@ func importerConfigToInternal(cfg importerConfig) []internalapp.ImporterOption {
 // exporterConfig carries the option-tunable fields for NewExporter.
 // The split from importerConfig prevents a single Option type from
 // accepting importer-only or exporter-only tunables at the wrong
-// constructor (v1 contract §5.7: role-specific options).
+// constructor (public-library-api OpenSpec: role-specific options).
 type exporterConfig struct {
 	logger             *slog.Logger
 	maxSessions        int
@@ -129,14 +129,14 @@ func WithExporterLogger(l *slog.Logger) ExporterOption {
 }
 
 // WithExporterMaxSessions caps the total concurrent accepted sessions
-// (v1 contract §11.5.3). Zero picks up the library default; a negative value
+// (security-release-quality OpenSpec). Zero picks up the library default; a negative value
 // disables the cap entirely.
 func WithExporterMaxSessions(n int) ExporterOption {
 	return func(c *exporterConfig) { c.maxSessions = n }
 }
 
 // WithExporterMaxSessionsPerPeer caps the concurrent sessions per
-// source IP (v1 contract §11.5.3). Zero picks up the library default; a
+// source IP (security-release-quality OpenSpec). Zero picks up the library default; a
 // negative value disables the per-peer cap entirely.
 func WithExporterMaxSessionsPerPeer(n int) ExporterOption {
 	return func(c *exporterConfig) { c.maxSessionsPerPeer = n }
@@ -144,13 +144,13 @@ func WithExporterMaxSessionsPerPeer(n int) ExporterOption {
 
 // WithExporterAcceptRateLimit caps new accepts at rps tokens per
 // second via an internal token bucket with a library-default burst
-// size (v1 contract §11.5.3). rps <= 0 disables rate limiting entirely.
+// size (security-release-quality OpenSpec). rps <= 0 disables rate limiting entirely.
 func WithExporterAcceptRateLimit(rps float64) ExporterOption {
 	return func(c *exporterConfig) { c.acceptRateLimit = rps }
 }
 
 // WithExporterAllowCIDR appends CIDR strings to the accept-path allow-
-// list (v1 contract §11.5.2). Multiple calls accumulate. An empty list means
+// list (security-release-quality OpenSpec). Multiple calls accumulate. An empty list means
 // "allow every peer" to match upstream usbip-utils behaviour; at least
 // one CIDR opts the exporter into fail-closed ACL enforcement. Invalid
 // CIDR strings surface as NewExporter construction errors.
@@ -161,13 +161,13 @@ func WithExporterAllowCIDR(cidrs ...string) ExporterOption {
 }
 
 // WithExporterMaxHandshakeBytes caps bytes read during the handshake
-// phase (v1 contract §11.5.3). Zero picks up the library default.
+// phase (security-release-quality OpenSpec). Zero picks up the library default.
 func WithExporterMaxHandshakeBytes(n int) ExporterOption {
 	return func(c *exporterConfig) { c.maxHandshakeBytes = n }
 }
 
 // WithExporterHandshakeTimeout bounds how long the exporter waits for
-// a client to complete its OP request (v1 contract §11.5.3). Zero picks up
+// a client to complete its OP request (security-release-quality OpenSpec). Zero picks up
 // the library default; a negative value disables the timeout.
 func WithExporterHandshakeTimeout(d time.Duration) ExporterOption {
 	return func(c *exporterConfig) { c.handshakeTimeout = d }
@@ -177,7 +177,7 @@ func WithExporterHandshakeTimeout(d time.Duration) ExporterOption {
 // Exporter.Shutdown(ctx) when the caller passes a ctx without its own
 // deadline. A positive value caps the drain; zero disables the
 // backstop; a caller-supplied ctx deadline always wins when tighter.
-// v1 contract §5.7.
+// public-library-api OpenSpec.
 func WithExporterShutdownTimeout(d time.Duration) ExporterOption {
 	return func(c *exporterConfig) { c.shutdownTimeout = d }
 }
@@ -205,7 +205,6 @@ func exporterConfigToInternal(cfg exporterConfig) []internalapp.ExporterOption {
 
 	out = appendExporterLoggerAndLimits(out, cfg)
 	out = appendExporterTimeouts(out, cfg)
-	out = appendExporterTransport(out, cfg)
 
 	return out
 }
@@ -230,7 +229,7 @@ func appendExporterLoggerAndLimits(
 
 	if cfg.acceptRateLimit != 0 {
 		// Zero burst picks up the internal default; exposing only rps
-		// on the public API matches v1 contract §5.7 verbatim.
+		// on the public API matches public-library-api OpenSpec verbatim.
 		out = append(out, internalapp.WithExporterAcceptRateLimit(cfg.acceptRateLimit, 0))
 	}
 
@@ -261,19 +260,8 @@ func appendExporterTimeouts(
 	return out
 }
 
-// appendExporterTransport forwards the per-Exporter transport tuning.
-func appendExporterTransport(
-	out []internalapp.ExporterOption, cfg exporterConfig,
-) []internalapp.ExporterOption {
-	if cfg.transportOptions != (TransportOptions{}) {
-		out = append(out, internalapp.WithExporterTransportOptions(cfg.transportOptions))
-	}
-
-	return out
-}
-
 // exporterInternalOptCap is the ceiling used to preallocate the slice
 // returned by exporterConfigToInternal. It matches the number of
-// option branches inside that function (10 including the shutdown-
+// option branches inside that function (9 including the shutdown-
 // timeout plumbing).
-const exporterInternalOptCap = 10
+const exporterInternalOptCap = 9

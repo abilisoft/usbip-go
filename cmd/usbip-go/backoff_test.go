@@ -25,8 +25,8 @@ func TestParseBackoff(t *testing.T) {
 		wantKind string
 		wantD    time.Duration
 	}{
-		{name: "fixed-1s", spec: "fixed:1s", wantKind: "fixed", wantD: time.Second},
-		{name: "fixed-zero", spec: "fixed:0s", wantKind: "fixed", wantD: 0},
+		{name: "fixed-1s", spec: "fixed:1s", wantKind: testFixedBackoffKind, wantD: time.Second},
+		{name: "fixed-zero", spec: "fixed:0s", wantKind: testFixedBackoffKind, wantD: 0},
 		{name: "exp-100ms-30s", spec: "exp:100ms:30s", wantKind: "exp"},
 		{name: "no-separator", spec: "garbage", wantErr: true},
 		{name: "unknown-kind", spec: "wat:5s", wantErr: true},
@@ -55,7 +55,7 @@ func TestParseBackoff(t *testing.T) {
 			require.NotNil(t, got)
 
 			switch tc.wantKind {
-			case "fixed":
+			case testFixedBackoffKind:
 				fb, ok := got.(usbip.FixedBackoff)
 				require.True(t, ok)
 				require.Equal(t, tc.wantD, fb.Delay)

@@ -15,7 +15,7 @@ import (
 )
 
 // interfaceWireSize is the on-wire width of a single interface descriptor
-// in OP_REP_DEVLIST (v1 contract §6.2: class u8, subclass u8, protocol u8,
+// in OP_REP_DEVLIST (wire-protocol OpenSpec: class u8, subclass u8, protocol u8,
 // padding u8).
 const interfaceWireSize = 4
 
@@ -40,7 +40,7 @@ const (
 
 // errDevlistTruncated is an internal sentinel distinguishing the two
 // error-matrix rows (truncated mid-device vs truncated interfaces). The
-// wrapping message text is the public contract (v1 contract §6.2).
+// wrapping message text is the public contract (wire-protocol OpenSpec).
 var errDevlistTruncated = errors.New("devlist truncated")
 
 // errDevlistCountOverflow surfaces an oversized device-count on encode.
@@ -59,13 +59,13 @@ func deviceCountU32(n int) (uint32, error) {
 }
 
 // EncodeOpReqDevlist returns the 8-byte OP_REQ_DEVLIST request (pure
-// header). The request carries no body (v1 contract §6.2).
+// header). The request carries no body (wire-protocol OpenSpec).
 func EncodeOpReqDevlist() []byte {
 	return EncodeHeader(OpReqDevlist, 0)
 }
 
 // EncodeOpRepDevlist writes an OP_REP_DEVLIST reply for the supplied
-// devices (v1 contract §6.2). Each device is serialized via EncodeDevice
+// devices (wire-protocol OpenSpec). Each device is serialized via EncodeDevice
 // followed by its NumInterfaces four-byte interface descriptors.
 //
 // When d.NumInterfaces does not match len(d.Interfaces) the declared
@@ -134,9 +134,9 @@ func encodeInterfaces(w io.Writer, d domain.Device) error {
 
 // DecodeOpRepDevlist decodes an OP_REP_DEVLIST reply from r. Returns
 // (nil, false, nil) for a zero-device reply. The trailingBytes flag
-// is true when bytes remain after the last device (v1 contract §6.2
+// is true when bytes remain after the last device (wire-protocol OpenSpec
 // "permissive on read"); the caller (typically the Codec) logs via
-// its injected logger if desired. Errors follow v1 contract §6.2 error
+// its injected logger if desired. Errors follow wire-protocol OpenSpec error
 // matrix:
 //
 //   - Truncated mid-device → io.ErrUnexpectedEOF wrapped with
@@ -281,7 +281,7 @@ func decodeInterfaces(r io.Reader, count uint8) ([]domain.Interface, error) {
 			Class:    domain.USBClass(buf[base+offIntfClass]),
 			Subclass: domain.USBSubclass(buf[base+offIntfSubclass]),
 			Protocol: domain.USBProtocol(buf[base+offIntfProtocol]),
-			// Alt is not on the wire — v1 contract §6.2 mandates 0 on decode.
+			// Alt is not on the wire — wire-protocol OpenSpec mandates 0 on decode.
 			Alt: 0,
 		})
 	}
@@ -301,7 +301,7 @@ func wrapUnexpectedEOF(ctx string, err error) error {
 }
 
 // hasTrailingBytes reports whether at least one byte remains beyond the
-// declared frame (v1 contract §6.2 permissive-read signal). Peek(1)
+// declared frame (wire-protocol OpenSpec permissive-read signal). Peek(1)
 // may read from the underlying reader if the bufio buffer is empty; callers
 // should ensure the connection carries a read deadline so a stalled peer
 // cannot cause an indefinite block here.

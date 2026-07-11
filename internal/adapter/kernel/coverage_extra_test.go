@@ -120,7 +120,10 @@ func TestUnbindCurrentDeviceDriver_NonAbsenceErrorPropagates(t *testing.T) {
 func TestMapUDCEventBranches(t *testing.T) {
 	t.Parallel()
 
-	const goodDevpath = "/devices/platform/dummy_udc/udc/usbip-vudc.0"
+	const (
+		deviceBoundEventTypeName = "DeviceBoundEvent"
+		goodDevpath              = "/devices/platform/dummy_udc/udc/usbip-vudc.0"
+	)
 
 	cases := []struct {
 		name    string
@@ -129,11 +132,11 @@ func TestMapUDCEventBranches(t *testing.T) {
 		wantOK  bool
 		wantTyp string
 	}{
-		{"add emits bound", "add", goodDevpath, true, "DeviceBoundEvent"},
-		{"change emits bound", "change", goodDevpath, true, "DeviceBoundEvent"},
+		{"add emits bound", ueventActionAdd, goodDevpath, true, deviceBoundEventTypeName},
+		{"change emits bound", "change", goodDevpath, true, deviceBoundEventTypeName},
 		{"remove emits unbound", "remove", goodDevpath, true, "DeviceUnboundEvent"},
 		{"unknown action rejected", "online", goodDevpath, false, ""},
-		{"non-udc devpath rejected", "add", "/devices/platform/foo", false, ""},
+		{"non-udc devpath rejected", ueventActionAdd, "/devices/platform/foo", false, ""},
 	}
 
 	for _, tc := range cases {
@@ -151,9 +154,9 @@ func TestMapUDCEventBranches(t *testing.T) {
 			require.NotNil(t, ev)
 
 			switch tc.wantTyp {
-			case "DeviceBoundEvent":
+			case deviceBoundEventTypeName:
 				_, ok := ev.(domain.DeviceBoundEvent)
-				require.True(t, ok, "expected DeviceBoundEvent, got %T", ev)
+				require.True(t, ok, "expected %s, got %T", deviceBoundEventTypeName, ev)
 			case "DeviceUnboundEvent":
 				_, ok := ev.(domain.DeviceUnboundEvent)
 				require.True(t, ok, "expected DeviceUnboundEvent, got %T", ev)
@@ -200,7 +203,7 @@ func TestParseStatusRowNumbersErrorBranches(t *testing.T) {
 }
 
 // TestTopologyStatusProjection covers Topology.Status which projects
-// the full topology into the §11.5 status JSON shape. A simple value
+// the full topology into the operations-observability OpenSpec status JSON shape. A simple value
 // projection: the four scalar fields must round-trip.
 func TestTopologyStatusProjection(t *testing.T) {
 	t.Parallel()
@@ -307,7 +310,9 @@ func TestNewDispatcherInitialState(t *testing.T) {
 func TestClassifySyscallErr_DelegatesToClassifyFSErr(t *testing.T) {
 	t.Parallel()
 
-	err := classifySyscallErr("write", "/sys/bus/usb/drivers/usbip-host/bind", unix.EIO)
+	const bindPath = "/sys/bus/usb/drivers/usbip-host/bind"
+
+	err := classifySyscallErr("write", bindPath, unix.EIO)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "write")
 }

@@ -1,17 +1,7 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
-#
-# Reusable workflow: project-architecture invariants — domain
-# boundary rules, pure-Go (CGO_ENABLED=0) enforcement, exported-API
-# compatibility, and Linux cross-compilation. These four checks
-# share one workflow because they are all "shape" gates that hold
-# regardless of test or coverage outcome and they are cheap enough
-# to run as siblings without parallel-runner waste.
-#
-# Called from ci.yml on PR/push and from release.yml as a publish
-# prerequisite. No interpolation of untrusted GitHub event fields.
 
-name: Architecture checks (reusable)
+name: Architecture checks
 
 on:
   workflow_call:
@@ -19,256 +9,57 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   domain-boundary:
     name: Domain boundary rules
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      # id-token: write — flakehub-cache-action OIDC. The
-      # third-party-import check uses `go list` for parser-correct
-      # import enumeration (the prior hand-rolled grep missed
-      # aliased/blank/dot imports — Codex MEDIUM finding), which
-      # needs the Nix-pinned Go toolchain.
-      id-token: write
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: ./.github/actions/setup-nix-dev
-      - name: pkg/domain must not import internal/
-        # pkg/domain is the pure-stdlib value-object surface; it must
-        # never reach into internal/. pkg/usbip is the public facade
-        # and is allowed to import internal/* by design (see
-        # docs/architecture.md "Layering rules").
-        run: |
-          set -euo pipefail
-          if [ -d pkg/domain ] && grep -rEn 'github\.com/abilisoft/usbip-go/internal/' pkg/domain/; then
-            echo "pkg/domain imports internal/ — boundary violation"
-            exit 1
-          fi
-      - name: pkg/domain must not import third-party packages
-        # The pure-stdlib invariant means pkg/domain can NEVER pull
-        # in a non-stdlib import — no google/uuid, no testify in
-        # production code, no third-party value-object helpers. A
-        # consumer of pkg/domain must be able to pull our public
-        # surface without inheriting our supply-chain risk.
-        #
-        # Use `go list -f '{{.Imports}}'` rather than a hand-rolled
-        # grep so the check is parser-correct against every Go
-        # import shape — aliased (`foo "x"`), blank (`_ "x"`), dot
-        # (`. "x"`), single-line (`import "x"`), trailing-comment
-        # (`"x" // note`), and grouped imports all surface
-        # identically. The hand-rolled regex an earlier revision
-        # used missed several of those (Codex MEDIUM finding).
-        # Stdlib import paths contain no `.` in the first segment
-        # (`fmt`, `crypto/rand`); every third-party path does
-        # (`github.com/...`, `golang.org/x/...`). The check
-        # excludes _test.go imports (testify in tests is fine) and
-        # self-module imports under github.com/abilisoft/usbip-go/.
-        run: |
-          nix develop .#dev --command bash -euo pipefail -c '
-            # pkg/domain disappearing is itself a boundary
-            # violation (the value-object surface is load-bearing
-            # for the whole DDD layering); fail loudly rather than
-            # silently passing the gate.
-            if [ ! -d pkg/domain ]; then
-              echo "pkg/domain not found — DDD value-object layer is missing"
-              exit 1
-            fi
-            # Enumerate Imports via go list — parser-correct
-            # against every import shape (aliased, blank, dot,
-            # single-line, grouped, trailing-comment). We
-            # intentionally consume Imports only (NOT TestImports)
-            # because *_test.go is allowed to use testify;
-            # production-code Imports is the gate.
-            #
-            # Capture go-list output to a temp file so a load /
-            # module error is detected explicitly. With pipefail a
-            # non-zero `go list` would already fail the pipeline,
-            # but a successful `go list` followed by a printf-
-            # error or empty package list would still produce
-            # zero offenders and silently pass; the exit-code
-            # check below catches both modes.
-            tmpfile=$(mktemp)
-            if ! go list -f "{{\$pkg := .ImportPath}}{{range .Imports}}{{\$pkg}} -> {{.}}{{\"\n\"}}{{end}}" ./pkg/domain/... > "$tmpfile"; then
-              echo "go list ./pkg/domain/... failed — cannot enforce boundary"
-              cat "$tmpfile"
-              rm -f "$tmpfile"
-              exit 1
-            fi
-            offenders=$(awk -F" -> " '"'"'
-                $2 ~ /\./ && $2 !~ /^github\.com\/abilisoft\/usbip-go\// {
-                  print $0
-                }
-              '"'"' "$tmpfile")
-            rm -f "$tmpfile"
-            if [ -n "$offenders" ]; then
-              echo "pkg/domain has third-party imports — pure-stdlib invariant violated:"
-              echo "$offenders"
-              exit 1
-            fi
-          '
-      - name: internal/app must not import internal/adapter/{kernel,transport}
-        # internal/app declares adapter interfaces and consumes them
-        # via dependency injection. It legitimately imports
-        # internal/adapter/wire because codec value types appear on
-        # those interface signatures, but it must not import the
-        # kernel or transport adapter packages — those are reached
-        # only through the declared interfaces.
-        run: |
-          set -euo pipefail
-          if [ -d internal/app ] && grep -rEn 'github\.com/abilisoft/usbip-go/internal/adapter/(kernel|transport)' internal/app/; then
-            echo "internal/app imports internal/adapter/{kernel,transport} — boundary violation"
-            exit 1
-          fi
+      - uses: ./.github/actions/setup-bazel
+      - name: Domain boundary rules
+        run: make check-domain-boundaries
 
   pure-go:
     name: Pure Go enforcement
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      id-token: write
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: ./.github/actions/setup-nix-dev
-      - name: Authoritative cgo detection via go list
-        # `go list -f '{{.CgoFiles}}'` surfaces every OUR package
-        # that has cgo files — catches both single-line `import "C"`
-        # and block-imports, generated cgo, and dotimports. We DON'T
-        # use -deps because Go stdlib (runtime/cgo, net, os/user)
-        # ships cgo files that are only compiled under CGO_ENABLED=1;
-        # listing them is irrelevant to our CGO_ENABLED=0 policy.
-        run: |
-          nix develop .#dev --command bash -euo pipefail -c '
-            # Capture go-list output before filtering so a non-zero
-            # go-list exit fails the pipeline LOUDLY instead of
-            # being swallowed by the trailing `|| true` (Codex
-            # BLOCKER finding). The `|| true` exists only to absorb
-            # the legitimate "no match" exit from grep when the
-            # repo has zero cgo files.
-            tmpfile=$(mktemp)
-            if ! go list -f "{{if .CgoFiles}}{{.ImportPath}}{{end}}" ./... > "$tmpfile"; then
-              echo "go list ./... failed — cannot enforce no-cgo policy"
-              cat "$tmpfile"
-              rm -f "$tmpfile"
-              exit 1
-            fi
-            cgo_pkgs=$(grep -v "^$" "$tmpfile" || true)
-            rm -f "$tmpfile"
-            if [ -n "$cgo_pkgs" ]; then
-              echo "found packages with cgo files — CGO_ENABLED=0 policy violation:"
-              echo "$cgo_pkgs"
-              exit 1
-            fi
-            if grep -rnE "(^|[[:space:]])import[[:space:]]+\"C\"" --include="*.go" . ; then
-              echo "found single-line import \"C\" — CGO_ENABLED=0 policy violation"
-              exit 1
-            fi
-            if find . -name "*.go" -not -path "./.git/*" -print0 | xargs -0 -r awk "
-                /^import[[:space:]]*\\(/ { in_blk=1; next }
-                in_blk && /^\\)/          { in_blk=0; next }
-                in_blk && /^[[:space:]]*\"C\"/ {
-                    print FILENAME \":\" FNR \": block-form import \\\"C\\\" (cgo)\"
-                    found=1
-                }
-                END { exit found ? 1 : 0 }
-              "; then
-              :
-            else
-              echo "found block-form import \"C\" — CGO_ENABLED=0 policy violation"
-              exit 1
-            fi
-          '
+      - uses: ./.github/actions/setup-bazel
+      - name: Pure Go enforcement
+        run: make check-pure-go
 
   api-compatibility:
     name: API compatibility
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      id-token: write
+    timeout-minutes: 30
     steps:
-      # Full history needed because the BREAKING-prefix scan below
-      # walks the merge-base..HEAD commit range on PRs, falling back
-      # to the tip commit on push.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-      - uses: ./.github/actions/setup-nix-dev
-      - name: Diff exported API against baselines
-        # apidiff compares the current public-API surface (pkg/usbip
-        # and pkg/domain) against the JSON baselines under api/.
-        # Removed or incompatible changes require a `BREAKING:`
-        # commit subject anywhere in the PR (or, on push, on the tip
-        # commit) so consumers see the SemVer-major signal.
+      - name: Restore trusted API baselines
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          nix develop .#dev --command bash -eu -c '
-            export GOBIN="$PWD/build/cache/go-bin"
-            mkdir -p "$GOBIN"
-            go install golang.org/x/exp/cmd/apidiff@v0.0.0-20260410095643-746e56fc9e2f
-            # Collect commit subjects for the BREAKING scan. On PRs
-            # we walk merge-base..HEAD; on push we walk the last
-            # commit only. GitHub Actions sets GITHUB_BASE_REF only
-            # on pull_request events.
-            if [ -n "${GITHUB_BASE_REF:-}" ]; then
-              git fetch --no-tags --depth=200 origin "${GITHUB_BASE_REF}" || true
-              range="origin/${GITHUB_BASE_REF}..HEAD"
-            else
-              range="HEAD~1..HEAD"
-            fi
-            subjects="$(git log --format=%s "$range" 2>/dev/null || git log -1 --format=%s)"
-            for pkg in github.com/abilisoft/usbip-go/pkg/usbip github.com/abilisoft/usbip-go/pkg/domain; do
-              short="${pkg##*/}"
-              baseline="api/pkg_${short}.json"
-              # A missing baseline is itself a regression: the
-              # API-stability gate would otherwise silently skip
-              # the package whose JSON was deleted, letting an
-              # operator quietly disable the check by removing
-              # the file. Fail loudly so a deleted baseline is a
-              # gate failure, not a soft-skip.
-              if [ ! -f "$baseline" ]; then
-                echo "missing API baseline for $pkg at $baseline — refusing to skip"
-                exit 1
-              fi
-              # apidiff positional form is `apidiff OLD NEW`;
-              # baseline (the committed contract) is OLD, current
-              # package source is NEW. Earlier revisions inverted
-              # these args, so REMOVALS in the current tree showed
-              # up to apidiff as compatible ADDITIONS relative to
-              # the baseline and slipped past the Incompatible /
-              # Removed grep below — every public-API removal
-              # could ship without a BREAKING: commit (Codex HIGH
-              # finding). Comment uses no apostrophes because the
-              # outer `bash -eu -c` body is single-quoted, and a
-              # stray apostrophe inside a single-quoted string
-              # closes the quote and breaks the script.
-              "$GOBIN/apidiff" "$baseline" "$pkg" > diff.txt
-              cat diff.txt
-              if grep -qE "^(Incompatible|Removed)" diff.txt; then
-                if ! printf "%s\n" "$subjects" | grep -q "^BREAKING:" ; then
-                  echo "API break in $pkg without BREAKING: commit subject in range $range"
-                  exit 1
-                fi
-              fi
-            done
-          '
+          set -euo pipefail
+          git show "${BASE_SHA}:api/pkg_domain.json" > api/pkg_domain.json
+          git show "${BASE_SHA}:api/pkg_usbip.json" > api/pkg_usbip.json
+      - uses: ./.github/actions/setup-bazel
+      - name: API compatibility
+        run: make check-api-compatibility
 
   cross-compile:
     name: Linux cross-compilation
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      id-token: write
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: ./.github/actions/setup-nix-dev
-      - name: Cross-platform build
-        # CGO_ENABLED=0 for cross-builds: matches the no-cgo policy
-        # gate plus avoids the host-toolchain cgo trap (cross-arch
-        # `gcc` cannot assemble runtime/cgo's per-arch sources;
-        # CGO_ENABLED=0 skips them entirely).
-        run: |-
-          nix develop .#dev --command bash -eu -c '
-            export CGO_ENABLED=0
-            GOOS=linux GOARCH=amd64 go build ./...
-            GOOS=linux GOARCH=arm64 go build ./...
-            GOOS=linux GOARCH=arm GOARM=7 go build ./...
-          '
+      - uses: ./.github/actions/setup-bazel
+      - name: Linux cross-compilation
+        run: make check-cross-compile

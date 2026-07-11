@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 AbiliSoft
 // SPDX-License-Identifier: Apache-2.0
 
-// Package main is the usbip-go client CLI entrypoint (v1 contract §7.1).
+// Package main is the usbip-go client CLI entrypoint (cli-interface OpenSpec).
 package main
 
 import (
@@ -59,7 +59,7 @@ func main() {
 }
 
 // renderMainError writes the operator-facing stderr line for err. The
-// v1 contract §7.4 template is produced via FormatError so callers grepping
+// cli-interface OpenSpec template is produced via FormatError so callers grepping
 // on the canonical wording ("usbip-go: device not found", etc.) see it
 // regardless of how deeply err was wrapped along its call path. nil
 // errors produce no output.

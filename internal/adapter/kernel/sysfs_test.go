@@ -80,9 +80,9 @@ func TestReadHex16_WithAndWithoutPrefix(t *testing.T) {
 		t.Run(tc.raw, func(t *testing.T) {
 			t.Parallel()
 
-			mfs := makeFS(map[string]string{"/sys/bus/usb/devices/1-1/idVendor": tc.raw})
+			mfs := makeFS(map[string]string{testUSBDeviceVendorPath: tc.raw})
 
-			got, err := kernel.ReadHex16(mfs, "/sys/bus/usb/devices/1-1/idVendor")
+			got, err := kernel.ReadHex16(mfs, testUSBDeviceVendorPath)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, got)
 		})
@@ -109,7 +109,7 @@ func TestListDirEntries_SortedNames(t *testing.T) {
 	)
 	names, err := kernel.ListDirEntries(mfs, "/sys/bus/usb/devices")
 	require.NoError(t, err)
-	require.Equal(t, []string{"1-1", "1-1.2", "usb1"}, names)
+	require.Equal(t, []string{testRootBusID, "1-1.2", "usb1"}, names)
 }
 
 // Errno → sentinel mapping tests. The classify step must distinguish
@@ -120,7 +120,7 @@ func TestReadLine_DevicePath_ENOENT_MapsToDeviceNotFound(t *testing.T) {
 	t.Parallel()
 
 	mfs := makeFS(nil)
-	_, err := kernel.ReadLine(mfs, "/sys/bus/usb/devices/1-1/idVendor")
+	_, err := kernel.ReadLine(mfs, testUSBDeviceVendorPath)
 	require.ErrorIs(t, err, domain.ErrDeviceNotFound)
 }
 
@@ -128,7 +128,7 @@ func TestReadLine_DriverPath_ENOENT_MapsToModuleMissing(t *testing.T) {
 	t.Parallel()
 
 	mfs := makeFS(nil)
-	_, err := kernel.ReadLine(mfs, "/sys/bus/usb/drivers/usbip-host/bind")
+	_, err := kernel.ReadLine(mfs, testUSBIPHostBindPath)
 	require.ErrorIs(t, err, domain.ErrKernelModuleMissing)
 }
 
@@ -136,7 +136,7 @@ func TestReadLine_VHCIPath_ENOENT_MapsToModuleMissing(t *testing.T) {
 	t.Parallel()
 
 	mfs := makeFS(nil)
-	_, err := kernel.ReadLine(mfs, "/sys/devices/platform/vhci_hcd.0/attach")
+	_, err := kernel.ReadLine(mfs, testVHCIAttachPath)
 	require.ErrorIs(t, err, domain.ErrKernelModuleMissing)
 }
 
@@ -154,24 +154,24 @@ func TestReadLine_ModulePath_ENOENT_MapsToModuleMissing(t *testing.T) {
 func TestClassifyErrno_EACCES_EPERM(t *testing.T) {
 	t.Parallel()
 
-	eacces := kernel.ClassifyErrno("/sys/bus/usb/devices/1-1/idVendor", unix.EACCES)
+	eacces := kernel.ClassifyErrno(testUSBDeviceVendorPath, unix.EACCES)
 	require.ErrorIs(t, eacces, domain.ErrPermission)
 
-	eperm := kernel.ClassifyErrno("/sys/bus/usb/devices/1-1/idVendor", unix.EPERM)
+	eperm := kernel.ClassifyErrno(testUSBDeviceVendorPath, unix.EPERM)
 	require.ErrorIs(t, eperm, domain.ErrPermission)
 }
 
 func TestClassifyErrno_EBUSY_MapsToAlreadyBound(t *testing.T) {
 	t.Parallel()
 
-	err := kernel.ClassifyErrno("/sys/bus/usb/drivers/usbip-host/bind", unix.EBUSY)
+	err := kernel.ClassifyErrno(testUSBIPHostBindPath, unix.EBUSY)
 	require.ErrorIs(t, err, domain.ErrDeviceAlreadyBound)
 }
 
 func TestClassifyErrno_ENODEV_MapsToDeviceNotFound(t *testing.T) {
 	t.Parallel()
 
-	err := kernel.ClassifyErrno("/sys/devices/platform/vhci_hcd.0/attach", unix.ENODEV)
+	err := kernel.ClassifyErrno(testVHCIAttachPath, unix.ENODEV)
 	require.ErrorIs(t, err, domain.ErrDeviceNotFound)
 }
 
@@ -182,7 +182,7 @@ func TestClassifyErrno_ENODEV_MapsToDeviceNotFound(t *testing.T) {
 func TestClassifyErrno_UnknownPassThrough(t *testing.T) {
 	t.Parallel()
 
-	err := kernel.ClassifyErrno("/sys/bus/usb/devices/1-1/idVendor", unix.EIO)
+	err := kernel.ClassifyErrno(testUSBDeviceVendorPath, unix.EIO)
 	require.ErrorIs(t, err, unix.EIO)
 	require.NotErrorIs(t, err, domain.ErrDeviceNotFound)
 	require.NotErrorIs(t, err, domain.ErrKernelModuleMissing)
@@ -194,9 +194,9 @@ func TestClassifyErrno_UnknownPassThrough(t *testing.T) {
 func TestReadHex16_MalformedWraps(t *testing.T) {
 	t.Parallel()
 
-	mfs := makeFS(map[string]string{"/sys/bus/usb/devices/1-1/idVendor": "not-hex\n"})
+	mfs := makeFS(map[string]string{testUSBDeviceVendorPath: "not-hex\n"})
 
-	_, err := kernel.ReadHex16(mfs, "/sys/bus/usb/devices/1-1/idVendor")
+	_, err := kernel.ReadHex16(mfs, testUSBDeviceVendorPath)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "idVendor")
 }

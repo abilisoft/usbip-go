@@ -13,7 +13,7 @@ import (
 )
 
 // TestFacadeLifecycleSentinelsDeclared pins the public lifecycle +
-// protocol sentinels declared by v1 contract §5.7 that must be matchable via
+// protocol sentinels declared by public-library-api OpenSpec that must be matchable via
 // errors.Is through the pkg/usbip boundary. Previously callers had to
 // import internal/app (ErrImporterClosed / ErrAlreadyShutdown /
 // ErrServeAlreadyRunning) or reach into pkg/domain (ErrProtocolError)
@@ -59,7 +59,7 @@ func TestFacadeInternalSentinelsDoNotLeak(t *testing.T) {
 }
 
 // TestAlreadyShutdownReExportsDomain pins that usbip.ErrAlreadyShutdown
-// re-exports the domain sentinel unchanged. v1 contract §5.7 already lists
+// re-exports the domain sentinel unchanged. public-library-api OpenSpec already lists
 // domain.ErrAlreadyShutdown on the public surface, so aliasing — not a
 // distinct identity — is the right treatment for that specific error.
 func TestAlreadyShutdownReExportsDomain(t *testing.T) {
@@ -93,7 +93,7 @@ func TestImporterAfterCloseYieldsPublicSentinel(t *testing.T) {
 	imp := usbip.NewImporterFromInternalForTest(s.inner)
 	require.NoError(t, imp.Close())
 
-	_, err := imp.ListRemote(t.Context(), usbip.RemoteEndpoint{Host: "peer"})
+	_, err := imp.ListRemote(t.Context(), usbip.RemoteEndpoint{Host: testPeerHost})
 	require.ErrorIs(t, err, usbip.ErrImporterClosed)
 	require.NotErrorIs(t, err, internalapp.ErrImporterClosed,
 		"facade must translate internal/app.ErrImporterClosed, not leak it")

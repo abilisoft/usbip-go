@@ -5,7 +5,7 @@ contributors.
 
 ## Layers
 
-```
+```text
 +-------------------------+  cmd/usbip-go, examples/*
 |   Command entrypoints   |
 +-----------+-------------+
@@ -42,20 +42,20 @@ Dependencies flow top-down only:
   dependency.
 - No adapter package imports `internal/app`.
 
-These rules are enforced mechanically by the `domain-boundary` job in
-the [`_arch-checks.yml`](../.github/workflows/_arch-checks.yml)
-reusable workflow (called from `ci.yml`'s `arch:` job).
+These rules are enforced mechanically by the Bazel-backed lint suite
+run from [`ci.yml`](../.github/workflows/ci.yml) via `make lint`.
 
 ## Package responsibilities
 
 ### `pkg/usbip`
 
-The only package external consumers import. It declares `Importer`,
-`Exporter`, `AttachOptions`, every `With*` option constructor, the
-public backoff strategies, and the sentinel errors. All method bodies
-are 1:1 forwards to `internal/app` after trivial argument translation.
-The facade exists so the internal layer can evolve without breaking
-the public API; `openspec/specs/public-library-api/spec.md` documents this surface.
+The primary public service facade; consumers may also import `pkg/domain` for
+domain values. It declares `Importer`, `Exporter`, `AttachOptions`, every
+`With*` option constructor, the public backoff strategies, and sentinel errors.
+Methods forward to `internal/app` after public/internal translation, while
+constructors compose the production adapters. The facade exists so the
+internal layer can evolve without breaking the public API;
+`openspec/specs/public-library-api/spec.md` documents this surface.
 
 ### `pkg/domain`
 
@@ -73,7 +73,8 @@ cannot reintroduce a third-party value-object dependency.
 
 Because `pkg/domain` types are returned across the package boundary,
 they participate in the `apidiff` baseline. Any incompatible change
-requires a `BREAKING:` commit and a baseline regeneration.
+requires a Conventional Commit breaking marker (`!` in the subject or a
+`BREAKING CHANGE:` footer) and a baseline regeneration.
 
 ### `internal/app`
 
@@ -84,8 +85,8 @@ Implements the use-case services:
 - `Exporter` — `ListAvailable`, `Bind`, `Unbind`, `Serve`, `Sessions`,
   `WatchSessions`, `Shutdown`.
 - Reconnect watcher with per-port generation tokens (see `openspec/specs/importer-lifecycle/spec.md`).
-- Session accounting, ACL enforcement, accept rate limiting (spec
-  documented in `openspec/specs/security-release-quality/spec.md`.
+- Session accounting, ACL enforcement, and accept rate limiting, specified in
+  `openspec/specs/security-release-quality/spec.md`.
 - Closed-set outcome enums (AttachOutcome, ReconnectOutcome, etc.) used
   as `slog.String("outcome", …)` field values for journald queries
   (no Prometheus dependency — see `openspec/specs/operations-observability/spec.md`).
@@ -97,8 +98,7 @@ are composed in via `pkg/usbip`'s constructors. The app layer
 imports `internal/adapter/wire` because the codec value types appear
 on those interface signatures, but it does NOT import
 `internal/adapter/kernel` or `internal/adapter/transport` —
-the `domain-boundary` CI job (in `_arch-checks.yml`) verifies that
-latter rule.
+the Bazel-backed `make lint` CI gate verifies that latter rule.
 
 ### `internal/adapter/kernel`
 
@@ -142,7 +142,7 @@ version,completion}` cover the client and operator commands.
 
 Four minimal library-embed programs that each demonstrate one public
 API pattern. Every example builds with `go build ./examples/...` and
-is covered by the `Linux cross-compilation` CI job (in `_arch-checks.yml`).
+is covered by the Bazel build in `make build`.
 
 ## Concurrency model
 
@@ -159,27 +159,28 @@ is covered by the `Linux cross-compilation` CI job (in `_arch-checks.yml`).
   `test/conformance`) install `goleak.VerifyTestMain` to catch
   goroutine leaks at the package boundary.
 
-See `openspec/specs/importer-lifecycle/spec.md` and `openspec/specs/exporter-lifecycle/spec.md` for the authoritative lifecycle-semantics list (double-detach idempotency, shutdown drain semantics, runtime module disappearance, etc.).
+See `openspec/specs/importer-lifecycle/spec.md` and
+`openspec/specs/exporter-daemon/spec.md` for the authoritative lifecycle
+semantics (double-detach idempotency, shutdown drain semantics, runtime module
+disappearance, and related behavior).
 
 ## Error strategy
 
-Adapter layer returns raw errors (syscall errno, protocol decode
-failure, `net` error). The application layer wraps with
-`github.com/samber/oops` to attach context attributes (`busid`,
-`remote`, `port_id`, `attempt`). `slog` emits those attributes
-automatically in structured output.
+Adapters preserve underlying syscall, protocol, and network errors while
+mapping documented domain conditions to sentinels. Application paths add
+operation context, including values such as `busid`, `remote`, `port_id`, and
+`attempt`, with `fmt.Errorf` wrapping or `github.com/samber/oops` attributes.
 
-Every returned error is classifiable via `errors.Is` against one of
-the sentinels in `pkg/usbip/errors.go`. The kernel-to-domain error
-map is covered by `openspec/specs/domain-model/spec.md` and the package tests.
+Documented domain and lifecycle conditions are classifiable via `errors.Is`
+against sentinels in `pkg/usbip/errors.go`. The kernel-to-domain error map is
+covered by `openspec/specs/domain-model/spec.md` and package tests.
 
 ## Layering rules (enforced)
 
 1. **Go `internal/` rule** — packages outside the module cannot
    import anything under `internal/`. This is a compiler-level
    check.
-2. **`pkg/domain` must not import `internal/`** — enforced by the
-   `domain-boundary` CI job (in `_arch-checks.yml`). The domain
+2. **`pkg/domain` must not import `internal/`** — enforced by the Bazel-backed lint suite run by `make lint`. The domain
    package stays a pure-stdlib value-object surface — the same
    job also rejects any third-party import (anything whose path
    contains a dot in the host segment) so consumers of the library
@@ -195,6 +196,5 @@ map is covered by `openspec/specs/domain-model/spec.md` and the package tests.
    through the interfaces it declares. It DOES import
    `internal/adapter/wire` because codec value types appear on
    those interface signatures.
-5. **No cgo anywhere** — enforced by the `pure-go` CI job (in
-   `_arch-checks.yml`) via both `go list -f '{{.CgoFiles}}'` and
-   source grep for `import "C"`.
+5. **No cgo anywhere** — enforced by the Bazel-backed lint suite via both package metadata
+   checks and source grep for `import "C"`.

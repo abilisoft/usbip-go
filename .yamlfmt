@@ -1,4 +1,3 @@
----
 line_ending: lf
 gitignore_excludes: true
 include:
@@ -10,8 +9,6 @@ include:
   - .testcoverage.yaml
   - .yamlfmt
   - .yamllint
-  - Taskfile.yml
-  - docker-compose.yml
   - openspec/config.yaml
 exclude:
   - build/**

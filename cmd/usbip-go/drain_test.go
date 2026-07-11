@@ -26,9 +26,10 @@ import (
 // empty") and POST /drain by incrementing drainCalls. Returns the
 // UDS path + a cleanup that shuts the server and unlinks the file.
 type drainTestServer struct {
-	drainCalls atomic.Int32
-	server     *http.Server
-	listener   net.Listener
+	drainCalls              atomic.Int32
+	closeListenerAfterDrain atomic.Bool
+	server                  *http.Server
+	listener                net.Listener
 }
 
 type drainTestState struct {
@@ -59,17 +60,17 @@ func newDrainTestServer(
 		state := stateFn(int(s.drainCalls.Load()))
 
 		body := map[string]any{
-			"schema":        "v1",
-			"version":       "test",
-			"commit":        "none",
-			"uptime_sec":    1,
-			"listening":     map[string]any{"addr": "", "activation": false, "accepting": state.accepting},
-			"bound_devices": []any{},
-			"sessions":      state.sessions,
+			"schema":         "v1",
+			testVersionToken: "test",
+			"commit":         "none",
+			"uptime_sec":     1,
+			"listening":      map[string]any{"addr": "", "activation": false, "accepting": state.accepting},
+			"bound_devices":  []any{},
+			"sessions":       state.sessions,
 			"kernel_modules": map[string]any{
-				"usbip_core": "loaded",
-				"vhci_hcd":   "loaded",
-				"usbip_host": "loaded",
+				testUSBIPCoreModule: testLoadedModuleState,
+				testVHCIHCDModule:   testLoadedModuleState,
+				testUSBIPHostModule: testLoadedModuleState,
 			},
 		}
 
@@ -89,7 +90,25 @@ func newDrainTestServer(
 
 	mux.HandleFunc("POST /drain", func(w http.ResponseWriter, _ *http.Request) {
 		s.drainCalls.Add(1)
+		// Force the subsequent status probe onto a new UDS connection. The
+		// daemon-disappears scenario closes the listener after this response;
+		// reusing the POST connection would nondeterministically surface
+		// ECONNRESET even though the classifier intentionally accepts only
+		// dial-time ENOENT/ECONNREFUSED as proof that the daemon exited.
+		w.Header().Set("Connection", "close")
 		w.WriteHeader(http.StatusOK)
+
+		flushErr := http.NewResponseController(w).Flush()
+		if flushErr != nil {
+			t.Errorf("drain test server: flush POST response: %v", flushErr)
+		}
+
+		if s.closeListenerAfterDrain.Load() {
+			closeErr := s.listener.Close()
+			if closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
+				t.Errorf("drain test server: close listener after POST: %v", closeErr)
+			}
+		}
 	})
 
 	s.server = &http.Server{
@@ -132,9 +151,9 @@ func TestDrainSubcommandSuccess(t *testing.T) {
 
 	cmd := newDrainCmd()
 	cmd.SetArgs([]string{
-		"--status-socket", sockPath,
-		"--drain-timeout", "3s",
-		"--poll-interval", "20ms",
+		testStatusSocketFlag, sockPath,
+		testDrainTimeoutFlag, "3s",
+		testPollIntervalFlag, testPollIntervalValue,
 	})
 
 	var stdout, stderr bytes.Buffer
@@ -167,9 +186,9 @@ func TestDrainSubcommandTimeout(t *testing.T) {
 
 	cmd := newDrainCmd()
 	cmd.SetArgs([]string{
-		"--status-socket", sockPath,
-		"--drain-timeout", "200ms",
-		"--poll-interval", "20ms",
+		testStatusSocketFlag, sockPath,
+		testDrainTimeoutFlag, "200ms",
+		testPollIntervalFlag, testPollIntervalValue,
 	})
 
 	var stdout, stderr bytes.Buffer
@@ -260,22 +279,17 @@ func TestDrainSubcommandUDSDisappears(t *testing.T) {
 		}
 	})
 
-	// Close the server shortly after the first POST /drain so the
-	// polling client observes a dial failure → success per v1 contract §7.7.
-	go func() {
-		// Wait for at least one drain call.
-		for srv.drainCalls.Load() == 0 {
-			time.Sleep(10 * time.Millisecond)
-		}
-
-		srv.Close()
-	}()
+	// Close the listener synchronously after flushing POST /drain so the next
+	// status probe must dial and observe daemon disappearance. Closing from a
+	// peer goroutine races the immediate probe and can reset a newly accepted
+	// connection, which is intentionally not classified as proof of exit.
+	srv.closeListenerAfterDrain.Store(true)
 
 	cmd := newDrainCmd()
 	cmd.SetArgs([]string{
-		"--status-socket", sockPath,
-		"--drain-timeout", "3s",
-		"--poll-interval", "20ms",
+		testStatusSocketFlag, sockPath,
+		testDrainTimeoutFlag, "3s",
+		testPollIntervalFlag, testPollIntervalValue,
 	})
 
 	var stdout, stderr bytes.Buffer
@@ -302,8 +316,8 @@ func TestDrainSubcommandRejectsNonPositivePollInterval(t *testing.T) {
 
 			cmd := newDrainCmd()
 			cmd.SetArgs([]string{
-				"--status-socket", "/run/usbip-go/status.sock",
-				"--poll-interval", badInterval,
+				testStatusSocketFlag, "/run/usbip-go/status.sock",
+				testPollIntervalFlag, badInterval,
 			})
 
 			var stdout, stderr bytes.Buffer
@@ -332,7 +346,7 @@ func TestDrainSubcommandRejectsEmptyStatusSocket(t *testing.T) {
 	t.Parallel()
 
 	cmd := newDrainCmd()
-	cmd.SetArgs([]string{"--status-socket", ""})
+	cmd.SetArgs([]string{testStatusSocketFlag, ""})
 
 	var stdout, stderr bytes.Buffer
 

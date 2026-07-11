@@ -72,20 +72,20 @@ func boundFS(busID string) fstest.MapFS {
 
 // bindFS returns a MapFS wired up for a bind/unbind round trip on the
 // supplied busID: modules present, device-driver symlink in place. The
-// bare device carries the generic "usb" device-level driver (the kernel
+// bare device carries the generic testUeventSubsystemUSB device-level driver (the kernel
 // default for all enumerated USB devices) so the bind sequence exercises
 // unbindCurrentDeviceDriver in addition to the interface unbind.
 func bindFS(busID string) fstest.MapFS {
 	iface := busID + ":1.0"
 
 	return fstest.MapFS{
-		"sys/module/usbip_core":                                 &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host":                                 &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host":                        &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host/match_busid":            &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/bind":                   &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/unbind":                 &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/rebind":                 &fstest.MapFile{Data: []byte("")},
+		testFSModuleUSBIPCorePath:                               &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleUSBIPHostPath:                               &fstest.MapFile{Mode: fs.ModeDir},
+		testFSUSBIPHostDir:                                      &fstest.MapFile{Mode: fs.ModeDir},
+		testFSUSBIPHostMatchBusIDPath:                           &fstest.MapFile{Data: []byte("")},
+		testFSUSBIPHostBindPath:                                 &fstest.MapFile{Data: []byte("")},
+		testFSUSBIPHostUnbindPath:                               &fstest.MapFile{Data: []byte("")},
+		testFSUSBIPHostRebindPath:                               &fstest.MapFile{Data: []byte("")},
 		"sys/bus/usb/devices/" + busID:                          &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + busID + "/bConfigurationValue": &fstest.MapFile{Data: []byte("1\n")},
 		"sys/bus/usb/devices/" + busID + "/driver/driver_name":  &fstest.MapFile{Data: []byte("usb\n")},
@@ -120,7 +120,7 @@ func TestBind_WritesExactSequence(t *testing.T) {
 	require.Len(t, rec.calls, 3)
 
 	require.Equal(t, writeCall{
-		Path: "/sys/bus/usb/drivers/usbip-host/match_busid",
+		Path: testUSBIPHostMatchBusIDPath,
 		Data: "add " + string(busID),
 	}, rec.calls[0])
 
@@ -130,7 +130,7 @@ func TestBind_WritesExactSequence(t *testing.T) {
 	}, rec.calls[1])
 
 	require.Equal(t, writeCall{
-		Path: "/sys/bus/usb/drivers/usbip-host/bind",
+		Path: testUSBIPHostBindPath,
 		Data: string(busID),
 	}, rec.calls[2])
 }
@@ -161,7 +161,7 @@ func TestUnbind_WritesReverseSequence(t *testing.T) {
 	}, rec.calls[1])
 
 	require.Equal(t, writeCall{
-		Path: "/sys/bus/usb/drivers/usbip-host/match_busid",
+		Path: testUSBIPHostMatchBusIDPath,
 		Data: "del " + string(busID),
 	}, rec.calls[2])
 
@@ -171,7 +171,7 @@ func TestUnbind_WritesReverseSequence(t *testing.T) {
 	}, rec.calls[3])
 }
 
-// TestBind_EBUSYMapsToAlreadyBound confirms v1 contract §6.4 mapping for the
+// TestBind_EBUSYMapsToAlreadyBound confirms kernel-adapter and domain-model OpenSpec documents mapping for the
 // bind write — when the EBUSY persists across the full retry budget.
 // Bind retries the usbip-host bind step on EBUSY (transient drain),
 // so the test injects a writeFunc that returns EBUSY for every write
@@ -181,7 +181,7 @@ func TestUnbind_WritesReverseSequence(t *testing.T) {
 func TestBind_EBUSYMapsToAlreadyBound(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	rec := &writeRecord{}
 
 	persistentEBUSYOnBind := func(p, data string) error {
@@ -189,7 +189,7 @@ func TestBind_EBUSYMapsToAlreadyBound(t *testing.T) {
 		rec.calls = append(rec.calls, writeCall{Path: p, Data: data})
 		rec.mu.Unlock()
 
-		if p == "/sys/bus/usb/drivers/usbip-host/bind" {
+		if p == testUSBIPHostBindPath {
 			return unix.EBUSY
 		}
 
@@ -211,12 +211,12 @@ func TestBind_EBUSYMapsToAlreadyBound(t *testing.T) {
 func TestBind_ModuleMissingShortCircuits(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	rec := &writeRecord{}
 
 	m := bindFS(string(busID))
 	// Simulate runtime module loss.
-	delete(m, "sys/module/usbip_host")
+	delete(m, testFSModuleUSBIPHostPath)
 
 	a, err := kernel.NewExporterAdapter(
 		kernel.WithFS(m),
@@ -243,7 +243,7 @@ func TestBind_ModuleMissingShortCircuits(t *testing.T) {
 func TestBind_NoDeviceDriver_ProceedsToMatchAndBind(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	rec := &writeRecord{}
 
 	m := bindFS(string(busID))
@@ -264,6 +264,6 @@ func TestBind_NoDeviceDriver_ProceedsToMatchAndBind(t *testing.T) {
 	require.Len(t, rec.calls, 2,
 		"no driver means no unbind; match_busid add + usbip-host bind only")
 
-	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/match_busid", rec.calls[0].Path)
-	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/bind", rec.calls[1].Path)
+	require.Equal(t, testUSBIPHostMatchBusIDPath, rec.calls[0].Path)
+	require.Equal(t, testUSBIPHostBindPath, rec.calls[1].Path)
 }

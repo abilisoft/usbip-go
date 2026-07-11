@@ -1,10 +1,8 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
 #
-# gremlins mutation-test config. Excludes the hermetic build cache
-# (build/cache/go-mod is gigabytes of vendored modules — copying it
-# per worker fills the disk and panics the tool) and any directory
-# unrelated to the mutation surface.
+# gremlins mutation-test configuration. Thresholds live only here so
+# local and CI mutation runs cannot silently enforce different floors.
 
 silent: true
 

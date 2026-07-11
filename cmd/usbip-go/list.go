@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newListCmd constructs the `usbip-go list` subcommand per v1 contract §7.1.
+// newListCmd constructs the `usbip-go list` subcommand per cli-interface OpenSpec.
 func newListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list [remote]",
@@ -93,7 +93,7 @@ func runListLocal(ctx context.Context, r Renderer, out io.Writer) error {
 // outputFromCtx reads the globalFlags.Output stashed by
 // PersistentPreRunE. Defaults to "table" when missing.
 func outputFromCtx(ctx context.Context) string {
-	gf, ok := ctx.Value(flagsCtxKey).(*globalFlags)
+	gf, ok := ctx.Value(flagsContextKey{}).(*globalFlags)
 	if !ok || gf == nil {
 		return "table"
 	}

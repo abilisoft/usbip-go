@@ -40,12 +40,13 @@ func TestNewExporterDefaultsSucceeds(t *testing.T) {
 }
 
 // TestNewExporterAllowCIDRInvalidReturnsError proves bad CIDR strings
-// surface at construction time — not at Serve time, per v1 contract §11.5.2.
+// surface at construction time — not at Serve time, per security-release-quality OpenSpec.
 func TestNewExporterAllowCIDRInvalidReturnsError(t *testing.T) {
 	t.Parallel()
 
 	_, err := usbip.NewExporter(usbip.WithExporterAllowCIDR("not-a-cidr"))
 	require.Error(t, err)
+	require.ErrorIs(t, err, usbip.ErrACLInvalid)
 }
 
 // TestNewImporterAppliesOptions drives every NewImporter option so the

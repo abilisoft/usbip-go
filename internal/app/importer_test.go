@@ -163,7 +163,7 @@ func TestNewImporterAppliesLoggerAndClock(t *testing.T) {
 
 // fakeConn is an instrumented net.Conn used by importer tests. It
 // records Close, Write, and Read activity so the fd-passing lifecycle
-// per v1 contract §5.4 item 4 can be asserted without spinning up a real
+// required by the kernel-adapter and importer-lifecycle OpenSpec documents can be asserted without spinning up a real
 // network. Read is backed by a buffered byte stream supplied by the
 // test; Write is a no-op that records the payload.
 type fakeConn struct {
@@ -272,7 +272,7 @@ func TestImporterListRemoteHappyPath(t *testing.T) {
 	reqBytes := []byte{0x01, 0x11, 0x80, 0x05, 0, 0, 0, 0}
 
 	want := []domain.Device{
-		{BusID: domain.BusID("1-1"), Path: "/sys/devices/pci/usb1/1-1"},
+		{BusID: domain.BusID("1-1"), Path: testRootDevicePath},
 		{BusID: domain.BusID("2-1"), Path: "/sys/devices/pci/usb2/2-1"},
 	}
 
@@ -476,7 +476,7 @@ func TestImporterAttachHappyPath(t *testing.T) {
 	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), app.AttachOptions{})
 	require.NoError(t, err)
 
-	// Call order matches the v1 contract §5.2 sequence.
+	// Call order matches the importer-lifecycle OpenSpec sequence.
 	require.Equal(t, []string{"ModulesAvailable", "Dial", "EncodeOpReqImport", "DecodeOpRepImport", "AttachRemote"}, call)
 
 	// Port is populated from (request + decoded spec + attach result).
@@ -701,7 +701,7 @@ func attachOnce(t *testing.T, kernel *ImporterKernelMock) (*app.Importer, domain
 
 // TestImporterDetachCancelsThenDelegates asserts Detach invokes the
 // handle's cancel func exactly once AND delegates to kernel.DetachPort
-// with the same id — v1 contract §5.5 says the handle must be released before
+// with the same id — importer-lifecycle OpenSpec says the handle must be released before
 // the kernel-side detach so any auto-reconnect watcher sees cancel
 // before a status transition and does not race a reattempt.
 func TestImporterDetachCancelsThenDelegates(t *testing.T) {
@@ -1356,8 +1356,14 @@ func TestImporterAttachCloseRaceDetachFailureLogged(t *testing.T) {
 		closeDone <- imp.Close()
 	}()
 
-	// Give Close a moment to commit closed=true and start draining.
-	time.Sleep(50 * time.Millisecond)
+	// Close cannot return while Attach is parked. The bounded negative
+	// assertion gives Close time to commit closed=true before the gate opens.
+	select {
+	case err := <-closeDone:
+		t.Fatalf("Close returned before the in-flight Attach drained: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
 	close(gate)
 
 	select {

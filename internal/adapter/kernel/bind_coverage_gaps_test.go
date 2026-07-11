@@ -30,7 +30,7 @@ import (
 func TestBind_NonEBUSYErrorReturnsImmediately(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	rec := &writeRecord{}
 
 	writeFn := func(p, d string) error {
@@ -79,7 +79,7 @@ func TestBind_NonEBUSYErrorReturnsImmediately(t *testing.T) {
 func TestBind_RollbackFailsLogsWarning(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	rec := &writeRecord{}
 
 	writeFn := func(p, d string) error {
@@ -133,7 +133,7 @@ func TestBind_NetdevIFFUpNotSet_SkipsWrite(t *testing.T) {
 	t.Parallel()
 
 	const (
-		busID   = "1-1"
+		busID   = testRootBusID
 		netName = "enxCC00"
 	)
 
@@ -167,7 +167,7 @@ func TestBind_NetdevIFFUpSet_WriteFails_BindStillSucceeds(t *testing.T) {
 	t.Parallel()
 
 	const (
-		busID   = "1-1"
+		busID   = testRootBusID
 		netName = "enxCC01"
 	)
 
@@ -203,7 +203,7 @@ func TestBind_NetdevNoFlagsFile_SkipsNetdev(t *testing.T) {
 	t.Parallel()
 
 	const (
-		busID   = "1-1"
+		busID   = testRootBusID
 		netName = "enxCC02"
 	)
 
@@ -269,8 +269,8 @@ func buildNonVHCIFakeSysfs(t *testing.T, busID string) string {
 	relTarget := filepath.Join("..", "..", "..", "devices", "pci0000:00", "0000:00:1d.0", "usb1", busID)
 	require.NoError(t, os.Symlink(relTarget, filepath.Join(devDir, busID)))
 
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "sys/module/usbip_core"), 0o750))
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "sys/module/usbip_host"), 0o750))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, testFSModuleUSBIPCorePath), 0o750))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, testFSModuleUSBIPHostPath), 0o750))
 
 	return root
 }

@@ -3,12 +3,14 @@
 #
 version: 2
 
-# Dependabot configuration. Two ecosystems:
+# Dependabot configuration. Four ecosystems:
 #
 #   * gomod        — go.mod / go.sum direct + indirect deps. Grouped
 #                    by major-version family so a single PR bumps the
 #                    whole tree (avoids opening 30 PRs against tightly
 #                    coupled modules).
+#   * gomod /tools — build and quality-tool dependency graph.
+#   * bazel        — MODULE.bazel / MODULE.bazel.lock dependencies.
 #   * github-actions — reusable actions referenced in workflows under
 #                    .github/workflows. Pinned digests get bumped to
 #                    the latest semver-tagged commit.
@@ -56,5 +58,46 @@ updates:
       include: scope
     groups:
       github-actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: gomod
+    directory: /tools
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - go
+    commit-message:
+      prefix: deps
+      include: scope
+    groups:
+      go-tools:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: bazel
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    labels:
+      - bazel
+      - dependencies
+    commit-message:
+      prefix: deps
+      include: scope
+    groups:
+      bazel-modules:
         patterns:
           - "*"

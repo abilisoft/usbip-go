@@ -32,8 +32,6 @@ import (
 func TestUSBIPDGoBinary_MissingStatusSocketParent_ExitAndStderr(t *testing.T) {
 	t.Parallel()
 
-	bin := buildUsbipdGoBinaryForTest(t)
-
 	tmp, err := filepath.Abs(t.TempDir())
 	require.NoError(t, err)
 
@@ -48,8 +46,8 @@ func TestUSBIPDGoBinary_MissingStatusSocketParent_ExitAndStderr(t *testing.T) {
 	// Capture stdout and stderr separately so we can pin which stream
 	// the operator-facing error lands on (stderr is the systemd
 	// journal expectation).
-	cmd := exec.CommandContext(
-		ctx, bin,
+	cmd := buildUsbipdGoCommandForTest(
+		ctx, t,
 		"serve",
 		"--listen", "127.0.0.1:0",
 		"--status-socket", missing,
@@ -93,14 +91,12 @@ func TestUSBIPDGoBinary_MissingStatusSocketParent_ExitAndStderr(t *testing.T) {
 func TestUSBIPDGoBinary_VersionExitsZeroWithoutDaemonBind(t *testing.T) {
 	t.Parallel()
 
-	bin := buildUsbipdGoBinaryForTest(t)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var stdout, stderr bytes.Buffer
 
-	cmd := exec.CommandContext(ctx, bin, "version")
+	cmd := buildUsbipdGoCommandForTest(ctx, t, "version")
 
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -119,12 +115,10 @@ func TestUSBIPDGoBinary_VersionExitsZeroWithoutDaemonBind(t *testing.T) {
 		"a clean version invocation must not write anything to stderr")
 }
 
-// buildUsbipdGoBinaryForTest compiles ./cmd/usbip-go into an
-// absolute-path temp binary, returning the path. Thin wrapper over
-// the canonical testutil.BuildBinary so a regression to the build
-// flags lands in one place.
-func buildUsbipdGoBinaryForTest(t *testing.T) string {
+// buildUsbipdGoCommandForTest returns a command for the Bazel-provided usbip-go
+// executable or the direct-go-test fallback build.
+func buildUsbipdGoCommandForTest(ctx context.Context, t *testing.T, args ...string) *exec.Cmd {
 	t.Helper()
 
-	return testutil.BuildBinary(t, "usbip-go")
+	return testutil.BinaryCommandContext(ctx, t, "usbip-go", args...)
 }

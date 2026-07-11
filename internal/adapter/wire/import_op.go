@@ -7,11 +7,12 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/abilisoft/usbip-go/internal/protocol"
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
 // EncodeOpReqImport writes an OP_REQ_IMPORT request for the supplied
-// busid: 8-byte header + 32-byte NUL-padded busid (v1 contract §6.2).
+// busid: 8-byte header + 32-byte NUL-padded busid (wire-protocol OpenSpec).
 func EncodeOpReqImport(w io.Writer, busID domain.BusID) error {
 	header := EncodeHeader(OpReqImport, 0)
 
@@ -90,7 +91,7 @@ func DecodeOpReqImportBody(r io.Reader) (domain.BusID, error) {
 }
 
 // EncodeOpRepImport writes a success OP_REP_IMPORT reply (status=0)
-// with the device body (v1 contract §6.2).
+// with the device body (wire-protocol OpenSpec).
 func EncodeOpRepImport(w io.Writer, dev domain.Device) error {
 	header := EncodeHeader(OpRepImport, 0)
 
@@ -108,7 +109,7 @@ func EncodeOpRepImport(w io.Writer, dev domain.Device) error {
 }
 
 // EncodeOpRepImportError writes an error OP_REP_IMPORT reply (status != 0,
-// no device body) per v1 contract §6.2. status MUST be one of the upstream
+// no device body) per wire-protocol OpenSpec. status MUST be one of the upstream
 // ST_* codes (ST_NA=1, ST_DEV_BUSY=2, ST_DEV_ERR=3, ST_NODEV=4). A zero
 // status would let the peer decode a body that the wire frame does not
 // carry; an unknown status would surface as ErrProtocolError on the
@@ -131,7 +132,7 @@ func EncodeOpRepImportError(w io.Writer, status uint32) error {
 	return nil
 }
 
-// DecodeOpRepImport reads an OP_REP_IMPORT reply. Per v1 contract §6.2 the
+// DecodeOpRepImport reads an OP_REP_IMPORT reply. Per wire-protocol OpenSpec the
 // header's status field means "device unavailable / busy / not found"
 // on this opcode — a domain-level rejection, not a wire framing fault.
 // A non-zero status surfaces as domain.ErrDeviceNotFound so the
@@ -179,10 +180,10 @@ func DecodeOpRepImport(r io.Reader) (domain.Device, DecodeFlags, error) {
 //	ST_DEV_ERR    = 3  // stub-side internal error
 //	ST_NODEV      = 4  // no such device on remote
 const (
-	ImportStatusNA      uint32 = 1
-	ImportStatusDevBusy uint32 = 2
-	ImportStatusDevErr  uint32 = 3
-	ImportStatusNoDev   uint32 = 4
+	ImportStatusNA      = protocol.ImportStatusNA
+	ImportStatusDevBusy = protocol.ImportStatusDevBusy
+	ImportStatusDevErr  = protocol.ImportStatusDevErr
+	ImportStatusNoDev   = protocol.ImportStatusNoDev
 )
 
 // mapImportStatus converts a non-zero OP_REP_IMPORT status to the

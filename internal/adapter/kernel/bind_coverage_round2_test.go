@@ -28,7 +28,7 @@ import (
 func TestBind_DeviceUnbindWriteFails_PropagatesError(t *testing.T) {
 	t.Parallel()
 
-	const busID = "1-1"
+	const busID = testRootBusID
 
 	rec := &writeRecord{}
 
@@ -56,7 +56,7 @@ func TestBind_DeviceUnbindWriteFails_PropagatesError(t *testing.T) {
 		"EPERM on the bare-device unbind write must surface as ErrPermission")
 
 	for _, c := range rec.calls {
-		require.NotEqual(t, "/sys/bus/usb/drivers/usbip-host/bind", c.Path,
+		require.NotEqual(t, testUSBIPHostBindPath, c.Path,
 			"usbip-host/bind must NOT be written when the bare-device unbind failed")
 	}
 
@@ -88,7 +88,7 @@ func TestBind_DeviceUnbindWriteFails_PropagatesError(t *testing.T) {
 func TestBind_RollbackDriversProbeFails_LogsButReturnsPrimary(t *testing.T) {
 	t.Parallel()
 
-	const busID = "1-1"
+	const busID = testRootBusID
 
 	rec := &writeRecord{}
 
@@ -139,7 +139,7 @@ func TestBind_RollbackDriversProbeFails_LogsButReturnsPrimary(t *testing.T) {
 func TestUnbind_DriverReadPermissionError_SurfacesError(t *testing.T) {
 	t.Parallel()
 
-	const busID = "1-1"
+	const busID = testRootBusID
 
 	mfs := boundFS(busID)
 	poisoned := poisonFS{
@@ -172,7 +172,7 @@ func TestUnbind_DriverReadPermissionError_SurfacesError(t *testing.T) {
 func TestUnbind_NoDriverAttached_ReturnsErrNotBound(t *testing.T) {
 	t.Parallel()
 
-	const busID = "1-1"
+	const busID = testRootBusID
 
 	mfs := boundFS(busID)
 	delete(mfs, "sys/bus/usb/devices/"+busID+"/driver/driver_name")

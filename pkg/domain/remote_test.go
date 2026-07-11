@@ -26,10 +26,10 @@ func TestRemoteEndpoint_NormalizePort(t *testing.T) {
 func TestRemoteEndpoint_String(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, "host:3240", domain.RemoteEndpoint{Host: "host"}.String())
-	require.Equal(t, "host:1234", domain.RemoteEndpoint{Host: "host", Port: 1234}.String())
-	require.Equal(t, "[::1]:3240", domain.RemoteEndpoint{Host: "::1"}.String())
-	require.Equal(t, "[::1]:1234", domain.RemoteEndpoint{Host: "::1", Port: 1234}.String())
+	require.Equal(t, "host:3240", domain.RemoteEndpoint{Host: testHostLabel}.String())
+	require.Equal(t, "host:1234", domain.RemoteEndpoint{Host: testHostLabel, Port: 1234}.String())
+	require.Equal(t, "[::1]:3240", domain.RemoteEndpoint{Host: testIPv6Loopback}.String())
+	require.Equal(t, "[::1]:1234", domain.RemoteEndpoint{Host: testIPv6Loopback, Port: 1234}.String())
 }
 
 func TestParseRemote(t *testing.T) {
@@ -41,17 +41,17 @@ func TestParseRemote(t *testing.T) {
 		want domain.RemoteEndpoint
 		err  bool
 	}{
-		{"host_only", "host", domain.RemoteEndpoint{Host: "host", Port: 3240}, false},
-		{"host_port", "host:1234", domain.RemoteEndpoint{Host: "host", Port: 1234}, false},
-		{"ipv6_bracket_port", "[::1]:1234", domain.RemoteEndpoint{Host: "::1", Port: 1234}, false},
+		{"host_only", testHostLabel, domain.RemoteEndpoint{Host: testHostLabel, Port: 3240}, false},
+		{"host_port", "host:1234", domain.RemoteEndpoint{Host: testHostLabel, Port: 1234}, false},
+		{"ipv6_bracket_port", "[::1]:1234", domain.RemoteEndpoint{Host: testIPv6Loopback, Port: 1234}, false},
 		{"ipv4_port", "1.2.3.4:5", domain.RemoteEndpoint{Host: "1.2.3.4", Port: 5}, false},
 		{"empty", "", domain.RemoteEndpoint{}, true},
 		{"whitespace", "   ", domain.RemoteEndpoint{}, true},
 		{"bad_port", "host:abc", domain.RemoteEndpoint{}, true},
 		{"port_overflow", "host:99999", domain.RemoteEndpoint{}, true},
 		{"port_zero", "host:0", domain.RemoteEndpoint{}, true},
-		{"ipv6_bare", "::1", domain.RemoteEndpoint{Host: "::1", Port: 3240}, false},
-		{"ipv6_only_bracketed", "[::1]", domain.RemoteEndpoint{Host: "::1", Port: 3240}, false},
+		{"ipv6_bare", testIPv6Loopback, domain.RemoteEndpoint{Host: testIPv6Loopback, Port: 3240}, false},
+		{"ipv6_only_bracketed", "[::1]", domain.RemoteEndpoint{Host: testIPv6Loopback, Port: 3240}, false},
 		{"ipv6_missing_bracket", "[::1", domain.RemoteEndpoint{}, true},
 		{"ipv6_bad_suffix", "[::1]garbage", domain.RemoteEndpoint{}, true},
 		{"empty_host", ":1234", domain.RemoteEndpoint{}, true},
@@ -71,8 +71,8 @@ func TestParseRemote(t *testing.T) {
 		{"bare_dot", ".", domain.RemoteEndpoint{}, true},
 		{"valid_with_digits", "host1.example2", domain.RemoteEndpoint{Host: "host1.example2", Port: 3240}, false},
 		{"valid_with_hyphens", "a-b-c.d-e-f", domain.RemoteEndpoint{Host: "a-b-c.d-e-f", Port: 3240}, false},
-		{"ipv6_full", "fe80::1", domain.RemoteEndpoint{Host: "fe80::1", Port: 3240}, false},
-		{"ipv6_bracket_noport", "[fe80::1]", domain.RemoteEndpoint{Host: "fe80::1", Port: 3240}, false},
+		{"ipv6_full", testIPv6LinkLocal, domain.RemoteEndpoint{Host: testIPv6LinkLocal, Port: 3240}, false},
+		{"ipv6_bracket_noport", "[fe80::1]", domain.RemoteEndpoint{Host: testIPv6LinkLocal, Port: 3240}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

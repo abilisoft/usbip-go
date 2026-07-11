@@ -34,8 +34,8 @@ func TestListLocalDevices_ConfigValueZeroFallsBackToConfig1(t *testing.T) {
 	ifaceName := busID + ":1.0"
 
 	mfs := fstest.MapFS{
-		"sys/module/usbip_core":                                    &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host":                                    &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleUSBIPCorePath:                                  &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleUSBIPHostPath:                                  &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + busID:                             &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + busID + "/idVendor":               &fstest.MapFile{Data: []byte("0x1234\n")},
 		"sys/bus/usb/devices/" + busID + "/idProduct":              &fstest.MapFile{Data: []byte("0x5678\n")},
@@ -43,9 +43,9 @@ func TestListLocalDevices_ConfigValueZeroFallsBackToConfig1(t *testing.T) {
 		"sys/bus/usb/devices/" + busID + "/busnum":                 &fstest.MapFile{Data: []byte("4\n")},
 		"sys/bus/usb/devices/" + busID + "/devnum":                 &fstest.MapFile{Data: []byte("2\n")},
 		"sys/bus/usb/devices/" + busID + "/speed":                  &fstest.MapFile{Data: []byte("12\n")},
-		"sys/bus/usb/devices/" + busID + "/bDeviceClass":           &fstest.MapFile{Data: []byte("00\n")},
-		"sys/bus/usb/devices/" + busID + "/bDeviceSubClass":        &fstest.MapFile{Data: []byte("00\n")},
-		"sys/bus/usb/devices/" + busID + "/bDeviceProtocol":        &fstest.MapFile{Data: []byte("00\n")},
+		"sys/bus/usb/devices/" + busID + "/bDeviceClass":           &fstest.MapFile{Data: []byte(testZeroDeviceClassRaw)},
+		"sys/bus/usb/devices/" + busID + "/bDeviceSubClass":        &fstest.MapFile{Data: []byte(testZeroDeviceClassRaw)},
+		"sys/bus/usb/devices/" + busID + "/bDeviceProtocol":        &fstest.MapFile{Data: []byte(testZeroDeviceClassRaw)},
 		"sys/bus/usb/devices/" + busID + "/bConfigurationValue":    &fstest.MapFile{Data: []byte("0\n")},
 		"sys/bus/usb/devices/" + busID + "/bNumConfigurations":     &fstest.MapFile{Data: []byte("1\n")},
 		"sys/bus/usb/devices/" + busID + "/bNumInterfaces":         &fstest.MapFile{Data: []byte("1\n")},

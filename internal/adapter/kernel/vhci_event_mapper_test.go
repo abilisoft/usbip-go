@@ -26,12 +26,12 @@ var errMapperLoaderFailed = errors.New("mapper loader failed")
 // BusMap = {1→(0,HS), 2→(0,SS)}.
 func singleControllerTopoFS() fstest.MapFS {
 	return topoFS(map[string]string{
-		"/sys/devices/platform/vhci_hcd.0/nports":      "16\n",
-		"/sys/devices/platform/vhci_hcd.0/status":      "",
-		"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
-		"/sys/devices/platform/vhci_hcd.0/usb1/speed":  "480\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/speed":  "5000\n",
+		testVHCIController0NPortsPath:     testNPorts16Raw,
+		testVHCIController0StatusPath:     "",
+		testVHCIController0USB1BusNumPath: "1\n",
+		testVHCIController0USB1SpeedPath:  testHighSpeedRaw,
+		testVHCIController0USB2BusNumPath: "2\n",
+		testVHCIController0USB2SpeedPath:  testSuperSpeedRaw,
 	})
 }
 
@@ -39,17 +39,17 @@ func singleControllerTopoFS() fstest.MapFS {
 // VHCIPorts=16. BusMap = {1→(0,HS), 2→(0,SS), 3→(1,HS), 4→(1,SS)}.
 func dualControllerTopoFS() fstest.MapFS {
 	return topoFS(map[string]string{
-		"/sys/devices/platform/vhci_hcd.0/nports":      "32\n",
-		"/sys/devices/platform/vhci_hcd.0/status":      "",
-		"/sys/devices/platform/vhci_hcd.0/status.1":    "",
-		"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
-		"/sys/devices/platform/vhci_hcd.0/usb1/speed":  "480\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/speed":  "5000\n",
-		"/sys/devices/platform/vhci_hcd.1/usb3/busnum": "3\n",
-		"/sys/devices/platform/vhci_hcd.1/usb3/speed":  "480\n",
-		"/sys/devices/platform/vhci_hcd.1/usb4/busnum": "4\n",
-		"/sys/devices/platform/vhci_hcd.1/usb4/speed":  "5000\n",
+		testVHCIController0NPortsPath:     testNPorts32Raw,
+		testVHCIController0StatusPath:     "",
+		testVHCIController0Status1Path:    "",
+		testVHCIController0USB1BusNumPath: "1\n",
+		testVHCIController0USB1SpeedPath:  testHighSpeedRaw,
+		testVHCIController0USB2BusNumPath: "2\n",
+		testVHCIController0USB2SpeedPath:  testSuperSpeedRaw,
+		testVHCIController1USB3BusNumPath: "3\n",
+		testVHCIController1USB3SpeedPath:  testHighSpeedRaw,
+		testVHCIController1USB4BusNumPath: "4\n",
+		testVHCIController1USB4SpeedPath:  testSuperSpeedRaw,
 	})
 }
 
@@ -77,9 +77,9 @@ func TestVhciEventMapper_SingleControllerHS(t *testing.T) {
 	mapper := kernel.NewVHCIEventMapperForTest(topo)
 
 	fields := map[string]string{
-		"ACTION":    "remove",
-		"SUBSYSTEM": "usb",
-		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb1/1-3",
+		testUeventActionField:    testUeventActionRemove,
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   "/devices/platform/vhci_hcd.0/usb1/1-3",
 	}
 
 	ev, ok := mapper.MapEventForTest(fields)
@@ -103,9 +103,9 @@ func TestVhciEventMapper_SingleControllerSS(t *testing.T) {
 	mapper := kernel.NewVHCIEventMapperForTest(topo)
 
 	fields := map[string]string{
-		"ACTION":    "add",
-		"SUBSYSTEM": "usb",
-		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb2/2-1",
+		testUeventActionField:    testUeventActionAdd,
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   "/devices/platform/vhci_hcd.0/usb2/2-1",
 	}
 
 	ev, ok := mapper.MapEventForTest(fields)
@@ -128,9 +128,9 @@ func TestVhciEventMapper_MultiControllerHS(t *testing.T) {
 	mapper := kernel.NewVHCIEventMapperForTest(topo)
 
 	fields := map[string]string{
-		"ACTION":    "remove",
-		"SUBSYSTEM": "usb",
-		"DEVPATH":   "/devices/platform/vhci_hcd.1/usb3/3-2",
+		testUeventActionField:    testUeventActionRemove,
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   "/devices/platform/vhci_hcd.1/usb3/3-2",
 	}
 
 	ev, ok := mapper.MapEventForTest(fields)
@@ -154,9 +154,9 @@ func TestVhciEventMapper_MultiControllerSS(t *testing.T) {
 	mapper := kernel.NewVHCIEventMapperForTest(topo)
 
 	fields := map[string]string{
-		"ACTION":    "change",
-		"SUBSYSTEM": "usb",
-		"DEVPATH":   "/devices/platform/vhci_hcd.1/usb4/4-3",
+		testUeventActionField:    "change",
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   "/devices/platform/vhci_hcd.1/usb4/4-3",
 	}
 
 	ev, ok := mapper.MapEventForTest(fields)
@@ -180,9 +180,9 @@ func TestVhciEventMapper_NonVHCIBusIgnored(t *testing.T) {
 	mapper := kernel.NewVHCIEventMapperForTest(topo)
 
 	fields := map[string]string{
-		"ACTION":    "add",
-		"SUBSYSTEM": "usb",
-		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb99/99-1",
+		testUeventActionField:    testUeventActionAdd,
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   "/devices/platform/vhci_hcd.0/usb99/99-1",
 	}
 
 	ev, ok := mapper.MapEventForTest(fields)
@@ -204,7 +204,7 @@ func TestVhciEventMapper_MalformedDevpath(t *testing.T) {
 		devpath string
 	}{
 		{name: "root port zero", devpath: "/devices/platform/vhci_hcd.0/usb1/1-0"},
-		{name: "not a vhci devpath", devpath: "/devices/pci0000:00/0000:00:14.0/usb1/1-1"},
+		{name: "not a vhci devpath", devpath: testPhysicalUSBDeviceDevPath},
 		{name: "no busid segment", devpath: "/devices/platform/vhci_hcd.0/usb1"},
 		{name: "non numeric bus", devpath: "/devices/platform/vhci_hcd.0/usbfoo/foo-1"},
 		// Unanchored-regex safeguard: a USB interface sub-path must not
@@ -231,9 +231,9 @@ func TestVhciEventMapper_MalformedDevpath(t *testing.T) {
 			t.Parallel()
 
 			fields := map[string]string{
-				"ACTION":    "add",
-				"SUBSYSTEM": "usb",
-				"DEVPATH":   tc.devpath,
+				testUeventActionField:    testUeventActionAdd,
+				testUeventSubsystemField: testUeventSubsystemUSB,
+				testUeventDevPathField:   tc.devpath,
 			}
 
 			ev, ok := mapper.MapEventForTest(fields)
@@ -251,17 +251,17 @@ func TestVhciEventMapper_NonDefaultHCPorts(t *testing.T) {
 	t.Parallel()
 
 	mfs := topoFS(map[string]string{
-		"/sys/devices/platform/vhci_hcd.0/nports":      "16\n",
-		"/sys/devices/platform/vhci_hcd.0/status":      "",
-		"/sys/devices/platform/vhci_hcd.0/status.1":    "",
-		"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
-		"/sys/devices/platform/vhci_hcd.0/usb1/speed":  "480\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/speed":  "5000\n",
-		"/sys/devices/platform/vhci_hcd.1/usb3/busnum": "3\n",
-		"/sys/devices/platform/vhci_hcd.1/usb3/speed":  "480\n",
-		"/sys/devices/platform/vhci_hcd.1/usb4/busnum": "4\n",
-		"/sys/devices/platform/vhci_hcd.1/usb4/speed":  "5000\n",
+		testVHCIController0NPortsPath:     testNPorts16Raw,
+		testVHCIController0StatusPath:     "",
+		testVHCIController0Status1Path:    "",
+		testVHCIController0USB1BusNumPath: "1\n",
+		testVHCIController0USB1SpeedPath:  testHighSpeedRaw,
+		testVHCIController0USB2BusNumPath: "2\n",
+		testVHCIController0USB2SpeedPath:  testSuperSpeedRaw,
+		testVHCIController1USB3BusNumPath: "3\n",
+		testVHCIController1USB3SpeedPath:  testHighSpeedRaw,
+		testVHCIController1USB4BusNumPath: "4\n",
+		testVHCIController1USB4SpeedPath:  testSuperSpeedRaw,
 	})
 
 	topo := loadTopoForMapperTest(t, mfs)
@@ -271,9 +271,9 @@ func TestVhciEventMapper_NonDefaultHCPorts(t *testing.T) {
 	mapper := kernel.NewVHCIEventMapperForTest(topo)
 
 	fields := map[string]string{
-		"ACTION":    "add",
-		"SUBSYSTEM": "usb",
-		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb2/2-1",
+		testUeventActionField:    testUeventActionAdd,
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   "/devices/platform/vhci_hcd.0/usb2/2-1",
 	}
 
 	ev, ok := mapper.MapEventForTest(fields)
@@ -297,9 +297,9 @@ func TestVhciEventMapper_DottedBusIDProducesFlatPort(t *testing.T) {
 	mapper := kernel.NewVHCIEventMapperForTest(topo)
 
 	fields := map[string]string{
-		"ACTION":    "remove",
-		"SUBSYSTEM": "usb",
-		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb1/1-2.3",
+		testUeventActionField:    testUeventActionRemove,
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   "/devices/platform/vhci_hcd.0/usb1/1-2.3",
 	}
 
 	ev, ok := mapper.MapEventForTest(fields)
@@ -333,8 +333,8 @@ func TestVhciEventMapper_AnchoredRegexPreservesValidBusIDs(t *testing.T) {
 	}{
 		{
 			name:    "flat root-port busid",
-			devpath: "/devices/platform/vhci_hcd.0/usb1/1-1",
-			busID:   "1-1",
+			devpath: testVHCIDeviceDevPath,
+			busID:   testRootBusID,
 		},
 		{
 			name:    "dotted hub-attached busid",
@@ -353,9 +353,9 @@ func TestVhciEventMapper_AnchoredRegexPreservesValidBusIDs(t *testing.T) {
 			t.Parallel()
 
 			fields := map[string]string{
-				"ACTION":    "remove",
-				"SUBSYSTEM": "usb",
-				"DEVPATH":   tc.devpath,
+				testUeventActionField:    testUeventActionRemove,
+				testUeventSubsystemField: testUeventSubsystemUSB,
+				testUeventDevPathField:   tc.devpath,
 			}
 
 			ev, ok := mapper.MapEventForTest(fields)
@@ -408,9 +408,9 @@ func TestVhciEventMapper_LazyLoaderDegradesVHCIButPassesUsbipHost(t *testing.T) 
 
 	// usbip_host event must NOT trigger the VHCI topology loader.
 	hostFields := map[string]string{
-		"ACTION":    "add",
-		"SUBSYSTEM": "usbip_host",
-		"DEVPATH":   "/devices/pci0000:00/0000:00:14.0/usb1/1-1",
+		testUeventActionField:    testUeventActionAdd,
+		testUeventSubsystemField: testUeventSubsystemUSBIPHost,
+		testUeventDevPathField:   testPhysicalUSBDeviceDevPath,
 	}
 
 	hostEvent, hostOK := mapper.MapEventForTest(hostFields)
@@ -419,7 +419,7 @@ func TestVhciEventMapper_LazyLoaderDegradesVHCIButPassesUsbipHost(t *testing.T) 
 
 	bound, isBound := hostEvent.(domain.DeviceBoundEvent)
 	require.True(t, isBound, "expected DeviceBoundEvent, got %T", hostEvent)
-	require.Equal(t, domain.BusID("1-1"), bound.Device.BusID)
+	require.Equal(t, domain.BusID(testRootBusID), bound.Device.BusID)
 	require.Zero(t, calls,
 		"usbip_host events must bypass the VHCI topology entirely — "+
 			"the loader must still not have been called")
@@ -428,9 +428,9 @@ func TestVhciEventMapper_LazyLoaderDegradesVHCIButPassesUsbipHost(t *testing.T) 
 	// the loader errors, the VHCI event is dropped but no caller-
 	// visible error is produced.
 	vhciFields := map[string]string{
-		"ACTION":    "remove",
-		"SUBSYSTEM": "usb",
-		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb1/1-1",
+		testUeventActionField:    testUeventActionRemove,
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   testVHCIDeviceDevPath,
 	}
 
 	vhciEvent, vhciOK := mapper.MapEventForTest(vhciFields)
@@ -472,9 +472,9 @@ func TestVhciEventMapper_LazyLoaderSuccessCachedAcrossVHCIEvents(t *testing.T) {
 	require.Zero(t, calls, "construction must be lazy")
 
 	vhciFields := map[string]string{
-		"ACTION":    "remove",
-		"SUBSYSTEM": "usb",
-		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb1/1-1",
+		testUeventActionField:    testUeventActionRemove,
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   testVHCIDeviceDevPath,
 	}
 
 	_, ok := mapper.MapEventForTest(vhciFields)
@@ -497,9 +497,9 @@ func TestVhciEventMapper_UsbipHostPassThrough(t *testing.T) {
 	mapper := kernel.NewVHCIEventMapperForTest(topo)
 
 	fields := map[string]string{
-		"ACTION":    "add",
-		"SUBSYSTEM": "usbip_host",
-		"DEVPATH":   "/devices/pci0000:00/0000:00:14.0/usb1/1-1",
+		testUeventActionField:    testUeventActionAdd,
+		testUeventSubsystemField: testUeventSubsystemUSBIPHost,
+		testUeventDevPathField:   testPhysicalUSBDeviceDevPath,
 	}
 
 	ev, ok := mapper.MapEventForTest(fields)
@@ -507,5 +507,5 @@ func TestVhciEventMapper_UsbipHostPassThrough(t *testing.T) {
 
 	bound, isBound := ev.(domain.DeviceBoundEvent)
 	require.True(t, isBound, "expected DeviceBoundEvent, got %T", ev)
-	require.Equal(t, domain.BusID("1-1"), bound.Device.BusID)
+	require.Equal(t, domain.BusID(testRootBusID), bound.Device.BusID)
 }

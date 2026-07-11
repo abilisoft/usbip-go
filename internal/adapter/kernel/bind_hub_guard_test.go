@@ -19,7 +19,7 @@ import (
 // TestBind_RefuseHubDevice_NoSysfsWrites pins the hub guard contract:
 // when the bare device's bDeviceClass is 0x09 (HUB) Bind MUST refuse
 // without performing any destructive sysfs write. Without this guard,
-// detaching the generic "usb" driver from a hub disconnects every
+// detaching the generic testUeventSubsystemUSB driver from a hub disconnects every
 // downstream device hanging off it before usbip-host's stub_probe
 // rejects the bind in drivers/usb/usbip/stub_dev.c. Upstream
 // usbip_bind.c::unbind_other() reads bDeviceClass and rejects hubs at
@@ -28,7 +28,7 @@ import (
 func TestBind_RefuseHubDevice_NoSysfsWrites(t *testing.T) {
 	t.Parallel()
 
-	const busID = "1-1"
+	const busID = testRootBusID
 
 	mfs := bindFS(busID)
 	// USB hub class — the device the user is trying to export is a hub.

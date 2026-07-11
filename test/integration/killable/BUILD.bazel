@@ -1,0 +1,39 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "killable_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/abilisoft/usbip-go/test/integration/killable",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//pkg/domain",
+        "//pkg/usbip",
+    ],
+)
+
+go_binary(
+    name = "killable",
+    embed = [":killable_lib"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(["*.go"]),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_bazel_files",
+    srcs = ["BUILD.bazel"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "testdata_files",
+    srcs = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)

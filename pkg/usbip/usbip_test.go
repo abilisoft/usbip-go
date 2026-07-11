@@ -13,7 +13,7 @@ import (
 )
 
 // TestTypeAliasesAreIdentical asserts that every usbip.X declared in
-// §5.7 is a type alias for domain.X rather than a freshly-declared
+// public-library-api OpenSpec is a type alias for domain.X rather than a freshly-declared
 // type. If any entry drifts from alias to declaration, consumers who
 // mix imports (some from pkg/usbip, some from pkg/domain) would fail
 // to assign one to the other — so the guarantee is load-bearing.
@@ -57,8 +57,8 @@ func TestBusIDValuesInterchangeable(t *testing.T) {
 	// the two names resolve to the same underlying type — the core
 	// alias guarantee. The explicit parameter type on accept forces
 	// the check at the call site.
-	require.Equal(t, "1-1", acceptDomainBusID(usbip.BusID("1-1")))
-	require.Equal(t, "1-1", acceptUsbipBusID(domain.BusID("1-1")))
+	require.Equal(t, testRootBusID, acceptDomainBusID(usbip.BusID(testRootBusID)))
+	require.Equal(t, testRootBusID, acceptUsbipBusID(domain.BusID(testRootBusID)))
 }
 
 // acceptDomainBusID returns b.String(). Accepting a domain.BusID-typed

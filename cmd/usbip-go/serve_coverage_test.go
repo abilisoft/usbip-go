@@ -30,7 +30,13 @@ var (
 func TestBaseLevelAcceptedNamesUsbipd(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{"trace", "debug", "info", "warn", "error"} {
+	for _, name := range []string{
+		logLevelTrace,
+		logLevelDebug,
+		logLevelInfo,
+		logLevelWarn,
+		logLevelError,
+	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -55,15 +61,15 @@ func TestBaseLevelUnknownRejectedUsbipd(t *testing.T) {
 func TestParseLevelVerbosePromotion(t *testing.T) {
 	t.Parallel()
 
-	got, err := parseLevel("info", 2)
+	got, err := parseLevel(logLevelInfo, 2)
 	require.NoError(t, err)
 	require.Equal(t, traceLevel, got)
 
-	got, err = parseLevel("info", 1)
+	got, err = parseLevel(logLevelInfo, 1)
 	require.NoError(t, err)
 	require.Equal(t, slog.LevelDebug, got)
 
-	got, err = parseLevel("info", 0)
+	got, err = parseLevel(logLevelInfo, 0)
 	require.NoError(t, err)
 	require.Equal(t, slog.LevelInfo, got)
 
@@ -232,11 +238,11 @@ func TestSetDrainAndDrainCallback(t *testing.T) {
 func TestBuildLoggerEachFormat(t *testing.T) {
 	t.Parallel()
 
-	for _, fmtName := range []string{"auto", "pretty", "json"} {
+	for _, fmtName := range []string{logFormatAuto, logFormatPretty, logFormatJSON} {
 		t.Run(fmtName, func(t *testing.T) {
 			t.Parallel()
 
-			lg, err := buildLogger(globalFlags{LogFormat: fmtName, LogLevel: "info"})
+			lg, err := buildLogger(globalFlags{LogFormat: fmtName, LogLevel: logLevelInfo})
 			require.NoError(t, err)
 			require.NotNil(t, lg)
 		})
@@ -245,14 +251,14 @@ func TestBuildLoggerEachFormat(t *testing.T) {
 	t.Run("invalid format rejected", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := buildLogger(globalFlags{LogFormat: "weird", LogLevel: "info"})
+		_, err := buildLogger(globalFlags{LogFormat: "weird", LogLevel: logLevelInfo})
 		require.Error(t, err)
 	})
 
 	t.Run("invalid level rejected", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := buildLogger(globalFlags{LogFormat: "json", LogLevel: "noisy"})
+		_, err := buildLogger(globalFlags{LogFormat: logFormatJSON, LogLevel: "noisy"})
 		require.Error(t, err)
 	})
 }
@@ -293,7 +299,7 @@ func TestLogServeStartupCarriesBuildProvenance(t *testing.T) {
 	require.NoError(t, err, "startup log must be a JSON record; got %s", buf.String())
 	require.Equal(t, "usbip-go serve starting", rec["msg"])
 
-	for _, key := range []string{"version", "commit", "build_date", "go_version"} {
+	for _, key := range []string{testVersionToken, "commit", "build_date", "go_version"} {
 		_, ok := rec[key]
 		require.Truef(t, ok, "startup log missing %q field; record=%v", key, rec)
 	}

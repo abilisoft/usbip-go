@@ -1,0 +1,159 @@
+load("//tools:script.bzl", "script_binary", "script_test")
+
+PUBLIC_VISIBILITY = ["//visibility:public"]
+
+exports_files(
+    glob(["*.sh"]),
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_binary(
+    name = "bootstrap",
+    src = "bootstrap.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_binary(
+    name = "changelog_runner",
+    src = "changelog_runner.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_binary(
+    name = "deb_without_owned_parent_dirs",
+    src = "deb_without_owned_parent_dirs.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_binary(
+    name = "goreleaser_runner",
+    src = "goreleaser_runner.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_binary(
+    name = "govulncheck",
+    src = "govulncheck.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_binary(
+    name = "go_mod_check",
+    src = "go_mod_check.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_binary(
+    name = "ci_local_runner",
+    src = "ci_local_runner.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_binary(
+    name = "api_compatibility_check",
+    src = "api_compatibility_check.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_test(
+    name = "api_compatibility_check_test",
+    size = "small",
+    src = "api_compatibility_check_test.sh",
+    data = ["api_compatibility_check.sh"],
+)
+
+script_binary(
+    name = "coverage_check",
+    src = "coverage_check.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_binary(
+    name = "domain_boundary_check",
+    src = "domain_boundary_check.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_binary(
+    name = "govulncheck_sarif",
+    src = "govulncheck_sarif.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_binary(
+    name = "pure_go_check",
+    src = "pure_go_check.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_test(
+    name = "ci_local_runner_test",
+    size = "small",
+    src = "ci_local_runner_test.sh",
+    data = ["ci_local_runner.sh"],
+)
+
+script_test(
+    name = "govulncheck_sarif_test",
+    size = "small",
+    src = "govulncheck_sarif_test.sh",
+    data = ["govulncheck_sarif.sh"],
+)
+
+script_test(
+    name = "systemd_unit_test",
+    size = "small",
+    src = "systemd_unit_test.sh",
+    data = ["//:contrib/systemd/usbip-go.service"],
+)
+
+script_binary(
+    name = "nfpm_package",
+    src = "nfpm_package.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_binary(
+    name = "repo_coverage_test_runner",
+    src = "repo_coverage_test_runner.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_test(
+    name = "repo_coverage_test_runner_test",
+    size = "small",
+    src = "repo_coverage_test_runner_test.sh",
+    data = ["repo_coverage_test_runner.sh"],
+)
+
+script_binary(
+    name = "toolwrap_test_runner",
+    src = "toolwrap_test_runner.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+filegroup(
+    name = "repo_bazel_files",
+    srcs = ["BUILD.bazel"],
+    visibility = PUBLIC_VISIBILITY,
+)
+
+filegroup(
+    name = "repo_shell_files",
+    srcs = glob(
+        ["*.sh"],
+        allow_empty = True,
+        exclude = ["build/**"],
+        exclude_directories = 1,
+    ),
+    visibility = PUBLIC_VISIBILITY,
+)
+
+filegroup(
+    name = "testdata_files",
+    srcs = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)

@@ -30,7 +30,7 @@ func withModules(names ...string) fstest.MapFS {
 func TestImporterModulesAvailable_AllPresent(t *testing.T) {
 	t.Parallel()
 
-	a, err := kernel.NewImporterAdapter(kernel.WithFS(withModules("usbip_core", "vhci_hcd")))
+	a, err := kernel.NewImporterAdapter(kernel.WithFS(withModules(kernel.ModuleUsbipCore, kernel.ModuleVHCIHCD)))
 	require.NoError(t, err)
 
 	require.NoError(t, a.ModulesAvailable(context.Background()))
@@ -39,30 +39,30 @@ func TestImporterModulesAvailable_AllPresent(t *testing.T) {
 func TestImporterModulesAvailable_MissingVHCI(t *testing.T) {
 	t.Parallel()
 
-	a, err := kernel.NewImporterAdapter(kernel.WithFS(withModules("usbip_core")))
+	a, err := kernel.NewImporterAdapter(kernel.WithFS(withModules(kernel.ModuleUsbipCore)))
 	require.NoError(t, err)
 
 	err = a.ModulesAvailable(context.Background())
 	require.ErrorIs(t, err, domain.ErrKernelModuleMissing)
-	require.ErrorContains(t, err, "modprobe vhci_hcd",
+	require.ErrorContains(t, err, "modprobe "+kernel.ModuleVHCIHCD,
 		"error hint must include the exact modprobe command")
 }
 
 func TestImporterModulesAvailable_MissingCore(t *testing.T) {
 	t.Parallel()
 
-	a, err := kernel.NewImporterAdapter(kernel.WithFS(withModules("vhci_hcd")))
+	a, err := kernel.NewImporterAdapter(kernel.WithFS(withModules(kernel.ModuleVHCIHCD)))
 	require.NoError(t, err)
 
 	err = a.ModulesAvailable(context.Background())
 	require.ErrorIs(t, err, domain.ErrKernelModuleMissing)
-	require.ErrorContains(t, err, "modprobe usbip_core")
+	require.ErrorContains(t, err, "modprobe "+kernel.ModuleUsbipCore)
 }
 
 func TestExporterModulesAvailable_AllPresent(t *testing.T) {
 	t.Parallel()
 
-	a, err := kernel.NewExporterAdapter(kernel.WithFS(withModules("usbip_core", "usbip_host")))
+	a, err := kernel.NewExporterAdapter(kernel.WithFS(withModules(kernel.ModuleUsbipCore, testUeventSubsystemUSBIPHost)))
 	require.NoError(t, err)
 
 	require.NoError(t, a.ModulesAvailable(context.Background()))
@@ -71,20 +71,20 @@ func TestExporterModulesAvailable_AllPresent(t *testing.T) {
 func TestExporterModulesAvailable_MissingHost(t *testing.T) {
 	t.Parallel()
 
-	a, err := kernel.NewExporterAdapter(kernel.WithFS(withModules("usbip_core")))
+	a, err := kernel.NewExporterAdapter(kernel.WithFS(withModules(kernel.ModuleUsbipCore)))
 	require.NoError(t, err)
 
 	err = a.ModulesAvailable(context.Background())
 	require.ErrorIs(t, err, domain.ErrKernelModuleMissing)
-	require.ErrorContains(t, err, "modprobe usbip_host")
+	require.ErrorContains(t, err, "modprobe "+kernel.ModuleUsbipHost)
 }
 
 // TestEventsAdapter_NoModulesAvailableMethod confirms the EventsAdapter
-// does NOT expose ModulesAvailable per v1 contract §5.1.
+// does NOT expose ModulesAvailable per architecture-layering OpenSpec.
 func TestEventsAdapter_NoModulesAvailableMethod(t *testing.T) {
 	t.Parallel()
 
-	a, err := kernel.NewEventsAdapter(kernel.WithFS(withModules("usbip_core", "vhci_hcd")))
+	a, err := kernel.NewEventsAdapter(kernel.WithFS(withModules(kernel.ModuleUsbipCore, kernel.ModuleVHCIHCD)))
 	require.NoError(t, err)
 
 	// Runtime assertion: the events adapter's concrete type must not
@@ -93,7 +93,7 @@ func TestEventsAdapter_NoModulesAvailableMethod(t *testing.T) {
 	// adds a ModulesAvailable method to EventsAdapter in the future
 	// the cast succeeds and this test fails loudly.
 	_, hasMethod := any(a).(modulesAvailabler)
-	require.False(t, hasMethod, "EventsAdapter must NOT expose ModulesAvailable per v1 contract §5.1")
+	require.False(t, hasMethod, "EventsAdapter must NOT expose ModulesAvailable per architecture-layering OpenSpec")
 }
 
 // modulesAvailabler is the method-set we assert EventsAdapter does not

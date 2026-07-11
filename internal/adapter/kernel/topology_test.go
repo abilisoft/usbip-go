@@ -54,12 +54,12 @@ type errFS struct {
 // real filesystems.
 func (e errFS) Open(name string) (fs.File, error) {
 	if name == e.block {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: e.errOn}
+		return nil, &fs.PathError{Op: testOpenOperation, Path: name, Err: e.errOn}
 	}
 
 	f, err := e.inner.Open(name)
 	if err != nil {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: err}
+		return nil, &fs.PathError{Op: testOpenOperation, Path: name, Err: err}
 	}
 
 	return f, nil
@@ -72,12 +72,12 @@ func TestDiscoverTopology_SingleControllerDefault(t *testing.T) {
 	t.Parallel()
 
 	mfs := topoFS(map[string]string{
-		"/sys/devices/platform/vhci_hcd.0/nports":      "16\n",
-		"/sys/devices/platform/vhci_hcd.0/status":      "",
-		"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
-		"/sys/devices/platform/vhci_hcd.0/usb1/speed":  "480\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/speed":  "5000\n",
+		testVHCIController0NPortsPath:     testNPorts16Raw,
+		testVHCIController0StatusPath:     "",
+		testVHCIController0USB1BusNumPath: "1\n",
+		testVHCIController0USB1SpeedPath:  testHighSpeedRaw,
+		testVHCIController0USB2BusNumPath: "2\n",
+		testVHCIController0USB2SpeedPath:  testSuperSpeedRaw,
 	})
 
 	topo, err := kernel.DiscoverTopologyForTest(mfs)
@@ -98,17 +98,17 @@ func TestDiscoverTopology_MultiController(t *testing.T) {
 	t.Parallel()
 
 	mfs := topoFS(map[string]string{
-		"/sys/devices/platform/vhci_hcd.0/nports":      "32\n",
-		"/sys/devices/platform/vhci_hcd.0/status":      "",
-		"/sys/devices/platform/vhci_hcd.0/status.1":    "",
-		"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
-		"/sys/devices/platform/vhci_hcd.0/usb1/speed":  "480\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/speed":  "5000\n",
-		"/sys/devices/platform/vhci_hcd.1/usb3/busnum": "3\n",
-		"/sys/devices/platform/vhci_hcd.1/usb3/speed":  "480\n",
-		"/sys/devices/platform/vhci_hcd.1/usb4/busnum": "4\n",
-		"/sys/devices/platform/vhci_hcd.1/usb4/speed":  "5000\n",
+		testVHCIController0NPortsPath:     testNPorts32Raw,
+		testVHCIController0StatusPath:     "",
+		testVHCIController0Status1Path:    "",
+		testVHCIController0USB1BusNumPath: "1\n",
+		testVHCIController0USB1SpeedPath:  testHighSpeedRaw,
+		testVHCIController0USB2BusNumPath: "2\n",
+		testVHCIController0USB2SpeedPath:  testSuperSpeedRaw,
+		testVHCIController1USB3BusNumPath: "3\n",
+		testVHCIController1USB3SpeedPath:  testHighSpeedRaw,
+		testVHCIController1USB4BusNumPath: "4\n",
+		testVHCIController1USB4SpeedPath:  testSuperSpeedRaw,
 	})
 
 	topo, err := kernel.DiscoverTopologyForTest(mfs)
@@ -130,17 +130,17 @@ func TestDiscoverTopology_NonDefaultHCPorts(t *testing.T) {
 	t.Parallel()
 
 	mfs := topoFS(map[string]string{
-		"/sys/devices/platform/vhci_hcd.0/nports":      "16\n",
-		"/sys/devices/platform/vhci_hcd.0/status":      "",
-		"/sys/devices/platform/vhci_hcd.0/status.1":    "",
-		"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
-		"/sys/devices/platform/vhci_hcd.0/usb1/speed":  "480\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/speed":  "5000\n",
-		"/sys/devices/platform/vhci_hcd.1/usb3/busnum": "3\n",
-		"/sys/devices/platform/vhci_hcd.1/usb3/speed":  "480\n",
-		"/sys/devices/platform/vhci_hcd.1/usb4/busnum": "4\n",
-		"/sys/devices/platform/vhci_hcd.1/usb4/speed":  "5000\n",
+		testVHCIController0NPortsPath:     testNPorts16Raw,
+		testVHCIController0StatusPath:     "",
+		testVHCIController0Status1Path:    "",
+		testVHCIController0USB1BusNumPath: "1\n",
+		testVHCIController0USB1SpeedPath:  testHighSpeedRaw,
+		testVHCIController0USB2BusNumPath: "2\n",
+		testVHCIController0USB2SpeedPath:  testSuperSpeedRaw,
+		testVHCIController1USB3BusNumPath: "3\n",
+		testVHCIController1USB3SpeedPath:  testHighSpeedRaw,
+		testVHCIController1USB4BusNumPath: "4\n",
+		testVHCIController1USB4SpeedPath:  testSuperSpeedRaw,
 	})
 
 	topo, err := kernel.DiscoverTopologyForTest(mfs)
@@ -157,12 +157,12 @@ func TestDiscoverTopology_VHCINotFirstHCD(t *testing.T) {
 	t.Parallel()
 
 	mfs := topoFS(map[string]string{
-		"/sys/devices/platform/vhci_hcd.0/nports":      "16\n",
-		"/sys/devices/platform/vhci_hcd.0/status":      "",
-		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/speed":  "480\n",
-		"/sys/devices/platform/vhci_hcd.0/usb3/busnum": "3\n",
-		"/sys/devices/platform/vhci_hcd.0/usb3/speed":  "5000\n",
+		testVHCIController0NPortsPath:                 testNPorts16Raw,
+		testVHCIController0StatusPath:                 "",
+		testVHCIController0USB2BusNumPath:             "2\n",
+		testVHCIController0USB2SpeedPath:              testHighSpeedRaw,
+		testVHCIController0USB3BusNumPath:             "3\n",
+		"/sys/devices/platform/vhci_hcd.0/usb3/speed": testSuperSpeedRaw,
 	})
 
 	topo, err := kernel.DiscoverTopologyForTest(mfs)
@@ -183,8 +183,8 @@ func TestDiscoverTopology_InconsistentNPorts(t *testing.T) {
 	t.Parallel()
 
 	mfs := topoFS(map[string]string{
-		"/sys/devices/platform/vhci_hcd.0/nports": "17\n",
-		"/sys/devices/platform/vhci_hcd.0/status": "",
+		testVHCIController0NPortsPath: "17\n",
+		testVHCIController0StatusPath: "",
 	})
 
 	_, err := kernel.DiscoverTopologyForTest(mfs)
@@ -211,17 +211,17 @@ func TestTopology_FlatPort(t *testing.T) {
 	t.Parallel()
 
 	mfs := topoFS(map[string]string{
-		"/sys/devices/platform/vhci_hcd.0/nports":      "32\n",
-		"/sys/devices/platform/vhci_hcd.0/status":      "",
-		"/sys/devices/platform/vhci_hcd.0/status.1":    "",
-		"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
-		"/sys/devices/platform/vhci_hcd.0/usb1/speed":  "480\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/speed":  "5000\n",
-		"/sys/devices/platform/vhci_hcd.1/usb3/busnum": "3\n",
-		"/sys/devices/platform/vhci_hcd.1/usb3/speed":  "480\n",
-		"/sys/devices/platform/vhci_hcd.1/usb4/busnum": "4\n",
-		"/sys/devices/platform/vhci_hcd.1/usb4/speed":  "5000\n",
+		testVHCIController0NPortsPath:     testNPorts32Raw,
+		testVHCIController0StatusPath:     "",
+		testVHCIController0Status1Path:    "",
+		testVHCIController0USB1BusNumPath: "1\n",
+		testVHCIController0USB1SpeedPath:  testHighSpeedRaw,
+		testVHCIController0USB2BusNumPath: "2\n",
+		testVHCIController0USB2SpeedPath:  testSuperSpeedRaw,
+		testVHCIController1USB3BusNumPath: "3\n",
+		testVHCIController1USB3SpeedPath:  testHighSpeedRaw,
+		testVHCIController1USB4BusNumPath: "4\n",
+		testVHCIController1USB4SpeedPath:  testSuperSpeedRaw,
 	})
 
 	topo, err := kernel.DiscoverTopologyForTest(mfs)
@@ -252,13 +252,13 @@ func TestDiscoverTopology_StatusFilePermissionErrorSurfaces(t *testing.T) {
 	t.Parallel()
 
 	inner := topoFS(map[string]string{
-		"/sys/devices/platform/vhci_hcd.0/nports":      "32\n",
-		"/sys/devices/platform/vhci_hcd.0/status":      "",
-		"/sys/devices/platform/vhci_hcd.0/status.1":    "",
-		"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
-		"/sys/devices/platform/vhci_hcd.1/usb3/busnum": "3\n",
-		"/sys/devices/platform/vhci_hcd.1/usb4/busnum": "4\n",
+		testVHCIController0NPortsPath:     testNPorts32Raw,
+		testVHCIController0StatusPath:     "",
+		testVHCIController0Status1Path:    "",
+		testVHCIController0USB1BusNumPath: "1\n",
+		testVHCIController0USB2BusNumPath: "2\n",
+		testVHCIController1USB3BusNumPath: "3\n",
+		testVHCIController1USB4BusNumPath: "4\n",
 	})
 
 	fake := errFS{
@@ -292,8 +292,8 @@ func TestDiscoverTopology_SupportsManyControllers(t *testing.T) {
 	)
 
 	files := map[string]string{
-		"/sys/devices/platform/vhci_hcd.0/nports": fmt.Sprintf("%d\n", nports),
-		"/sys/devices/platform/vhci_hcd.0/status": "",
+		testVHCIController0NPortsPath: fmt.Sprintf("%d\n", nports),
+		testVHCIController0StatusPath: "",
 	}
 
 	for i := 1; i < controllers; i++ {
@@ -335,9 +335,9 @@ func TestDiscoverTopology_IncompleteControllerErrors(t *testing.T) {
 		t.Parallel()
 
 		mfs := topoFS(map[string]string{
-			"/sys/devices/platform/vhci_hcd.0/nports":      "16\n",
-			"/sys/devices/platform/vhci_hcd.0/status":      "",
-			"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
+			testVHCIController0NPortsPath:     testNPorts16Raw,
+			testVHCIController0StatusPath:     "",
+			testVHCIController0USB2BusNumPath: "2\n",
 		})
 
 		_, err := kernel.DiscoverTopologyForTest(mfs)
@@ -349,11 +349,11 @@ func TestDiscoverTopology_IncompleteControllerErrors(t *testing.T) {
 		t.Parallel()
 
 		mfs := topoFS(map[string]string{
-			"/sys/devices/platform/vhci_hcd.0/nports":      "32\n",
-			"/sys/devices/platform/vhci_hcd.0/status":      "",
-			"/sys/devices/platform/vhci_hcd.0/status.1":    "",
-			"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
-			"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
+			testVHCIController0NPortsPath:     testNPorts32Raw,
+			testVHCIController0StatusPath:     "",
+			testVHCIController0Status1Path:    "",
+			testVHCIController0USB1BusNumPath: "1\n",
+			testVHCIController0USB2BusNumPath: "2\n",
 		})
 
 		_, err := kernel.DiscoverTopologyForTest(mfs)
@@ -374,12 +374,12 @@ func TestDiscoverTopology_ClassifyHubBySiblingOrder(t *testing.T) {
 	t.Parallel()
 
 	mfs := topoFS(map[string]string{
-		"/sys/devices/platform/vhci_hcd.0/nports":      "16\n",
-		"/sys/devices/platform/vhci_hcd.0/status":      "",
-		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/speed":  "",
-		"/sys/devices/platform/vhci_hcd.0/usb3/busnum": "3\n",
-		"/sys/devices/platform/vhci_hcd.0/usb3/speed":  "",
+		testVHCIController0NPortsPath:                 testNPorts16Raw,
+		testVHCIController0StatusPath:                 "",
+		testVHCIController0USB2BusNumPath:             "2\n",
+		testVHCIController0USB2SpeedPath:              "",
+		testVHCIController0USB3BusNumPath:             "3\n",
+		"/sys/devices/platform/vhci_hcd.0/usb3/speed": "",
 	})
 
 	topo, err := kernel.DiscoverTopologyForTest(mfs)
@@ -403,11 +403,11 @@ func TestDiscoverTopology_Realistic_MultiController_MissingSpeed(t *testing.T) {
 	t.Parallel()
 
 	mfs := topoFS(map[string]string{
-		"/sys/devices/platform/vhci_hcd.0/nports":      "32\n",
-		"/sys/devices/platform/vhci_hcd.0/status":      "",
-		"/sys/devices/platform/vhci_hcd.0/status.1":    "",
-		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
-		"/sys/devices/platform/vhci_hcd.0/usb3/busnum": "3\n",
+		testVHCIController0NPortsPath:                  testNPorts32Raw,
+		testVHCIController0StatusPath:                  "",
+		testVHCIController0Status1Path:                 "",
+		testVHCIController0USB2BusNumPath:              "2\n",
+		testVHCIController0USB3BusNumPath:              "3\n",
 		"/sys/devices/platform/vhci_hcd.1/usb5/busnum": "5\n",
 		"/sys/devices/platform/vhci_hcd.1/usb6/busnum": "6\n",
 	})
@@ -461,7 +461,7 @@ func (c countingFS) Open(name string) (fs.File, error) {
 
 	f, err := c.inner.Open(name)
 	if err != nil {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: err}
+		return nil, &fs.PathError{Op: testOpenOperation, Path: name, Err: err}
 	}
 
 	return f, nil
@@ -477,17 +477,17 @@ func TestCommonAdapter_TopologyCached(t *testing.T) {
 	t.Parallel()
 
 	inner := topoFS(map[string]string{
-		"/sys/devices/platform/vhci_hcd.0/nports":      "16\n",
-		"/sys/devices/platform/vhci_hcd.0/status":      "",
-		"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
+		testVHCIController0NPortsPath:     testNPorts16Raw,
+		testVHCIController0StatusPath:     "",
+		testVHCIController0USB1BusNumPath: "1\n",
+		testVHCIController0USB2BusNumPath: "2\n",
 	})
 
 	var count int
 
 	fake := countingFS{
 		inner:   inner,
-		watch:   "sys/devices/platform/vhci_hcd.0/nports",
+		watch:   testFSVHCIController0NPortsPath,
 		counter: &count,
 	}
 
@@ -548,10 +548,10 @@ func TestDiscoverTopology_RejectsZeroNports(t *testing.T) {
 	t.Parallel()
 
 	mfs := topoFS(map[string]string{
-		"/sys/devices/platform/vhci_hcd.0/nports":      "0\n",
-		"/sys/devices/platform/vhci_hcd.0/status":      "",
-		"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
+		testVHCIController0NPortsPath:     "0\n",
+		testVHCIController0StatusPath:     "",
+		testVHCIController0USB1BusNumPath: "1\n",
+		testVHCIController0USB2BusNumPath: "2\n",
 	})
 
 	topo, err := kernel.DiscoverTopologyForTest(mfs)
@@ -580,13 +580,13 @@ func (f flakyFS) Open(name string) (fs.File, error) {
 		if *f.triggered == 0 {
 			*f.triggered++
 
-			return nil, &fs.PathError{Op: "open", Path: name, Err: f.firstErr}
+			return nil, &fs.PathError{Op: testOpenOperation, Path: name, Err: f.firstErr}
 		}
 	}
 
 	file, err := f.inner.Open(name)
 	if err != nil {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: err}
+		return nil, &fs.PathError{Op: testOpenOperation, Path: name, Err: err}
 	}
 
 	return file, nil
@@ -607,17 +607,17 @@ func TestCommonAdapter_TopologyRetriesAfterTransientFailure(t *testing.T) {
 	t.Parallel()
 
 	inner := topoFS(map[string]string{
-		"/sys/devices/platform/vhci_hcd.0/nports":      "16\n",
-		"/sys/devices/platform/vhci_hcd.0/status":      "",
-		"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
+		testVHCIController0NPortsPath:     testNPorts16Raw,
+		testVHCIController0StatusPath:     "",
+		testVHCIController0USB1BusNumPath: "1\n",
+		testVHCIController0USB2BusNumPath: "2\n",
 	})
 
 	var triggered int
 
 	fake := flakyFS{
 		inner:     inner,
-		watch:     "sys/devices/platform/vhci_hcd.0/nports",
+		watch:     testFSVHCIController0NPortsPath,
 		firstErr:  fs.ErrInvalid,
 		triggered: &triggered,
 	}
@@ -644,12 +644,12 @@ func TestImporterAdapter_LoadTopology(t *testing.T) {
 	t.Parallel()
 
 	mfs := topoFS(map[string]string{
-		"/sys/devices/platform/vhci_hcd.0/nports":      "16\n",
-		"/sys/devices/platform/vhci_hcd.0/status":      "",
-		"/sys/devices/platform/vhci_hcd.0/usb1/busnum": "1\n",
-		"/sys/devices/platform/vhci_hcd.0/usb1/speed":  "480\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/busnum": "2\n",
-		"/sys/devices/platform/vhci_hcd.0/usb2/speed":  "5000\n",
+		testVHCIController0NPortsPath:     testNPorts16Raw,
+		testVHCIController0StatusPath:     "",
+		testVHCIController0USB1BusNumPath: "1\n",
+		testVHCIController0USB1SpeedPath:  testHighSpeedRaw,
+		testVHCIController0USB2BusNumPath: "2\n",
+		testVHCIController0USB2SpeedPath:  testSuperSpeedRaw,
 	})
 
 	a, err := kernel.NewImporterAdapter(kernel.WithFS(mfs))

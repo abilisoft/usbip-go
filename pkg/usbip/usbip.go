@@ -22,7 +22,7 @@ import (
 // not wrapped, so errors.Is(err, internalapp.ErrX) returns false
 // downstream of the facade. That enforces the package boundary —
 // consumers never need to import internal/app to classify a returned
-// error (v1 contract §5.7).
+// error (public-library-api OpenSpec).
 //
 // The translation is scoped to the three internal sentinels that
 // would otherwise leak across the boundary. Any other error passes
@@ -50,6 +50,10 @@ func translateInternalErr(err error) error {
 			internalapp.ErrAttachOptionsInvalid.Error()+": ")
 
 		return fmt.Errorf("%w: %s", ErrAttachOptionsInvalid, detail)
+	case errors.Is(err, internalapp.ErrACLInvalid):
+		detail := strings.TrimPrefix(err.Error(), internalapp.ErrACLInvalid.Error()+": ")
+
+		return fmt.Errorf("%w: %s", ErrACLInvalid, detail)
 	}
 
 	return err
@@ -58,7 +62,7 @@ func translateInternalErr(err error) error {
 // Pure-data types are aliased to pkg/domain so consumers referencing
 // usbip.Device and domain.Device get the same type. Aliasing instead of
 // redeclaring means a value from one package drops into a parameter of
-// the other without conversion. v1 contract §5.7.
+// the other without conversion. public-library-api OpenSpec.
 type (
 	// Device describes a USB device enumerated over USB/IP.
 	Device = domain.Device
@@ -148,10 +152,12 @@ type AttachOptions struct {
 	// infinite.
 	MaxAttempts int
 
-	// OnReconnect is invoked before every retry with the 1-indexed
-	// attempt number and the error that triggered the retry. nil
-	// disables the callback. Panics from the callback are recovered
-	// and logged via the Importer's logger.
+	// OnReconnect receives retry notifications with the 1-indexed attempt
+	// number and the error that triggered the retry. nil disables the
+	// callback. Notifications run serially outside the retry goroutine; when
+	// attempts outpace a slow callback, pending notifications are coalesced
+	// to the latest attempt. Panics are recovered and logged via the
+	// Importer's logger.
 	OnReconnect func(attempt int, err error)
 
 	// StatusPollInterval controls the backstop poll period. Zero picks
@@ -194,7 +200,7 @@ type Importer struct {
 // kernel, uevent, transport, and codec adapters. Options apply in
 // declaration order; the last option wins for any field. Non-Linux
 // callers receive ErrKernelModuleMissing — adapter injection is
-// deliberately hidden from the public surface (v1 contract §5.7).
+// deliberately hidden from the public surface (public-library-api OpenSpec).
 func NewImporter(opts ...ImporterOption) (*Importer, error) {
 	return newDefaultImporter(opts)
 }
@@ -270,7 +276,11 @@ func (i *Importer) mergeAttachOptions(opts AttachOptions) AttachOptions {
 type Exporter struct {
 	inner     *internalapp.Exporter
 	cfg       exporterConfig
-	transport internalapp.Transport
+	transport listenerFactory
+}
+
+type listenerFactory interface {
+	Listen(ctx context.Context, addr string, opts internalapp.TransportOptions) (net.Listener, error)
 }
 
 // NewExporter constructs an Exporter backed by the default Linux

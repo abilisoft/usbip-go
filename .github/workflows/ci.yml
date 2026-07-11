@@ -1,19 +1,5 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
-#
-# CI orchestrator. Calls reusable workflows under
-# `.github/workflows/_*.yml` so each gate has a single source of
-# truth that other workflows (nightly.yml, release.yml, …) can also
-# call without copy-paste drift.
-#
-# Triggers: push to main and PRs against main. Mutation testing has
-# been split out to mutation.yml (label-gated PRs + weekly cron).
-#
-# Pattern: run every gate on a plain ubuntu-24.04 runner via the
-# Determinate Systems Nix installer + Magic Nix Cache. Reusable jobs enter
-# the smallest flake shell that has the required tools (`.#dev`, `.#fmt`,
-# `.#lint`, `.#vuln`, `.#mutation`, `.#release`, or `.#vm`) instead of realizing one
-# all-purpose closure.
 
 name: CI
 
@@ -23,11 +9,12 @@ on:
   pull_request:
     branches: [main]
 
-# Workflow-root permissions clamped to read-only so OpenSSF
-# Scorecard's Token-Permissions check passes; per-job blocks (and
-# per-reusable-workflow blocks) elevate where needed.
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 defaults:
   run:
@@ -38,7 +25,6 @@ jobs:
     name: Security
     permissions:
       contents: read
-      id-token: write
       security-events: write
     uses: ./.github/workflows/_security.yml
 
@@ -46,21 +32,18 @@ jobs:
     name: Unit
     permissions:
       contents: read
-      id-token: write
     uses: ./.github/workflows/_unit-tests.yml
 
   conformance:
     name: Conformance
     permissions:
       contents: read
-      id-token: write
     uses: ./.github/workflows/_conformance.yml
 
   arch:
     name: Architecture
     permissions:
       contents: read
-      id-token: write
     uses: ./.github/workflows/_arch-checks.yml
 
   coverage:
@@ -73,95 +56,85 @@ jobs:
   tdd-discipline:
     name: TDD commit discipline
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     if: github.event_name == 'pull_request'
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      GH_TOKEN: ${{ github.token }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-      - name: Inspect PR commits for red->green pairs
-        # A commit is RED when it adds at least one new
-        # `*_test.go` file, touches no non-test `.go` outside
-        # `internal/tools/`, and uses a behaviour-introducing
-        # Conventional-Commits type (feat / fix). RED commits
-        # MUST be immediately followed EITHER by a commit that
-        # touches a non-test `.go` outside `internal/tools/`
-        # (the GREEN — additions OR modifications both count) OR
-        # by a `refactor:`-prefixed commit (the only accepted
-        # break in the chain). Anything else (`docs:`/`chore:`/
-        # `ci:`/`build:`/`perf:`/`style:`) leaves the RED
-        # unfollowed and fails the gate. A trailing dangling RED
-        # at the end of the PR also fails so an open RED can never
-        # ship to main.
+      - name: Validate PR commit policy and red-green pairs
         run: |-
           set -euo pipefail
+          readonly commit_api_path="repos/${GITHUB_REPOSITORY}/commits"
+          readonly conventional_subject_pattern='^[a-z][a-z0-9-]*(\([a-z0-9][a-z0-9._/-]*\))?!?: .+'
+          readonly verified_signature_state='true'
           commits=$(git rev-list --reverse "${BASE_SHA}..${HEAD_SHA}")
           if [ -z "$commits" ]; then
             echo "No commits in PR range; skipping TDD discipline check."
             exit 0
           fi
+
           prev_red_sha=""
           fail=0
           for sha in $commits; do
             subject=$(git log -1 --format=%s "$sha")
+            body=$(git log -1 --format=%B "$sha")
+            commit_headers=$(git cat-file commit "$sha" \
+              | awk 'BEGIN { in_headers = 1 } /^$/ { in_headers = 0 } in_headers')
+
+            if ! grep -Eq "$conventional_subject_pattern" <<<"$subject"; then
+              echo "FAIL: commit $sha has a non-conventional subject: $subject"
+              fail=1
+            fi
+
+            if ! grep -q '^gpgsig ' <<<"$commit_headers"; then
+              echo "FAIL: commit $sha is unsigned"
+              fail=1
+            fi
+
+            if ! signature_verification=$(gh api "${commit_api_path}/${sha}" \
+              --jq '.commit.verification | [.verified, .reason] | @tsv'); then
+              echo "FAIL: unable to retrieve GitHub signature verification for commit $sha"
+              fail=1
+            else
+              read -r signature_verified signature_reason <<<"$signature_verification"
+              if [ "$signature_verified" != "$verified_signature_state" ]; then
+                echo "FAIL: commit $sha signature is not GitHub-verified: $signature_reason"
+                fail=1
+              fi
+            fi
+
+            if grep -qiE '^Co-authored-by:' <<<"$body"; then
+              echo "FAIL: commit $sha contains a forbidden Co-authored-by trailer"
+              fail=1
+            fi
+
             added_test=$(git diff-tree --no-commit-id --name-only --diff-filter=A -r "$sha" \
               | { grep -E '_test\.go$' || true; })
-            # non_test_go counts ONLY production source. We exclude
-            # internal/tools/ because that path is the dev-tool
-            # blank-import pin (build-tag-gated, never linked into
-            # any binary); a deps-cleanup commit that touches only
-            # tools.go must NOT silently satisfy a prior RED's GREEN
-            # requirement (Codex MEDIUM finding).
             non_test_go=$(git diff-tree --no-commit-id --name-only -r "$sha" \
               | { grep -E '\.go$' || true; } \
               | { grep -v '_test\.go$' || true; } \
               | { grep -v '^internal/tools/' || true; })
 
             if [ -n "$prev_red_sha" ]; then
-              # CONTRIBUTING.md "TDD discipline": after a RED
-              # commit the next commit MUST touch non-test `.go`
-              # outside `internal/tools/` (additions OR
-              # modifications — the gate counts any change) OR
-              # be a `refactor:`-prefixed commit (the only
-              # accepted break in the chain). Anything else
-              # (including `chore:`/`docs:`/`ci:`) leaves the RED
-              # unfollowed and fails the gate.
               if [ -z "$non_test_go" ] \
-                  && ! printf '%s' "$subject" | grep -qiE '^refactor(\([^)]*\))?:' ; then
+                  && ! grep -qiE '^refactor(\([^)]*\))?!?:' <<<"$subject"; then
                 echo "FAIL: commit $sha (\"$subject\") follows RED commit $prev_red_sha but adds no non-test .go file and is not a refactor: commit"
                 fail=1
               fi
-              # Whether or not the GREEN landed, clear the slot so
-              # the next iteration assesses the next commit on its
-              # own merits.
               prev_red_sha=""
             fi
 
-            # Mark THIS commit as a new RED ONLY when it is a
-            # `feat:`/`fix:` commit that ships tests but no
-            # production code — i.e. a behaviour-introducing
-            # commit that's incomplete. `test:` commits are
-            # explicitly NOT carried forward as RED: in this
-            # codebase `test(scope):` means "tests for already-
-            # shipped code" (coverage hardening) rather than
-            # strict-TDD test-first, and a `test:` commit on the
-            # tip of a PR has no implementation that should follow
-            # it. This matches the historic gate semantics; the
-            # earlier "include test: in RED" attempt mis-classified
-            # PR #17's `test(coverage):` patch-coverage commit and
-            # blocked PR #18. CONTRIBUTING.md "TDD discipline"
-            # documents this carve-out.
             if [ -n "$added_test" ] && [ -z "$non_test_go" ] \
-                && printf '%s' "$subject" | grep -qiE '^(feat|fix)(\([^)]*\))?:' ; then
+                && grep -qiE '^(feat|fix)(\([^)]*\))?!?:' <<<"$subject"; then
               prev_red_sha="$sha"
             fi
           done
 
-          # Trailing dangling RED — last commit added tests with no
-          # following GREEN. Without this guard the PR could merge
-          # with an unfollowed RED at HEAD.
           if [ -n "$prev_red_sha" ]; then
             echo "FAIL: PR ends with dangling RED commit $prev_red_sha (test added, no following GREEN)"
             fail=1

@@ -19,11 +19,11 @@ import (
 )
 
 // AttachRemote performs the fd-passing dance required to hand a live
-// TCP socket to vhci_hcd. v1 contract §5.4 pins the ordering contract; this
+// TCP socket to vhci_hcd. The kernel-adapter and importer-lifecycle OpenSpec documents pin the ordering contract; this
 // method is the single source of truth for that ordering and any
 // modification must re-verify the guarantees below.
 //
-// NOTE — fd lifecycle (v1 contract §5.4):
+// NOTE — fd lifecycle (kernel-adapter and importer-lifecycle OpenSpec documents):
 //
 //  1. Write first, close second. We write the sysfs `attach` file,
 //     which triggers sockfd_lookup(fd) kernel-side. The kernel fgets
@@ -46,7 +46,7 @@ import (
 //     performs its own close.
 //
 // Violating this ordering is the most common source of regressions;
-// maintainers editing this function must re-read v1 contract §5.4 in full.
+// maintainers editing this function must re-read kernel-adapter and importer-lifecycle OpenSpec documents in full.
 func (a *ImporterAdapter) AttachRemote(
 	ctx context.Context,
 	conn net.Conn,
@@ -57,7 +57,7 @@ func (a *ImporterAdapter) AttachRemote(
 		return 0, err
 	}
 
-	// v1 contract §3.4 serialization: findFreePort reads the status file and
+	// importer-lifecycle and exporter-daemon OpenSpec documents serialization: findFreePort reads the status file and
 	// the sysfs attach write advances it. Without this lock two
 	// concurrent callers would both see the same free port and race
 	// on the write. Under the lock the loser's findFreePort observes
@@ -82,7 +82,7 @@ func (a *ImporterAdapter) AttachRemote(
 // always reaches this helper via AttachRemote, which picks the port
 // upstream.
 //
-// The fd-lifecycle invariants documented on AttachRemote (v1 contract §5.4
+// The fd-lifecycle invariants documented on AttachRemote (kernel-adapter and importer-lifecycle OpenSpec documents
 // write-first-close-second, caller owns conn on error) apply here
 // verbatim because this helper owns the sysfs write.
 //
@@ -249,13 +249,13 @@ func extractFD(conn net.Conn) (uintptr, error) {
 
 // formatAttachPayload renders "%u %d %u %u" = (port, sockfd, devid,
 // speed). Matches upstream libsrc/vhci_driver.c for byte-for-byte
-// interop. Verbatim from v1 contract §6.1.
+// interop. Verbatim from kernel-adapter OpenSpec.
 func formatAttachPayload(portID domain.PortID, fd uintptr, devID domain.DeviceID, speed domain.Speed) string {
 	return fmt.Sprintf("%d %d %d %d", uint32(portID), fd, uint32(devID), uint32(speed))
 }
 
 // DetachPort writes the decimal port ID to vhci_hcd.0/detach. Format
-// per v1 contract §6.1: kstrtoint, single decimal integer, no trailing
+// per kernel-adapter OpenSpec: kstrtoint, single decimal integer, no trailing
 // newline.
 //
 // Defence-in-depth: the flat port is validated against the cached

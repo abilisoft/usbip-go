@@ -67,8 +67,8 @@ func buildVHCIRootedFakeSysfs(t *testing.T, busID string) string {
 	require.NoError(t, os.Symlink(relTarget, filepath.Join(devDir, busID)))
 
 	// Modules required for the preflight check to pass.
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "sys/module/usbip_core"), 0o750))
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "sys/module/usbip_host"), 0o750))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, testFSModuleUSBIPCorePath), 0o750))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, testFSModuleUSBIPHostPath), 0o750))
 
 	return root
 }

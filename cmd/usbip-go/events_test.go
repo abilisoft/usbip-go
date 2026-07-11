@@ -38,10 +38,10 @@ func TestClassifyEventCoversEveryKind(t *testing.T) {
 		ID:     1,
 		Status: domain.StatusUsed,
 		Speed:  domain.SpeedHigh,
-		Remote: domain.RemoteEndpoint{Host: "10.0.0.5", Port: 3240},
-		BusID:  "1-1",
+		Remote: domain.RemoteEndpoint{Host: testRemoteHost, Port: 3240},
+		BusID:  testRootBusID,
 	}
-	dev := domain.Device{BusID: "1-1", VendorID: 0x0951, ProductID: 0x1666}
+	dev := domain.Device{BusID: testRootBusID, VendorID: 0x0951, ProductID: 0x1666}
 
 	sid, err := domain.NewSessionID()
 	require.NoError(t, err)
@@ -49,7 +49,7 @@ func TestClassifyEventCoversEveryKind(t *testing.T) {
 	sess := domain.Session{
 		ID:         sid,
 		RemoteAddr: mustParseAddrPort(t, "10.0.0.5:3240"),
-		BusID:      "1-1",
+		BusID:      testRootBusID,
 		StartedAt:  at,
 	}
 

@@ -25,19 +25,12 @@ import (
 // per-session handler goroutines, Sessions(), and Shutdown() can all
 // interleave safely under the race detector.
 type Exporter struct {
-	kernel    ExporterKernel
-	events    KernelEvents
-	transport Transport
-	codec     ProtocolCodec
-	clock     Clock
-	logger    *slog.Logger
-	// transportOptions is the snapshot taken at NewExporter time.
-	// PR 1a stores and validates the value; PR 1b adds an Exporter-
-	// owned listener path that honors it on accepted connections. In
-	// the meantime callers using Serve(ctx, listener) with their own
-	// listener must tune that listener themselves — the field is
-	// deliberately inert at runtime in PR 1a.
-	transportOptions TransportOptions
+	kernel       ExporterKernel
+	events       KernelEvents
+	codec        ProtocolCodec
+	clock        Clock
+	logger       *slog.Logger
+	newSessionID func() (domain.SessionID, error)
 
 	cfg             exporterLimits
 	acceptLim       acceptLimiter
@@ -58,7 +51,7 @@ type Exporter struct {
 
 	// sessionsWG tracks per-connection handler goroutines and their
 	// handshake-timeout watchers. Serve deliberately does NOT wait on
-	// sessionsWG (v1 contract §3.4: Serve returns on ctx cancel; Shutdown
+	// sessionsWG (importer-lifecycle and exporter-daemon OpenSpec documents: Serve returns on ctx cancel; Shutdown
 	// drains in-flight sessions bounded by its own ctx).
 	sessionsWG lifecycleWaitGroup
 
@@ -111,66 +104,90 @@ type sessionHandle struct {
 	// back to the free-form string passed to endSession.
 	disconnectReason atomic.Pointer[string]
 
-	// handoffMu serialises the kernel.ExportOnConn handoff against
-	// concurrent Shutdown. tryHandoff and signalCancel atomically
-	// resolve the race where Shutdown closes done + spawns Disconnect
-	// while runRegisteredSession is between the pre-handoff cancel
-	// check and the kernel sysfs write — without this lock the kernel
-	// can end up with a stale export that no Disconnect was scheduled
-	// against (handedOff stays false at cancel time).
-	handoffMu sync.Mutex
-	handedOff bool
-	cancelled bool
+	// handoffMu protects the explicit kernel handoff state machine.
+	// Shutdown never blocks on the potentially-wedged ExportOnConn
+	// call: an in-progress handoff is completed by the session handler,
+	// which performs the deferred Disconnect itself if cancellation
+	// won while the sysfs write was outstanding.
+	handoffMu           sync.Mutex
+	handoffState        kernelHandoffState
+	disconnectScheduled bool
+	cancelled           bool
 }
+
+// kernelHandoffState records the only valid phases of a session's
+// ExportOnConn lifecycle. The zero value deliberately means no handoff
+// was attempted.
+type kernelHandoffState uint8
+
+const (
+	kernelHandoffNotStarted kernelHandoffState = iota
+	kernelHandoffInProgress
+	kernelHandoffSucceeded
+	kernelHandoffFailed
+)
 
 // cancel closes done exactly once. Safe to call from any goroutine.
 func (h *sessionHandle) cancel() {
 	h.closeOnce.Do(func() { close(h.done) })
 }
 
-// runHandoff invokes fn (the kernel ExportOnConn write) only if no
-// Shutdown has yet cancelled this handle. The handoffMu is held only
-// while flipping the cancelled / handedOff flags, NOT during fn —
-// holding it across a wedgeable kernel sysfs call would deadlock a
-// concurrent signalCancel and prevent Shutdown from returning.
+// runHandoff invokes fn only if Shutdown has not cancelled the handle.
+// It marks success only after fn returns nil. When cancellation arrives
+// during fn, disconnectAfterHandoff is true and the completing session
+// handler owns the exactly-once post-success Disconnect.
 //
-// The fundamental race that remains: a Shutdown firing AFTER tryHandoff
-// flips handedOff=true but BEFORE fn actually completes can schedule
-// Disconnect against a not-yet-existent kernel export. The kernel
-// cleanup path (force-close in waitSessionsBounded → conn close → kernel
-// drops the export) is the safety net for that orphan-state window;
-// a tighter synchronisation isn't possible without making Shutdown
-// block on potentially-wedged ExportOnConn calls.
-//
-// Returns the fn's error; the bool is false when Shutdown won the
-// cancel race and fn was not called.
-func (h *sessionHandle) runHandoff(fn func() error) (bool, error) {
+// ran is false when Shutdown won before the handoff started.
+func (h *sessionHandle) runHandoff(fn func() error) (bool, bool, error) {
 	h.handoffMu.Lock()
 
 	if h.cancelled {
 		h.handoffMu.Unlock()
 
-		return false, nil
+		return false, false, nil
 	}
 
-	h.handedOff = true
+	h.handoffState = kernelHandoffInProgress
 	h.handoffMu.Unlock()
 
-	return true, fn()
+	err := fn()
+
+	h.handoffMu.Lock()
+	defer h.handoffMu.Unlock()
+
+	if err != nil {
+		h.handoffState = kernelHandoffFailed
+
+		return true, false, err
+	}
+
+	h.handoffState = kernelHandoffSucceeded
+	if h.cancelled && !h.disconnectScheduled {
+		h.disconnectScheduled = true
+
+		return true, true, nil
+	}
+
+	return true, false, nil
 }
 
-// signalCancel atomically marks the handle cancelled and reports
-// whether ExportOnConn was at least started. Shutdown uses the return
-// value to decide whether scheduling Disconnect is necessary: if the
-// return is false the kernel was never given the fd, so Disconnect
-// would write to a non-existent sysfs entry.
+// signalCancel atomically marks the handle cancelled and claims the
+// exactly-once Disconnect only when ExportOnConn has already succeeded.
+// An in-progress handoff returns false; runHandoff claims and performs
+// cleanup if that call later succeeds.
 func (h *sessionHandle) signalCancel() bool {
 	h.handoffMu.Lock()
 	defer h.handoffMu.Unlock()
 
 	h.cancelled = true
 
-	return h.handedOff
+	if h.handoffState != kernelHandoffSucceeded || h.disconnectScheduled {
+		return false
+	}
+
+	h.disconnectScheduled = true
+
+	return true
 }
 
 // NewExporter constructs an Exporter from functional options. Required
@@ -193,7 +210,11 @@ func NewExporter(opts ...ExporterOption) *Exporter {
 // error (today only ErrACLInvalid). Missing-dependency errors still
 // panic — those are programming bugs, not runtime conditions.
 func NewExporterWithError(opts ...ExporterOption) (*Exporter, error) {
-	cfg := exporterConfig{clock: RealClock{}, logger: slog.Default()}
+	cfg := exporterConfig{
+		clock:        RealClock{},
+		logger:       slog.Default(),
+		newSessionID: domain.NewSessionID,
+	}
 
 	for _, opt := range opts {
 		opt(&cfg)
@@ -210,25 +231,19 @@ func NewExporterWithError(opts ...ExporterOption) (*Exporter, error) {
 		return nil, err
 	}
 
-	transportErr := ValidateTransportOptions(cfg.transportOptions)
-	if transportErr != nil {
-		return nil, transportErr
-	}
-
 	return &Exporter{
-		kernel:           cfg.kernel,
-		events:           cfg.events,
-		transport:        cfg.transport,
-		codec:            cfg.codec,
-		clock:            cfg.clock,
-		logger:           cfg.logger,
-		transportOptions: cfg.transportOptions,
-		cfg:              resolveExporterLimits(&cfg),
-		acceptLim:        newAcceptLimiter(resolveAcceptRate(&cfg), resolveAcceptBurst(&cfg)),
-		acl:              acl,
-		shutdownTimeout:  cfg.shutdownTimeout,
-		sessions:         make(map[domain.SessionID]*sessionHandle),
-		perPeer:          make(map[string]int),
+		kernel:          cfg.kernel,
+		events:          cfg.events,
+		codec:           cfg.codec,
+		clock:           cfg.clock,
+		logger:          cfg.logger,
+		newSessionID:    cfg.newSessionID,
+		cfg:             resolveExporterLimits(&cfg),
+		acceptLim:       newAcceptLimiter(resolveAcceptRate(&cfg), resolveAcceptBurst(&cfg)),
+		acl:             acl,
+		shutdownTimeout: cfg.shutdownTimeout,
+		sessions:        make(map[domain.SessionID]*sessionHandle),
+		perPeer:         make(map[string]int),
 	}, nil
 }
 
@@ -244,16 +259,12 @@ func requireExporterDeps(cfg *exporterConfig) {
 		panic("app.NewExporter: KernelEvents is required (use WithExporterEvents)")
 	}
 
-	if cfg.transport == nil {
-		panic("app.NewExporter: Transport is required (use WithExporterTransport)")
-	}
-
 	if cfg.codec == nil {
 		panic("app.NewExporter: ProtocolCodec is required (use WithExporterCodec)")
 	}
 }
 
-// Bind delegates to kernel.Bind per v1 contract §5.3. Errors are
+// Bind delegates to kernel.Bind per exporter-daemon OpenSpec. Errors are
 // wrapped with the busid so callers that bind many devices can
 // identify which failed. Every terminal branch logs a structured slog
 // record with an outcome field so journald queries can filter by
@@ -294,7 +305,7 @@ func (e *Exporter) Bind(ctx context.Context, busID domain.BusID) error {
 	return nil
 }
 
-// Unbind delegates to kernel.Unbind per v1 contract §5.3. Errors are
+// Unbind delegates to kernel.Unbind per exporter-daemon OpenSpec. Errors are
 // wrapped with the busid. Outcome is logged structurally per Bind's
 // contract. The same BusID validity gate as Bind applies — see Bind
 // for the boundary rationale.
@@ -327,7 +338,7 @@ func (e *Exporter) Unbind(ctx context.Context, busID domain.BusID) error {
 	return nil
 }
 
-// classifyBindError maps a kernel Bind error onto the §11.5.5
+// classifyBindError maps a kernel Bind error onto the operations-observability OpenSpec
 // bind_total outcome label. Only the well-known domain sentinels get
 // a specific label; anything else falls through to "error" so the
 // catalog never grows an unbounded outcome string.
@@ -356,7 +367,7 @@ func classifyUnbindError(err error) UnbindOutcome {
 	return UnbindOutcomeError
 }
 
-// ListAvailable forwards to kernel.ListLocalDevices per v1 contract §5.3. The
+// ListAvailable forwards to kernel.ListLocalDevices per exporter-daemon OpenSpec. The
 // kernel adapter is the authoritative source; the Exporter does not
 // maintain a cache of its own.
 func (e *Exporter) ListAvailable(ctx context.Context) ([]domain.Device, error) {
@@ -384,7 +395,7 @@ func (e *Exporter) ListExported(ctx context.Context) ([]domain.Device, error) {
 	return devs, nil
 }
 
-// Serve runs the accept loop per v1 contract §5.3. Each accepted connection
+// Serve runs the accept loop per exporter-daemon OpenSpec. Each accepted connection
 // is dispatched to a per-connection goroutine via handleConn; the
 // accept loop returns when ctx is cancelled, the listener returns a
 // permanent error, or Shutdown is called. Returns ErrAlreadyShutdown
@@ -428,7 +439,7 @@ func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
 
 	// Wait for the ctx-listener-closer only. Session handlers run on
 	// sessionsWG; Shutdown drains them with a bounded deadline per
-	// v1 contract §3.4. If Serve also waited on sessionsWG here, an in-flight
+	// importer-lifecycle and exporter-daemon OpenSpec documents. If Serve also waited on sessionsWG here, an in-flight
 	// ExportOnConn would block Serve's return past ctx cancel.
 	e.wg.Wait()
 
@@ -436,7 +447,7 @@ func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
 }
 
 // Shutdown stops accepting new connections and drains in-flight
-// session handlers. Per v1 contract §3.4: new accepts are refused, existing
+// session handlers. Per importer-lifecycle and exporter-daemon OpenSpec documents: new accepts are refused, existing
 // handlers are signalled to exit, and the call waits for them bounded
 // by the provided ctx deadline. Returns nil when the drain completes
 // before the deadline; a ctx.Err-wrapped error when it does not.
@@ -557,8 +568,8 @@ func (e *Exporter) captureShutdownState() shutdownState {
 
 // spawnGracefulDisconnects fires the per-handle cancel/disconnect
 // transition for the firstShutdown path: signalCancel returns whether
-// the handler had already passed tryHandoff (= ExportOnConn ran or
-// is running). Disconnect is only scheduled for handed-off sessions;
+// ExportOnConn has already succeeded. Disconnect is only scheduled for
+// handed-off sessions;
 // a handle that never reached ExportOnConn left no kernel state to
 // clean up. signalCancel-then-cancel ordering is deliberate: cancel()
 // closes done unconditionally so a handler blocked in
@@ -651,15 +662,10 @@ func (e *Exporter) applyShutdownBackstop(ctx context.Context) (context.Context, 
 		return ctx, func() {}
 	}
 
-	backstopDeadline := e.clock.Now().Add(e.shutdownTimeout)
-
-	if callerDeadline, ok := ctx.Deadline(); ok && callerDeadline.Before(backstopDeadline) {
-		// Caller's deadline is already tighter than the backstop.
-		// Return ctx unchanged so the caller's semantics apply.
-		return ctx, func() {}
-	}
-
-	return context.WithDeadline(ctx, backstopDeadline)
+	// WithTimeout automatically preserves a tighter parent deadline and
+	// uses the runtime's monotonic clock. The injected application clock
+	// is intentionally not mixed with context's wall-clock deadlines.
+	return context.WithTimeout(ctx, e.shutdownTimeout)
 }
 
 // startServing transitions the Exporter from idle → serving. Returns

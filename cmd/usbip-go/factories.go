@@ -34,6 +34,7 @@ type Importer interface {
 // subcommands.
 type Exporter interface {
 	ListAvailable(ctx context.Context) ([]usbip.Device, error)
+	ListExported(ctx context.Context) ([]usbip.Device, error)
 	Bind(ctx context.Context, busID usbip.BusID) error
 	Unbind(ctx context.Context, busID usbip.BusID) error
 }

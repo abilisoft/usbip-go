@@ -1,0 +1,71 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "domain",
+    srcs = [
+        "busid.go",
+        "class.go",
+        "class_data.go",
+        "constants.go",
+        "device.go",
+        "deviceid.go",
+        "doc.go",
+        "errors.go",
+        "events.go",
+        "port.go",
+        "remote.go",
+        "session.go",
+        "speed.go",
+        "status.go",
+    ],
+    importpath = "github.com/abilisoft/usbip-go/pkg/domain",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "domain_test",
+    size = "small",
+    srcs = [
+        "busid_test.go",
+        "class_test.go",
+        "constants_test.go",
+        "coverage_completion_test.go",
+        "deviceid_test.go",
+        "errors_test.go",
+        "events_test.go",
+        "host_label_test.go",
+        "remote_boundary_test.go",
+        "remote_test.go",
+        "remote_validate_test.go",
+        "session_internal_test.go",
+        "session_test.go",
+        "speed_isknown_test.go",
+        "speed_test.go",
+        "status_test.go",
+        "test_constants_test.go",
+        "wire_busid_test.go",
+    ],
+    embed = [":domain"],
+    deps = ["@com_github_stretchr_testify//require"],
+)
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(["*.go"]),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_bazel_files",
+    srcs = ["BUILD.bazel"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "testdata_files",
+    srcs = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)

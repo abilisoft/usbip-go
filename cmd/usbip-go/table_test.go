@@ -26,15 +26,15 @@ func TestTableRendererPorts(t *testing.T) {
 			ID:         1,
 			Status:     domain.StatusUsed,
 			Speed:      domain.SpeedHigh,
-			Remote:     domain.RemoteEndpoint{Host: "10.0.0.5", Port: 3240},
-			BusID:      "1-1.2",
+			Remote:     domain.RemoteEndpoint{Host: testRemoteHost, Port: 3240},
+			BusID:      testNestedBusID,
 			LocalBusID: "0-0",
 		},
 		{
 			ID:     2,
 			Status: domain.StatusAvailable,
 			Speed:  domain.SpeedSuper,
-			BusID:  "2-1",
+			BusID:  testSecondaryBusID,
 		},
 	}
 
@@ -44,7 +44,14 @@ func TestTableRendererPorts(t *testing.T) {
 	got := out.String()
 	require.NotEmpty(t, got)
 
-	for _, want := range []string{"1-1.2", "2-1", "10.0.0.5:3240", "PORT", "STATUS", "BUSID"} {
+	for _, want := range []string{
+		testNestedBusID,
+		testSecondaryBusID,
+		"10.0.0.5:3240",
+		"PORT",
+		"STATUS",
+		testBusIDHeader,
+	} {
 		require.Contains(t, got, want)
 	}
 }
@@ -59,7 +66,7 @@ func TestTableRendererSessions(t *testing.T) {
 	sessions := []usbip.Session{
 		{
 			ID:        sid,
-			BusID:     "1-1.2",
+			BusID:     testNestedBusID,
 			StartedAt: time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC),
 			BytesIn:   1024,
 			BytesOut:  2048,
@@ -72,7 +79,7 @@ func TestTableRendererSessions(t *testing.T) {
 	got := out.String()
 	require.NotEmpty(t, got)
 
-	for _, want := range []string{"1-1.2", "2026-04-25T10:00:00Z", "1024", "2048", "ID", "BUSID"} {
+	for _, want := range []string{testNestedBusID, "2026-04-25T10:00:00Z", "1024", "2048", "ID", testBusIDHeader} {
 		require.Contains(t, got, want)
 	}
 }
@@ -87,7 +94,7 @@ func TestTableRendererEventKnown(t *testing.T) {
 		At: time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC),
 		Port: usbip.Port{
 			ID:    1,
-			BusID: "1-1.2",
+			BusID: testNestedBusID,
 		},
 	}
 

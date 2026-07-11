@@ -34,7 +34,7 @@ func TestTableRenderer_Event_RespectsNoColorEnv(t *testing.T) {
 		At: time.Date(2026, 4, 26, 12, 0, 0, 0, time.UTC),
 		Port: domain.Port{
 			ID:    1,
-			BusID: "1-1",
+			BusID: testRootBusID,
 		},
 	}
 
@@ -62,7 +62,7 @@ func TestTableRenderer_Event_HonorsNoColorAnyValue(t *testing.T) {
 				At: time.Date(2026, 4, 26, 12, 0, 0, 0, time.UTC),
 				Port: domain.Port{
 					ID:    1,
-					BusID: "1-1",
+					BusID: testRootBusID,
 				},
 			}
 

@@ -26,15 +26,15 @@ import (
 // extracted as constants so the goconst rule does not flag the
 // duplicated literals across cases.
 const (
-	usbipHostBindPath       = "/sys/bus/usb/drivers/usbip-host/bind"
-	usbipHostMatchBusIDPath = "/sys/bus/usb/drivers/usbip-host/match_busid"
+	usbipHostBindPath       = testUSBIPHostBindPath
+	usbipHostMatchBusIDPath = testUSBIPHostMatchBusIDPath
 	driversProbePath        = "/sys/bus/usb/drivers_probe"
 )
 
 func TestBind_UsesAtLeastFiveRetryAttempts(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 
 	var mu sync.Mutex
 
@@ -90,7 +90,7 @@ func TestBind_UsesAtLeastFiveRetryAttempts(t *testing.T) {
 func TestBind_RetriesEBUSYOnUSBIPHostBind(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 
 	var mu sync.Mutex
 

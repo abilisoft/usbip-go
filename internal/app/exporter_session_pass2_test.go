@@ -177,7 +177,7 @@ func (k *preHandoffKernelEvents) publishDetach() {
 	ev := domain.PortDetachedEvent{
 		At:     time.Now(),
 		Port:   domain.Port{BusID: k.busID},
-		Reason: "kernel session-end",
+		Reason: testKernelSessionEndReason,
 	}
 
 	for _, ch := range k.subs {
@@ -189,7 +189,7 @@ func (k *preHandoffKernelEvents) publishDetach() {
 }
 
 // TestExporterSession_ClosesAcceptedConnAfterSessionEnd pins the
-// close-after-session-end invariant. Per v1 contract §5.4 the kernel dups the
+// close-after-session-end invariant. Per kernel-adapter and importer-lifecycle OpenSpec documents the kernel dups the
 // accepted fd on ExportOnConn success and holds its own ref; the app's
 // original ref MUST be closed after the session ends so only the
 // kernel's ref keeps the socket alive. A handedOff guard that
@@ -270,7 +270,7 @@ func TestExporterSession_ClosesAcceptedConnAfterSessionEnd(t *testing.T) {
 	events <- domain.PortDetachedEvent{
 		At:     time.Now(),
 		Port:   domain.Port{BusID: sessionBusID},
-		Reason: "kernel session-end",
+		Reason: testKernelSessionEndReason,
 	}
 
 	require.Eventually(t, func() bool {
@@ -651,6 +651,8 @@ func TestExporterShutdown_TimeoutIsMinOfCtxAndConfig(t *testing.T) {
 
 	elapsed := time.Since(start)
 
+	require.GreaterOrEqual(t, elapsed, configTimeout/2,
+		"Shutdown returned before the configured backstop could fire")
 	require.Less(t, elapsed, callerBudget/2,
 		"Shutdown timeout must be min(ctx deadline, configured timeout); "+
 			"any regression where a ctx deadline disables the backstop "+

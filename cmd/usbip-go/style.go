@@ -4,8 +4,6 @@
 package main
 
 import (
-	"strings"
-
 	"charm.land/lipgloss/v2"
 
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -38,22 +36,21 @@ var styledHeader = lipgloss.NewStyle().
 // align even when adjacent cells differ in foreground intensity.
 var styledCell = lipgloss.NewStyle().Padding(0, 1)
 
-// statusStyle returns the foreground style for a port-status
-// label. Maps the operator-facing semantic of the status to a
-// reasonable color: green for "currently attached", yellow for
-// "negotiating", red for "error/lost", cyan for "free/idle".
-func statusStyle(status string) lipgloss.Style {
+// statusStyle returns the foreground style for a typed port status. Keeping
+// this boundary typed prevents display-only aliases from becoming an
+// accidental second status vocabulary beside pkg/domain.
+func statusStyle(status domain.Status) lipgloss.Style {
 	base := styledCell
 
-	switch strings.ToLower(status) {
-	case "used", "active", "in_use", "attached":
+	switch status {
+	case domain.StatusUsed:
 		return base.Foreground(lipgloss.Color("#5fff87")).Bold(true)
-	case "error", "lost", "disconnected", "failed":
+	case domain.StatusError:
 		return base.Foreground(lipgloss.Color("#ff5f5f")).Bold(true)
-	case "available", "idle", "free", "ready":
+	case domain.StatusAvailable:
 		return base.Foreground(lipgloss.Color("#5fd7ff"))
-	case "pending", "connecting", "negotiating":
-		return base.Foreground(lipgloss.Color("#ffd75f"))
+	case domain.StatusNull, domain.StatusNotAssigned:
+		return base
 	default:
 		return base
 	}

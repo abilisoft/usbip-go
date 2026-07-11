@@ -31,7 +31,7 @@ import (
 func TestBind_AlreadyBound_NoConfigValue_ReturnsCleanly(t *testing.T) {
 	t.Parallel()
 
-	const busID = "1-1"
+	const busID = testRootBusID
 
 	mfs := bindFS(busID)
 	// State after a successful prior bind: driver = usbip-host,

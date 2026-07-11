@@ -13,13 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTransportOptionsTypeIsNetoptsAlias asserts the public type is a
-// Go alias of the internal netopts.TransportOptions, so a value of the
-// public type drops directly into the internal interface contract
-// without conversion. The aliased identity is the contract the
-// pkg/usbip facade is built on (no shadow struct, no repeated field
-// list).
-func TestTransportOptionsTypeIsNetoptsAlias(t *testing.T) {
+// TestTransportOptionsPreservesV1AliasIdentity locks the published v1 type
+// identity so an internal ownership cleanup cannot silently break consumers.
+func TestTransportOptionsPreservesV1AliasIdentity(t *testing.T) {
 	t.Parallel()
 
 	pub := usbip.TransportOptions{
@@ -27,18 +23,9 @@ func TestTransportOptionsTypeIsNetoptsAlias(t *testing.T) {
 		TCPKeepAliveProbes: 6,
 	}
 
-	// `take` accepts netopts.TransportOptions only. If pub were a
-	// defined-type clone of netopts.TransportOptions instead of a Go
-	// alias, this call would fail to compile. The compile-time check
-	// is the actual contract assertion; the equality assertions below
-	// confirm field-level integrity.
-	take := func(opts netopts.TransportOptions) (time.Duration, int) {
-		return opts.DialConnectTimeout, opts.TCPKeepAliveProbes
-	}
-
-	idle, probes := take(pub)
-	require.Equal(t, 7*time.Second, idle)
-	require.Equal(t, 6, probes)
+	require.IsType(t, netopts.TransportOptions{}, pub)
+	require.Equal(t, 7*time.Second, pub.DialConnectTimeout)
+	require.Equal(t, 6, pub.TCPKeepAliveProbes)
 }
 
 // TestWithImporterTransportOptionsRoundTripsToInternal asserts the
@@ -91,7 +78,8 @@ func TestNewImporterRejectsNegativeTransportOptions(t *testing.T) {
 		TCPKeepAliveProbes: -1,
 	}))
 	require.Error(t, err)
-	require.ErrorIs(t, err, internalapp.ErrTransportOptionsInvalid)
+	require.ErrorIs(t, err, usbip.ErrTransportOptionsInvalid)
+	require.NotErrorIs(t, err, internalapp.ErrTransportOptionsInvalid)
 }
 
 // TestNewExporterRejectsNegativeTransportOptions mirrors the importer
@@ -103,5 +91,6 @@ func TestNewExporterRejectsNegativeTransportOptions(t *testing.T) {
 		SendBufferBytes: -1,
 	}))
 	require.Error(t, err)
-	require.ErrorIs(t, err, internalapp.ErrTransportOptionsInvalid)
+	require.ErrorIs(t, err, usbip.ErrTransportOptionsInvalid)
+	require.NotErrorIs(t, err, internalapp.ErrTransportOptionsInvalid)
 }

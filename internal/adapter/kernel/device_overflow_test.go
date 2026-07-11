@@ -32,7 +32,7 @@ func TestListLocalDevices_BusnumOverflowFailsClosed(t *testing.T) {
 
 	attrs["busnum"] = "65536\n" // 0x10000 — one past u16 max.
 
-	dev := deviceSysfs("1-1", attrs)
+	dev := deviceSysfs(testRootBusID, attrs)
 	mfs := mergeFS(dev, moduleDirs())
 
 	a, err := kernel.NewExporterAdapter(kernel.WithFS(mfs))
@@ -53,7 +53,7 @@ func TestListLocalDevices_DevnumOverflowFailsClosed(t *testing.T) {
 
 	attrs["devnum"] = "70000\n"
 
-	dev := deviceSysfs("1-1", attrs)
+	dev := deviceSysfs(testRootBusID, attrs)
 	mfs := mergeFS(dev, moduleDirs())
 
 	a, err := kernel.NewExporterAdapter(kernel.WithFS(mfs))
@@ -74,7 +74,7 @@ func TestListLocalDevices_ConfigValueOverflowFailsClosed(t *testing.T) {
 
 	attrs["bConfigurationValue"] = "256\n" // 0x100 — one past u8 max.
 
-	dev := deviceSysfs("1-1", attrs)
+	dev := deviceSysfs(testRootBusID, attrs)
 	mfs := mergeFS(dev, moduleDirs())
 
 	a, err := kernel.NewExporterAdapter(kernel.WithFS(mfs))
@@ -98,7 +98,7 @@ func TestListLocalDevices_ConfigValueOverflowFailsClosed(t *testing.T) {
 func TestListLocalDevices_InterfaceOverflowFailsClosed(t *testing.T) {
 	t.Parallel()
 
-	dev := deviceSysfs("1-1", makeDeviceAttrs())
+	dev := deviceSysfs(testRootBusID, makeDeviceAttrs())
 
 	// Override the interface class to a value exceeding u8 max.
 	// ReadHex16 parses this as 0x100 and narrowByteErr surfaces
@@ -124,7 +124,7 @@ func TestListLocalDevices_InterfaceOverflowFailsClosed(t *testing.T) {
 func TestListLocalDevices_InterfaceSubClassOverflowFailsClosed(t *testing.T) {
 	t.Parallel()
 
-	dev := deviceSysfs("1-1", makeDeviceAttrs())
+	dev := deviceSysfs(testRootBusID, makeDeviceAttrs())
 
 	dev["sys/bus/usb/devices/1-1:1.0/bInterfaceSubClass"].Data = []byte(hexOverflow100) // 256 decimal, overflows u8
 
@@ -143,7 +143,7 @@ func TestListLocalDevices_InterfaceSubClassOverflowFailsClosed(t *testing.T) {
 func TestListLocalDevices_InterfaceProtocolOverflowFailsClosed(t *testing.T) {
 	t.Parallel()
 
-	dev := deviceSysfs("1-1", makeDeviceAttrs())
+	dev := deviceSysfs(testRootBusID, makeDeviceAttrs())
 
 	dev["sys/bus/usb/devices/1-1:1.0/bInterfaceProtocol"].Data = []byte(hexOverflow100)
 
@@ -167,7 +167,7 @@ func TestListLocalDevices_DeviceClassOverflowFailsClosed(t *testing.T) {
 
 	attrs["bDeviceClass"] = hexOverflow100
 
-	dev := deviceSysfs("1-1", attrs)
+	dev := deviceSysfs(testRootBusID, attrs)
 	mfs := mergeFS(dev, moduleDirs())
 
 	a, err := kernel.NewExporterAdapter(kernel.WithFS(mfs))
@@ -187,7 +187,7 @@ func TestListLocalDevices_DeviceSubClassOverflowFailsClosed(t *testing.T) {
 
 	attrs["bDeviceSubClass"] = hexOverflow100
 
-	dev := deviceSysfs("1-1", attrs)
+	dev := deviceSysfs(testRootBusID, attrs)
 	mfs := mergeFS(dev, moduleDirs())
 
 	a, err := kernel.NewExporterAdapter(kernel.WithFS(mfs))
@@ -207,7 +207,7 @@ func TestListLocalDevices_DeviceProtocolOverflowFailsClosed(t *testing.T) {
 
 	attrs["bDeviceProtocol"] = hexOverflow100
 
-	dev := deviceSysfs("1-1", attrs)
+	dev := deviceSysfs(testRootBusID, attrs)
 	mfs := mergeFS(dev, moduleDirs())
 
 	a, err := kernel.NewExporterAdapter(kernel.WithFS(mfs))
@@ -228,7 +228,7 @@ func TestListLocalDevices_BusnumParseFailureDropsDevice(t *testing.T) {
 
 	attrs["busnum"] = "not-a-number\n"
 
-	dev := deviceSysfs("1-1", attrs)
+	dev := deviceSysfs(testRootBusID, attrs)
 	mfs := mergeFS(dev, moduleDirs())
 
 	a, err := kernel.NewExporterAdapter(kernel.WithFS(mfs))

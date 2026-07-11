@@ -13,11 +13,11 @@ import (
 )
 
 // DeviceWireSize is the on-wire width of the 312-byte device descriptor
-// layout (v1 contract §6.2). This is the OP_REP_DEVLIST and OP_REP_IMPORT
+// layout (wire-protocol OpenSpec). This is the OP_REP_DEVLIST and OP_REP_IMPORT
 // device-body size.
 const DeviceWireSize = 312
 
-// Byte offsets into the device descriptor (v1 contract §6.2).
+// Byte offsets into the device descriptor (wire-protocol OpenSpec).
 const (
 	offDevPath        = 0
 	offDevBusID       = 256
@@ -36,11 +36,11 @@ const (
 )
 
 //gremlins:target
-// ^ v1 contract §8.6: this file is a primary mutation-testing
+// ^ security-release-quality OpenSpec: this file is a primary mutation-testing
 // target because every byte offset, endianness choice, and overflow
 // guard affects upstream interop.
 
-// errDeviceFieldTooLarge wraps domain.ErrProtocolError per v1 contract §6.4
+// errDeviceFieldTooLarge wraps domain.ErrProtocolError per kernel-adapter and domain-model OpenSpec documents
 // error-matrix rules (protocol-level overflow is a protocol error,
 // not a domain-level sentinel). Kept as a package-internal identity
 // so callers in this package can disambiguate via errors.Is, and
@@ -51,7 +51,7 @@ const (
 var errDeviceFieldTooLarge = fmt.Errorf("%w: device descriptor field exceeds u16 range", domain.ErrProtocolError)
 
 // EncodeDevice serializes d into the 312-byte on-wire device descriptor
-// format (v1 contract §6.2) and writes it to w.
+// format (wire-protocol OpenSpec) and writes it to w.
 //
 // Returns ErrBusIDInvalid if d.BusID >= 32 bytes, ErrProtocolError if
 // d.Path >= 256 bytes, and propagates underlying writer errors wrapped.
@@ -102,7 +102,7 @@ func encodeDeviceTail(buf []byte, d domain.Device) {
 
 // DecodeDevice reads 312 bytes from r and returns the decoded Device
 // plus the advisory DecodeFlags that record any padded-string
-// truncation the §6.2 permissive-read rule keeps out of the error
+// truncation the wire-protocol OpenSpec permissive-read rule keeps out of the error
 // channel. Short reads surface as io.ErrUnexpectedEOF wrapped with
 // field context. Oversized busnum/devnum u32 fields (> uint16 max)
 // and unknown Speed values surface as ErrProtocolError.
@@ -126,7 +126,7 @@ func DecodeDevice(r io.Reader) (domain.Device, DecodeFlags, error) {
 // decodeDeviceBuf interprets a 312-byte slice as a device descriptor
 // and returns (Device, DecodeFlags, error). The flags capture every
 // padded-string field whose bytes reached the end without NUL; the
-// §6.2 rule keeps that condition non-erroring, so the Codec layer
+// wire-protocol OpenSpec rule keeps that condition non-erroring, so the Codec layer
 // reads the flags and emits slog.Warn records. DeviceIndex defaults
 // to 0; devlist callers overwrite it with the in-slice position.
 func decodeDeviceBuf(buf []byte) (domain.Device, DecodeFlags, error) {

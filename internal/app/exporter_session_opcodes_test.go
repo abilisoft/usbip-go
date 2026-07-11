@@ -220,14 +220,6 @@ func TestExporterServe_DevlistEncodeError(t *testing.T) {
 	_, err = client.Write(opHeader(wire.OpReqDevlist))
 	require.NoError(t, err)
 
-	// Allow the handler to process.
-	time.Sleep(50 * time.Millisecond)
-
-	require.Len(t, kernel.ListExportedDevicesCalls(), 1,
-		"ListExportedDevices must be called before EncodeOpRepDevlist is attempted")
-	require.Len(t, codec.EncodeOpRepDevlistCalls(), 1,
-		"EncodeOpRepDevlist must be called even when it errors")
-
 	// Drain any partial write and verify the conn is closed.
 	// SetReadDeadline may fail when the server has already closed its end
 	// of the pipe; the error is intentionally discarded — the deadline is
@@ -236,6 +228,12 @@ func TestExporterServe_DevlistEncodeError(t *testing.T) {
 
 	_, _ = client.Read(make([]byte, 128))
 	require.NoError(t, client.Close())
+
+	// The server-side close makes the handler's call history final.
+	require.Len(t, kernel.ListExportedDevicesCalls(), 1,
+		"ListExportedDevices must be called before EncodeOpRepDevlist is attempted")
+	require.Len(t, codec.EncodeOpRepDevlistCalls(), 1,
+		"EncodeOpRepDevlist must be called even when it errors")
 
 	cancel()
 
@@ -314,4 +312,50 @@ func TestExporterServe_DevlistWriteErrorClosesConn(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("Serve did not return within 3s of ctx cancel")
 	}
+}
+
+func TestExporterServe_SessionIDGenerationErrorRepliesWithDeviceError(t *testing.T) {
+	t.Parallel()
+
+	const busID = domain.BusID("3-2")
+
+	kernel := &ExporterKernelMock{
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: busID}}, nil
+		},
+	}
+	codec := newSessionImportCodec(busID)
+	listener := newPipeListener()
+
+	exporter := newExporterForTest(
+		t,
+		app.WithExporterKernel(kernel),
+		app.WithExporterCodec(codec),
+		app.WithSessionIDGeneratorForTest(func() (domain.SessionID, error) {
+			return domain.SessionID{}, errBoom
+		}),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	serveDone := make(chan error, 1)
+
+	go func() { serveDone <- exporter.Serve(ctx, listener) }()
+
+	client, err := listener.dial(ctx)
+	require.NoError(t, err)
+
+	_, err = client.Write(opHeader(wire.OpReqImport))
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return len(codec.EncodeOpRepImportErrorCalls()) == 1
+	}, 2*time.Second, 10*time.Millisecond)
+
+	calls := codec.EncodeOpRepImportErrorCalls()
+	require.Equal(t, wire.ImportStatusDevErr, calls[0].Status)
+	require.Empty(t, kernel.ExportOnConnCalls())
+
+	require.NoError(t, client.Close())
+	cancel()
+	require.NoError(t, <-serveDone)
 }

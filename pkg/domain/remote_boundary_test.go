@@ -69,7 +69,7 @@ func TestParseRemote_BoundaryCases(t *testing.T) {
 		// to bare-host branch and validateHost rejects ":3240" as
 		// invalid host — both error. To distinguish, use an input
 		// that real rejects on empty-host vs mutant accepts as bare
-		// host. ":host" leads real to (host="", port="host"), error.
+		// host. ":host" leads real to (host="", port=testHostLabel), error.
 		// Mutant treats whole string as bare host ":host", which
 		// validateHost rejects too — same outcome.
 		// The only differentiating case is a single-colon-prefix

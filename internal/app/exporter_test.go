@@ -26,7 +26,7 @@ func exporterTestEpoch() time.Time {
 func newExporterForTest(t *testing.T, opts ...app.ExporterOption) *app.Exporter {
 	t.Helper()
 
-	const baseOptCount = 5
+	const baseOptCount = 4
 
 	base := make([]app.ExporterOption, 0, baseOptCount+len(opts))
 
@@ -40,7 +40,6 @@ func newExporterForTest(t *testing.T, opts ...app.ExporterOption) *app.Exporter 
 				return ch, func() { close(ch) }, nil
 			},
 		}),
-		app.WithExporterTransport(&TransportMock{}),
 		app.WithExporterCodec(&ProtocolCodecMock{}),
 		app.WithExporterClock(testutil.NewFakeClockAt(exporterTestEpoch())),
 	)
@@ -77,20 +76,6 @@ func TestNewExporterPanicsOnMissingEvents(t *testing.T) {
 		})
 }
 
-// TestNewExporterPanicsOnMissingTransport guards the required Transport.
-func TestNewExporterPanicsOnMissingTransport(t *testing.T) {
-	t.Parallel()
-
-	require.PanicsWithValue(t,
-		"app.NewExporter: Transport is required (use WithExporterTransport)",
-		func() {
-			app.NewExporter(
-				app.WithExporterKernel(&ExporterKernelMock{}),
-				app.WithExporterEvents(&KernelEventsMock{}),
-			)
-		})
-}
-
 // TestNewExporterPanicsOnMissingCodec guards the required ProtocolCodec.
 func TestNewExporterPanicsOnMissingCodec(t *testing.T) {
 	t.Parallel()
@@ -101,7 +86,6 @@ func TestNewExporterPanicsOnMissingCodec(t *testing.T) {
 			app.NewExporter(
 				app.WithExporterKernel(&ExporterKernelMock{}),
 				app.WithExporterEvents(&KernelEventsMock{}),
-				app.WithExporterTransport(&TransportMock{}),
 			)
 		})
 }
@@ -116,7 +100,6 @@ func TestNewExporterAppliesOptionalOptions(t *testing.T) {
 	exp := app.NewExporter(
 		app.WithExporterKernel(&ExporterKernelMock{}),
 		app.WithExporterEvents(&KernelEventsMock{}),
-		app.WithExporterTransport(&TransportMock{}),
 		app.WithExporterCodec(&ProtocolCodecMock{}),
 		app.WithExporterClock(clk),
 		app.WithExporterLogger(nil),
@@ -199,7 +182,7 @@ func TestExporterListAvailableHappyPath(t *testing.T) {
 	t.Parallel()
 
 	want := []domain.Device{
-		{BusID: domain.BusID("1-1"), Path: "/sys/devices/pci/usb1/1-1"},
+		{BusID: domain.BusID("1-1"), Path: testRootDevicePath},
 		{BusID: domain.BusID("2-1"), Path: "/sys/devices/pci/usb2/2-1"},
 	}
 
@@ -243,7 +226,7 @@ func TestExporterListExportedHappyPath(t *testing.T) {
 	t.Parallel()
 
 	want := []domain.Device{
-		{BusID: domain.BusID("1-1"), Path: "/sys/devices/pci/usb1/1-1"},
+		{BusID: domain.BusID("1-1"), Path: testRootDevicePath},
 	}
 
 	kernel := &ExporterKernelMock{

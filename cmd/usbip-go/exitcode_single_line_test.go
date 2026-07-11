@@ -19,7 +19,7 @@ var (
 	errSingleLineTertiary  = errors.New("tertiary hint")
 )
 
-// TestFormatErrorIsSingleLine pins the v1 contract §7.4 promise that the
+// TestFormatErrorIsSingleLine pins the cli-interface OpenSpec promise that the
 // stderr line is exactly one line. errors.Join renders its members
 // joined by newlines; formatting a joined chain through FormatError's
 // %s verb leaked those newlines into the stderr template, breaking

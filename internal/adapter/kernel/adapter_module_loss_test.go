@@ -23,33 +23,29 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
-// moduleLossBusID is the fixed busid used by every module-loss test.
-// Simplifies the helper's signature to a no-arg constructor.
-const moduleLossBusID = "1-1"
-
 // allModulesFS returns a MapFS with all three kernel modules present
 // plus the sysfs skeleton every method needs. Individual tests delete
 // specific module dirs to simulate runtime module loss.
 func allModulesFS() fstest.MapFS {
-	busID := moduleLossBusID
+	busID := testRootBusID
 	iface := busID + ":1.0"
 
 	return fstest.MapFS{
-		"sys/module/usbip_core":                                &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host":                                &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/vhci_hcd":                                  &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host":                       &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host/match_busid":           &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/bind":                  &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/unbind":                &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/rebind":                &fstest.MapFile{Data: []byte("")},
+		testFSModuleUSBIPCorePath:                              &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleUSBIPHostPath:                              &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleVHCIHCDPath:                                &fstest.MapFile{Mode: fs.ModeDir},
+		testFSUSBIPHostDir:                                     &fstest.MapFile{Mode: fs.ModeDir},
+		testFSUSBIPHostMatchBusIDPath:                          &fstest.MapFile{Data: []byte("")},
+		testFSUSBIPHostBindPath:                                &fstest.MapFile{Data: []byte("")},
+		testFSUSBIPHostUnbindPath:                              &fstest.MapFile{Data: []byte("")},
+		testFSUSBIPHostRebindPath:                              &fstest.MapFile{Data: []byte("")},
 		"sys/bus/usb/devices/" + busID:                         &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + busID + "/usbip_sockfd":       &fstest.MapFile{Data: []byte("")},
 		"sys/bus/usb/devices/" + iface:                         &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + iface + "/driver/driver_name": &fstest.MapFile{Data: []byte("usbhid\n")},
-		"sys/devices/platform/vhci_hcd.0":                      &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/devices/platform/vhci_hcd.0/nports":               &fstest.MapFile{Data: []byte("16\n")},
-		"sys/devices/platform/vhci_hcd.0/status": &fstest.MapFile{Data: []byte(
+		testFSVHCIController0Dir:                               &fstest.MapFile{Mode: fs.ModeDir},
+		testFSVHCIController0NPortsPath:                        &fstest.MapFile{Data: []byte(testNPorts16Raw)},
+		testFSVHCIController0StatusPath: &fstest.MapFile{Data: []byte(
 			"hub port sta spd dev      sockfd local_busid\n" +
 				"hs  0000 000 000 00000000 000000 0-0\n",
 		)},
@@ -67,7 +63,7 @@ func TestModuleLoss_Bind(t *testing.T) {
 	t.Parallel()
 
 	mfs := allModulesFS()
-	delete(mfs, "sys/module/usbip_host")
+	delete(mfs, testFSModuleUSBIPHostPath)
 
 	a, err := kernel.NewExporterAdapter(
 		kernel.WithFS(mfs),
@@ -75,16 +71,16 @@ func TestModuleLoss_Bind(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = a.Bind(context.Background(), domain.BusID("1-1"))
+	err = a.Bind(context.Background(), domain.BusID(testRootBusID))
 	require.ErrorIs(t, err, domain.ErrKernelModuleMissing)
-	require.ErrorContains(t, err, "usbip_host")
+	require.ErrorContains(t, err, testUeventSubsystemUSBIPHost)
 }
 
 func TestModuleLoss_Unbind(t *testing.T) {
 	t.Parallel()
 
 	mfs := allModulesFS()
-	delete(mfs, "sys/module/usbip_host")
+	delete(mfs, testFSModuleUSBIPHostPath)
 
 	a, err := kernel.NewExporterAdapter(
 		kernel.WithFS(mfs),
@@ -92,7 +88,7 @@ func TestModuleLoss_Unbind(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = a.Unbind(context.Background(), domain.BusID("1-1"))
+	err = a.Unbind(context.Background(), domain.BusID(testRootBusID))
 	require.ErrorIs(t, err, domain.ErrKernelModuleMissing)
 }
 
@@ -100,7 +96,7 @@ func TestModuleLoss_ExportOnConn(t *testing.T) {
 	t.Parallel()
 
 	mfs := allModulesFS()
-	delete(mfs, "sys/module/usbip_host")
+	delete(mfs, testFSModuleUSBIPHostPath)
 
 	a, err := kernel.NewExporterAdapter(
 		kernel.WithFS(mfs),
@@ -115,7 +111,7 @@ func TestModuleLoss_ExportOnConn(t *testing.T) {
 		_ = left.Close()
 	}()
 
-	err = a.ExportOnConn(context.Background(), left, domain.BusID("1-1"))
+	err = a.ExportOnConn(context.Background(), left, domain.BusID(testRootBusID))
 	require.ErrorIs(t, err, domain.ErrKernelModuleMissing)
 }
 
@@ -123,7 +119,7 @@ func TestModuleLoss_Disconnect(t *testing.T) {
 	t.Parallel()
 
 	mfs := allModulesFS()
-	delete(mfs, "sys/module/usbip_host")
+	delete(mfs, testFSModuleUSBIPHostPath)
 
 	a, err := kernel.NewExporterAdapter(
 		kernel.WithFS(mfs),
@@ -131,7 +127,7 @@ func TestModuleLoss_Disconnect(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = a.Disconnect(context.Background(), domain.BusID("1-1"))
+	err = a.Disconnect(context.Background(), domain.BusID(testRootBusID))
 	require.ErrorIs(t, err, domain.ErrKernelModuleMissing)
 }
 
@@ -139,7 +135,7 @@ func TestModuleLoss_Attach(t *testing.T) {
 	t.Parallel()
 
 	mfs := allModulesFS()
-	delete(mfs, "sys/module/vhci_hcd")
+	delete(mfs, testFSModuleVHCIHCDPath)
 
 	a, err := kernel.NewImporterAdapter(
 		kernel.WithFS(mfs),
@@ -158,14 +154,14 @@ func TestModuleLoss_Attach(t *testing.T) {
 
 	_, err = a.AttachRemote(context.Background(), left, spec)
 	require.ErrorIs(t, err, domain.ErrKernelModuleMissing)
-	require.ErrorContains(t, err, "vhci_hcd")
+	require.ErrorContains(t, err, kernel.ModuleVHCIHCD)
 }
 
 func TestModuleLoss_Detach(t *testing.T) {
 	t.Parallel()
 
 	mfs := allModulesFS()
-	delete(mfs, "sys/module/vhci_hcd")
+	delete(mfs, testFSModuleVHCIHCDPath)
 
 	a, err := kernel.NewImporterAdapter(
 		kernel.WithFS(mfs),
@@ -181,7 +177,7 @@ func TestModuleLoss_ListPorts(t *testing.T) {
 	t.Parallel()
 
 	mfs := allModulesFS()
-	delete(mfs, "sys/module/vhci_hcd")
+	delete(mfs, testFSModuleVHCIHCDPath)
 
 	a, err := kernel.NewImporterAdapter(kernel.WithFS(mfs))
 	require.NoError(t, err)
@@ -197,7 +193,7 @@ func TestModuleLoss_ListLocalDevices(t *testing.T) {
 	t.Parallel()
 
 	mfs := allModulesFS()
-	delete(mfs, "sys/module/usbip_core")
+	delete(mfs, testFSModuleUSBIPCorePath)
 
 	a, err := kernel.NewExporterAdapter(kernel.WithFS(mfs))
 	require.NoError(t, err)

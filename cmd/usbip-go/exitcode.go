@@ -13,7 +13,7 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/usbip"
 )
 
-// Exit codes — authoritative table from v1 contract §7.4. Consumers may grep
+// Exit codes — authoritative table from cli-interface OpenSpec. Consumers may grep
 // on these values; they form part of the v1 CLI stability contract.
 const (
 	ExitOK               = 0
@@ -52,7 +52,7 @@ var errAlreadyRunning = errors.New("usbip-go: another daemon instance is running
 var errDrainTimeout = errors.New("drain timed out")
 
 // errorEntry pairs a sentinel (matched via errors.Is) with the spec
-// §7.4 exit code + stderr template. The registry drives both MapError
+// cli-interface OpenSpec exit code + stderr template. The registry drives both MapError
 // and FormatError so the two functions never drift.
 type errorEntry struct {
 	sentinel error
@@ -61,7 +61,7 @@ type errorEntry struct {
 }
 
 // errorRegistry returns the authoritative sentinel → (code, template)
-// mapping from v1 contract §7.4. The slice is returned fresh so tests can't
+// mapping from cli-interface OpenSpec. The slice is returned fresh so tests can't
 // mutate it.
 func errorRegistry() []errorEntry {
 	return []errorEntry{
@@ -135,7 +135,7 @@ func errorRegistry() []errorEntry {
 	}
 }
 
-// MapError classifies err into its exit code per v1 contract §7.4. nil is
+// MapError classifies err into its exit code per cli-interface OpenSpec. nil is
 // ExitOK; usage-class errors surface ExitUsage; sentinel matches take
 // priority over the generic net/timeout detection.
 func MapError(err error) int {
@@ -153,8 +153,7 @@ func MapError(err error) int {
 		}
 	}
 
-	var netErr net.Error
-	if errors.As(err, &netErr) {
+	if _, ok := errors.AsType[net.Error](err); ok {
 		return ExitNetwork
 	}
 
@@ -162,7 +161,7 @@ func MapError(err error) int {
 }
 
 // FormatError renders err as the single-line `usbip-go: ...` stderr message
-// prescribed by v1 contract §7.4. The returned string has no trailing newline
+// prescribed by cli-interface OpenSpec. The returned string has no trailing newline
 // (callers pick the newline policy) and no embedded newlines either —
 // errors.Join renders its members newline-separated, so any interior
 // newline in the detail text is collapsed to "; " before formatting.
@@ -172,7 +171,7 @@ func FormatError(err error) string {
 	}
 
 	// Usage errors are handled by cobra directly; we return the raw
-	// error message verbatim to match "we do not override" in §7.4.
+	// error message verbatim to match "we do not override" in cli-interface OpenSpec.
 	if isUsageError(err) {
 		return flattenErrorText(err.Error())
 	}
@@ -189,8 +188,7 @@ func FormatError(err error) string {
 		return entry.format
 	}
 
-	var netErr net.Error
-	if errors.As(err, &netErr) {
+	if _, ok := errors.AsType[net.Error](err); ok {
 		return "usbip-go: network error: " + flattenErrorText(err.Error())
 	}
 
@@ -213,8 +211,7 @@ func flattenErrorText(s string) string {
 // parse errors with its own message; matching on the sentinel-like
 // prefix is the pragmatic workaround since the wrapper is unexported.
 func isUsageError(err error) bool {
-	var usageErr *usageError
-	if errors.As(err, &usageErr) {
+	if _, ok := errors.AsType[*usageError](err); ok {
 		return true
 	}
 

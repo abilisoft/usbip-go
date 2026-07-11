@@ -1,0 +1,10 @@
+.agents
+.codex
+.local
+.rumdl_cache
+build
+dist
+bazel-bin
+bazel-out
+bazel-testlogs
+bazel-usbip-go

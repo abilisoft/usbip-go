@@ -1,0 +1,70 @@
+# --- Common ---
+common --enable_bzlmod
+common --enable_platform_specific_config
+common --lockfile_mode=error
+common --repository_cache=.local/bazel-repository-cache
+common --ui_event_filters=-debug
+common --repo_contents_cache=
+# Host network-metric collection is unnecessary for this build and has failed
+# in constrained netns/bwrap environments, so keep it disabled.
+common --noexperimental_collect_system_network_usage
+
+# Keep Bazel output symlinks under ignored local state to avoid repo-root
+# clutter and conflicts with release/build artifacts.
+build --symlink_prefix=.local/bazel-links/
+
+# --- Build ---
+build --jobs=auto
+build --verbose_failures
+build --action_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+build --@rules_go//go/config:pure
+# Refuse to upload action outputs when an input changed during execution;
+# otherwise an editor/agent writing mid-build can poison the shared disk cache.
+build --guard_against_concurrent_changes
+build --disk_cache=.local/bazel-disk-cache
+build --experimental_disk_cache_gc_max_size=25G
+build --experimental_disk_cache_gc_max_age=30d
+
+# --- Test ---
+test --test_output=errors
+test --test_verbose_timeout_warnings=false
+
+# --- Coverage ---
+coverage --combined_report=lcov
+
+# --- Named configs ---
+
+# Cross-compilation
+build:linux-amd64 --platforms=@rules_go//go/toolchain:linux_amd64
+build:linux-arm64 --platforms=@rules_go//go/toolchain:linux_arm64
+build:linux-arm --platforms=@rules_go//go/toolchain:linux_arm
+
+# Test scopes
+test:unit --test_tag_filters=-integration,-conformance,-mutation,-manual
+test:integration --test_tag_filters=integration
+test:integration --@rules_go//go/config:tags=integration_linux
+test:conformance --test_tag_filters=conformance
+test:conformance --@rules_go//go/config:tags=conformance_linux
+test:all --test_tag_filters=
+test:all --@rules_go//go/config:tags=integration_linux,conformance_linux
+test:lint --test_tag_filters=lint
+test:lint --test_output=errors
+
+# Go race detection (affects all Go binaries selected by the test scope)
+test:race --@rules_go//go/config:race
+test:race --@rules_go//go/config:pure=false
+
+# Go test verbosity (shows individual subtests)
+test:go-verbose --test_arg=-test.v
+
+# CI profile
+test:ci --test_output=all
+
+# Release builds
+build:release --compilation_mode=opt --strip=always --stamp
+# Keep reproducible path stripping on shipped binaries. Applying this compiler
+# flag globally makes rules_go 0.61.1's Go 1.26.5 race stdlib report false
+# encoding/json cache races; direct `go test -race` and rules_go without the
+# global flag both pass repeated stress runs.
+build:release --@rules_go//go/config:gc_goopts=-trimpath
+build:release --workspace_status_command=tools/scripts/workspace_status.sh

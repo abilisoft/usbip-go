@@ -37,8 +37,8 @@ func TestListLocalDevices_AllRealSysfsSpeedStrings(t *testing.T) {
 	}{
 		{"low_speed_1.5_mbps_USB1.0", "1.5\n", domain.SpeedLow},
 		{"full_speed_12_mbps_USB1.1", "12\n", domain.SpeedFull},
-		{"high_speed_480_mbps_USB2.0", "480\n", domain.SpeedHigh},
-		{"super_speed_5000_mbps_USB3.0", "5000\n", domain.SpeedSuper},
+		{"high_speed_480_mbps_USB2.0", testHighSpeedRaw, domain.SpeedHigh},
+		{"super_speed_5000_mbps_USB3.0", testSuperSpeedRaw, domain.SpeedSuper},
 		{"super_speed_plus_10000_mbps_USB3.1", "10000\n", domain.SpeedSuperPlus},
 		{"super_speed_plus_20000_mbps_USB3.2_Gen2x2", "20000\n", domain.SpeedSuperPlus},
 	}
@@ -51,7 +51,7 @@ func TestListLocalDevices_AllRealSysfsSpeedStrings(t *testing.T) {
 
 			attrs["speed"] = tc.sysfs
 
-			mfs := mergeFS(deviceSysfs("1-1", attrs), moduleDirs())
+			mfs := mergeFS(deviceSysfs(testRootBusID, attrs), moduleDirs())
 
 			a, err := kernel.NewExporterAdapter(kernel.WithFS(mfs))
 			require.NoError(t, err)
@@ -95,7 +95,7 @@ func TestListLocalDevices_RejectsUnrecognizedSysfsSpeed(t *testing.T) {
 
 			attrs["speed"] = tc.sysfs
 
-			mfs := mergeFS(deviceSysfs("1-1", attrs), moduleDirs())
+			mfs := mergeFS(deviceSysfs(testRootBusID, attrs), moduleDirs())
 
 			// Capture the skip warning so we can assert the device was
 			// skipped for the speed reason specifically — not some

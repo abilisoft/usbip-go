@@ -1,0 +1,96 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "usbip",
+    srcs = [
+        "backoff.go",
+        "defaults_linux.go",
+        "defaults_other.go",
+        "doc.go",
+        "errors.go",
+        "modules.go",
+        "modules_linux.go",
+        "modules_other.go",
+        "options.go",
+        "transport_options.go",
+        "usbip.go",
+    ],
+    importpath = "github.com/abilisoft/usbip-go/pkg/usbip",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/app",
+        "//internal/netopts",
+        "//pkg/domain",
+    ] + select({
+        "@rules_go//go/platform:android": [
+            "//internal/adapter/kernel",
+            "//internal/adapter/transport",
+            "//internal/adapter/wire",
+        ],
+        "@rules_go//go/platform:linux": [
+            "//internal/adapter/kernel",
+            "//internal/adapter/transport",
+            "//internal/adapter/wire",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+go_test(
+    name = "usbip_test",
+    size = "small",
+    srcs = [
+        "attach_options_sentinel_test.go",
+        "attach_shutdown_timeout_test.go",
+        "backoff_nan_test.go",
+        "backoff_test.go",
+        "backoff_validation_test.go",
+        "defaults_test.go",
+        "errors_boundary_test.go",
+        "errors_test.go",
+        "export_test.go",
+        "exporter_stub_test.go",
+        "exporter_test.go",
+        "helpers_test.go",
+        "importer_stub_test.go",
+        "importer_test.go",
+        "listen_and_serve_test.go",
+        "modules_linux_export_test.go",
+        "modules_linux_test.go",
+        "modules_other_export_test.go",
+        "options_compile_test.go",
+        "options_test.go",
+        "test_constants_test.go",
+        "transport_options_test.go",
+        "usbip_test.go",
+    ],
+    embed = [":usbip"],
+    deps = [
+        "//internal/adapter/wire",
+        "//internal/app",
+        "//internal/netopts",
+        "//pkg/domain",
+        "@com_github_stretchr_testify//require",
+    ],
+)
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(["*.go"]),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_bazel_files",
+    srcs = ["BUILD.bazel"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "testdata_files",
+    srcs = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)

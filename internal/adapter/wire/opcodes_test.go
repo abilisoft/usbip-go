@@ -19,7 +19,7 @@ import (
 // public API.
 var errTestInjectedRead = errors.New("injected read failure")
 
-// TestOpCodeConstants pins v1 contract §6.2 opcode numeric values.
+// TestOpCodeConstants pins wire-protocol OpenSpec opcode numeric values.
 func TestOpCodeConstants(t *testing.T) {
 	t.Parallel()
 
@@ -29,7 +29,7 @@ func TestOpCodeConstants(t *testing.T) {
 	require.Equal(t, wire.OpRepImport, wire.OpCode(0x0003))
 }
 
-// TestEncodeHeaderReqImport pins the exact byte layout from v1 contract §6.2.
+// TestEncodeHeaderReqImport pins the exact byte layout from wire-protocol OpenSpec.
 func TestEncodeHeaderReqImport(t *testing.T) {
 	t.Parallel()
 
@@ -57,7 +57,7 @@ func TestEncodeHeaderAllOpcodes(t *testing.T) {
 	}
 }
 
-// TestDecodeHeaderCleanEOF: v1 contract §6.2 — clean EOF before any header
+// TestDecodeHeaderCleanEOF: wire-protocol OpenSpec — clean EOF before any header
 // byte returns io.EOF unchanged, not wrapped.
 func TestDecodeHeaderCleanEOF(t *testing.T) {
 	t.Parallel()

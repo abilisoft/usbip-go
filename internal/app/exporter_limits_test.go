@@ -333,14 +333,15 @@ func TestExporter_RateLimit(t *testing.T) {
 		require.NoError(t, c.Close())
 	}
 
-	// Allow handlers a moment to finish.
-	time.Sleep(50 * time.Millisecond)
+	// Shutdown drains every accepted handler, so the decode count is final
+	// without relying on a scheduler grace period.
+	require.NoError(t, exp.Shutdown(context.Background()))
+	<-serveDone
 
 	require.LessOrEqual(t, headerDecodes.Load(), int32(burst),
 		"rate-limited conns must not reach DecodeHeader")
 
 	cancel()
-	<-serveDone
 }
 
 // TestExporter_MaxHandshakeBytes asserts the handler closes a conn
@@ -540,9 +541,12 @@ func TestExporter_HandshakeTimeout(t *testing.T) {
 	client, err := lis.dial(ctx)
 	require.NoError(t, err)
 
-	// Wait until the handler is parked reading the header, then advance
-	// the clock past the handshake deadline.
-	time.Sleep(20 * time.Millisecond)
+	// Wait until the handler has armed the fake-clock deadline before
+	// advancing it; this is deterministic regardless of goroutine scheduling.
+	require.Eventually(t, func() bool {
+		return clk.Pending() >= 1
+	}, 2*time.Second, 5*time.Millisecond)
+
 	clk.Advance(handshakeTimeout + 10*time.Millisecond)
 
 	_ = client.SetReadDeadline(time.Now().Add(2 * time.Second))

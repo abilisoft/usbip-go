@@ -9,6 +9,14 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
+// WithSessionIDGeneratorForTest injects deterministic SessionID generation
+// failures into black-box exporter handshake tests.
+func WithSessionIDGeneratorForTest(
+	generate func() (domain.SessionID, error),
+) ExporterOption {
+	return func(c *exporterConfig) { c.newSessionID = generate }
+}
+
 // PublishSessionEventForTest exposes the internal session-event fan-out
 // so race-detector tests can drive the publish path directly and
 // reproduce the publish-vs-unsubscribe window.

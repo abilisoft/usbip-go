@@ -4,11 +4,10 @@ Stable contract for every JSON object emitted by usbip-go. This
 document fixes field names, types, and semantics at schema v1 per
 `openspec/specs/operations-observability/spec.md` and `openspec/specs/cli-interface/spec.md`.
 
-The schema is mutable BEFORE the first stable release (v1.0.0).
-Field semantics may shift between v0.x and v1.0.x without a schema
-bump because no public consumer has shipped against them. Once
-v1.0.0 lands, any breaking change here requires a documented
-schema bump and a GitHub Release note at tag time.
+Schema v1 is the repository's current stable machine-readable contract even
+though every published module tag is presently retracted. Any breaking change
+requires a documented schema bump and a release note; published-version
+support is tracked separately in [`../SECURITY.md`](../SECURITY.md).
 
 The CLI's `--output=table` (default) human-readable format is NOT
 covered by this contract: borders, spacing, and column
@@ -27,9 +26,10 @@ MUST use `--output=json` against this schema instead.
   may appear; consumers MUST ignore unknown fields. Existing field
   names, types, and semantics never change within v1.
 - Any breaking change bumps the envelope to `"schema": "v2"` AND
-  requires a major-version bump of the library. Both versions are
-  emitted side-by-side via `--output=json-v1` / `--output=json-v2`
-  for at least one minor release.
+  requires a major-version bump of the library. The current CLI exposes
+  only `--output=table` and `--output=json`; a release that introduces v2
+  must also introduce explicit schema-version selection and keep v1
+  available for at least one minor release.
 - Omitted or unknown `"schema"` is not v1 and is not supported.
 
 Schema version is distinct from library version and from the
@@ -72,8 +72,8 @@ referenced by every envelope below.
 | `remote` | string | `domain.Session.RemoteAddr` | `host:port` of the accepted peer. |
 | `busid` | string | `domain.Session.BusID` | Exported device's busid for this session. |
 | `started_at` | string | RFC 3339 nano UTC | Wall-clock time of handshake completion. |
-| `bytes_in` | integer (u64) | counter | Bytes received from the peer. |
-| `bytes_out` | integer (u64) | counter | Bytes transmitted to the peer. |
+| `bytes_in` | integer (u64) | `domain.Session.BytesIn` | Reserved counter; currently `0` because kernel-owned URB forwarding is not metered in user space. |
+| `bytes_out` | integer (u64) | `domain.Session.BytesOut` | Reserved counter; currently `0` for the same reason. |
 
 ## List envelopes (`usbip-go` CLI)
 
@@ -174,9 +174,9 @@ exit code and a message on stderr, never as `{"ok": false}`.
 
 ## Watch events (jsonlines)
 
-`usbip-go watch --output=json` emits one record per line. Every record
-carries the schema envelope plus a `kind` discriminator. `kind`
-comes from a closed set matching `pkg/domain.EventKind.String()`:
+`usbip-go watch --output=json` emits one importer event per line. Every record
+carries the schema envelope plus a `kind` discriminator. The command's current
+importer stream can emit these six kinds:
 
 - `port_attached`
 - `port_detached`
@@ -184,8 +184,11 @@ comes from a closed set matching `pkg/domain.EventKind.String()`:
 - `port_reconnect_exhausted`
 - `device_bound`
 - `device_unbound`
-- `session_started`
-- `session_ended`
+
+The domain model also defines exporter-only `session_started` and
+`session_ended` events for `Exporter.WatchSessions`. No current CLI command
+subscribes to that exporter stream; their renderer shapes are documented below
+so code sharing the v1 event renderer has one complete reference.
 
 ### Common base (`eventBase`)
 
@@ -285,8 +288,7 @@ Shape is `statusResponse` in
   "kernel_modules": {
     "usbip_core": "loaded",
     "vhci_hcd":   "loaded",
-    "usbip_host": "loaded",
-    "usbip_vudc": "missing"
+    "usbip_host": "loaded"
   }
 }
 ```
@@ -305,17 +307,17 @@ that has actually armed the accept loop.
 cannot list bound devices, `bound_devices` remains an empty array and
 `bound_devices_error` carries a human-readable diagnostic so operators
 can distinguish "nothing is exported" from "status collection failed".
+`bound_devices` is the same wire-facing inventory as `ListExported`: a device
+must be bound to `usbip_host` and not actively claimed by an importer. Active
+ownership is represented under `sessions`.
 
 `kernel_modules` values are one of `"loaded"`, `"missing"`,
 `"unknown"`. The `/readyz` endpoint also consumes them to gate
 readiness on `usbip_core` and `usbip_host` being loaded.
 
-`sessions` entries use the same `sessionView` shape as the CLI
-list surfaces, with two JSON field name differences that are
-pinned by `openspec/specs/operations-observability/spec.md`:
-
-- Status socket `sessionJSON.id` is the canonical UUIDv7 form.
-- `started_at` is RFC 3339 nano UTC.
+`sessions` entries use the same field names and formats as session watch
+records: `id` is the canonical UUIDv7 form and `started_at` is RFC 3339 nano
+UTC.
 
 ## Observability via slog
 
@@ -338,10 +340,10 @@ The closed outcome enumerations:
 | `importer_detach` | `ok`, `not_found`, `error` |
 | `importer_reconnect` | `ok`, `backoff`, `exhausted`, `canceled` |
 
-Per-session byte counters are explicitly omitted from v1. The kernel
-owns the URB path; polling byte counters at our layer would produce
-approximate, misleading numbers. Operators who need byte-level
-visibility read kernel socket stats via `ss -tn`.
+The v1 schema includes `bytes_in` and `bytes_out` for forward
+compatibility, but the current exporter leaves both at `0`: the kernel
+owns the URB path and user space does not meter it. Operators who need
+byte-level visibility read kernel socket stats via `ss -tn`.
 
 Build provenance (`version`, `commit`, `build_date`, `go_version`)
 appears as fields on the `"usbip-go serve starting"` slog record at
@@ -350,13 +352,13 @@ jq 'select(.MESSAGE == "usbip-go serve starting")'`.
 
 ## Forward compatibility
 
-All consumers MUST treat unknown fields as opaque and pass them
-through or ignore them silently. The `output_forward_compat_test.go`
-suite in `cmd/usbip-go` asserts that renderers emit fields not present
-in older fixtures without breaking older parsers that ignore them.
+All consumers MUST treat unknown fields as opaque and pass them through or
+ignore them silently. The `output_forward_compat_test.go` suite in
+`cmd/usbip-go` asserts that a typed consumer ignores an unknown additive field
+in a future v1 event.
 
 When a breaking change is required, the library bumps the schema
-envelope from `"v1"` to `"v2"` AND the library major version. The
-old and new forms coexist behind `--output=json-v1` and
-`--output=json-v2` for at least one minor release before the old
-form is retired.
+envelope from `"v1"` to `"v2"` AND the library major version. That
+release must add an explicit schema-version selector and keep v1
+available for at least one minor release before retiring it. No
+version-specific output selector exists in the current CLI.

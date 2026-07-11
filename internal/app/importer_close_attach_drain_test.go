@@ -30,10 +30,12 @@ func TestImporterCloseWaitsForInFlightAttach(t *testing.T) {
 	t.Parallel()
 
 	gate := make(chan struct{})
+	attachStarted := make(chan struct{})
 	attachFinished := make(chan struct{})
 
 	imp, _, _, kernel := newReconnectFixture(t,
 		func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			close(attachStarted)
 			<-gate
 
 			return domain.PortID(1), nil
@@ -52,11 +54,11 @@ func TestImporterCloseWaitsForInFlightAttach(t *testing.T) {
 		attachDone.Store(true)
 	}()
 
-	// Give the Attach goroutine time to enter AttachRemote and park
-	// on the gate. Without this, Close could race the Attach's
-	// mu-locked acquireAttachSlot step and observe no in-flight
-	// slot yet.
-	time.Sleep(100 * time.Millisecond)
+	select {
+	case <-attachStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Attach did not enter the kernel handoff")
+	}
 
 	closeReturned := make(chan struct{})
 

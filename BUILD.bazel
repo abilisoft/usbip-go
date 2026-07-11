@@ -1,0 +1,934 @@
+load("@gazelle//:def.bzl", "gazelle", "gazelle_test")
+load("//tools/bazel:changelog.bzl", "changelog")
+load("//tools/bazel:goreleaser.bzl", "goreleaser")
+load("//tools/bazel:repo_coverage.bzl", "repo_coverage_test")
+load("//tools/bazel:toolwrap.bzl", "toolwrap_binary", "toolwrap_test")
+
+# gazelle:prefix github.com/abilisoft/usbip-go
+# gazelle:exclude build
+# gazelle:exclude dist
+# gazelle:exclude .local
+# gazelle:exclude .rumdl_cache
+# gazelle:exclude vendor
+# gazelle:exclude **/.t-*
+
+exports_files([
+    ".bazelignore",
+    ".bazelrc",
+    ".bazelversion",
+    ".editorconfig",
+    ".gitleaks.toml",
+    ".gitignore",
+    ".golangci.yml",
+    ".goreleaser.yml",
+    ".gremlins.yaml",
+    ".rumdl.toml",
+    ".testcoverage.yaml",
+    ".typos.toml",
+    ".yamlfmt",
+    ".yamllint",
+    "cliff.toml",
+    "deps.go.work",
+    "go.mod",
+    "go.sum",
+])
+
+exports_files(
+    ["contrib/systemd/usbip-go.service"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "rumdl_config",
+    srcs = [".rumdl.toml"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_markdown_lint_files",
+    srcs = glob(
+        [
+            "*.md",
+            ".github/*.md",
+            "docs/**/*.md",
+        ],
+        allow_empty = True,
+        exclude = [
+            "build/**",
+            "dist/**",
+        ],
+        exclude_directories = 1,
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "github_workflow_files",
+    srcs = glob(
+        [".github/workflows/*.yml"],
+        allow_empty = False,
+        exclude_directories = 1,
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_markdown_files",
+    srcs = [
+        ":repo_markdown_lint_files",
+    ] + glob(
+        [
+            "openspec/**/*.md",
+        ],
+        allow_empty = True,
+        exclude = [
+            "build/**",
+            "dist/**",
+        ],
+        exclude_directories = 1,
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_testdata_files",
+    srcs = [
+        "//cmd/usbip-go:testdata_files",
+        "//examples/client:testdata_files",
+        "//examples/events:testdata_files",
+        "//examples/reconnect:testdata_files",
+        "//examples/server:testdata_files",
+        "//internal/adapter/kernel:testdata_files",
+        "//internal/adapter/transport:testdata_files",
+        "//internal/adapter/wire:testdata_files",
+        "//internal/app:testdata_files",
+        "//internal/netopts:testdata_files",
+        "//internal/protocol:testdata_files",
+        "//internal/testutil:testdata_files",
+        "//pkg/domain:testdata_files",
+        "//pkg/usbip:testdata_files",
+        "//test/conformance:testdata_files",
+        "//test/integration:testdata_files",
+        "//test/integration/killable:testdata_files",
+        "//tools:testdata_files",
+        "//tools/bazel:testdata_files",
+        "//tools/scripts:testdata_files",
+        "//tools/yamllint:testdata_files",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_make_files",
+    srcs = ["Makefile"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_shell_files",
+    srcs = glob(
+        [
+            "*.sh",
+            "*.sh.tpl",
+            "scripts/**/*.sh",
+            "scripts/**/*.sh.tpl",
+        ],
+        allow_empty = True,
+        exclude = [
+            "build/**",
+            "dist/**",
+        ],
+        exclude_directories = 1,
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_toml_files",
+    srcs = [
+        ".gitleaks.toml",
+        ".rumdl.toml",
+        ".taplo.toml",
+        ".typos.toml",
+        "cliff.toml",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_yaml_files",
+    srcs = [
+        ".golangci.yml",
+        ".goreleaser.yml",
+        ".gremlins.yaml",
+        ".testcoverage.yaml",
+        ".yamlfmt",
+        ".yamllint",
+    ] + glob(
+        [
+            "*.yaml",
+            "*.yml",
+            ".github/**/*.yaml",
+            ".github/**/*.yml",
+            "docs/**/*.yaml",
+            "docs/**/*.yml",
+            "openspec/**/*.yaml",
+            "openspec/**/*.yml",
+        ],
+        allow_empty = True,
+        exclude = [
+            "build/**",
+            "dist/**",
+        ],
+        exclude_directories = 1,
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_yaml_lint_files",
+    srcs = [
+        ".golangci.yml",
+        ".goreleaser.yml",
+        ".gremlins.yaml",
+        ".testcoverage.yaml",
+        ".yamlfmt",
+        ".yamllint",
+    ] + glob(
+        [
+            "*.yaml",
+            "*.yml",
+            ".github/**/*.yaml",
+            ".github/**/*.yml",
+            "docs/**/*.yaml",
+            "docs/**/*.yml",
+            "openspec/**/*.yaml",
+            "openspec/**/*.yml",
+        ],
+        allow_empty = True,
+        exclude = [
+            "build/**",
+            "dist/**",
+        ],
+        exclude_directories = 1,
+    ),
+    visibility = ["//visibility:public"],
+)
+
+gazelle(
+    name = "gazelle",
+    args = [
+        "-go_prefix=github.com/abilisoft/usbip-go",
+    ],
+    command = "update",
+    visibility = ["//visibility:public"],
+)
+
+gazelle_test(
+    name = "gazelle_check",
+    size = "small",
+    args = [
+        "-go_prefix=github.com/abilisoft/usbip-go",
+    ],
+    command = "update",
+    tags = ["lint"],
+    workspace = "//:MODULE.bazel",
+)
+
+filegroup(
+    name = "all_go_sources",
+    srcs = [
+        "//cmd/usbip-go:go_srcs",
+        "//examples/client:go_srcs",
+        "//examples/events:go_srcs",
+        "//examples/reconnect:go_srcs",
+        "//examples/server:go_srcs",
+        "//internal/adapter/kernel:go_srcs",
+        "//internal/adapter/transport:go_srcs",
+        "//internal/adapter/wire:go_srcs",
+        "//internal/app:go_srcs",
+        "//internal/netopts:go_srcs",
+        "//internal/protocol:go_srcs",
+        "//internal/testutil:go_srcs",
+        "//pkg/domain:go_srcs",
+        "//pkg/usbip:go_srcs",
+        "//test/conformance:go_srcs",
+        "//test/integration:go_srcs",
+        "//test/integration/killable:go_srcs",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "all_shell_sources",
+    srcs = [
+        ":repo_shell_files",
+        "//tools/scripts:repo_shell_files",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "vendor_files",
+    srcs = glob(
+        ["vendor/**"],
+        allow_empty = False,
+        exclude_directories = 1,
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_bazel_files",
+    srcs = glob(
+        [
+            "*.bazel",
+            "*.bzl",
+        ],
+        allow_empty = True,
+        exclude = [
+            "build/**",
+            "dist/**",
+        ],
+        exclude_directories = 1,
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "all_bazel_files",
+    srcs = [
+        ":repo_bazel_files",
+        "//cmd/usbip-go:repo_bazel_files",
+        "//examples/client:repo_bazel_files",
+        "//examples/events:repo_bazel_files",
+        "//examples/reconnect:repo_bazel_files",
+        "//examples/server:repo_bazel_files",
+        "//internal/adapter/kernel:repo_bazel_files",
+        "//internal/adapter/transport:repo_bazel_files",
+        "//internal/adapter/wire:repo_bazel_files",
+        "//internal/app:repo_bazel_files",
+        "//internal/netopts:repo_bazel_files",
+        "//internal/protocol:repo_bazel_files",
+        "//internal/testutil:repo_bazel_files",
+        "//pkg/domain:repo_bazel_files",
+        "//pkg/usbip:repo_bazel_files",
+        "//test/conformance:repo_bazel_files",
+        "//test/integration:repo_bazel_files",
+        "//test/integration/killable:repo_bazel_files",
+        "//tools:repo_bazel_files",
+        "//tools/bazel:repo_bazel_files",
+        "//tools/scripts:repo_bazel_files",
+        "//tools/yamllint:repo_bazel_files",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_scan_files",
+    srcs = glob(
+        [
+            "*",
+            ".github/**",
+            "api/**",
+            "cmd/**",
+            "contrib/**",
+            "docs/**",
+            "examples/**",
+            "internal/**",
+            "openspec/**",
+            "pkg/**",
+            "scripts/**",
+            "test/**",
+            "tools/**",
+        ],
+        allow_empty = True,
+        exclude = [
+            ".git/**",
+            ".local/**",
+            "bazel-*/**",
+            "build/**",
+            "dist/**",
+        ],
+        exclude_directories = 1,
+    ),
+    visibility = ["//visibility:public"],
+)
+
+toolwrap_test(
+    name = "checkmake",
+    size = "small",
+    arg_files = [":repo_make_files"],
+    tags = ["lint"],
+    tool = "@com_github_checkmake_checkmake//cmd/checkmake",
+)
+
+toolwrap_test(
+    name = "actionlint",
+    size = "small",
+    arg_files = [":github_workflow_files"],
+    data = [".github/actionlint.yaml"],
+    path_tools = ["@multitool//tools/shellcheck"],
+    tags = ["lint"],
+    tool = "@multitool//tools/actionlint",
+)
+
+toolwrap_test(
+    name = "golangci_lint",
+    size = "medium",
+    timeout = "moderate",
+    data = [
+        "go.mod",
+        "go.sum",
+        ":.golangci.yml",
+        ":all_go_sources",
+        ":repo_testdata_files",
+        ":vendor_files",
+    ],
+    dereference = True,
+    path_tools = ["@go_sdk//:bin/go"],
+    tags = [
+        "block-network",
+        "exclusive-if-local",
+        "lint",
+    ],
+    tool = "@com_github_golangci_golangci_lint_v2//cmd/golangci-lint",
+    tool_args = [
+        "run",
+        "--config=$(rootpath :.golangci.yml)",
+        "--modules-download-mode=vendor",
+        "./...",
+    ],
+)
+
+toolwrap_test(
+    name = "govulncheck",
+    size = "small",
+    data = [
+        "go.mod",
+        "go.sum",
+        ":all_go_sources",
+        ":repo_testdata_files",
+    ],
+    dereference = True,
+    path_tools = [
+        "@go_sdk//:bin/go",
+        "@org_golang_x_vuln//cmd/govulncheck",
+    ],
+    tags = [
+        "external",
+        "requires-network",
+    ],
+    tool = "//tools/scripts:govulncheck",
+    tool_args = [
+        "-test",
+        "./...",
+    ],
+)
+
+toolwrap_test(
+    name = "go_mod_check",
+    size = "small",
+    data = [
+        "go.mod",
+        "go.sum",
+        ":all_go_sources",
+        ":repo_testdata_files",
+        ":vendor_files",
+        "//tools:go_module_files",
+    ],
+    dereference = True,
+    path_tools = ["@go_sdk//:bin/go"],
+    tags = [
+        "external",
+        "lint",
+        "requires-network",
+    ],
+    tool = "//tools/scripts:go_mod_check",
+)
+
+toolwrap_binary(
+    name = "govulncheck_sarif",
+    data = [
+        "go.mod",
+        "go.sum",
+        ":all_go_sources",
+        ":repo_testdata_files",
+    ],
+    dereference = True,
+    path_tools = [
+        "@go_sdk//:bin/go",
+        "@org_golang_x_vuln//cmd/govulncheck",
+    ],
+    tool = "//tools/scripts:govulncheck_sarif",
+)
+
+toolwrap_test(
+    name = "domain_boundary",
+    size = "small",
+    data = [
+        "go.mod",
+        "go.sum",
+        ":all_go_sources",
+    ],
+    dereference = True,
+    path_tools = ["@go_sdk//:bin/go"],
+    tags = ["lint"],
+    tool = "//tools/scripts:domain_boundary_check",
+)
+
+toolwrap_test(
+    name = "pure_go",
+    size = "small",
+    data = [
+        "go.mod",
+        "go.sum",
+        ":all_go_sources",
+    ],
+    dereference = True,
+    path_tools = ["@go_sdk//:bin/go"],
+    tags = ["lint"],
+    tool = "//tools/scripts:pure_go_check",
+)
+
+toolwrap_test(
+    name = "api_compatibility",
+    size = "small",
+    data = [
+        "api/pkg_domain.json",
+        "api/pkg_usbip.json",
+        "go.mod",
+        "go.sum",
+        ":all_go_sources",
+    ],
+    dereference = True,
+    path_tools = [
+        "@go_sdk//:bin/go",
+        "@org_golang_x_exp//cmd/apidiff",
+    ],
+    tags = ["lint"],
+    tool = "//tools/scripts:api_compatibility_check",
+)
+
+MUTATION_TAGS = [
+    "cpu:4",
+    "manual",
+    "mutation",
+]
+
+MUTATION_DATA = [
+    "go.mod",
+    "go.sum",
+    ":.gremlins.yaml",
+    ":all_go_sources",
+]
+
+toolwrap_test(
+    name = "gremlins_domain",
+    data = MUTATION_DATA,
+    dereference = True,
+    path_tools = ["@go_sdk//:bin/go"],
+    tags = MUTATION_TAGS,
+    tool = "@com_github_go_gremlins_gremlins//cmd/gremlins",
+    tool_args = [
+        "unleash",
+        "--config=$(rootpath :.gremlins.yaml)",
+        "./pkg/domain",
+    ],
+)
+
+toolwrap_test(
+    name = "gremlins_wire",
+    data = MUTATION_DATA + ["//internal/adapter/wire:testdata_files"],
+    dereference = True,
+    path_tools = ["@go_sdk//:bin/go"],
+    tags = MUTATION_TAGS,
+    tool = "@com_github_go_gremlins_gremlins//cmd/gremlins",
+    tool_args = [
+        "unleash",
+        "--config=$(rootpath :.gremlins.yaml)",
+        "./internal/adapter/wire",
+    ],
+)
+
+toolwrap_test(
+    name = "typos",
+    size = "small",
+    data = [
+        ":.typos.toml",
+        ":repo_scan_files",
+    ],
+    tags = ["lint"],
+    tool = "@multitool//tools/typos",
+    tool_args = ["--config=$(rootpath :.typos.toml)"],
+)
+
+toolwrap_test(
+    name = "rumdl",
+    size = "small",
+    arg_files = [":repo_markdown_lint_files"],
+    data = [":rumdl_config"],
+    tags = ["lint"],
+    tool = "@multitool//tools/rumdl",
+    tool_args = [
+        "check",
+        "--config=$(location :rumdl_config)",
+    ],
+)
+
+toolwrap_test(
+    name = "shellcheck",
+    size = "small",
+    arg_files = [":all_shell_sources"],
+    tags = ["lint"],
+    tool = "@multitool//tools/shellcheck",
+)
+
+toolwrap_test(
+    name = "shfmt_check",
+    size = "small",
+    arg_files = [":all_shell_sources"],
+    data = [".editorconfig"],
+    tags = ["lint"],
+    tool = "@multitool//tools/shfmt",
+    tool_args = ["-d"],
+)
+
+toolwrap_test(
+    name = "buildifier_check",
+    size = "small",
+    arg_files = [":all_bazel_files"],
+    tags = ["lint"],
+    tool = "@multitool//tools/buildifier",
+    tool_args = [
+        "--mode=check",
+        "--lint=warn",
+    ],
+)
+
+toolwrap_test(
+    name = "toml_format",
+    size = "small",
+    arg_files = [":repo_toml_files"],
+    dereference = True,
+    tags = ["lint"],
+    tool = "@multitool//tools/tombi",
+    tool_args = [
+        "format",
+        "--check",
+        "--offline",
+    ],
+)
+
+toolwrap_test(
+    name = "toml_lint",
+    size = "small",
+    arg_files = [":repo_toml_files"],
+    tags = ["lint"],
+    tool = "@multitool//tools/tombi",
+    tool_args = [
+        "lint",
+        "--offline",
+    ],
+)
+
+test_suite(
+    name = "toml",
+    tests = [
+        ":toml_format",
+        ":toml_lint",
+    ],
+)
+
+toolwrap_test(
+    name = "gitleaks",
+    size = "small",
+    data = [
+        ":.gitleaks.toml",
+        ":repo_scan_files",
+    ],
+    tags = ["lint"],
+    tool = "@multitool//tools/gitleaks",
+    tool_args = [
+        "detect",
+        "--no-git",
+        "--config=$(rootpath :.gitleaks.toml)",
+        "--source=.",
+    ],
+)
+
+toolwrap_test(
+    name = "yamlfmt_check",
+    size = "small",
+    arg_files = [":repo_yaml_lint_files"],
+    data = [":.yamlfmt"],
+    tags = ["lint"],
+    tool = "@multitool//tools/yamlfmt",
+    tool_args = [
+        "-conf",
+        "$(rootpath :.yamlfmt)",
+        "-lint",
+    ],
+)
+
+toolwrap_test(
+    name = "yamllint",
+    size = "small",
+    arg_files = [":repo_yaml_lint_files"],
+    data = [":.yamllint"],
+    tags = ["lint"],
+    tool = "//tools/yamllint",
+    tool_args = [
+        "-c",
+        "$(rootpath :.yamllint)",
+    ],
+)
+
+alias(
+    name = "usbip-go",
+    actual = "//cmd/usbip-go:usbip-go",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "format",
+    actual = "//tools:format",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "buildifier",
+    actual = "//tools:format_buildifier",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "gofmt",
+    actual = "//tools:format_gofmt",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "shfmt",
+    actual = "//tools:format_shfmt",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "tombi-format",
+    actual = "//tools:format_tombi",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "yamlfmt",
+    actual = "//tools:format_yamlfmt",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "ci-local",
+    actual = "//tools/scripts:ci_local_runner",
+    visibility = ["//visibility:public"],
+)
+
+test_suite(
+    name = "test",
+    tests = [
+        "//cmd/usbip-go:usbip-go_test",
+        "//examples/client:client_test",
+        "//examples/events:events_test",
+        "//examples/reconnect:reconnect_test",
+        "//examples/server:server_test",
+        "//internal/adapter/kernel:kernel_test",
+        "//internal/adapter/transport:transport_test",
+        "//internal/adapter/wire:wire_test",
+        "//internal/app:app_test",
+        "//internal/netopts:netopts_test",
+        "//internal/testutil:testutil_test",
+        "//pkg/domain:domain_test",
+        "//pkg/usbip:usbip_test",
+        "//tools/scripts:api_compatibility_check_test",
+        "//tools/scripts:ci_local_runner_test",
+        "//tools/scripts:govulncheck_sarif_test",
+        "//tools/scripts:repo_coverage_test_runner_test",
+        "//tools/scripts:systemd_unit_test",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+test_suite(
+    name = "conformance",
+    tests = ["//test/conformance:conformance_test"],
+    visibility = ["//visibility:public"],
+)
+
+test_suite(
+    name = "integration",
+    tests = ["//test/integration:integration_test"],
+    visibility = ["//visibility:public"],
+)
+
+test_suite(
+    name = "lint",
+    tests = [
+        ":actionlint",
+        ":api_compatibility",
+        ":buildifier_check",
+        ":checkmake",
+        ":domain_boundary",
+        ":gazelle_check",
+        ":gitleaks",
+        ":go_file_coverage",
+        ":go_mod_check",
+        ":golangci_lint",
+        ":makefile_coverage",
+        ":markdown_file_coverage",
+        ":pure_go",
+        ":rumdl",
+        ":shell_file_coverage",
+        ":shellcheck",
+        ":shfmt_check",
+        ":starlark_file_coverage",
+        ":toml",
+        ":toml_file_coverage",
+        ":typos",
+        ":yaml_file_coverage",
+        ":yamlfmt_check",
+        ":yamllint",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+test_suite(
+    name = "mutations",
+    tags = ["manual"],
+    tests = [
+        ":gremlins_domain",
+        ":gremlins_wire",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+goreleaser(
+    name = "release-check",
+    command_args = ["check"],
+)
+
+goreleaser(
+    name = "release-snapshot",
+    command_args = [
+        "release",
+        "--clean",
+        "--snapshot",
+        "--skip=sign",
+    ],
+)
+
+goreleaser(
+    name = "release",
+    command_args = [
+        "release",
+        "--clean",
+    ],
+)
+
+changelog(
+    name = "changelog",
+    config = ":cliff.toml",
+)
+
+repo_coverage_test(
+    name = "go_file_coverage",
+    size = "small",
+    srcs = [":all_go_sources"],
+    include_suffixes = [".go"],
+    tags = [
+        "lint",
+        "local",
+    ],
+)
+
+repo_coverage_test(
+    name = "makefile_coverage",
+    size = "small",
+    srcs = [":repo_make_files"],
+    include_suffixes = ["Makefile"],
+    tags = [
+        "lint",
+        "local",
+    ],
+)
+
+repo_coverage_test(
+    name = "markdown_file_coverage",
+    size = "small",
+    srcs = [":repo_markdown_files"],
+    include_suffixes = [".md"],
+    tags = [
+        "lint",
+        "local",
+    ],
+)
+
+repo_coverage_test(
+    name = "shell_file_coverage",
+    size = "small",
+    srcs = [":all_shell_sources"],
+    include_suffixes = [
+        ".sh",
+        ".sh.tpl",
+    ],
+    tags = [
+        "lint",
+        "local",
+    ],
+)
+
+repo_coverage_test(
+    name = "starlark_file_coverage",
+    size = "small",
+    srcs = [":all_bazel_files"],
+    include_suffixes = [
+        ".bazel",
+        ".bzl",
+    ],
+    tags = [
+        "lint",
+        "local",
+    ],
+)
+
+repo_coverage_test(
+    name = "toml_file_coverage",
+    size = "small",
+    srcs = [":repo_toml_files"],
+    include_suffixes = [".toml"],
+    tags = [
+        "lint",
+        "local",
+    ],
+)
+
+repo_coverage_test(
+    name = "yaml_file_coverage",
+    size = "small",
+    srcs = [":repo_yaml_files"],
+    include_suffixes = [
+        ".yaml",
+        ".yml",
+    ],
+    tags = [
+        "lint",
+        "local",
+    ],
+)
+
+filegroup(
+    name = "testdata_files",
+    srcs = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)

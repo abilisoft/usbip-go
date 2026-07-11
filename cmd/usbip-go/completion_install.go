@@ -35,6 +35,7 @@ func newCompletionInstallCmd(root *cobra.Command) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Write a shell completion script to the XDG-appropriate path",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runCompletionInstall(cmd, root, cf)
 		},

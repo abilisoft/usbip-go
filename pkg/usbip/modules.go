@@ -15,9 +15,17 @@ import (
 // proved the module is absent"; this tri-state preserves that
 // distinction.
 //
-// JSON marshaling emits the lowercase string form so the §7.7 status
+// JSON marshaling emits the lowercase string form so the operations-observability
+// and json-contracts OpenSpec status
 // schema retains its stable `{"usbip_core": "loaded"}` shape.
 type ModuleState int
+
+// Canonical Linux USB/IP kernel module names used as ProbeKernelModules keys.
+const (
+	KernelModuleUSBIPCore = "usbip_core"
+	KernelModuleVHCIHCD   = "vhci_hcd"
+	KernelModuleUSBIPHost = "usbip_host"
+)
 
 // ModuleState constants. Order is public API: the iota placement
 // determines what the zero value means. ModuleStateUnknown is 0 so a

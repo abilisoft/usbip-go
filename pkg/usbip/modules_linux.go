@@ -10,17 +10,17 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 )
 
-// probedModuleNames is the canonical §11.5.4 triple returned by
-// ProbeKernelModules. Exposed as a function (not a var) so tests
+// probedModuleNames is the canonical module triple required by the
+// security-release-quality and operations-observability OpenSpec documents and
+// returned by ProbeKernelModules. Exposed as a function (not a var) so tests
 // cannot mutate the slice.
 func probedModuleNames() []string {
-	return []string{"usbip_core", "vhci_hcd", "usbip_host"}
+	return []string{KernelModuleUSBIPCore, KernelModuleVHCIHCD, KernelModuleUSBIPHost}
 }
 
 // moduleSysfsRoot is the sysfs root for loaded kernel modules. Paired
@@ -28,8 +28,9 @@ func probedModuleNames() []string {
 // a package-level variable.
 const moduleSysfsRoot = "/sys/module"
 
-// ProbeKernelModules reports which of the §11.5.4 USB/IP kernel
-// modules appear loaded according to /sys/module. The returned map
+// ProbeKernelModules reports which USB/IP kernel modules from the
+// security-release-quality and operations-observability OpenSpec documents
+// appear loaded according to /sys/module. The returned map
 // always contains the three expected keys; the per-module value is
 // one of the three ModuleState constants.
 //
@@ -69,8 +70,7 @@ var (
 //
 //   - stat OK                 → Loaded
 //   - ENOENT / fs.ErrNotExist → Missing
-//   - any other error         → Unknown (logged at warn; the cause is
-//     an operator-visible signal, not a fatal)
+//   - any other error         → Unknown
 func probeOneAt(root, name string) ModuleState {
 	path := filepath.Join(root, name)
 
@@ -88,10 +88,6 @@ func probeOneAt(root, name string) ModuleState {
 	case errors.Is(err, fs.ErrNotExist):
 		return ModuleStateMissing
 	default:
-		slog.Default().Warn("kernel module probe: sysfs stat failed",
-			slog.String("module", name), slog.String("path", path),
-			slog.Any("err", err))
-
 		return ModuleStateUnknown
 	}
 }

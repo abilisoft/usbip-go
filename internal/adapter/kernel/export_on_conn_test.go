@@ -61,8 +61,8 @@ func socketPair(t *testing.T) (net.Conn, net.Conn) {
 // writable usbip_sockfd attribute.
 func exportFS(busID string) fstest.MapFS {
 	return fstest.MapFS{
-		"sys/module/usbip_core":                          &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host":                          &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleUSBIPCorePath:                        &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleUSBIPHostPath:                        &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + busID:                   &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + busID + "/usbip_sockfd": &fstest.MapFile{Data: []byte("")},
 	}
@@ -139,7 +139,7 @@ func TestExportOnConn_WritesFDToUsbipSockfd(t *testing.T) {
 func TestExportOnConn_DoesNotCloseConn(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	left, right := socketPair(t)
 
 	defer func() { _ = right.Close() }()
@@ -164,7 +164,7 @@ func TestExportOnConn_DoesNotCloseConn(t *testing.T) {
 func TestDisconnect_WritesMinusOne(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 
 	var gotWrites []writeCall
 
@@ -206,11 +206,11 @@ func TestDetachPort_WritesDecimalPortID(t *testing.T) {
 	// includes port 5 (flat, kernel-post-Task-2 semantics).
 	a, err := kernel.NewImporterAdapter(
 		kernel.WithFS(fstest.MapFS{
-			"sys/module/usbip_core":                  &fstest.MapFile{Mode: fs.ModeDir},
-			"sys/module/vhci_hcd":                    &fstest.MapFile{Mode: fs.ModeDir},
-			"sys/devices/platform/vhci_hcd.0":        &fstest.MapFile{Mode: fs.ModeDir},
-			"sys/devices/platform/vhci_hcd.0/nports": &fstest.MapFile{Data: []byte("8\n")},
-			"sys/devices/platform/vhci_hcd.0/status": &fstest.MapFile{Data: []byte(
+			testFSModuleUSBIPCorePath:       &fstest.MapFile{Mode: fs.ModeDir},
+			testFSModuleVHCIHCDPath:         &fstest.MapFile{Mode: fs.ModeDir},
+			testFSVHCIController0Dir:        &fstest.MapFile{Mode: fs.ModeDir},
+			testFSVHCIController0NPortsPath: &fstest.MapFile{Data: []byte("8\n")},
+			testFSVHCIController0StatusPath: &fstest.MapFile{Data: []byte(
 				"hub port sta spd dev      sockfd local_busid\n" +
 					"hs  0000 000 000 00000000 000000 0-0\n",
 			)},

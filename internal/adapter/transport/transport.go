@@ -18,7 +18,7 @@ import (
 )
 
 // NetTransport is the pure-Go implementation of the app.Transport
-// surface declared in v1 contract §5.1. It wraps net.Dialer / net.ListenConfig
+// surface declared in architecture-layering OpenSpec. It wraps net.Dialer / net.ListenConfig
 // so that every dial and listen observes a caller-supplied context, and
 // flips TCP_NODELAY on dialed connections to minimise USB/IP handshake
 // latency.
@@ -38,7 +38,7 @@ type Option func(*NetTransport)
 // WithLogger installs l as the NetTransport's logger. Passing nil
 // selects a discarding handler so call sites never have to nil-check.
 // This mirrors the Codec option pattern in internal/adapter/wire so
-// both adapters share a single logging convention (v1 contract §3.6).
+// both adapters share a single logging convention (operations-observability OpenSpec).
 func WithLogger(l *slog.Logger) Option {
 	return func(t *NetTransport) {
 		if l == nil {
@@ -67,7 +67,7 @@ func New(opts ...Option) *NetTransport {
 }
 
 // Dial connects to r over TCP using ctx for cancellation. Port 0 in r
-// is normalised to domain.DefaultPort per v1 contract §3 — the net.Dialer
+// is normalised to domain.DefaultPort per domain-model and transport-networking OpenSpec documents — the net.Dialer
 // would otherwise try to connect to port 0 which is a kernel-reserved
 // sentinel. TCP_NODELAY is set on the returned connection so the
 // USB/IP handshake's small frames are not Nagle-delayed.
@@ -278,7 +278,7 @@ func tuneDeadlines(
 
 // Listen binds addr and returns a ctx-bound net.Listener. The listener
 // is closed automatically when ctx is cancelled, so graceful-shutdown
-// call sites in §7 can drive a daemon teardown by cancelling one root
+// call sites in cli-interface OpenSpec can drive a daemon teardown by cancelling one root
 // context without having to track the listener separately. The
 // returned Listener's own Close is idempotent and waits for the
 // watcher goroutine to exit, so callers cannot leak it.

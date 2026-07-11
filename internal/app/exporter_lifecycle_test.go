@@ -41,21 +41,26 @@ func newSessionImportCodec(busID domain.BusID) *ProtocolCodecMock {
 	}
 }
 
-// startExporterImportSession helps tests bring up a single long-lived
-// import session. Returns the running exporter, the client conn, a
-// func that releases ExportOnConn, the serveDone channel, and the
-// Serve-cancel func. Waits synchronously for ExportOnConn to start so
-// callers know the handler is past the runRegisteredSession pre-handoff
-// cancel check (without that wait the handler can still race a
-// Shutdown firing between registerSession and ExportOnConn, which
-// the new check intentionally short-circuits).
-func startExporterImportSession(
-	t *testing.T,
-) (*app.Exporter, net.Conn, chan<- struct{}, <-chan error, context.CancelFunc) {
+// exporterImportSessionFixture owns a running, long-lived import session and
+// the synchronization points lifecycle tests need to release or stop it.
+type exporterImportSessionFixture struct {
+	exporter          *app.Exporter
+	client            net.Conn
+	release           chan<- struct{}
+	serveDone         <-chan error
+	cancel            context.CancelFunc
+	disconnectStarted <-chan struct{}
+}
+
+// startExporterImportSession waits synchronously for ExportOnConn to start so
+// callers know the handler is past the runRegisteredSession pre-handoff cancel
+// check before exercising shutdown behavior.
+func startExporterImportSession(t *testing.T) *exporterImportSessionFixture {
 	t.Helper()
 
 	releaseExport := make(chan struct{})
 	exportStarted := make(chan struct{}, 1)
+	disconnectStarted := make(chan struct{}, 1)
 
 	kernel := &ExporterKernelMock{
 		// serveImport now looks the requested device up in the
@@ -93,7 +98,14 @@ func startExporterImportSession(
 		},
 		// Fixture helper needs a DisconnectFunc so the cleanup-time
 		// Shutdown does not panic the mock.
-		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
+		DisconnectFunc: func(_ context.Context, _ domain.BusID) error {
+			select {
+			case disconnectStarted <- struct{}{}:
+			default:
+			}
+
+			return nil
+		},
 	}
 
 	codec := newSessionImportCodec(domain.BusID("3-1"))
@@ -125,15 +137,24 @@ func startExporterImportSession(
 		t.Fatal("ExportOnConn never started")
 	}
 
-	return exp, client, releaseExport, serveDone, cancel
+	return &exporterImportSessionFixture{
+		exporter:          exp,
+		client:            client,
+		release:           releaseExport,
+		serveDone:         serveDone,
+		cancel:            cancel,
+		disconnectStarted: disconnectStarted,
+	}
 }
 
 // TestExporterSessions_ReflectsCurrent asserts Sessions() returns the
-// set of accepted sessions. Mirrors v1 contract §5.3's `Sessions(ctx)` contract.
+// set of accepted sessions. Mirrors exporter-daemon OpenSpec's `Sessions(ctx)` contract.
 func TestExporterSessions_ReflectsCurrent(t *testing.T) {
 	t.Parallel()
 
-	exp, client, release, serveDone, cancel := startExporterImportSession(t)
+	fixture := startExporterImportSession(t)
+	exp, client, release := fixture.exporter, fixture.client, fixture.release
+	serveDone, cancel := fixture.serveDone, fixture.cancel
 
 	require.Eventually(t, func() bool {
 		return len(exp.Sessions(context.Background())) == 1
@@ -160,7 +181,9 @@ func TestExporterSessions_ReflectsCurrent(t *testing.T) {
 func TestExporterWatchSessions_StartEnd(t *testing.T) {
 	t.Parallel()
 
-	exp, client, release, serveDone, cancel := startExporterImportSession(t)
+	fixture := startExporterImportSession(t)
+	exp, client, release := fixture.exporter, fixture.client, fixture.release
+	serveDone, cancel := fixture.serveDone, fixture.cancel
 
 	watchCtx, watchCancel := context.WithCancel(context.Background())
 	t.Cleanup(watchCancel)
@@ -221,25 +244,42 @@ func TestExporterWatchSessions_StartEnd(t *testing.T) {
 func TestExporterShutdown_Drains(t *testing.T) {
 	t.Parallel()
 
-	exp, client, release, serveDone, cancel := startExporterImportSession(t)
+	fixture := startExporterImportSession(t)
+	exp, client, release := fixture.exporter, fixture.client, fixture.release
+	serveDone, cancel := fixture.serveDone, fixture.cancel
 
 	require.Eventually(t, func() bool {
 		return len(exp.Sessions(context.Background())) == 1
 	}, 2*time.Second, 10*time.Millisecond)
-
-	// Spawn a goroutine that simulates the kernel ending the session
-	// shortly after Shutdown starts draining.
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		close(release)
-	}()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(
 		context.Background(), 2*time.Second,
 	)
 	defer shutdownCancel()
 
-	require.NoError(t, exp.Shutdown(shutdownCtx))
+	shutdownDone := make(chan error, 1)
+
+	go func() {
+		shutdownDone <- exp.Shutdown(shutdownCtx)
+	}()
+
+	// The handoff is deliberately parked, so Shutdown must remain in its
+	// session drain until the simulated kernel handoff completes.
+	select {
+	case err := <-shutdownDone:
+		t.Fatalf("Shutdown returned before the in-flight handoff drained: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+
+	require.NoError(t, <-shutdownDone)
+
+	select {
+	case <-fixture.disconnectStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("completed handoff was not disconnected during shutdown")
+	}
 
 	cancel()
 
@@ -248,13 +288,111 @@ func TestExporterShutdown_Drains(t *testing.T) {
 	<-serveDone
 }
 
+// TestExporterShutdown_DisconnectsOnlyAfterHandoffSuccess pins the
+// shutdown/handoff interleaving: a Disconnect issued while
+// ExportOnConn is still blocked can miss the not-yet-created sysfs
+// export and leave it orphaned after the handoff succeeds.
+func TestExporterShutdown_DisconnectsOnlyAfterHandoffSuccess(t *testing.T) {
+	t.Parallel()
+
+	exportStarted := make(chan struct{})
+	releaseExport := make(chan struct{})
+	disconnectCalled := make(chan struct{}, 1)
+
+	var disconnectCount atomic.Int32
+
+	kernel := &ExporterKernelMock{
+		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+			return []domain.Device{{BusID: domain.BusID("3-1")}}, nil
+		},
+		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
+			close(exportStarted)
+			<-releaseExport
+
+			return nil
+		},
+		DisconnectFunc: func(_ context.Context, _ domain.BusID) error {
+			disconnectCount.Add(1)
+
+			disconnectCalled <- struct{}{}
+
+			return io.ErrUnexpectedEOF
+		},
+	}
+
+	codec := newSessionImportCodec(domain.BusID("3-1"))
+	lis := newAddrListener(&net.TCPAddr{IP: net.IPv4(10, 0, 0, 8), Port: 9001})
+	exp := newExporterForTest(
+		t,
+		app.WithExporterKernel(kernel),
+		app.WithExporterCodec(codec),
+	)
+
+	serveCtx, cancelServe := context.WithCancel(context.Background())
+	t.Cleanup(cancelServe)
+
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- exp.Serve(serveCtx, lis) }()
+
+	client, err := lis.dial(serveCtx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	_, err = client.Write(opHeader(wire.OpReqImport))
+	require.NoError(t, err)
+
+	select {
+	case <-exportStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ExportOnConn did not start")
+	}
+
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelShutdown()
+
+	shutdownDone := make(chan error, 1)
+	go func() { shutdownDone <- exp.Shutdown(shutdownCtx) }()
+
+	// Listener closure proves Shutdown captured state and started its
+	// first-call path. The blocked handoff must still prevent an early
+	// Disconnect against nonexistent kernel state.
+	select {
+	case <-lis.closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Shutdown did not close the listener")
+	}
+
+	select {
+	case <-disconnectCalled:
+		t.Fatal("Disconnect ran before ExportOnConn succeeded")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(releaseExport)
+
+	select {
+	case <-disconnectCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Disconnect did not run after ExportOnConn succeeded")
+	}
+
+	require.NoError(t, <-shutdownDone)
+	require.EqualValues(t, 1, disconnectCount.Load())
+
+	cancelServe()
+	require.NoError(t, <-serveDone)
+}
+
 // TestExporterShutdown_DeadlineExceeded asserts Shutdown returns a
 // ctx.Err-wrapped error when the drain deadline expires before the
 // session ends.
 func TestExporterShutdown_DeadlineExceeded(t *testing.T) {
 	t.Parallel()
 
-	exp, client, release, serveDone, cancel := startExporterImportSession(t)
+	fixture := startExporterImportSession(t)
+	exp, client, release := fixture.exporter, fixture.client, fixture.release
+	serveDone, cancel := fixture.serveDone, fixture.cancel
+
 	t.Cleanup(func() {
 		close(release)
 		cancel()
@@ -496,7 +634,7 @@ func TestExporterWatchSessions_DoesNotRegisterUntilIterated(t *testing.T) {
 
 // TestExporterWatchSessions_AfterShutdown asserts WatchSessions after
 // Shutdown returns an empty iter that terminates immediately. Matches
-// the Importer.Watch post-Close contract per v1 contract §3.4.
+// the Importer.Watch post-Close contract per importer-lifecycle and exporter-daemon OpenSpec documents.
 func TestExporterWatchSessions_AfterShutdown(t *testing.T) {
 	t.Parallel()
 

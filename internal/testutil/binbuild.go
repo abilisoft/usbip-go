@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,11 +22,18 @@ import (
 // outer test hitting -timeout.
 const binaryBuildTimeout = 5 * time.Minute
 
-// BuildBinary compiles ./cmd/<name>/ to an absolute-path temp binary
-// the test can exec. Caller passes the leaf command directory name
-// (today only "usbip-go" — the project ships one binary per
-// OpenSpec, but the helper stays generic in case a future cmd/ leaf
-// needs the same TMPDIR + buildvcs handling).
+const bazelTestBinaryEnv = "USBIP_GO_TEST_BINARY"
+
+const goCoverageDirEnv = "GOCOVERDIR"
+
+const bazelBinPathSegment = "/bin/"
+
+// BuildBinary returns an absolute path to the requested command binary. Bazel
+// tests consume the already-built binary supplied through bazelTestBinaryEnv;
+// direct `go test` runs fall back to compiling ./cmd/<name>/ in a temporary
+// directory. Caller passes the leaf command directory name (today only
+// "usbip-go" — the project ships one binary per OpenSpec, but the helper stays
+// generic in case a future cmd/ leaf needs the same fallback behavior).
 //
 // Centralised here so binary-smoke tests across `cmd/.../`_test.go
 // packages share one helper. Two prior duplicates in
@@ -40,8 +48,12 @@ const binaryBuildTimeout = 5 * time.Minute
 // the temp dir before composing the binary path, and pass the same
 // absolute TMPDIR to the build subprocess so go's workdir creation
 // does not chase a relative `.go-build-XYZ` either.
-func BuildBinary(t *testing.T, name string) string {
+func BuildBinary(ctx context.Context, t *testing.T, name string) string {
 	t.Helper()
+
+	if configured := os.Getenv(bazelTestBinaryEnv); configured != "" {
+		return resolveBazelBinary(t, name, configured)
+	}
 
 	tmp, err := filepath.Abs(t.TempDir())
 	require.NoError(t, err)
@@ -49,7 +61,7 @@ func BuildBinary(t *testing.T, name string) string {
 	out := filepath.Join(tmp, name)
 	root := RepoRoot(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), binaryBuildTimeout)
+	ctx, cancel := context.WithTimeout(ctx, binaryBuildTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "go", "build", "-buildvcs=false", "-o", out, "./cmd/"+name+"/")
@@ -66,6 +78,71 @@ func BuildBinary(t *testing.T, name string) string {
 	require.NoError(t, err, "build %s failed: %s", name, output)
 
 	return out
+}
+
+// BinaryCommandContext returns a command for the requested project binary.
+// Bazel coverage instruments data-dependency binaries as well as the test
+// executable, so subprocesses need their own GOCOVERDIR. Without it, the Go
+// runtime writes a coverage warning to stderr and breaks tests that assert a
+// clean command invocation.
+func BinaryCommandContext(
+	ctx context.Context,
+	t *testing.T,
+	name string,
+	args ...string,
+) *exec.Cmd {
+	t.Helper()
+
+	// Building the test fixture is setup work and must not consume the command's
+	// runtime deadline. Preserve caller values while deliberately detaching its
+	// cancellation and deadline; BuildBinary adds its own bounded setup timeout.
+	buildCtx := context.WithoutCancel(ctx)
+	binary := BuildBinary(buildCtx, t, name)
+
+	cmd := exec.CommandContext(ctx, binary, args...)
+	if os.Getenv(bazelTestBinaryEnv) != "" && os.Getenv(goCoverageDirEnv) == "" {
+		cmd.Env = append(os.Environ(), goCoverageDirEnv+"="+t.TempDir())
+	}
+
+	return cmd
+}
+
+// resolveBazelBinary maps the location-expanded runfile path onto the current
+// test's runfiles tree. rules_go supplies TEST_SRCDIR and TEST_WORKSPACE for
+// Bazel tests; an absolute value remains useful for other test runners that
+// choose to provide the same environment contract.
+func resolveBazelBinary(t *testing.T, name, configured string) string {
+	t.Helper()
+
+	path := configured
+	if !filepath.IsAbs(path) {
+		testSrcDir := os.Getenv("TEST_SRCDIR")
+		testWorkspace := os.Getenv("TEST_WORKSPACE")
+
+		require.NotEmpty(t, testSrcDir, "%s requires TEST_SRCDIR for a relative path", bazelTestBinaryEnv)
+		require.NotEmpty(t, testWorkspace, "%s requires TEST_WORKSPACE for a relative path", bazelTestBinaryEnv)
+
+		relative := bazelRunfileRelativePath(path)
+		require.True(t, filepath.IsLocal(relative), "prebuilt test binary path %q must stay within runfiles", relative)
+
+		path = filepath.Join(testSrcDir, testWorkspace, relative)
+	}
+
+	require.Equal(t, name, filepath.Base(path), "prebuilt test binary must match requested command")
+
+	return path
+}
+
+// bazelRunfileRelativePath converts a location-expanded exec path such as
+// bazel-out/<config>/bin/cmd/tool/tool_/tool into the workspace-relative path
+// used by the runfiles tree. Already-relative runfile paths pass through.
+func bazelRunfileRelativePath(path string) string {
+	normalized := filepath.ToSlash(path)
+	if marker := strings.LastIndex(normalized, bazelBinPathSegment); marker >= 0 {
+		normalized = normalized[marker+len(bazelBinPathSegment):]
+	}
+
+	return filepath.FromSlash(normalized)
 }
 
 // RepoRoot walks up from PWD looking for go.mod and returns the

@@ -31,7 +31,7 @@ func TestNewSessionID_IsUUIDv7(t *testing.T) {
 }
 
 // TestNewSessionID_VariantIsRFC4122 pins the variant bits per RFC 9562
-// §4.1: the top two bits of byte 8 MUST be `10`. Without this check
+// domain-model OpenSpec: the top two bits of byte 8 MUST be `10`. Without this check
 // the stdlib re-implementation could leave random bits in those slots
 // and produce technically-not-a-UUID values that consumers using
 // strict UUID libraries would reject.

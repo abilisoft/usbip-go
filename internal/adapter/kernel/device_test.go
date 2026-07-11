@@ -32,8 +32,8 @@ func deviceSysfs(busID string, attrs map[string]string) fstest.MapFS {
 
 	m["sys/bus/usb/devices/"+iface] = &fstest.MapFile{Mode: fs.ModeDir}
 	m["sys/bus/usb/devices/"+iface+"/bInterfaceClass"] = &fstest.MapFile{Data: []byte("09\n")}
-	m["sys/bus/usb/devices/"+iface+"/bInterfaceSubClass"] = &fstest.MapFile{Data: []byte("00\n")}
-	m["sys/bus/usb/devices/"+iface+"/bInterfaceProtocol"] = &fstest.MapFile{Data: []byte("00\n")}
+	m["sys/bus/usb/devices/"+iface+"/bInterfaceSubClass"] = &fstest.MapFile{Data: []byte(testZeroDeviceClassRaw)}
+	m["sys/bus/usb/devices/"+iface+"/bInterfaceProtocol"] = &fstest.MapFile{Data: []byte(testZeroDeviceClassRaw)}
 	m["sys/bus/usb/devices/"+iface+"/bAlternateSetting"] = &fstest.MapFile{Data: []byte("0\n")}
 
 	return m
@@ -46,10 +46,10 @@ func makeDeviceAttrs() map[string]string {
 		"bcdDevice":           "1100\n",
 		"busnum":              "1\n",
 		"devnum":              "7\n",
-		"speed":               "480\n",
-		"bDeviceClass":        "00\n",
-		"bDeviceSubClass":     "00\n",
-		"bDeviceProtocol":     "00\n",
+		"speed":               testHighSpeedRaw,
+		"bDeviceClass":        testZeroDeviceClassRaw,
+		"bDeviceSubClass":     testZeroDeviceClassRaw,
+		"bDeviceProtocol":     testZeroDeviceClassRaw,
 		"bConfigurationValue": "1\n",
 		"bNumConfigurations":  "1\n",
 		"bNumInterfaces":      "1\n",
@@ -60,8 +60,8 @@ func makeDeviceAttrs() map[string]string {
 // exporter-side ModulesAvailable preflight to pass.
 func moduleDirs() fstest.MapFS {
 	return fstest.MapFS{
-		"sys/module/usbip_core": &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host": &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleUSBIPCorePath: &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleUSBIPHostPath: &fstest.MapFile{Mode: fs.ModeDir},
 	}
 }
 
@@ -79,7 +79,7 @@ func mergeFS(base ...fstest.MapFS) fstest.MapFS {
 func TestListLocalDevices_FiltersBusIDLikeEntries(t *testing.T) {
 	t.Parallel()
 
-	dev := deviceSysfs("1-1", makeDeviceAttrs())
+	dev := deviceSysfs(testRootBusID, makeDeviceAttrs())
 
 	// Add non-device entries the walker must ignore.
 	mfs := mergeFS(dev, moduleDirs(), fstest.MapFS{
@@ -93,7 +93,7 @@ func TestListLocalDevices_FiltersBusIDLikeEntries(t *testing.T) {
 	got, err := a.ListLocalDevices(context.Background())
 	require.NoError(t, err)
 	require.Len(t, got, 1)
-	require.Equal(t, domain.BusID("1-1"), got[0].BusID)
+	require.Equal(t, domain.BusID(testRootBusID), got[0].BusID)
 	require.Equal(t, uint16(0x0951), got[0].VendorID)
 	require.Equal(t, uint16(0x1666), got[0].ProductID)
 	require.Equal(t, uint16(0x1100), got[0].BcdDevice)
@@ -110,7 +110,7 @@ func TestListLocalDevices_FiltersBusIDLikeEntries(t *testing.T) {
 func TestListLocalDevices_MultipleDevices(t *testing.T) {
 	t.Parallel()
 
-	devA := deviceSysfs("1-1", makeDeviceAttrs())
+	devA := deviceSysfs(testRootBusID, makeDeviceAttrs())
 	devB := deviceSysfs("1-1.2", makeDeviceAttrs())
 
 	mfs := mergeFS(devA, devB, moduleDirs())
@@ -127,17 +127,17 @@ func TestListLocalDevices_MultipleDevices(t *testing.T) {
 		busIDs[d.BusID] = true
 	}
 
-	require.True(t, busIDs["1-1"])
+	require.True(t, busIDs[testRootBusID])
 	require.True(t, busIDs["1-1.2"])
 }
 
-// TestListLocalDevices_ModuleMissingReturnsBoth asserts v1 contract §3.4's
+// TestListLocalDevices_ModuleMissingReturnsBoth asserts the importer-lifecycle and exporter-daemon OpenSpec documents'
 // contract: when /sys/module/usbip_core is absent, both the nil slice
 // and ErrKernelModuleMissing are returned.
 func TestListLocalDevices_ModuleMissingReturnsBoth(t *testing.T) {
 	t.Parallel()
 
-	dev := deviceSysfs("1-1", makeDeviceAttrs())
+	dev := deviceSysfs(testRootBusID, makeDeviceAttrs())
 	// No module dirs.
 	mfs := dev
 

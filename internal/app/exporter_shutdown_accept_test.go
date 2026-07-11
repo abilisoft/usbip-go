@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestExporterShutdown_RejectsNewConnections locks in the v1 contract §3.4
+// TestExporterShutdown_RejectsNewConnections locks in the importer-lifecycle and exporter-daemon OpenSpec documents
 // contract (documented on pkg/usbip.Exporter.Shutdown): Shutdown
 // "stops accepting new connections". Shutdown closes the listener,
 // acceptShouldStop classifies net.ErrClosed as a normal stop, Serve
@@ -51,8 +51,7 @@ func TestExporterShutdown_RejectsNewConnections(t *testing.T) {
 
 	go func() { serveDone <- exp.Serve(ctx, lis) }()
 
-	// Let Serve park on Accept before we call Shutdown.
-	time.Sleep(20 * time.Millisecond)
+	lis.waitUntilAccepting(t)
 
 	// Shut down. Per the documented contract, no ctx-cancel first —
 	// Shutdown alone must be enough to stop accepts and unwind Serve.
