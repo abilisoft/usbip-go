@@ -1,0 +1,279 @@
+{
+    "$schema": "https://raw.githubusercontent.com/bazel-contrib/rules_multitool/main/lockfile.schema.json",
+    "actionlint": {
+        "binaries": [
+            {
+                "kind": "archive",
+                "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz",
+                "sha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8",
+                "file": "actionlint",
+                "os": "linux",
+                "cpu": "x86_64"
+            },
+            {
+                "kind": "archive",
+                "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_arm64.tar.gz",
+                "sha256": "325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6",
+                "file": "actionlint",
+                "os": "linux",
+                "cpu": "arm64"
+            }
+        ]
+    },
+    "typos": {
+        "binaries": [
+            {
+                "kind": "archive",
+                "url": "https://github.com/crate-ci/typos/releases/download/v1.48.0/typos-v1.48.0-x86_64-unknown-linux-musl.tar.gz",
+                "sha256": "72a930c9a94fc3914aa56835c5b859c892a797d40c1c42638b98d93f16ff519c",
+                "file": "typos",
+                "os": "linux",
+                "cpu": "x86_64"
+            },
+            {
+                "kind": "archive",
+                "url": "https://github.com/crate-ci/typos/releases/download/v1.48.0/typos-v1.48.0-aarch64-unknown-linux-musl.tar.gz",
+                "sha256": "2960ae07bc1ffe19e4895e4359394dd349c9c31de78aac3a124b6e4aeb206698",
+                "file": "typos",
+                "os": "linux",
+                "cpu": "arm64"
+            }
+        ]
+    },
+    "gitleaks": {
+        "binaries": [
+            {
+                "kind": "archive",
+                "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz",
+                "sha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
+                "file": "gitleaks",
+                "os": "linux",
+                "cpu": "x86_64"
+            },
+            {
+                "kind": "archive",
+                "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_arm64.tar.gz",
+                "sha256": "e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080",
+                "file": "gitleaks",
+                "os": "linux",
+                "cpu": "arm64"
+            }
+        ]
+    },
+    "shellcheck": {
+        "binaries": [
+            {
+                "kind": "archive",
+                "url": "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz",
+                "sha256": "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198",
+                "file": "shellcheck-v0.11.0/shellcheck",
+                "type": "tar.xz",
+                "os": "linux",
+                "cpu": "x86_64"
+            },
+            {
+                "kind": "archive",
+                "url": "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.aarch64.tar.xz",
+                "sha256": "12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588",
+                "file": "shellcheck-v0.11.0/shellcheck",
+                "type": "tar.xz",
+                "os": "linux",
+                "cpu": "arm64"
+            }
+        ]
+    },
+    "rumdl": {
+        "binaries": [
+            {
+                "kind": "archive",
+                "url": "https://github.com/rvben/rumdl/releases/download/v0.2.30/rumdl-v0.2.30-x86_64-unknown-linux-musl.tar.gz",
+                "sha256": "5d1c80418463aa7ca7edf1854602db717a3aa9be05fe9dc6a337263f5e78ebe0",
+                "file": "rumdl",
+                "os": "linux",
+                "cpu": "x86_64"
+            },
+            {
+                "kind": "archive",
+                "url": "https://github.com/rvben/rumdl/releases/download/v0.2.30/rumdl-v0.2.30-aarch64-unknown-linux-musl.tar.gz",
+                "sha256": "0d55107e6070e0c0f755102bf3583f209e889511bb82d5abcb9e5547a2a7af1f",
+                "file": "rumdl",
+                "os": "linux",
+                "cpu": "arm64"
+            }
+        ]
+    },
+    "shfmt": {
+        "binaries": [
+            {
+                "kind": "file",
+                "url": "https://github.com/mvdan/sh/releases/download/v3.13.1/shfmt_v3.13.1_linux_amd64",
+                "sha256": "fb096c5d1ac6beabbdbaa2874d025badb03ee07929f0c9ff67563ce8c75398b1",
+                "os": "linux",
+                "cpu": "x86_64"
+            },
+            {
+                "kind": "file",
+                "url": "https://github.com/mvdan/sh/releases/download/v3.13.1/shfmt_v3.13.1_linux_arm64",
+                "sha256": "32d92acaa5cd8abb29fc49dac123dc412442d5713967819d8af2c29f1b3857c7",
+                "os": "linux",
+                "cpu": "arm64"
+            }
+        ]
+    },
+    "buildifier": {
+        "binaries": [
+            {
+                "kind": "file",
+                "url": "https://github.com/bazelbuild/buildtools/releases/download/v8.5.1/buildifier-linux-amd64",
+                "sha256": "887377fc64d23a850f4d18a077b5db05b19913f4b99b270d193f3c7334b5a9a7",
+                "os": "linux",
+                "cpu": "x86_64"
+            },
+            {
+                "kind": "file",
+                "url": "https://github.com/bazelbuild/buildtools/releases/download/v8.5.1/buildifier-linux-arm64",
+                "sha256": "947bf6700d708026b2057b09bea09abbc3cafc15d9ecea35bb3885c4b09ccd04",
+                "os": "linux",
+                "cpu": "arm64"
+            }
+        ]
+    },
+    "tombi": {
+        "binaries": [
+            {
+                "kind": "archive",
+                "url": "https://github.com/tombi-toml/tombi/releases/download/v1.2.0/tombi-cli-1.2.0-x86_64-unknown-linux-musl.tar.gz",
+                "sha256": "6f253f2fce04314a518f7c710471b4c0cdb0140e5a230092c83c98d8559c2816",
+                "file": "tombi-cli-1.2.0-x86_64-unknown-linux-musl/tombi",
+                "os": "linux",
+                "cpu": "x86_64"
+            },
+            {
+                "kind": "archive",
+                "url": "https://github.com/tombi-toml/tombi/releases/download/v1.2.0/tombi-cli-1.2.0-aarch64-unknown-linux-musl.tar.gz",
+                "sha256": "17aa2e8f50269b5decfef4b09701315ed3ed8da557e23d7d6c16d9263cc455eb",
+                "file": "tombi-cli-1.2.0-aarch64-unknown-linux-musl/tombi",
+                "os": "linux",
+                "cpu": "arm64"
+            }
+        ]
+    },
+    "nfpm": {
+        "binaries": [
+            {
+                "kind": "archive",
+                "url": "https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_x86_64.tar.gz",
+                "sha256": "0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783",
+                "file": "nfpm",
+                "os": "linux",
+                "cpu": "x86_64"
+            },
+            {
+                "kind": "archive",
+                "url": "https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_arm64.tar.gz",
+                "sha256": "1c0f5f2999b9a974bfb04fdb0cc3306096de530ac5dbb25d739cc5f5219c919c",
+                "file": "nfpm",
+                "os": "linux",
+                "cpu": "arm64"
+            }
+        ]
+    },
+    "git-cliff": {
+        "binaries": [
+            {
+                "kind": "archive",
+                "url": "https://github.com/orhun/git-cliff/releases/download/v2.13.1/git-cliff-2.13.1-x86_64-unknown-linux-musl.tar.gz",
+                "sha256": "200d2535da6d9703f3bcc8a4d159c3b55eacdb01cf2148c55b3eee9dd04d5249",
+                "file": "git-cliff-2.13.1/git-cliff",
+                "os": "linux",
+                "cpu": "x86_64"
+            },
+            {
+                "kind": "archive",
+                "url": "https://github.com/orhun/git-cliff/releases/download/v2.13.1/git-cliff-2.13.1-aarch64-unknown-linux-musl.tar.gz",
+                "sha256": "4054c124b926c117f3fa048939bc8be0a954f29f3b6f367627e8cb22c1971882",
+                "file": "git-cliff-2.13.1/git-cliff",
+                "os": "linux",
+                "cpu": "arm64"
+            }
+        ]
+    },
+    "yamlfmt": {
+        "binaries": [
+            {
+                "kind": "archive",
+                "url": "https://github.com/google/yamlfmt/releases/download/v0.21.0/yamlfmt_0.21.0_Linux_x86_64.tar.gz",
+                "sha256": "1f300d9257b232bb3b541d7fb1b0e6b3c121bcbab381c86cd38cb8722be8a566",
+                "file": "yamlfmt",
+                "os": "linux",
+                "cpu": "x86_64"
+            },
+            {
+                "kind": "archive",
+                "url": "https://github.com/google/yamlfmt/releases/download/v0.21.0/yamlfmt_0.21.0_Linux_arm64.tar.gz",
+                "sha256": "5b2689c963b177271330c5ce8ca7396751107e5a826be46f03d2cb9b6f0c7784",
+                "file": "yamlfmt",
+                "os": "linux",
+                "cpu": "arm64"
+            }
+        ]
+    },
+    "goreleaser": {
+        "binaries": [
+            {
+                "kind": "archive",
+                "url": "https://github.com/goreleaser/goreleaser/releases/download/v2.17.0/goreleaser_Linux_x86_64.tar.gz",
+                "sha256": "dde10e2d5a13cef969c0eec00c74f359c0ac306d702b1bd291ad9337b4e54c1d",
+                "file": "goreleaser",
+                "os": "linux",
+                "cpu": "x86_64"
+            },
+            {
+                "kind": "archive",
+                "url": "https://github.com/goreleaser/goreleaser/releases/download/v2.17.0/goreleaser_Linux_arm64.tar.gz",
+                "sha256": "75f93fc0e25d10d8535ffd0e4abcf39d6784a2467ba453d479ae513729a9ebbf",
+                "file": "goreleaser",
+                "os": "linux",
+                "cpu": "arm64"
+            }
+        ]
+    },
+    "syft": {
+        "binaries": [
+            {
+                "kind": "archive",
+                "url": "https://github.com/anchore/syft/releases/download/v1.46.0/syft_1.46.0_linux_amd64.tar.gz",
+                "sha256": "d654f678b709eb53c393d38519d5ed7d2e57205529404018614cfefa0fb2b5ca",
+                "file": "syft",
+                "os": "linux",
+                "cpu": "x86_64"
+            },
+            {
+                "kind": "archive",
+                "url": "https://github.com/anchore/syft/releases/download/v1.46.0/syft_1.46.0_linux_arm64.tar.gz",
+                "sha256": "9fafef4db4f032ce81008d3a1529985d41ceb6ccdf2b388c9ce2f1ed7d32082e",
+                "file": "syft",
+                "os": "linux",
+                "cpu": "arm64"
+            }
+        ]
+    },
+    "cosign": {
+        "binaries": [
+            {
+                "kind": "file",
+                "url": "https://github.com/sigstore/cosign/releases/download/v3.1.1/cosign-linux-amd64",
+                "sha256": "ae1ecd212663f3693ad9edf8b1a183900c9a52d3155ba6e354237f9a0f6463fc",
+                "os": "linux",
+                "cpu": "x86_64"
+            },
+            {
+                "kind": "file",
+                "url": "https://github.com/sigstore/cosign/releases/download/v3.1.1/cosign-linux-arm64",
+                "sha256": "2ec865872e331c32fd12b08dae15332d3f92c0aa029219589684a4903ca85d11",
+                "os": "linux",
+                "cpu": "arm64"
+            }
+        ]
+    }
+}

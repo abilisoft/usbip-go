@@ -1,12 +1,7 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
-#
-# Reusable workflow: race-detector unit tests on Linux. Called from
-# ci.yml on PR/push and from release.yml as a publish prerequisite.
-# No interpolation of untrusted GitHub event fields anywhere; this
-# file consumes only repo-controlled task definitions.
 
-name: Unit tests (reusable)
+name: Unit tests
 
 on:
   workflow_call:
@@ -14,21 +9,19 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   unit-tests:
     name: Linux unit tests
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      # id-token: write — flakehub-cache-action OIDC.
-      id-token: write
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: ./.github/actions/setup-nix-dev
-      - name: Test
-        # task ci:test runs `go test -race -timeout=180s` over the owned
-        # package roots inside the flake-pinned `.#dev` shell so the
-        # toolchain matches go.mod and the race detector is always on
-        # (CGO_ENABLED=1 is required for -race; the no-cgo policy applies
-        # to PRODUCTION code, not the test binary).
-        run: nix develop .#dev --command task ci:test
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-bazel
+      - name: Unit tests
+        run: make test
+      - name: Race tests
+        run: make test-race

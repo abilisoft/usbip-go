@@ -1,0 +1,68 @@
+module(
+    name = "usbip_go",
+    version = "0.1.0",
+    bazel_compatibility = [
+        ">=9.0.0",
+        "<10.0.0",
+    ],
+)
+
+bazel_dep(name = "rules_go", version = "0.61.1")
+bazel_dep(name = "gazelle", version = "0.51.3")
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "rules_multitool", version = "1.11.1")
+bazel_dep(name = "bazel_lib", version = "3.5.0")
+bazel_dep(name = "rules_python", version = "2.2.0")
+
+go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+go_sdk.from_file(
+    name = "go_sdk",
+    go_mod = "//:go.mod",
+)
+use_repo(go_sdk, "go_sdk")
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    is_default = True,
+    python_version = "3.14",
+)
+
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.parse(
+    download_only = True,
+    hub_name = "pip_apps",
+    python_version = "3.14",
+    requirements_lock = "//tools/yamllint:requirements.lock",
+    target_platforms = [
+        "linux_aarch64",
+        "linux_x86_64",
+    ],
+)
+use_repo(pip, "pip_apps")
+
+go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
+go_deps.from_file(go_work = "//:deps.go.work")
+use_repo(
+    go_deps,
+    "com_github_charmbracelet_colorprofile",
+    "com_github_charmbracelet_fang",
+    "com_github_checkmake_checkmake",
+    "com_github_coreos_go_systemd_v22",
+    "com_github_go_gremlins_gremlins",
+    "com_github_golangci_golangci_lint_v2",
+    "com_github_lmittmann_tint",
+    "com_github_spf13_cobra",
+    "com_github_stretchr_testify",
+    "land_charm_lipgloss_v2",
+    "org_golang_x_exp",
+    "org_golang_x_sys",
+    "org_golang_x_term",
+    "org_golang_x_time",
+    "org_golang_x_vuln",
+    "org_uber_go_goleak",
+)
+
+multitool = use_extension("@rules_multitool//multitool:extension.bzl", "multitool")
+multitool.hub(lockfile = "//tools:multitool.lock.json")
+use_repo(multitool, "multitool")

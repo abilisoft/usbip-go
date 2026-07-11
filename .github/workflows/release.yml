@@ -1,241 +1,128 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
-#
+
 name: Release
 
 on:
   push:
     tags:
-      # Stable releases only. The negative pattern excludes any tag
-      # carrying a SemVer pre-release suffix (e.g. v1.0.1-rc1,
-      # v2.0.0-beta.3). GitHub Actions' tag-filter syntax rejects
-      # `+` as a glob metacharacter ("invalid tags pattern" on push),
-      # so build-metadata exclusion (`v1.0.0+build.7`) and any other
-      # alphanumeric oddities (e.g. v1.0.0foo, v1.0.0_hotfix) are
-      # handled by the job-level ref_name guard step below, which
-      # re-validates against the canonical anchored regex used in
-      # cliff.toml. Two layers in lockstep: GHA glob catches the
-      # 99% case (dash-suffix prereleases) before the runner spins
-      # up; the guard step catches everything else BEFORE any
-      # artefact is built.
       - 'v*.*.*'
       - '!v*.*.*-*'
 
-# Workflow-root permissions are clamped to read-only; the writes
-# this workflow needs (contents:write for goreleaser to publish a
-# GitHub Release, id-token:write for cosign keyless signing via
-# GitHub OIDC) are granted at job scope only. OpenSSF Scorecard's
-# Token-Permissions check flags any write granted at workflow root.
 permissions:
   contents: read
 
-env:
-  COSIGN_EXPERIMENTAL: '1'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  # Cheap fail-fast gate: reject non-canonical tags BEFORE spending
-  # runner minutes on the four reusable prereq workflows. The push
-  # tag-glob already excludes most prerelease shapes, but oddities
-  # like v1.0.0foo or v1.0.0_hotfix slip through; this guard re-
-  # validates against the anchored stable-SemVer regex used in
-  # cliff.toml so the pipeline aborts in seconds.
   validate-tag:
     name: Validate tag shape
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
-      - name: Reject non-canonical release tag
+      - name: Validate stable SemVer tag
         env:
-          # TAG is piped through env: rather than direct ${{ }}
-          # interpolation per the project's actions-security policy
-          # — github.ref_name is repo-controlled today but env
-          # quoting is the universal-safe shape.
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::tag '$TAG' is not a canonical stable release (vMAJOR.MINOR.PATCH); refusing to release"
+          if ! printf '%s' "${TAG}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::tag '${TAG}' is not a canonical stable release (vMAJOR.MINOR.PATCH)"
             exit 1
           fi
 
-  # Run the same gates a green PR has to clear before publishing
-  # binaries. Pre-reorg the release job re-ran ONLY unit tests, so
-  # a tag pushed against a tip with a fresh lint or architecture
-  # break would still publish broken artefacts. Each gate is the
-  # exact reusable workflow ci.yml calls — same commands, same
-  # toolchain, no copy-paste drift.
-  prereq-security:
-    name: Pre-release security
+  security:
+    name: Security
     needs: validate-tag
     permissions:
       contents: read
-      id-token: write
       security-events: write
     uses: ./.github/workflows/_security.yml
-    with:
-      # Tag-driven release runs are not "PR pushes" so the SARIF
-      # upload-skip guard (which keys on fork PRs) does not apply
-      # here. Leaving the upload on so a fresh CVE that landed
-      # since the last main-branch run still gets surfaced.
-      upload-sarif: true
 
-  prereq-unit-tests:
-    name: Pre-release unit tests
+  unit-tests:
+    name: Unit
     needs: validate-tag
     permissions:
       contents: read
-      id-token: write
     uses: ./.github/workflows/_unit-tests.yml
 
-  prereq-conformance:
-    name: Pre-release conformance
+  conformance:
+    name: Conformance
     needs: validate-tag
     permissions:
       contents: read
-      id-token: write
     uses: ./.github/workflows/_conformance.yml
 
-  prereq-arch:
-    name: Pre-release architecture
+  arch:
+    name: Architecture
     needs: validate-tag
     permissions:
       contents: read
-      id-token: write
     uses: ./.github/workflows/_arch-checks.yml
 
-  prereq-coverage:
-    name: Pre-release coverage
+  coverage:
+    name: Coverage
     needs: validate-tag
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/_coverage.yml
 
-  release:
-    name: Build and publish release
-    needs: [prereq-security, prereq-unit-tests, prereq-conformance, prereq-arch, prereq-coverage]
-    runs-on: ubuntu-24.04
+  kernel-integration:
+    name: Kernel integration
+    needs: validate-tag
     permissions:
-      # contents:write — goreleaser creates the GitHub Release and
-      # uploads assets via the GitHub API.
-      contents: write
-      # id-token:write — cosign keyless signing exchanges this OIDC
-      # token for a Sigstore Fulcio certificate; flakehub-cache uses
-      # the same scope to authenticate to FlakeHub Cache.
-      id-token: write
+      contents: read
+    uses: ./.github/workflows/vm-integration.yml
+
+  release:
+    name: Build draft release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    needs:
+      - arch
+      - conformance
+      - coverage
+      - kernel-integration
+      - security
+      - unit-tests
     outputs:
-      # hashes is a base64-encoded `sha256<TAB>filename` list covering
-      # every release artifact the SLSA provenance job downstream
-      # should attest to. The trailing-newline shape matches the input
-      # the slsa-github-generator generic builder consumes.
       hashes: ${{ steps.hash-artifacts.outputs.hashes }}
+    permissions:
+      contents: write
+      id-token: write
     steps:
-      # Tag shape was validated by the validate-tag job above; the
-      # `needs:` chain guarantees it ran green before this job
-      # started. No re-validation here.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          # git-cliff needs full history to render --latest's
-          # "everything between the prior tag and HEAD" range.
           fetch-depth: 0
-      - uses: ./.github/actions/setup-nix-dev
-
-      # Unit / conformance / arch / security gates ran as the
-      # prereq-* reusable jobs above (`needs:` enforces the order),
-      # so we go straight to release-notes + GoReleaser here.
-
-      - name: Generate release notes for ${{ github.ref_name }}
-        # git-cliff renders the section for the most-recent matching
-        # tag (--latest). actions/checkout has the tag already
-        # checked out at HEAD, so cliff sees v*.*.* as the latest tag
-        # and emits the per-tag bullet groups for it. --unreleased
-        # would have emitted an EMPTY body in this scenario because
-        # the tag IS at HEAD — there are no commits "after" it to
-        # count as unreleased. --strip header drops the "# Changelog"
-        # preamble so what lands in the release body is just the
-        # version heading + bullet groups (Bug Fixes, Features, ...).
-        # The output file is consumed by goreleaser's --release-notes
-        # flag in the next step.
+      - uses: ./.github/actions/setup-bazel
+      - name: Local CI gate
+        run: make ci-local
+      - name: Generate release notes
         run: |
           set -euo pipefail
           mkdir -p build
-          nix develop .#release --command git-cliff \
-            --latest \
-            --strip header \
-            --output build/release-notes.md
-          echo "--- generated release notes ---"
-          cat build/release-notes.md
-          # Fail fast if cliff produced an empty file. goreleaser
-          # silently accepts a zero-byte --release-notes payload and
-          # publishes a 1-byte release body (the trailing newline
-          # from the body template), which is exactly the failure
-          # mode we hit before the changelog.disable fix landed.
-          # Asserting size > 0 here converts that silent failure
-          # into a visible CI gate so a regression in cliff's tag
-          # resolution / parser config / commit-filter rules aborts
-          # the release before any artefact is built.
-          test -s build/release-notes.md \
-            || { echo "::error::build/release-notes.md is empty; refusing to release"; exit 1; }
-
-      # Scorecard-detection step. OpenSSF Scorecard's Packaging
-      # check is static workflow-file analysis: for Go projects its
-      # matcher (ossf/scorecard
-      # checks/fileparser/github_workflow.go::IsPackagingWorkflow)
-      # ONLY pattern-matches a literal
-      # `uses: goreleaser/goreleaser-action` step. Shell-wrapped
-      # invocations like our canonical `nix develop .#release --command task
-      # ci:release` are invisible to that matcher even though they
-      # execute the same goreleaser binary.
-      #
-      # install-only:true installs a goreleaser binary onto runner
-      # PATH; the next step's release shell shadows that PATH so the
-      # release runs the flake-pinned binary, not this one. Two
-      # consequences:
-      #
-      #   1. The action-installed binary is never used at runtime;
-      #      its version does not need to track flake.nix.
-      #   2. The major-version constraint below (`~> 2`) is the
-      #      loosest pin that still rejects an accidental v3 jump,
-      #      keeping the artefact this step produces sane without
-      #      requiring lock-step bumps with `pkgs.goreleaser`.
-      #
-      # See docs/security-posture.md "Packaging detection" for the
-      # full rationale and the MED-finding history that drove this
-      # shape.
-      - name: Install goreleaser via action (Scorecard Packaging marker)
-        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
-        with:
-          install-only: true
-          version: '~> 2'
-
-      - name: Build and publish release artifacts (release flake shell)
-        run: nix develop .#release --command task ci:release
+          make changelog > build/release-notes.md
+          test -s build/release-notes.md
+      - name: Stage draft release
+        run: make release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          COSIGN_EXPERIMENTAL: '1'
-          # RELEASE_NOTES feeds the git-cliff output from the previous
-          # step into goreleaser via --release-notes, so the GitHub
-          # Release body matches the rendered changelog section.
           RELEASE_NOTES: build/release-notes.md
-
       - name: Hash release artifacts for SLSA provenance
         id: hash-artifacts
-        # Provenance the user-downloadable binary archives and OS
-        # packages only; the checksums file
-        # (usbip-go_<version>_checksums.txt) and per-archive SBOM
-        # documents are derivative artefacts whose integrity is
-        # already covered by the cosign keyless Sigstore bundle on
-        # the checksums file itself
-        # (usbip-go_<version>_checksums.txt.sigstore.json).
-        # Listing every per-arch archive plus the deb/rpm packages
-        # gives slsa-verifier a single intoto.jsonl that covers every
-        # binary a consumer can download.
         working-directory: build/dist
         run: |
           set -euo pipefail
           shopt -s nullglob
           artifacts=( *.tar.gz *.deb *.rpm )
           if [ ${#artifacts[@]} -eq 0 ]; then
-            echo "no release artefacts to hash; goreleaser run produced none" >&2
+            echo "no release artifacts to hash; GoReleaser produced none" >&2
             exit 1
           fi
           hashes=$(sha256sum "${artifacts[@]}" | base64 -w0)
@@ -245,29 +132,37 @@ jobs:
     name: Generate SLSA provenance
     needs: [release]
     permissions:
-      # actions:read lets the generator inspect the parent workflow
-      # graph it attests to.
       actions: read
-      # id-token:write is the OIDC scope cosign keyless uses to sign
-      # the generated provenance bundle.
-      id-token: write
-      # contents:write so the generator can upload <artifact>.intoto.jsonl
-      # back onto the GitHub Release that the goreleaser job created.
       contents: write
-    # The SLSA generic generator MUST be referenced by tag (not SHA):
-    # slsa-github-generator's SECURITY.md is explicit that slsa-verifier
-    # fails validation when the call site uses a commit SHA, because
-    # the trusted-builder identity baked into the provenance certificate
-    # is the tag-form ref. Dependabot still picks up version bumps via
-    # the github-actions ecosystem since the @<tag> shape is supported.
-    # Generic builder is the right entry point for goreleaser output
-    # (multi-artifact, base64 hash list); the go-specific builder would
-    # re-run the build itself and bypass goreleaser.
+      id-token: write
+    # SLSA's generic generator is intentionally referenced by version tag rather
+    # than commit SHA: slsa-verifier expects the trusted-builder identity to use
+    # the tagged reusable workflow ref.
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       base64-subjects: ${{ needs.release.outputs.hashes }}
-      # upload-assets attaches the *.intoto.jsonl provenance bundle
-      # to the GitHub Release as a downloadable asset, which is what
-      # OpenSSF Scorecard's Signed-Releases check looks for to award
-      # score 10.
       upload-assets: true
+
+  publish:
+    name: Publish attested release
+    needs: [provenance]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Publish draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |-
+          set -euo pipefail
+          release_id=$(gh api "repos/${REPOSITORY}/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"${TAG}\" and .draft == true) | .id")
+          if [ -z "${release_id}" ]; then
+            echo "::error::draft release for ${TAG} not found"
+            exit 1
+          fi
+          gh api --method PATCH "repos/${REPOSITORY}/releases/${release_id}" \
+            -F draft=false >/dev/null

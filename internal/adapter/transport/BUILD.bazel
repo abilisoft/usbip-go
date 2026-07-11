@@ -1,0 +1,49 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "transport",
+    srcs = [
+        "doc.go",
+        "transport.go",
+    ],
+    importpath = "github.com/abilisoft/usbip-go/internal/adapter/transport",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//internal/netopts",
+        "//pkg/domain",
+    ],
+)
+
+go_test(
+    name = "transport_test",
+    size = "small",
+    srcs = [
+        "coverage_internal_test.go",
+        "export_test.go",
+        "listen_ctx_err_test.go",
+        "sockopt_fatal_test.go",
+        "transport_options_linux_test.go",
+        "transport_test.go",
+    ],
+    embed = [":transport"],
+    deps = [
+        "//internal/netopts",
+        "//pkg/domain",
+        "@com_github_stretchr_testify//require",
+    ],
+)
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(["*.go"]),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "testdata_files",
+    srcs = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)

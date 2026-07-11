@@ -33,15 +33,15 @@ CONTRIBUTING.md "TDD discipline" for the full gate semantics.
 
 ## Gates passed
 
-- [ ] `task lint` → `0 issues.`
-- [ ] `task test` → race-clean
-- [ ] `task vuln` → clean
-- [ ] `task build` → produces `build/bin/usbip-go`
-- [ ] `go build ./examples/...` → clean
-- [ ] `task test:cover` thresholds met (if `pkg/` or `internal/app` touched)
-- [ ] `task test:integration` run locally (when the change touches
+- [ ] `make ci-local` → clean
+- [ ] `make lint` → clean
+- [ ] `make test` → clean
+- [ ] `make test-coverage` → thresholds met
+- [ ] `make govulncheck` → clean
+- [ ] `make build` → clean
+- [ ] `make test-integration` run locally (when the change touches
       kernel-adapter paths)
-- [ ] `task test:conformance` run locally (when the change touches
+- [ ] `make test-conformance` run locally (when the change touches
       wire codec or handshake)
 
 ## Breaking-change check

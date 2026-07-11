@@ -14,20 +14,15 @@
 #   - Cosign keyless signature on the checksums file (GitHub OIDC)
 #   - Reproducible builds via mod_timestamp: "{{ .CommitTimestamp }}"
 #
-# Invoke locally:  task release:snapshot
-# Invoke in CI:    goreleaser release --clean  (see .github/workflows/release.yml)
+# Invoke locally:  make release-snapshot
+# Invoke in CI:    make release  (see .github/workflows/release.yml)
 version: 2
 
 project_name: usbip-go
 
 # All GoReleaser output lands under ./build/dist so every build artefact
-# in the tree is beneath ./build/ and `task clean` is a single rm.
+# in the tree is beneath ./build/ and `make clean` is a single Bazel clean.
 dist: build/dist
-
-before:
-  hooks:
-    - go mod tidy
-    - go mod download
 
 builds:
   - id: usbip-go
@@ -167,11 +162,11 @@ changelog:
   use: github
 
 release:
-  # draft:false + mode:replace means goreleaser publishes the release
-  # immediately when the tag fires, replacing whatever placeholder
-  # GitHub may have created. Release notes come from the
-  # `--release-notes` file populated by the workflow's git-cliff step.
-  draft: false
+  # Stage artifacts on a draft. The release workflow publishes it only
+  # after isolated SLSA provenance generation uploads successfully.
+  draft: true
+  replace_existing_draft: true
+  use_existing_draft: true
   prerelease: auto
   mode: replace
   name_template: "{{ .ProjectName }} {{ .Tag }}"

@@ -1,0 +1,131 @@
+load(":format.bzl", "format_suite", "formatter")
+
+exports_files([
+    "go.mod",
+    "go.sum",
+    "multitool.lock.json",
+])
+
+PUBLIC_VISIBILITY = ["//visibility:public"]
+
+filegroup(
+    name = "go_module_files",
+    srcs = [
+        "go.mod",
+        "go.sum",
+    ],
+    visibility = PUBLIC_VISIBILITY,
+)
+
+formatter(
+    name = "format_buildifier",
+    extensions = [
+        "bazel",
+        "bzl",
+    ],
+    tool = "@multitool//tools/buildifier",
+    tool_args = [
+        "--mode=fix",
+        "--lint=fix",
+    ],
+    visibility = PUBLIC_VISIBILITY,
+)
+
+formatter(
+    name = "format_gazelle",
+    runfiles_name = "gazelle.runfiles",
+    tool = "//:gazelle",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+formatter(
+    name = "format_gofmt",
+    extensions = ["go"],
+    tool = "@go_sdk//:bin/gofmt",
+    tool_args = [
+        "-s",
+        "-w",
+    ],
+    visibility = PUBLIC_VISIBILITY,
+)
+
+formatter(
+    name = "format_shfmt",
+    extensions = [
+        "sh",
+        "sh.tpl",
+    ],
+    tool = "@multitool//tools/shfmt",
+    tool_args = ["-w"],
+    visibility = PUBLIC_VISIBILITY,
+)
+
+formatter(
+    name = "format_tombi",
+    extensions = ["toml"],
+    quiet_stdout = True,
+    tool = "@multitool//tools/tombi",
+    tool_args = [
+        "format",
+        "--offline",
+    ],
+    visibility = PUBLIC_VISIBILITY,
+)
+
+formatter(
+    name = "format_yamlfmt",
+    extensions = [
+        "yaml",
+        "yml",
+    ],
+    tool = "@multitool//tools/yamlfmt",
+    tool_args = [
+        "-conf",
+        ".yamlfmt",
+    ],
+    visibility = PUBLIC_VISIBILITY,
+)
+
+format_suite(
+    name = "format",
+    formatters = [
+        ":format_gofmt",
+        ":format_buildifier",
+        ":format_shfmt",
+        ":format_tombi",
+        ":format_yamlfmt",
+        ":format_gazelle",
+    ],
+    visibility = PUBLIC_VISIBILITY,
+)
+
+filegroup(
+    name = "repo_bazel_files",
+    srcs = ["BUILD.bazel"] + glob(
+        ["*.bzl"],
+        allow_empty = True,
+        exclude = ["build/**"],
+        exclude_directories = 1,
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_scan_files",
+    srcs = glob(
+        ["**"],
+        allow_empty = True,
+        exclude = ["build/**"],
+        exclude_directories = 1,
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "testdata_files",
+    srcs = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)

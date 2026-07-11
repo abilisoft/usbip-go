@@ -1,0 +1,42 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "testutil",
+    srcs = [
+        "binbuild.go",
+        "doc.go",
+        "fake_clock.go",
+    ],
+    importpath = "github.com/abilisoft/usbip-go/internal/testutil",
+    visibility = ["//:__subpackages__"],
+    deps = ["@com_github_stretchr_testify//require"],
+)
+
+go_test(
+    name = "testutil_test",
+    size = "small",
+    srcs = [
+        "binbuild_test.go",
+        "fake_clock_test.go",
+    ],
+    deps = [
+        ":testutil",
+        "//internal/app",
+        "@com_github_stretchr_testify//require",
+    ],
+)
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(["*.go"]),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "testdata_files",
+    srcs = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)

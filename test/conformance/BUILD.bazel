@@ -1,0 +1,53 @@
+# gazelle:ignore
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "conformance",
+    srcs = ["synthetic_upstream.go"],
+    importpath = "github.com/abilisoft/usbip-go/test/conformance",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/adapter/wire",
+        "//pkg/domain",
+    ],
+)
+
+go_test(
+    name = "conformance_test",
+    size = "small",
+    srcs = [
+        "go_client_upstream_server_test.go",
+        "main_test.go",
+        "replay_test.go",
+        "upstream_client_go_server_test.go",
+    ],
+    tags = [
+        "conformance",
+        "requires-network",
+    ],
+    deps = [
+        ":conformance",
+        "//internal/adapter/transport",
+        "//internal/adapter/wire",
+        "//internal/app",
+        "//pkg/domain",
+        "//pkg/usbip",
+        "@com_github_stretchr_testify//require",
+        "@org_uber_go_goleak//:goleak",
+    ],
+)
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(["*.go"]),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "testdata_files",
+    srcs = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)

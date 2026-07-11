@@ -1,93 +1,40 @@
 # SPDX-FileCopyrightText: 2026 AbiliSoft
 # SPDX-License-Identifier: Apache-2.0
-#
-# Trivy filesystem CVE + misconfiguration scan. Separate workflow
-# (rather than a step in ci.yml) so the README badge tracks Trivy
-# specifically and a Trivy regression doesn't redden the rest of CI.
-#
-# Two surfaces:
-#   * push + pull_request — non-blocking SARIF upload so findings
-#     appear on the Security tab without breaking PR merge. Trivy's
-#     scope (filesystem CVE across deps, Dockerfile, license
-#     metadata) overlaps with govulncheck for Go but adds OS-package
-#     and multi-ecosystem coverage on top.
-#   * scheduled — same scan but with HIGH/CRITICAL exit-code:1, so a
-#     newly disclosed CVE that lands between merges fails the
-#     daily run loudly. The PR gate stays advisory; the daily
-#     gate is the actual block.
 
 name: Trivy
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   schedule:
-    # Daily 04:30 UTC. Distinct UTC minute from every other
-    # scheduled workflow:
-    #   03:30  nightly (security refresh)
-    #   04:10  codeql (Wed only)
-    #   04:45  vm-integration (kernel modules)
-    #   05:15  mutation (Mon only)
-    #   06:10  scorecard (Tue only)
     - cron: '30 4 * * *'
+  workflow_dispatch:
 
-# Workflow-root permissions clamped to read-only; security-events:
-# write is granted at job scope only so OpenSSF Scorecard's
-# Token-Permissions check passes.
 permissions:
   contents: read
+  security-events: write
 
-defaults:
-  run:
-    shell: bash
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  scan:
+  filesystem-scan:
     name: Trivy filesystem vulnerability scan
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      # security-events:write is the GitHub-OIDC scope upload-sarif
-      # uses to write into the code-scanning surface.
-      security-events: write
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Run Trivy filesystem scan
-        # scan-type:fs walks the working tree (Go module deps,
-        # Dockerfile, license metadata, etc.) and emits one SARIF
-        # report. exit-code is event-dependent: '0' on push/PR so
-        # findings appear on the Security tab without blocking
-        # merge, '1' on schedule so a newly disclosed HIGH/CRITICAL
-        # fails the daily run loudly. Severity is filtered to
-        # HIGH/CRITICAL to keep signal-to-noise meaningful for a
-        # userspace daemon.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
-          scan-ref: .
           format: sarif
-          output: trivy.sarif
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: ${{ github.event_name == 'schedule' && '1' || '0' }}
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH,MEDIUM
+          ignore-unfixed: false
+          exit-code: 1
       - name: Upload Trivy SARIF
-        # Skip on fork PRs: GitHub clamps GITHUB_TOKEN to read-only
-        # there regardless of the job-scope security-events:write
-        # grant, so upload-sarif would fail and turn the badge red
-        # on every fork PR. Push, schedule, and same-repo PRs run
-        # normally. The pull_request.head.repo.full_name comparison
-        # is a repo identifier (e.g. `octocat/hello`) — no shell
-        # interpolation possible because it sits inside an `if:`
-        # expression context.
-        if: >-
-          always() && (github.event_name != 'pull_request' ||
-           github.event.pull_request.head.repo.full_name == github.repository)
-        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
-          sarif_file: trivy.sarif
-          # category disambiguates from CodeQL / Scorecard /
-          # govulncheck SARIF uploads so each appears as its own
-          # column on the code-scanning UI.
+          sarif_file: trivy-results.sarif
           category: trivy

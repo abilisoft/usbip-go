@@ -1,0 +1,41 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "events_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/abilisoft/usbip-go/examples/events",
+    visibility = ["//visibility:private"],
+    deps = ["//pkg/usbip"],
+)
+
+go_binary(
+    name = "events",
+    embed = [":events_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "events_test",
+    size = "small",
+    srcs = ["main_test.go"],
+    embed = [":events_lib"],
+    deps = [
+        "//pkg/usbip",
+        "@com_github_stretchr_testify//require",
+    ],
+)
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(["*.go"]),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "testdata_files",
+    srcs = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)

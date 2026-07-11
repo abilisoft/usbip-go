@@ -1,0 +1,72 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "wire",
+    srcs = [
+        "codec.go",
+        "devlist.go",
+        "doc.go",
+        "fields.go",
+        "header.go",
+        "import_op.go",
+        "layout.go",
+        "opcodes.go",
+    ],
+    importpath = "github.com/abilisoft/usbip-go/internal/adapter/wire",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//internal/app",
+        "//internal/protocol",
+        "//pkg/domain",
+    ],
+)
+
+go_test(
+    name = "wire_test",
+    size = "small",
+    srcs = [
+        "codec_test.go",
+        "conformance_test.go",
+        "coverage_test.go",
+        "decode_device_speed_test.go",
+        "decode_flags_test.go",
+        "devlist_dos_test.go",
+        "devlist_test.go",
+        "encode_decode_speed_roundtrip_test.go",
+        "fields_test.go",
+        "fuzz_test.go",
+        "import_op_body_only_test.go",
+        "import_op_busid_hardening_test.go",
+        "import_op_busid_validation_test.go",
+        "import_op_coverage_test.go",
+        "import_op_status_test.go",
+        "import_op_test.go",
+        "layout_test.go",
+        "opcodes_test.go",
+    ],
+    data = glob(["testdata/**"]),
+    embedsrcs = [
+        "testdata/device_hs_kingston.json",
+        "testdata/device_ss_sample.json",
+    ],
+    deps = [
+        ":wire",
+        "//pkg/domain",
+        "@com_github_stretchr_testify//require",
+    ],
+)
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(["*.go"]),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "testdata_files",
+    srcs = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)

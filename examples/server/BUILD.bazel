@@ -1,0 +1,41 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "server_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/abilisoft/usbip-go/examples/server",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//pkg/domain",
+        "//pkg/usbip",
+    ],
+)
+
+go_binary(
+    name = "server",
+    embed = [":server_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "server_test",
+    size = "small",
+    srcs = ["main_test.go"],
+    embed = [":server_lib"],
+    deps = ["@com_github_stretchr_testify//require"],
+)
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(["*.go"]),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "testdata_files",
+    srcs = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)

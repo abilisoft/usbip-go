@@ -1,0 +1,33 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "netopts",
+    srcs = ["options.go"],
+    importpath = "github.com/abilisoft/usbip-go/internal/netopts",
+    visibility = ["//:__subpackages__"],
+)
+
+go_test(
+    name = "netopts_test",
+    size = "small",
+    srcs = ["options_test.go"],
+    deps = [
+        ":netopts",
+        "@com_github_stretchr_testify//require",
+    ],
+)
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(["*.go"]),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "testdata_files",
+    srcs = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)
