@@ -94,10 +94,11 @@ func BinaryCommandContext(
 	t.Helper()
 
 	// Building the test fixture is setup work and must not consume the command's
-	// runtime deadline. In direct `go test` runs, several parallel smoke tests
-	// may compile the binary concurrently; their short execution contexts are
-	// intentionally sized for the finished command, not a cold Go build.
-	binary := BuildBinary(t.Context(), t, name)
+	// runtime deadline. Preserve caller values while deliberately detaching its
+	// cancellation and deadline; BuildBinary adds its own bounded setup timeout.
+	buildCtx := context.WithoutCancel(ctx)
+	binary := BuildBinary(buildCtx, t, name)
+
 	cmd := exec.CommandContext(ctx, binary, args...)
 	if os.Getenv(bazelTestBinaryEnv) != "" && os.Getenv(goCoverageDirEnv) == "" {
 		cmd.Env = append(os.Environ(), goCoverageDirEnv+"="+t.TempDir())

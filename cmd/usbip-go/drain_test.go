@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -27,11 +26,10 @@ import (
 // empty") and POST /drain by incrementing drainCalls. Returns the
 // UDS path + a cleanup that shuts the server and unlinks the file.
 type drainTestServer struct {
-	drainCalls    atomic.Int32
-	drainObserved chan struct{}
-	observeOnce   sync.Once
-	server        *http.Server
-	listener      net.Listener
+	drainCalls              atomic.Int32
+	closeListenerAfterDrain atomic.Bool
+	server                  *http.Server
+	listener                net.Listener
 }
 
 type drainTestState struct {
@@ -54,10 +52,7 @@ func newDrainTestServer(
 	lis, err := lc.Listen(context.Background(), "unix", sockPath)
 	require.NoError(t, err)
 
-	s := &drainTestServer{
-		drainObserved: make(chan struct{}),
-		listener:      lis,
-	}
+	s := &drainTestServer{listener: lis}
 
 	mux := http.NewServeMux()
 
@@ -95,8 +90,25 @@ func newDrainTestServer(
 
 	mux.HandleFunc("POST /drain", func(w http.ResponseWriter, _ *http.Request) {
 		s.drainCalls.Add(1)
-		s.observeOnce.Do(func() { close(s.drainObserved) })
+		// Force the subsequent status probe onto a new UDS connection. The
+		// daemon-disappears scenario closes the listener after this response;
+		// reusing the POST connection would nondeterministically surface
+		// ECONNRESET even though the classifier intentionally accepts only
+		// dial-time ENOENT/ECONNREFUSED as proof that the daemon exited.
+		w.Header().Set("Connection", "close")
 		w.WriteHeader(http.StatusOK)
+
+		flushErr := http.NewResponseController(w).Flush()
+		if flushErr != nil {
+			t.Errorf("drain test server: flush POST response: %v", flushErr)
+		}
+
+		if s.closeListenerAfterDrain.Load() {
+			closeErr := s.listener.Close()
+			if closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
+				t.Errorf("drain test server: close listener after POST: %v", closeErr)
+			}
+		}
 	})
 
 	s.server = &http.Server{
@@ -267,12 +279,11 @@ func TestDrainSubcommandUDSDisappears(t *testing.T) {
 		}
 	})
 
-	// Close the server shortly after the first POST /drain so the
-	// polling client observes a dial failure → success per v1 contract §7.7.
-	go func() {
-		<-srv.drainObserved
-		srv.Close()
-	}()
+	// Close the listener synchronously after flushing POST /drain so the next
+	// status probe must dial and observe daemon disappearance. Closing from a
+	// peer goroutine races the immediate probe and can reset a newly accepted
+	// connection, which is intentionally not classified as proof of exit.
+	srv.closeListenerAfterDrain.Store(true)
 
 	cmd := newDrainCmd()
 	cmd.SetArgs([]string{
