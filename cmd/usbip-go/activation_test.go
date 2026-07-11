@@ -104,8 +104,9 @@ func TestListenOrActivationNamedSocket(t *testing.T) {
 	require.Same(t, srcLis, lis)
 }
 
-// TestListenOrActivationAmbiguousFds covers the §7.7 "no socket named
-// 'usbip-go' and multiple fds present" error branch. It injects the
+// TestListenOrActivationAmbiguousFds covers the operations-observability and
+// json-contracts OpenSpec "no socket named 'usbip-go' and multiple fds present"
+// error branch. It injects the
 // activation map rather than dup'ing low process fds, because fd 3/4
 // may belong to the Go runtime or surrounding test harness.
 func TestListenOrActivationAmbiguousFds(t *testing.T) {

@@ -45,7 +45,7 @@ func styleWriter(w io.Writer) io.Writer {
 }
 
 // tableRenderer implements Renderer over a styled human-readable
-// table layout. Layout is NOT a stable contract (v1 contract §7.5
+// table layout. Layout is NOT a stable contract (json-contracts OpenSpec
 // note); the JSON renderer is the stable counterpart for scripts.
 //
 // Styling is delegated to lipgloss/v2; color profile detection is

@@ -12,7 +12,7 @@ The project SHALL treat USB/IP as plaintext, unauthenticated, and safe only on a
 
 - **WHEN** docs describe exposing port 3240
 - **THEN** they warn against public internet or untrusted network exposure
-- **AND** recommend private LAN, firewall, Wireguard, Tailscale, or SSH tunneling
+- **AND** recommend private LAN, firewall, WireGuard, Tailscale, or SSH tunneling
 
 ### Requirement: TLS wrapping is out of scope
 
@@ -90,6 +90,12 @@ The repository SHALL run CodeQL, govulncheck, Trivy/Scorecard-style checks where
 - **WHEN** a workflow job name changes
 - **THEN** `docs/security-posture.md` and the default-branch ruleset required status-check context list are updated in the same change
 
+#### Scenario: Pull request requires standalone security contexts
+
+- **WHEN** a pull request targets `main`
+- **THEN** CodeQL, Trivy, and Scorecard workflows run their required named analysis jobs
+- **AND** SARIF/public-result publication is skipped when an untrusted fork lacks write credentials
+
 ### Requirement: CI enforces architecture and pure-Go constraints
 
 The repository SHALL mechanically enforce DDD layering, no cgo, public API compatibility, cross-compilation, formatting, linting, spelling, Bazel/Starlark/TOML/OpenSpec validation, release-configuration validation, tests, and coverage thresholds through Bazel-backed Make targets.
@@ -107,11 +113,17 @@ The repository SHALL mechanically enforce DDD layering, no cgo, public API compa
 #### Scenario: Public API changes incompatibly
 
 - **WHEN** `pkg/usbip` or `pkg/domain` changes incompatibly
-- **THEN** API compatibility CI fails unless a `BREAKING:` commit and regenerated baseline accompany the change
+- **THEN** API compatibility CI fails unless a Conventional Commit breaking marker (`!` in the subject or a `BREAKING CHANGE:` footer) and regenerated baseline accompany the change
 
 ### Requirement: Tests cover unit, conformance, integration, race, coverage, and mutation concerns
 
 The repository SHALL organize tests across fast unit tests, wire conformance tests, optional Linux integration tests, coverage gates, and mutation targets for protocol-critical packages.
+
+#### Scenario: Pull request changes executable lines
+
+- **WHEN** Codecov evaluates changed executable lines
+- **THEN** the `codecov/patch` gate requires 100% patch coverage with no threshold allowance
+- **AND** repository-wide total and per-package coverage remain independently enforced
 
 #### Scenario: Unit tests run
 

@@ -2,10 +2,12 @@
 
 ## Supported Versions
 
-| Version | Supported | Notes                                              |
-| ------- | --------- | -------------------------------------------------- |
-| 1.x     | Yes       | Latest minor of the v1 line; security fixes land here. |
-| < 1.0   | No        | Pre-release; do not deploy.                        |
+| Version | Supported | Notes |
+| ------- | --------- | ----- |
+| `main` | Development only | Receives current fixes but is not a published release. |
+| Published tags | No | Every currently published tag is retracted in `go.mod`; do not deploy it. |
+
+This table must be updated when the next supported release is published.
 
 ## Reporting a Vulnerability
 

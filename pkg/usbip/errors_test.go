@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSentinelsReExportedFromDomain asserts every v1 contract §5.7 sentinel
+// TestSentinelsReExportedFromDomain asserts every public-library-api OpenSpec sentinel
 // appears as a variable in pkg/usbip and is identical (via errors.Is)
 // to the pkg/domain original. Aliasing — not wrapping — is required so
 // consumer code can match either form.

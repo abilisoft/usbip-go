@@ -34,7 +34,7 @@ func TestRootHelpPrintsUsage(t *testing.T) {
 }
 
 // TestRootInvalidOutputFlag ensures cobra rejects --output=bogus via the
-// global flag's validator (v1 contract §7.2 enum). The CLI exits 2 in subprocess
+// global flag's validator (cli-interface OpenSpec enum). The CLI exits 2 in subprocess
 // land; here we assert the parse-level error surfaces from Execute.
 func TestRootInvalidOutputFlag(t *testing.T) {
 	t.Parallel()

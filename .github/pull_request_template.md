@@ -28,7 +28,7 @@ CONTRIBUTING.md "TDD discipline" for the full gate semantics.
 
 ## Contract trace
 
-- Contract section(s): <!-- e.g. §5.5 auto-reconnect, §11.5.5 metrics -->
+- Contract section(s): <!-- e.g. importer-lifecycle OpenSpec auto-reconnect, operations-observability OpenSpec metrics -->
 - Related work item: <!-- e.g. Prometheus metrics catalogue -->
 
 ## Gates passed
@@ -47,7 +47,8 @@ CONTRIBUTING.md "TDD discipline" for the full gate semantics.
 ## Breaking-change check
 
 - [ ] This PR does NOT change the public API surface.
-- [ ] OR — this PR is `BREAKING:` and includes regenerated
+- [ ] OR — this PR uses a Conventional Commit breaking marker (`!` in the
+      subject or a `BREAKING CHANGE:` footer) and includes regenerated
       `api/pkg_usbip.json` / `api/pkg_domain.json` baselines:
 
   ```text

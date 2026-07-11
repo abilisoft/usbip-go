@@ -909,7 +909,7 @@ func TestFindFreePort_SSMatchesFlatBoundary(t *testing.T) {
 		"the only free SS slot is at flat %d", freeSSFlatPort)
 }
 
-// TestAttachRemote_SerializedUnderContention exercises v1 contract §3.4:
+// TestAttachRemote_SerializedUnderContention exercises importer-lifecycle and exporter-daemon OpenSpec documents:
 // concurrent AttachRemote callers contending for a single free port
 // must produce exactly one success and one ErrNoFreePort.
 func TestAttachRemote_SerializedUnderContention(t *testing.T) {

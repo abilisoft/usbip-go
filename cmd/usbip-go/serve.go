@@ -40,7 +40,8 @@ func logServeStartup(log *slog.Logger) {
 }
 
 // newServeCmd returns the `usbip-go serve` subcommand. The flags bound
-// here mirror the §7.7 daemon catalog; runDaemon is the body. The
+// here mirror the operations-observability and json-contracts OpenSpec daemon
+// catalog; runDaemon is the body. The
 // PersistentPreRunE on the root command does not build a slog.Logger
 // for serve mode (the importer side uses globalFlags); instead this
 // subcommand wires its own logger via buildServeLogger and stashes
@@ -83,7 +84,7 @@ var errDrainRequested = errors.New("drain requested")
 // the status UDS server when configured, and block on Serve until ctx
 // is cancelled or drain is requested via the status endpoint. On
 // shutdown a bounded Exporter.Shutdown drains in-flight sessions under
-// cfg.ShutdownTimeout per §7.7.
+// cfg.ShutdownTimeout per operations-observability and json-contracts OpenSpec documents.
 func runDaemon(ctx context.Context, cfg *ServeConfig) error {
 	log := loggerFromCtx(ctx)
 	if log == nil {
@@ -315,7 +316,7 @@ func maybeStartHealthServer(
 // /readyz. It polls KernelModules via the cached statusExporter path,
 // reads the listenerBound + accepting flags from the exporter, and
 // consults syscall.Access(W_OK) on the status socket path. The four
-// inputs mirror the §11.5.5 readiness contract.
+// inputs mirror the operations-observability OpenSpec readiness contract.
 func newDaemonReadinessProbe(cfg *ServeConfig, src *statusExporter) readinessProbe {
 	return func(ctx context.Context) readinessState {
 		mods, modErr := src.KernelModules(ctx)
@@ -346,7 +347,7 @@ func newDaemonReadinessProbe(cfg *ServeConfig, src *statusExporter) readinessPro
 // different user (0400 root:root, for instance). Access consults the
 // kernel's permission logic and returns an error whenever a write
 // would be refused, so /readyz stays red until the daemon actually
-// has the rights the §7.7 status write path needs.
+// has the rights the operations-observability and json-contracts OpenSpec documents status write path needs.
 //
 // We prefer golang.org/x/sys/unix.Access over syscall.Access because
 // the stdlib syscall package does not export the W_OK constant on
@@ -384,8 +385,9 @@ func currentServeStatusFn() func(
 	return serveStatusFn
 }
 
-// maybeStartStatusServer spins the §7.7 status UDS in a goroutine when
-// cfg.StatusSocket is non-empty and returns:
+// maybeStartStatusServer starts the status UDS described by the
+// operations-observability and json-contracts OpenSpec documents in a goroutine
+// when cfg.StatusSocket is non-empty and returns:
 //
 //   - statusErrCh: receive-only error channel the caller monitors
 //     during shutdown; nil when the endpoint is disabled.

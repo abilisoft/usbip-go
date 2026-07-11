@@ -189,7 +189,7 @@ func (k *preHandoffKernelEvents) publishDetach() {
 }
 
 // TestExporterSession_ClosesAcceptedConnAfterSessionEnd pins the
-// close-after-session-end invariant. Per v1 contract §5.4 the kernel dups the
+// close-after-session-end invariant. Per kernel-adapter and importer-lifecycle OpenSpec documents the kernel dups the
 // accepted fd on ExportOnConn success and holds its own ref; the app's
 // original ref MUST be closed after the session ends so only the
 // kernel's ref keeps the socket alive. A handedOff guard that

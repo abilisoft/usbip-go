@@ -50,7 +50,7 @@ type sessionView struct {
 // ackEnvelope is the common prefix of every JSON ack record: schema,
 // op, and ok. Embedded as the first field of the per-op ack structs so
 // json.Marshal emits these keys before any op-specific payload (spec
-// §7.5 stability rule: "schema" is always the first byte-order key).
+// json-contracts OpenSpec stability rule: "schema" is always the first byte-order key).
 type ackEnvelope struct {
 	Schema string `json:"schema"`
 	Op     string `json:"op"`

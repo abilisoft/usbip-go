@@ -37,8 +37,9 @@ policy, not suggestions.
 - Maintain exhaustive unit, integration, conformance, mutation, coverage, and
   cross-platform/cross-architecture validation appropriate to the change.
 - Treat patch coverage as a required gate as well as total and per-package
-  coverage. Investigate every uncovered changed line; do not hide patch gaps
-  behind a healthy repository-wide percentage.
+  coverage. Changed executable lines require 100% patch coverage with no
+  threshold allowance. Investigate every uncovered changed line; do not hide
+  patch gaps behind a healthy repository-wide percentage.
 
 ## Specifications and Documentation
 
@@ -49,8 +50,11 @@ policy, not suggestions.
 - Do not introduce ADRs. Proposed behavior belongs in an OpenSpec change;
   accepted current behavior belongs in the main OpenSpec specs.
 - Keep traceability evidence precise and repository-grounded. Keep README and
-  operator/developer documentation concise, accurate, and synchronized with the
-  implementation.
+  operator/developer documentation concise, fully accurate, and synchronized
+  with the implementation. Treat documentation accuracy as a completion gate:
+  verify commands, defaults, file names, release assets, live repository
+  settings, API/schema fields, and source line references against authoritative
+  current evidence.
 
 ## Build, Dependencies, and CI
 
@@ -83,10 +87,10 @@ policy, not suggestions.
 - Before publishing work, verify the commits created for it are signed, have
   Conventional Commit subjects, use the intended author/committer identity, and
   contain no unintended attribution trailers.
-- Audit the complete repository history for author/committer names and emails,
-  signature status, Conventional Commit subjects, and attribution trailers. The
-  current history contains an accidental contributor identity caused by a wrong
-  email; identify the exact commits and safe remediation.
+- Audit the complete live repository history for author/committer names and
+  emails, signature status, Conventional Commit subjects, and attribution
+  trailers. The accidental `RMriveraS` identity was removed by an explicitly
+  approved rewrite; never reintroduce that identity or its email into live refs.
 - Never rewrite published history, alter existing authorship, or force-push as a
   surprise. Present the audit findings and proposed mapping/rewrite plan first,
   then obtain explicit approval before any destructive history operation.

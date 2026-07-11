@@ -20,8 +20,9 @@ version: 2
 
 project_name: usbip-go
 
-# All GoReleaser output lands under ./build/dist so every build artefact
-# in the tree is beneath ./build/ and `make clean` is a single Bazel clean.
+# All GoReleaser output lands under ./build/dist, separate from Bazel outputs.
+# Bazel clean does not remove this release-output directory; each GoReleaser
+# invocation uses --clean before generating a new artifact set.
 dist: build/dist
 
 builds:
@@ -103,8 +104,8 @@ checksum:
 snapshot:
   version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
 
-# SBOM per archive in SPDX JSON. Requires syft on PATH; CI installs it
-# via the anchore/sbom-action step before invoking goreleaser.
+# SBOM per archive in SPDX JSON. The Bazel release harness places its pinned
+# syft binary on PATH before invoking GoReleaser.
 sboms:
   - id: archive
     artifacts: archive

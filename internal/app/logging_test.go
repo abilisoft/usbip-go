@@ -27,7 +27,7 @@ import (
 // relying on string matching. err113 requires static sentinels.
 var errReconnectBoom = errors.New("reconnect attempt boom")
 
-// TestAttachFailurePathCarriesSpecRequiredAttrs proves v1 contract §11.5.5's
+// TestAttachFailurePathCarriesSpecRequiredAttrs proves operations-observability OpenSpec's
 // structured-log contract: every log record emitted on the attach path
 // carries busid, remote, and err at minimum, and port_id / attempt on
 // the reconnect-specific lines. The assertion runs against a RAM
@@ -84,7 +84,7 @@ func TestAttachFailurePathCarriesSpecRequiredAttrs(t *testing.T) {
 
 // TestAttachKernelErrorRecordCarriesBusIDAndRemote asserts the
 // importer's Warn log on AttachRemote failure includes busid AND the
-// remote endpoint. v1 contract §11.5.5 lists both as required
+// remote endpoint. operations-observability OpenSpec lists both as required
 // attrs on attach-path records.
 func TestAttachKernelErrorRecordCarriesBusIDAndRemote(t *testing.T) {
 	t.Parallel()
@@ -488,7 +488,7 @@ func TestReconnectOnReconnectPanicRecordCarriesPortIDAndSource(t *testing.T) {
 
 	// The panic-recovery log runs on the fire-and-forget goroutine
 	// spawned by fireOnReconnect, NOT on the watcher waitgroup that
-	// imp.Close waits for (v1 contract §5.5: the callback is intentionally
+	// imp.Close waits for (importer-lifecycle OpenSpec: the callback is intentionally
 	// isolated from the retry cadence). Poll the buffer until the
 	// record lands; Eventually is idiomatic here because the record
 	// is guaranteed to be emitted — we only race the timing.
@@ -575,7 +575,7 @@ func parseJSONRecords(t *testing.T, b []byte) []map[string]any {
 }
 
 // assertAttrsPresent fails the test when any listed attr is missing.
-// Used by the §11.5.5 contract-check to enforce the stable attribute
+// Used by the operations-observability OpenSpec contract-check to enforce the stable attribute
 // set on a single captured record.
 func assertAttrsPresent(t *testing.T, rec map[string]any, attrs ...string) {
 	t.Helper()

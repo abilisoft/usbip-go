@@ -10,7 +10,7 @@ import (
 )
 
 // aclChecker holds a pre-parsed set of CIDR prefixes. A nil receiver
-// (or one with no nets) is the "allow everyone" form per v1 contract §11.5.2
+// (or one with no nets) is the "allow everyone" form per security-release-quality OpenSpec
 // — ACL is defense-in-depth, not mandatory.
 type aclChecker struct {
 	nets []*net.IPNet
@@ -39,7 +39,7 @@ func parseACL(cidrs []string) (*aclChecker, error) {
 
 // allow reports whether addr should be permitted. A nil receiver
 // always permits (matches the "empty allow-list means permit-all"
-// contract in v1 contract §11.5.2). An unparseable addr is rejected because
+// contract in security-release-quality OpenSpec). An unparseable addr is rejected because
 // the default for defense-in-depth is fail-closed.
 func (a *aclChecker) allow(addr net.Addr) bool {
 	if a == nil || len(a.nets) == 0 {

@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestExporterShutdown_RejectsNewConnections locks in the v1 contract §3.4
+// TestExporterShutdown_RejectsNewConnections locks in the importer-lifecycle and exporter-daemon OpenSpec documents
 // contract (documented on pkg/usbip.Exporter.Shutdown): Shutdown
 // "stops accepting new connections". Shutdown closes the listener,
 // acceptShouldStop classifies net.ErrClosed as a normal stop, Serve

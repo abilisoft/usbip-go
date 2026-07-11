@@ -93,7 +93,7 @@ func TestImporterListRemotePassesTransportOptions(t *testing.T) {
 }
 
 // TestImporterAttachPassesImporterTransportOptions asserts Attach uses
-// the importer-level options. Per the latency plan §3, v1.x has no
+// the importer-level options. Per the latency domain-model and transport-networking OpenSpec documents, v1.x has no
 // per-attach transport override; importer-level is authoritative.
 func TestImporterAttachPassesImporterTransportOptions(t *testing.T) {
 	t.Parallel()

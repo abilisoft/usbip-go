@@ -15,7 +15,7 @@ import (
 
 // TestRenderMainErrorUsesFormatError pins the main-entrypoint contract
 // that errors reach stderr via FormatError, not as the raw wrapped
-// error from runCtx. v1 contract §7.4 defines a stable stderr template per
+// error from runCtx. cli-interface OpenSpec defines a stable stderr template per
 // sentinel; printing the raw error string leaks wrapping prefixes
 // ("attach: usbip: device not found: 1-1.2") and breaks operators
 // grepping against the spec wording.

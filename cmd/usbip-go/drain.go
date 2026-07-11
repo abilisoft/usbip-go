@@ -78,7 +78,7 @@ type drainArgs struct {
 // runDrain executes the client-side drain protocol: POST /drain once,
 // then poll GET / until the daemon reports it is idle or the timeout
 // expires. A dial failure after the first POST is treated as success
-// per v1 contract §7.7 (the daemon exited while we were polling).
+// per operations-observability and json-contracts OpenSpec documents (the daemon exited while we were polling).
 func runDrain(cmd *cobra.Command, args drainArgs) error {
 	if args.socketPath == "" {
 		return errStatusSocketDisabled

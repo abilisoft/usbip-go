@@ -33,11 +33,12 @@ START: usbip-go attach HOST BUSID fails.
   |
   +-- Error text contains "device not found"?
   |     |
-  |     +-- YES -> Is the device actually exported on the server?
+  |     +-- YES -> Does the exporter currently advertise the device?
   |     |          |
-  |     |          +-- On server: usbip-go list
-  |     |          +-- If listed but not bound: usbip-go bind BUSID
-  |     |          +-- If not listed: device is not attached to the server host.
+  |     |          +-- On importer: usbip-go list HOST
+  |     |          +-- If absent, on exporter: usbip-go list
+  |     |          +-- If present locally: sudo usbip-go bind BUSID
+  |     |          +-- If absent locally: device is not attached to the exporter host.
   |     |
   |     +-- NO  -> continue.
   |
@@ -70,8 +71,10 @@ START: usbip-go attach HOST BUSID fails.
   |
   +-- Error text contains "already bound"?
   |     |
-  |     +-- YES -> Server already exports the device to someone (possibly you, stale).
-  |     |          Server: usbip-go unbind BUSID; then retry attach.
+  |     +-- YES -> An importer already owns the exported device.
+  |     |          Check the exporter status socket for an active Session.
+  |     |          Unbind only after confirming ownership is stale; doing so
+  |     |          interrupts an active importer.
   |     |
   |     +-- NO  -> continue.
   |
@@ -81,16 +84,16 @@ START: usbip-go attach HOST BUSID fails.
 
 ## Common error sentinels
 
-Every error returned by `pkg/usbip` is classifiable via `errors.Is`
-against one of these sentinels. The CLI surfaces the sentinel name
-in log output so you can grep directly.
+The public API exposes the following common sentinels for `errors.Is`
+classification. The CLI maps them to stable exit codes and human-readable
+stderr; it does not print Go identifier names.
 
 | Sentinel | Typical cause | First remediation |
 |---|---|---|
 | `ErrKernelModuleMissing` | `vhci_hcd` / `usbip_host` / `usbip_core` not loaded, or no access to `/sys/module/`. | Load the role modules with `sudo modprobe usbip_core usbip_host` on exporters or `sudo modprobe usbip_core vhci_hcd` on importers. |
 | `ErrPermission` | Sysfs write needs `CAP_SYS_ADMIN` + `CAP_DAC_OVERRIDE`. | `sudo` the caller or `setcap` the binary. |
-| `ErrDeviceNotFound` | BusID does not exist on the server, or is not bound. | Server: `usbip-go list`; bind the target with `usbip-go bind`. |
-| `ErrDeviceAlreadyBound` | Device is already exported. | Server: `usbip-go unbind BUSID` then retry. |
+| `ErrDeviceNotFound` | BusID does not exist on the exporter, is not bound, or is not currently advertised. | Compare `usbip-go list HOST` with the exporter's local `usbip-go list`, then bind the local target if appropriate. |
+| `ErrDeviceAlreadyBound` | A bind was repeated or an importer already owns the device. | Inspect active Sessions; unbind only when ownership is confirmed stale. |
 | `ErrNoFreePort` | All vhci ports are occupied. | Detach a port, or boot the kernel with more vhci ports. |
 | `ErrProtocolMismatch` | Server sent a version byte != `0x0111` or unknown opcode. | Version mismatch or corrupted wire. Capture with tcpdump. |
 | `ErrProtocolError` | Server sent a well-formed OP frame with a non-zero `status` on a reply other than `OP_REP_IMPORT` (which maps to `ErrDeviceNotFound`). | Check server logs for the underlying reason. |
@@ -109,15 +112,15 @@ $ sudo modprobe usbip_core
 $ sudo modprobe vhci_hcd
 $ sudo modprobe usbip_host
 
-$ cat /sys/module/usbip_core/version
+$ test -d /sys/module/usbip_core && echo usbip_core-loaded
 $ ls /sys/devices/platform/vhci_hcd.0/
 ```
 
 If `modprobe` says "module not found", the kernel was built without
 USB/IP support. Check `CONFIG_USBIP_CORE`, `CONFIG_USBIP_VHCI_HCD`,
-and `CONFIG_USBIP_HOST` in your kernel config. Distributions usually
-ship them as loadable modules in `linux-tools-$(uname -r)` or
-`kmod-usbip`.
+and `CONFIG_USBIP_HOST` in your kernel config. Install the distribution's
+matching kernel-modules package or select a kernel that enables those options;
+the userspace `linux-tools` package alone does not add missing kernel modules.
 
 The `.deb` and `.rpm` packages install persistent module-loading
 configuration. Archive and `go install` users should load the needed
@@ -146,7 +149,7 @@ This is the last-resort path; prefer `usbip-go detach` when it works.
 
 ```text
 $ sudo systemctl status usbip-go usbip-go.socket
-$ sudo journalctl -u usbip -f
+$ sudo journalctl -u usbip-go -f
 ```
 
 Socket-activation quirk: `systemctl status usbip-go` may show

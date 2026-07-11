@@ -10,8 +10,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Flag defaults — authoritative from v1 contract §7.7. Centralised here so the
-// table in --help matches the documented defaults without drift.
+// Flag defaults are authoritative in the operations-observability and
+// json-contracts OpenSpec documents. Centralised here so the table in --help
+// matches the documented defaults without drift.
 const (
 	defaultListen             = "0.0.0.0:3240"
 	defaultStatusSocket       = "/run/usbip-go/status.sock"
@@ -59,8 +60,8 @@ type ServeConfig struct {
 }
 
 // bindServeFlags registers every `usbip-go serve` flag on cmd and
-// wires the parsed values into cfg. Defaults come from the v1 contract
-// §7.7 table; any change there must land here first.
+// wires the parsed values into cfg. Defaults come from the operations-observability
+// and json-contracts OpenSpec documents; any change there must land here first.
 func bindServeFlags(cmd *cobra.Command, cfg *ServeConfig) {
 	flags := cmd.PersistentFlags()
 

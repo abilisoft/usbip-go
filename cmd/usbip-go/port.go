@@ -20,7 +20,7 @@ type portFlags struct {
 }
 
 // newPortCmd constructs the `usbip-go port [--id N]` subcommand (spec
-// §7.1).
+// cli-interface OpenSpec).
 func newPortCmd() *cobra.Command {
 	pf := &portFlags{}
 

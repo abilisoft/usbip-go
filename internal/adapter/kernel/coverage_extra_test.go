@@ -203,7 +203,7 @@ func TestParseStatusRowNumbersErrorBranches(t *testing.T) {
 }
 
 // TestTopologyStatusProjection covers Topology.Status which projects
-// the full topology into the §11.5 status JSON shape. A simple value
+// the full topology into the operations-observability OpenSpec status JSON shape. A simple value
 // projection: the four scalar fields must round-trip.
 func TestTopologyStatusProjection(t *testing.T) {
 	t.Parallel()

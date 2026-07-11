@@ -145,6 +145,11 @@ The repository SHALL ship systemd service and socket units suitable for operator
 - **WHEN** the packaged service unit starts
 - **THEN** systemd creates `/run/usbip-go` before the daemon binds the default status socket
 
+#### Scenario: Service unit assigns the operator socket group
+
+- **WHEN** the root-run daemon applies `--status-socket-group`
+- **THEN** the service capability bounding set retains `CAP_CHOWN` alongside the sysfs capabilities
+
 #### Scenario: Boot-time module loading is configured
 
 - **WHEN** operators install `contrib/modules-load.d/usbip-go.conf` under `/etc/modules-load.d`

@@ -10,7 +10,7 @@ import "errors"
 //
 // Message text is a stable part of the public API and MUST NOT be
 // changed without a breaking-change bump. List ordering matches spec
-// §4.4 followed by the three additions in §6.2.
+// domain-model OpenSpec followed by the three additions in wire-protocol OpenSpec.
 var (
 	// ErrDeviceNotFound indicates the requested busid is not present.
 	ErrDeviceNotFound = errors.New("device not found")
@@ -47,7 +47,7 @@ var (
 	// ErrAttachInProgress indicates Attach is already running for the
 	// same (remote, busid) pair. Concurrent Attach calls race the
 	// fd-passing handoff and the handle-map insert, so the deduper
-	// rejects the second caller with this sentinel (v1 contract §5.5).
+	// rejects the second caller with this sentinel (importer-lifecycle OpenSpec).
 	// Hosted on pkg/domain so the public facade can re-export it
 	// alongside the other spec-listed sentinels.
 	ErrAttachInProgress = errors.New("attach already in progress for this endpoint")

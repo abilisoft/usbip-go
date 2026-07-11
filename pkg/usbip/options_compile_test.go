@@ -4,7 +4,7 @@
 package usbip_test
 
 // This file documents the role-specific option guarantee from spec
-// §5.7 via a compile-time counter-example. Uncomment the snippet to
+// public-library-api OpenSpec via a compile-time counter-example. Uncomment the snippet to
 // observe the compile error — intentionally left commented so the
 // package still builds.
 //
@@ -16,7 +16,7 @@ package usbip_test
 //
 // The identical behaviour holds for ExporterOption arguments passed to
 // NewImporter, and vice versa. The split Option types make role-mixing
-// a type error rather than a runtime failure (v1 contract §5.7 rationale).
+// a type error rather than a runtime failure (public-library-api OpenSpec rationale).
 //
 // func compileTimeRoleSafety() {
 // 	_, _ = usbip.NewImporter(usbip.WithExporterMaxSessions(1))

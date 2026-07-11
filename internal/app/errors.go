@@ -49,29 +49,29 @@ var (
 	ErrServeAlreadyRunning = errors.New("exporter: Serve already running")
 
 	// ErrMaxSessionsExceeded indicates the global session cap is full
-	// (§11.5.3). Returned from the per-session handler before
+	// (security-release-quality OpenSpec). Returned from the per-session handler before
 	// ExportOnConn so the kernel is never asked to attach past the cap.
 	ErrMaxSessionsExceeded = errors.New("max sessions exceeded")
 
 	// ErrPerPeerLimitExceeded indicates the per-source-IP session cap
-	// is full (§11.5.3).
+	// is full (security-release-quality OpenSpec).
 	ErrPerPeerLimitExceeded = errors.New("per-peer session limit exceeded")
 
 	// ErrRateLimited indicates the accept-rate token bucket had no
-	// tokens available (§11.5.3). The connection is closed without
+	// tokens available (security-release-quality OpenSpec). The connection is closed without
 	// invoking the kernel adapter.
 	ErrRateLimited = errors.New("accept rate limit exceeded")
 
 	// ErrHandshakeTooLarge indicates the client sent more than
-	// MaxHandshakeBytes before completing the OP request (§11.5.3).
+	// MaxHandshakeBytes before completing the OP request (security-release-quality OpenSpec).
 	ErrHandshakeTooLarge = errors.New("handshake payload exceeds max bytes")
 
 	// ErrHandshakeTimeout indicates the client failed to complete its
-	// OP request within HandshakeTimeout (§11.5.3).
+	// OP request within HandshakeTimeout (security-release-quality OpenSpec).
 	ErrHandshakeTimeout = errors.New("handshake timed out")
 
 	// ErrACLRejected indicates the accepted peer's remote IP is not
-	// covered by any configured CIDR in the allow-list (§11.5.2).
+	// covered by any configured CIDR in the allow-list (security-release-quality OpenSpec).
 	ErrACLRejected = errors.New("peer rejected by ACL")
 
 	// ErrACLInvalid indicates one of the WithExporterACL CIDR strings

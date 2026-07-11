@@ -49,12 +49,13 @@ run from [`ci.yml`](../.github/workflows/ci.yml) via `make lint`.
 
 ### `pkg/usbip`
 
-The only package external consumers import. It declares `Importer`,
-`Exporter`, `AttachOptions`, every `With*` option constructor, the
-public backoff strategies, and the sentinel errors. All method bodies
-are 1:1 forwards to `internal/app` after trivial argument translation.
-The facade exists so the internal layer can evolve without breaking
-the public API; `openspec/specs/public-library-api/spec.md` documents this surface.
+The primary public service facade; consumers may also import `pkg/domain` for
+domain values. It declares `Importer`, `Exporter`, `AttachOptions`, every
+`With*` option constructor, the public backoff strategies, and sentinel errors.
+Methods forward to `internal/app` after public/internal translation, while
+constructors compose the production adapters. The facade exists so the
+internal layer can evolve without breaking the public API;
+`openspec/specs/public-library-api/spec.md` documents this surface.
 
 ### `pkg/domain`
 
@@ -72,7 +73,8 @@ cannot reintroduce a third-party value-object dependency.
 
 Because `pkg/domain` types are returned across the package boundary,
 they participate in the `apidiff` baseline. Any incompatible change
-requires a `BREAKING:` commit and a baseline regeneration.
+requires a Conventional Commit breaking marker (`!` in the subject or a
+`BREAKING CHANGE:` footer) and a baseline regeneration.
 
 ### `internal/app`
 
@@ -83,8 +85,8 @@ Implements the use-case services:
 - `Exporter` — `ListAvailable`, `Bind`, `Unbind`, `Serve`, `Sessions`,
   `WatchSessions`, `Shutdown`.
 - Reconnect watcher with per-port generation tokens (see `openspec/specs/importer-lifecycle/spec.md`).
-- Session accounting, ACL enforcement, accept rate limiting (spec
-  documented in `openspec/specs/security-release-quality/spec.md`.
+- Session accounting, ACL enforcement, and accept rate limiting, specified in
+  `openspec/specs/security-release-quality/spec.md`.
 - Closed-set outcome enums (AttachOutcome, ReconnectOutcome, etc.) used
   as `slog.String("outcome", …)` field values for journald queries
   (no Prometheus dependency — see `openspec/specs/operations-observability/spec.md`).
@@ -157,19 +159,21 @@ is covered by the Bazel build in `make build`.
   `test/conformance`) install `goleak.VerifyTestMain` to catch
   goroutine leaks at the package boundary.
 
-See `openspec/specs/importer-lifecycle/spec.md` and `openspec/specs/exporter-lifecycle/spec.md` for the authoritative lifecycle-semantics list (double-detach idempotency, shutdown drain semantics, runtime module disappearance, etc.).
+See `openspec/specs/importer-lifecycle/spec.md` and
+`openspec/specs/exporter-daemon/spec.md` for the authoritative lifecycle
+semantics (double-detach idempotency, shutdown drain semantics, runtime module
+disappearance, and related behavior).
 
 ## Error strategy
 
-Adapter layer returns raw errors (syscall errno, protocol decode
-failure, `net` error). The application layer wraps with
-`github.com/samber/oops` to attach context attributes (`busid`,
-`remote`, `port_id`, `attempt`). `slog` emits those attributes
-automatically in structured output.
+Adapters preserve underlying syscall, protocol, and network errors while
+mapping documented domain conditions to sentinels. Application paths add
+operation context, including values such as `busid`, `remote`, `port_id`, and
+`attempt`, with `fmt.Errorf` wrapping or `github.com/samber/oops` attributes.
 
-Every returned error is classifiable via `errors.Is` against one of
-the sentinels in `pkg/usbip/errors.go`. The kernel-to-domain error
-map is covered by `openspec/specs/domain-model/spec.md` and the package tests.
+Documented domain and lifecycle conditions are classifiable via `errors.Is`
+against sentinels in `pkg/usbip/errors.go`. The kernel-to-domain error map is
+covered by `openspec/specs/domain-model/spec.md` and package tests.
 
 ## Layering rules (enforced)
 

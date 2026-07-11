@@ -28,7 +28,7 @@ formatters:
 linters:
   default: all
   disable:
-    # Each disable requires a rationale per spec §9.4.
+    # Each disable requires a rationale per developer-workflow OpenSpec.
     - exhaustruct # fights functional options and zero-value defaults
     - gomodguard # superseded by gomodguard_v2
     - varnamelen # flags idiomatic short names (err, ctx, i)
@@ -124,7 +124,7 @@ linters:
         - 'strconv.FormatInt'
         - 'strconv.FormatUint'
     tagliatelle:
-      # cmd/usbip-go emits the public jsonlines schema v1 (spec §7.5) with
+      # cmd/usbip-go emits the public jsonlines schema v1 (json-contracts OpenSpec) with
       # snake_case field names. The schema is frozen; camelCase would
       # silently break operators grep-ing field names.
       case:
@@ -155,7 +155,7 @@ linters:
         linters: [contextcheck]
       - path: pkg/usbip/usbip\.go
         # The pkg/usbip facade is intentional 1:1 forwarding to
-        # internal/app (spec §5.7). Wrapping each forwarded error with
+        # internal/app (public-library-api OpenSpec). Wrapping each forwarded error with
         # fmt.Errorf would obscure sentinels and duplicate the
         # error-wrapping already performed inside internal/app. The
         # errors.Is chain relies on identity; this file must NOT wrap.

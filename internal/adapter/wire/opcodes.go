@@ -8,7 +8,7 @@ import "github.com/abilisoft/usbip-go/internal/protocol"
 // OpCode is the shared USB/IP handshake opcode type.
 type OpCode = protocol.OpCode
 
-// OpCode constants as defined in v1 contract §6.2.
+// OpCode constants as defined in wire-protocol OpenSpec.
 const (
 	// OpReqDevlist is the client's request to list exportable devices.
 	OpReqDevlist = protocol.OpReqDevlist
@@ -22,7 +22,7 @@ const (
 
 // isKnownOpCode reports whether op is one of the four supported USBIP
 // handshake opcodes. Anything else triggers ErrProtocolMismatch per the
-// spec error matrix (§6.2).
+// spec error matrix (wire-protocol OpenSpec).
 func isKnownOpCode(op OpCode) bool {
 	switch op {
 	case OpReqDevlist, OpRepDevlist, OpReqImport, OpRepImport:

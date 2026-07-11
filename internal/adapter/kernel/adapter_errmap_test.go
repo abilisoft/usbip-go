@@ -15,8 +15,9 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
-// TestErrMapMatrix covers every row of v1 contract §6.4's errno → sentinel
-// table plus the path-kind classification from §11.5.4. The test
+// TestErrMapMatrix covers every errno-to-sentinel row in the kernel-adapter and
+// domain-model OpenSpec documents, plus the path-kind classification from the
+// security-release-quality and operations-observability OpenSpec documents. The test
 // drives the exported ClassifyErrno helper directly so every mapping
 // can be exercised without a real syscall.
 func TestErrMapMatrix(t *testing.T) {

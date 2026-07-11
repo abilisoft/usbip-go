@@ -65,7 +65,7 @@ type statusTopologyCache struct {
 // vhci_hcd + usbip_core modules.
 //
 // attachMu serializes the findFreePort → sysfs-write critical section
-// of AttachRemote per v1 contract §3.4 "Attach vs Attach race: first acquire
+// of AttachRemote per importer-lifecycle and exporter-daemon OpenSpec documents "Attach vs Attach race: first acquire
 // wins; loser gets ErrNoFreePort". Without this lock, two concurrent
 // AttachRemote callers could both observe the same free port in the
 // status table and race on the sysfs attach write.

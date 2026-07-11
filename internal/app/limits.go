@@ -14,7 +14,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// Default resource limits per v1 contract §11.5.3. Zero-valued option fields
+// Default resource limits per security-release-quality OpenSpec. Zero-valued option fields
 // resolve to these values at NewExporter time so every Exporter has a
 // predictable baseline policy even without explicit caps.
 const (
@@ -36,7 +36,7 @@ type exporterLimits struct {
 	handshakeTimeout   time.Duration
 }
 
-// resolveExporterLimits fills in the §11.5.3 defaults for zero-valued
+// resolveExporterLimits fills in the security-release-quality OpenSpec defaults for zero-valued
 // option fields. Negative values pass through unchanged so a caller
 // can disable any individual cap explicitly.
 func resolveExporterLimits(cfg *exporterConfig) exporterLimits {
@@ -106,7 +106,7 @@ func (l acceptLimiter) allow() bool {
 }
 
 // resolveAcceptRate picks the effective tokens-per-second rate.
-// Zero option value picks up the §11.5.3 default; callers may pass a
+// Zero option value picks up the security-release-quality OpenSpec default; callers may pass a
 // negative rps to disable rate limiting entirely.
 func resolveAcceptRate(cfg *exporterConfig) float64 {
 	if cfg.acceptRateLimit == 0 {
@@ -117,7 +117,7 @@ func resolveAcceptRate(cfg *exporterConfig) float64 {
 }
 
 // resolveAcceptBurst picks the effective token bucket burst. Zero
-// option value picks up the §11.5.3 default.
+// option value picks up the security-release-quality OpenSpec default.
 func resolveAcceptBurst(cfg *exporterConfig) int {
 	if cfg.acceptBurst == 0 {
 		return defaultAcceptBurst

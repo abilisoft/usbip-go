@@ -70,7 +70,7 @@ func specFlags() []string {
 }
 
 // TestRootHelpListsEveryFlag guards that `usbip serve --help` surfaces
-// every flag required by v1 contract §7.7. The flags moved off the root
+// every flag required by operations-observability and json-contracts OpenSpec documents. The flags moved off the root
 // onto the serve subcommand when the two-binary tree merged into the
 // unified `usbip-go` binary; the help assertion follows.
 func TestRootHelpListsEveryFlag(t *testing.T) {

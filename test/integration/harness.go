@@ -8,7 +8,8 @@
 // vhci_hcd, usbip_host, and usbip_vudc modules loaded. Build tag
 // integration_linux gates compilation; the tests skip cleanly via
 // harness preflight when the required modules are missing at runtime.
-// See v1 contract §8.4 for the self-hosted CI contract that drives this tag.
+// See security-release-quality OpenSpec for the self-hosted CI contract that
+// drives this tag.
 package integration
 
 import (
@@ -31,8 +32,9 @@ import (
 
 // harnessModuleNames enumerates the kernel modules the integration
 // suite requires before any test can safely touch configfs or bind a
-// vudc gadget. Any missing entry triggers t.Skip per the v1 contract §8.4
-// "skip-when-env-lacks-dep" exception, not the no-shortcuts rule.
+// vudc gadget. Any missing entry triggers t.Skip per the
+// security-release-quality OpenSpec "skip-when-env-lacks-dep" exception, not
+// the no-shortcuts rule.
 func harnessModuleNames() []string {
 	return []string{
 		usbip.KernelModuleUSBIPCore,
@@ -151,8 +153,13 @@ func setupVUDCWithBacking(t *testing.T, backing []byte) *VUDCDevice {
 // USB bus id (e.g. "1-1.2") bindable via usbip-host. Tests that need
 // real-device semantics read it via RequireRealBusID; vudc devices do
 // not traverse the usbip-host bind path and so are not sufficient for
-// these scenarios per v1 contract §8.4.
-const RealBusIDEnv = "USBIPGO_INTEGRATION_BUSID"
+// these scenarios per security-release-quality OpenSpec.
+const (
+	RealBusIDEnv = "USBIPGO_INTEGRATION_BUSID"
+
+	realBusIDMissingFormat = "integration harness: %s unset; scenario requires a real " +
+		"usbip-host bindable busid (security-release-quality OpenSpec env-gated)"
+)
 
 // RequireRealBusID returns the BusID named by RealBusIDEnv or t.Skips
 // when unset. Centralising the env check here replaces the scatter of
@@ -163,8 +170,7 @@ func RequireRealBusID(t *testing.T) domain.BusID {
 
 	raw := os.Getenv(RealBusIDEnv)
 	if raw == "" {
-		t.Skipf("integration harness: %s unset; scenario requires a real usbip-host bindable busid (v1 contract §8.4 env-gated)",
-			RealBusIDEnv)
+		t.Skipf(realBusIDMissingFormat, RealBusIDEnv)
 	}
 
 	return domain.BusID(raw)
@@ -201,12 +207,18 @@ func RequireBindable(t *testing.T, ctx context.Context, exp *usbip.Exporter, bus
 // RequireBindable's t.Cleanup. Two seconds matches the value previously
 // inlined at every call site; kept as a named constant so mnd does not
 // flag the literal and future tuning has a single point of change.
-const unbindCleanupTimeout = 2 * time.Second
+const (
+	unbindCleanupTimeout = 2 * time.Second
+
+	missingModulesFormat = "integration harness: required kernel modules not loaded: %s " +
+		"(security-release-quality OpenSpec self-hosted-only test)"
+)
 
 // requireModulesLoaded scans /sys/module for each harnessModuleNames
-// entry and t.Skips when any is missing. v1 contract §8.4 documents t.Skip as
-// the sanctioned integration exception for missing kernel modules; no
-// other t.Skip path is acceptable per the no-shortcuts discipline.
+// entry and t.Skips when any is missing. The security-release-quality
+// OpenSpec documents t.Skip as the sanctioned integration exception for
+// missing kernel modules; no other t.Skip path is acceptable per the
+// no-shortcuts discipline.
 func requireModulesLoaded(t *testing.T) {
 	t.Helper()
 
@@ -220,8 +232,7 @@ func requireModulesLoaded(t *testing.T) {
 	}
 
 	if len(missing) > 0 {
-		t.Skipf("integration harness: required kernel modules not loaded: %s (v1 contract §8.4 self-hosted-only test)",
-			strings.Join(missing, ", "))
+		t.Skipf(missingModulesFormat, strings.Join(missing, ", "))
 	}
 }
 

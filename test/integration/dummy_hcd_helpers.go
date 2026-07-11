@@ -63,7 +63,7 @@ const kernelModuleLibcomposite = "libcomposite"
 //
 // The function t.Skips cleanly when the runner does not have the
 // required kernel modules or configfs surface — the runner contract
-// (v1 contract §8.4) treats environment lacks as skips, not failures,
+// (security-release-quality OpenSpec) treats environment lacks as skips, not failures,
 // so the same test source compiles and can be invoked on any Linux
 // host while only running against real coverage on the integration
 // runner.

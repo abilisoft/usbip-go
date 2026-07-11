@@ -14,10 +14,10 @@
 //	              to prove no vhci port is even attempted.
 //	after_dial  — pause AFTER Dial but BEFORE AttachRemote, to cover
 //	              the "kernel closes TCP socket on process death
-//	              before sysfs handoff" branch (v1 contract §5.4 item 5a).
+//	              before sysfs handoff" branch.
 //	after_sysfs — pause AFTER a successful AttachRemote, to cover the
 //	              "kernel holds its own ref, parent cleans up via
-//	              Detach" branch (v1 contract §5.4 item 7).
+//	              Detach" branch.
 //
 // The parent reads "AT=<point>\n" from stderr to know the child is
 // parked at the checkpoint; it then SIGKILLs and proceeds to assert

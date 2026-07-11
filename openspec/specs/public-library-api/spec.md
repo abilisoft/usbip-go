@@ -133,4 +133,4 @@ Changes to `pkg/usbip` or `pkg/domain` SHALL be checked against API baselines an
 #### Scenario: Incompatible public API change is proposed
 
 - **WHEN** CI runs API compatibility checks
-- **THEN** the change fails unless the commit is marked `BREAKING:` and the relevant `api/*.json` baseline is regenerated
+- **THEN** the change fails unless the commit uses a Conventional Commit breaking marker (`!` in the subject or a `BREAKING CHANGE:` footer) and the relevant `api/*.json` baseline is regenerated

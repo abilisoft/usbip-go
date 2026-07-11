@@ -9,7 +9,7 @@ import "time"
 // Concrete code uses RealClock; tests inject a deterministic fake from
 // internal/testutil.
 //
-// v1 contract §5.1: retry/backoff and attach timeouts must be driven by an
+// architecture-layering OpenSpec: retry/backoff and attach timeouts must be driven by an
 // injected clock so tests do not slow down wall time.
 type Clock interface {
 	// Now returns the current time.

@@ -11,10 +11,14 @@ Use the OS package for production/systemd installs. The `.deb` and
 `.rpm` release assets install the binary, systemd units, modules-load
 config, and runtime-directory wiring used by the default status socket:
 
+Choose a tag listed as supported in [`../SECURITY.md`](../SECURITY.md). Every
+currently published tag is retracted, so the commands below are templates for
+the next supported release rather than an immediately installable version.
+
 ```text
-sudo dpkg -i usbip-go_X.Y.Z_amd64.deb
+sudo dpkg -i usbip-go_X.Y.Z_linux_amd64.deb
 # or
-sudo rpm -i usbip-go-X.Y.Z.x86_64.rpm
+sudo rpm -i usbip-go_X.Y.Z_linux_amd64.rpm
 ```
 
 Archive and `go install` builds are best for manual foreground use or
@@ -25,8 +29,8 @@ curl -LO https://github.com/abilisoft/usbip-go/releases/download/vX.Y.Z/usbip-go
 tar xzf usbip-go_X.Y.Z_linux_amd64.tar.gz
 sudo install -m 0755 usbip-go /usr/local/bin/
 
-# or
-go install github.com/abilisoft/usbip-go/cmd/usbip-go@latest
+# or, after setting VERSION to a supported v-prefixed tag
+go install "github.com/abilisoft/usbip-go/cmd/usbip-go@${VERSION}"
 ```
 
 Kernel modules must be loadable on the target host. Packages install
@@ -83,7 +87,7 @@ ExecStart=/usr/bin/usbip-go serve
 Restart=on-failure
 RuntimeDirectory=usbip-go
 RuntimeDirectoryMode=0755
-CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE CAP_CHOWN
 
 [Install]
 WantedBy=multi-user.target
@@ -97,7 +101,8 @@ Customise package-installed units with drop-ins:
   `/readyz` on localhost for orchestrator probes.
 - Add `--status-socket-group=usbip-go` (the daemon's default) or any
   group of your choice; create that group and add the operators who
-  need `usbip-go drain` to it.
+  need `usbip-go drain` to it. The reference unit retains `CAP_CHOWN` so a
+  root-run daemon can apply that group after binding the socket.
 - Pin additional hardening directives:
   `NoNewPrivileges=yes`, `ProtectSystem=strict`,
   `ProtectHome=true`, `PrivateTmp=yes`, `RestrictSUIDSGID=yes`,
@@ -193,12 +198,16 @@ Output includes:
   [`json-schema.md`](json-schema.md)).
 - `version`, `commit`, `uptime_sec`.
 - `listening` — TCP `addr` and whether it was `activation`-received.
-- `bound_devices` — every exported BusID with `vid` / `pid`.
+- `bound_devices` — BusIDs bound to `usbip_host` and currently available to a
+  new importer, with `vid` / `pid`. A device in `SDEV_ST_USED` is excluded;
+  its active ownership appears under `sessions` instead.
 - `bound_devices_error` — optional diagnostic text when listing
   bound devices failed and `bound_devices` would otherwise be empty.
 - `kernel_modules` — per-module `loaded` / `missing` / `unknown`.
 - `sessions` — every accepted session with `id`, `remote`, `busid`,
-  `started_at`, byte counters.
+  `started_at`, and reserved `bytes_in` / `bytes_out` counters. The
+  counters are currently `0` because kernel-owned URB forwarding is not
+  metered in user space.
 
 The status socket is also the channel for the drain command:
 
@@ -243,7 +252,7 @@ Enable with `--health-addr`:
 usbip-go serve --health-addr 127.0.0.1:9240
 ```
 
-The endpoint exposes two paths, served by `net/http` from the standard
+The listener exposes two paths, served by `net/http` from the standard
 library (no third-party dependency):
 
 - `GET /healthz` — unconditional 200 OK while the daemon's HTTP

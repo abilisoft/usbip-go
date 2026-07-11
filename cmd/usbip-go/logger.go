@@ -14,7 +14,7 @@ import (
 )
 
 // traceLevel is the project's trace log level — one step below debug.
-// slog does not ship a named Trace level; v1 contract §7.2 pins the label so
+// slog does not ship a named Trace level; cli-interface OpenSpec pins the label so
 // we encode it as slog.LevelDebug - 4 per slog convention.
 const traceLevel = slog.LevelDebug - 4
 
@@ -46,7 +46,7 @@ var errInvalidLogFormat = errors.New("invalid --log-format")
 var errInvalidLogLevel = errors.New("invalid --log-level")
 
 // buildLogger constructs a *slog.Logger whose handler is selected by
-// the format flag and TTY/NO_COLOR state (v1 contract §7.3). An invalid
+// the format flag and TTY/NO_COLOR state (cli-interface OpenSpec). An invalid
 // --log-format surfaces as an error so the root PersistentPreRunE can
 // fail with a usage-class message.
 func buildLogger(f globalFlags) (*slog.Logger, error) {

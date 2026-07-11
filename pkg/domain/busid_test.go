@@ -28,7 +28,7 @@ func TestParseBusID(t *testing.T) {
 		{"whitespace", " ", "", true},
 		{"over_limit", "1-" + strings.Repeat("1", 31), "", true},
 		{"contains_null", "1-\x00", "", true},
-		// Malformed topology per v1 contract §4.1 (pattern must be ^\d+-[\d\.]+$).
+		// Malformed topology per domain-model OpenSpec (pattern must be ^\d+-[\d\.]+$).
 		{"no_dash", "abc", "", true},
 		{"trailing_dash", "1-", "", true},
 		{"leading_dash", "-1", "", true},

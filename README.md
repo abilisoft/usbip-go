@@ -61,8 +61,12 @@ Legend: ✅ built in · ⚠️ varies by distro/package · ❌ not provided
 
 ### Release archive
 
+Choose a tag listed as supported in [`SECURITY.md`](SECURITY.md). The
+currently published tags are retracted, so there is no supported archive to
+install until a replacement release is published.
+
 ```sh
-VERSION=1.0.0
+VERSION=X.Y.Z # replace with a supported release version
 curl -LO "https://github.com/abilisoft/usbip-go/releases/download/v${VERSION}/usbip-go_${VERSION}_linux_amd64.tar.gz"
 tar xzf "usbip-go_${VERSION}_linux_amd64.tar.gz"
 sudo install -m 0755 usbip-go /usr/local/bin/usbip-go
@@ -77,10 +81,12 @@ integrity details.
 ### Go install
 
 ```sh
-go install github.com/abilisoft/usbip-go/cmd/usbip-go@latest
+VERSION=vX.Y.Z # replace with a supported release tag
+go install "github.com/abilisoft/usbip-go/cmd/usbip-go@${VERSION}"
 ```
 
-Requires Go 1.26 or newer.
+Do not use `@latest` while every published tag is retracted. Building the
+current development branch requires Go 1.26.5 or newer.
 
 ### Kernel modules
 
@@ -207,8 +213,15 @@ func main() {
     }
     defer imp.Close()
 
-    remote, _ := domain.ParseRemote("10.0.0.5:3240")
-    busid, _ := domain.ParseBusID("1-1.2")
+    remote, err := domain.ParseRemote("10.0.0.5:3240")
+    if err != nil {
+        panic(err)
+    }
+
+    busid, err := domain.ParseBusID("1-1.2")
+    if err != nil {
+        panic(err)
+    }
 
     port, err := imp.Attach(context.Background(), remote, busid, usbip.AttachOptions{
         AutoReconnect: true,

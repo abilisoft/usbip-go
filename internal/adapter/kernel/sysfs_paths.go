@@ -87,7 +87,7 @@ const (
 )
 
 // Write payloads whose exact byte sequence is dictated by the kernel
-// parsers (see v1 contract §6.1 "Key facts verified from kernel source").
+// parsers (see kernel-adapter OpenSpec "Key facts verified from kernel source").
 const (
 	// MatchBusIDAddPrefix is the prefix for "add <busid>" writes to
 	// match_busid. Includes trailing space.

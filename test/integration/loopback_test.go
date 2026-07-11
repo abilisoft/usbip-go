@@ -42,7 +42,7 @@ const loopbackTestDeadline = 10 * time.Second
 //  3. Exporter.Bind registers the bus id with usbip-host. For the
 //     default vudc fallback, usbip-host rejects the bind because vudc
 //     is a platform device, and the test skips — not a failure, a
-//     documented env-dependency per v1 contract §8.4.
+//     documented env-dependency per security-release-quality OpenSpec.
 //  4. Exporter.Serve accepts on 127.0.0.1:0.
 //  5. Importer.Attach performs the full handshake against the
 //     listener's actual address.

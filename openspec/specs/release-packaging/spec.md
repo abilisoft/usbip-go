@@ -25,7 +25,7 @@ The GitHub release workflow SHALL publish only tags matching `vMAJOR.MINOR.PATCH
 
 ### Requirement: Release publication waits for prereq gates
 
-The release job SHALL depend on reusable security, unit-test, conformance, architecture, and coverage workflows.
+The release job SHALL depend on reusable security, unit-test, conformance, architecture, coverage, and dedicated kernel-integration workflows.
 
 #### Scenario: Prereq gate fails
 
@@ -34,7 +34,7 @@ The release job SHALL depend on reusable security, unit-test, conformance, archi
 
 #### Scenario: Prereq gates pass
 
-- **WHEN** security, unit tests, conformance, architecture checks, and coverage complete successfully
+- **WHEN** security, unit tests, conformance, architecture checks, coverage, and dedicated kernel integration complete successfully
 - **THEN** the release job may build and publish artifacts
 
 ### Requirement: Release notes come from git-cliff

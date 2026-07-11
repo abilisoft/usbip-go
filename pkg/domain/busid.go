@@ -17,7 +17,7 @@ type BusID string
 
 // busIDPattern matches the Linux USB topology syntax: one or more
 // decimal digits (the bus number), a dash, then a dot-separated sequence
-// of decimal numbers (the port path). v1 contract §4.1 defines this shape.
+// of decimal numbers (the port path). domain-model OpenSpec defines this shape.
 var busIDPattern = regexp.MustCompile(`^[0-9]+-[0-9]+(\.[0-9]+)*$`)
 
 // ParseBusID validates s and returns a BusID.

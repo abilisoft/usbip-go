@@ -171,7 +171,7 @@ func TestUnbind_WritesReverseSequence(t *testing.T) {
 	}, rec.calls[3])
 }
 
-// TestBind_EBUSYMapsToAlreadyBound confirms v1 contract §6.4 mapping for the
+// TestBind_EBUSYMapsToAlreadyBound confirms kernel-adapter and domain-model OpenSpec documents mapping for the
 // bind write — when the EBUSY persists across the full retry budget.
 // Bind retries the usbip-host bind step on EBUSY (transient drain),
 // so the test injects a writeFunc that returns EBUSY for every write

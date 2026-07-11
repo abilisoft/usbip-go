@@ -16,7 +16,7 @@ import (
 // sessionEventBufSize bounds each WatchSessions subscriber's buffered
 // channel. Slow consumers drop events (logged) rather than back-
 // pressuring the session state machine; matches the KernelEvents
-// fan-out semantics in v1 contract §5.1.
+// fan-out semantics in architecture-layering OpenSpec.
 const sessionEventBufSize = 16
 
 // sessionEventSubscriber is one active WatchSessions consumer. done is
@@ -74,7 +74,7 @@ func (e *Exporter) Sessions(_ context.Context) []domain.Session {
 // the subscriber is registered; subsequent ctx cancel, sub.done from
 // closeAllSubscribers, or yield-false removes it. Post-Shutdown the
 // iter terminates immediately with no events — matches Importer.Watch's
-// post-Close semantics per v1 contract §3.4.
+// post-Close semantics per importer-lifecycle and exporter-daemon OpenSpec documents.
 func (e *Exporter) WatchSessions(ctx context.Context) iter.Seq[domain.Event] {
 	e.mu.RLock()
 

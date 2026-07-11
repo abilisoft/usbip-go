@@ -24,7 +24,8 @@ import (
 // upstreamUsbipBinary is the command name the conformance suite
 // probes when deciding whether to exercise the real upstream client
 // against our daemon. Hosted CI may or may not have usbip installed;
-// tests skip cleanly when it is missing per the §8.9 hosted-conformance
+// tests skip cleanly when it is missing per the wire-protocol and
+// security-release-quality OpenSpec hosted-conformance
 // contract.
 const upstreamUsbipBinary = "usbip"
 
@@ -39,7 +40,7 @@ const upstreamUsbipBinary = "usbip"
 //  2. stdout lists the device fixture the ExporterKernel returned.
 //
 // Skips when the usbip binary is not on $PATH; that is the documented
-// env-gated skip per v1 contract §8.9, NOT a flaky-skip shortcut.
+// env-gated skip per wire-protocol and security-release-quality OpenSpec documents, NOT a flaky-skip shortcut.
 func TestConformanceUpstreamListAgainstGoDaemon(t *testing.T) {
 	usbipPath, err := exec.LookPath(upstreamUsbipBinary)
 	if err != nil {

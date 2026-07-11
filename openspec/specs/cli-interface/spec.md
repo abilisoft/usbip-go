@@ -45,7 +45,7 @@ The root command SHALL NOT expose a persistent `--config` flag until YAML config
 
 ### Requirement: list command defaults local and accepts an optional remote
 
-`usbip-go list` SHALL list locally exportable devices by default. `usbip-go list HOST` SHALL parse HOST as a RemoteEndpoint and list that peer's devices. Listing source flags such as `--remote/-r`, `--local/-l`, and `--ports/-p` SHALL NOT be exposed; attached ports are listed with `usbip-go port`.
+`usbip-go list` SHALL list every readable BusID-shaped local USB device by default, regardless of bind or active-use state; `bind` remains responsible for export-safety validation. `usbip-go list HOST` SHALL parse HOST as a RemoteEndpoint and list devices that peer currently advertises. Listing source flags such as `--remote/-r`, `--local/-l`, and `--ports/-p` SHALL NOT be exposed; attached ports are listed with `usbip-go port`.
 
 #### Scenario: Local listing is selected by default
 

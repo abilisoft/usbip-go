@@ -186,7 +186,7 @@ func TestAttachSecondArgCompletionEnabledByEnv(t *testing.T) {
 }
 
 // TestAttachSecondArgCompletionSilentOnError — ListRemote failure
-// returns empty + no error (v1 contract §7.6 silent-on-failure rule).
+// returns empty + no error (cli-interface OpenSpec silent-on-failure rule).
 func TestAttachSecondArgCompletionSilentOnError(t *testing.T) {
 	t.Setenv("USBIP_COMPLETE_NETWORK", "1")
 

@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newListCmd constructs the `usbip-go list` subcommand per v1 contract §7.1.
+// newListCmd constructs the `usbip-go list` subcommand per cli-interface OpenSpec.
 func newListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list [remote]",

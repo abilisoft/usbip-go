@@ -134,9 +134,12 @@ offset  size  field                    wire type
 remote `OP_REP_DEVLIST`, the empty string is acceptable on the wire
 and mapped to `Device.Path == ""`.
 
-`busid` is the stable Linux USB topology identifier, e.g. `1-1.2`.
-It is validated on decode against the pattern
-`^[0-9]+-[0-9]+(\.[0-9]+)*$` — see `pkg/domain/busid.go`.
+`busid` is normally the stable Linux USB topology identifier, e.g. `1-1.2`.
+Device-descriptor decoding preserves the peer's printable padded value because
+upstream vudc peers legitimately advertise names such as `usbip-vudc.0`.
+User-supplied BusIDs use the stricter topology parser; inbound `OP_REQ_IMPORT`
+bodies use `domain.ValidateWireBusID`, which accepts only the sysfs-basename
+character set `[A-Za-z0-9._-]` and therefore rejects path traversal.
 
 ### Speed values
 
@@ -210,20 +213,24 @@ Consumers match via `errors.Is` for sentinels or
 with a fixed NUL-padded shape:
 
 ```go
-func writePaddedString(w io.Writer, s string, size int) error
-func readPaddedString(r io.Reader, size int) (string, error)
+func WritePaddedString(w io.Writer, s string, size int) error
+func ReadPaddedString(r io.Reader, size int) (value string, truncated bool, err error)
 ```
 
-`writePaddedString` returns `ErrBusIDInvalid` (for busid-width
+`WritePaddedString` returns `ErrBusIDInvalid` (for busid-width
 writes) or `ErrProtocolError` (for path-width writes) when `s`
 exceeds `size - 1` bytes — the trailing byte is reserved for the NUL
-terminator even when the string fills the field.
+terminator even when the string fills the field. `ReadPaddedString` reports
+malformed termination through `truncated`; higher-level decoders propagate that
+advisory in `DecodeFlags`, and `Codec` methods log it.
 
-## Fixture-based conformance
+## Capture-based conformance
 
-The codec's inputs are pinned against real captures from upstream
-`usbipd`. Fixtures live in
-[`internal/adapter/wire/testdata/`](../internal/adapter/wire/testdata).
-The conformance suite decodes each capture, re-encodes, and asserts
-byte-for-byte equality — see [`wire-trace.md`](wire-trace.md) for
-the capture recipe.
+The codec's inputs are pinned against reviewed captures from upstream
+`usbipd`. Captured bytes live as inline hexadecimal constants in
+[`internal/adapter/wire/conformance_test.go`](../internal/adapter/wire/conformance_test.go),
+while JSON descriptor-layout fixtures live under
+[`internal/adapter/wire/testdata/`](../internal/adapter/wire/testdata). The
+conformance suite decodes each capture, re-encodes it, and asserts
+byte-for-byte equality. See [`wire-trace.md`](wire-trace.md) for the capture
+recipe.

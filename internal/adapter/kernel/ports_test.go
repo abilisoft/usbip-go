@@ -214,7 +214,8 @@ func TestListPorts_MalformedRowSkipped(t *testing.T) {
 	require.Equal(t, domain.StatusUsed, ports[0].Status)
 }
 
-// TestListPorts_ModuleMissingReturnsBoth confirms §3.4 contract: on
+// TestListPorts_ModuleMissingReturnsBoth confirms the importer-lifecycle and
+// exporter-daemon OpenSpec contract: on
 // module loss, return (nil, ErrKernelModuleMissing).
 func TestListPorts_ModuleMissingReturnsBoth(t *testing.T) {
 	t.Parallel()

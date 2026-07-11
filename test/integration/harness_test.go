@@ -18,7 +18,7 @@ import (
 // lets t.Cleanup tear the configfs tree down. A follow-on SetupVUDC
 // would pick a different UDC name (random suffix in the gadget
 // directory) so the test is safe under parallel runs. Skips cleanly on
-// any unit lacking the kernel prerequisites per v1 contract §8.4.
+// any unit lacking the kernel prerequisites per security-release-quality OpenSpec.
 func TestHarnessSetupVUDCSmoke(t *testing.T) {
 	dev := integration.SetupVUDC(t)
 

@@ -14,13 +14,13 @@ import (
 var _ app.ProtocolCodec = (*Codec)(nil)
 
 // Codec is the wire-level USBIP protocol codec. All methods forward to
-// the package-level encode/decode helpers. Per v1 contract §5.1 this type
+// the package-level encode/decode helpers. Per architecture-layering OpenSpec this type
 // implements the app.ProtocolCodec interface; the compile-time assertion
 // above keeps the adapter honest without making app import this package.
 //
 // Codec carries a *slog.Logger so permissive-read signals surfaced by
 // the package-level helpers (e.g. trailing bytes after OP_REP_DEVLIST,
-// v1 contract §6.2) can be logged to a caller-controlled sink. Zero-value
+// wire-protocol OpenSpec) can be logged to a caller-controlled sink. Zero-value
 // Codec{} is usable; its logger is a no-op handler so unit tests that
 // construct Codec{} see no output. Inject a real logger via the
 // WithLogger option.
@@ -84,7 +84,7 @@ func (*Codec) EncodeOpRepDevlist(w io.Writer, devices []domain.Device) error {
 // DecodeOpRepDevlist calls the package-level decoder, logs any
 // advisory signals surfaced in DecodeFlags (trailing bytes after the
 // declared frame, padded-string fields that reached end-of-field
-// without NUL per §6.2), and returns the decoded devices without the
+// without NUL per wire-protocol OpenSpec), and returns the decoded devices without the
 // flags — the app-facing interface stays narrow.
 func (c *Codec) DecodeOpRepDevlist(r io.Reader) ([]domain.Device, error) {
 	devices, flags, err := DecodeOpRepDevlist(r)

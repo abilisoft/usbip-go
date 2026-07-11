@@ -13,7 +13,7 @@ import (
 )
 
 // TestTypeAliasesAreIdentical asserts that every usbip.X declared in
-// §5.7 is a type alias for domain.X rather than a freshly-declared
+// public-library-api OpenSpec is a type alias for domain.X rather than a freshly-declared
 // type. If any entry drifts from alias to declaration, consumers who
 // mix imports (some from pkg/usbip, some from pkg/domain) would fail
 // to assign one to the other — so the guarantee is load-bearing.

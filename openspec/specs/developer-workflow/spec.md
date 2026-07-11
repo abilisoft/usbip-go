@@ -25,20 +25,20 @@ Top-level Make targets SHALL be the local and CI entrypoint for build, test, lin
 
 - **WHEN** a contributor runs `make ci-local`
 - **THEN** Make builds Bazel target `//:ci-local`
-- **AND** the runner invokes the repository-owned build, unit-test, conformance, lint, vulnerability, coverage-threshold, and GoReleaser-check commands used by the GitHub pull-request workflow
+- **AND** the runner invokes the repository-owned build, unit-test, race-test, conformance, lint, vulnerability, coverage-threshold, and GoReleaser-check commands used by the GitHub pull-request workflow
 - **AND** the runner executes host-native against the current worktree because Bazel already provisions the repository toolchain hermetically
 
 #### Scenario: Host runs a unit test workflow task
 
 - **WHEN** a contributor runs `make test`
-- **THEN** Make invokes Bazel over `BAZEL_TEST_TARGETS`, defaulting to `//...`
+- **THEN** Make invokes Bazel over `BAZEL_TEST_TARGETS`, defaulting to `//:test`
 - **AND** the default unit-test tag filter excludes integration, conformance, mutation, lint, manual, and external tests
 
 #### Scenario: Host runs a formatting workflow task
 
 - **WHEN** a contributor runs `make format`
 - **THEN** Make invokes Bazel target `//:format`
-- **AND** configured Go, YAML, Markdown, shell, and TOML formatters run through Bazel-provisioned tools
+- **AND** configured Go, Bazel/Starlark, YAML, shell, TOML, and Gazelle formatters run through Bazel-provisioned tools
 
 #### Scenario: Host runs a lint workflow task
 
@@ -85,7 +85,7 @@ Formatting and linting tasks SHALL operate on repository-owned Go, YAML, Markdow
 #### Scenario: Formatting runs
 
 - **WHEN** `make format` runs
-- **THEN** Go formatters, YAML formatter, Markdown formatter, shell formatter, and TOML formatter operate on their configured source filegroups
+- **THEN** Go, Bazel/Starlark, YAML, shell, TOML, and Gazelle formatters operate on their configured source filegroups
 - **AND** generated cache and output directories are excluded
 
 #### Scenario: Format check runs in CI
@@ -135,6 +135,12 @@ The repository SHALL separate unit tests, conformance tests, integration tests, 
 
 GitHub Actions workflows SHALL invoke Make targets for repository build, test, lint, vulnerability, integration, mutation, and release operations so CI behavior matches local contributor behavior.
 
+#### Scenario: CodeQL traces the production binary
+
+- **WHEN** the CodeQL workflow runs its manual Go build
+- **THEN** it invokes `make build-codeql`
+- **AND** the Make target enables Go build tracing and performs an uncached local Bazel build of `//cmd/usbip-go:usbip-go`
+
 #### Scenario: Pull request CI runs
 
 - **WHEN** the CI workflow runs for a push or pull request
@@ -150,6 +156,6 @@ GitHub Actions workflows SHALL invoke Make targets for repository build, test, l
 #### Scenario: Tagged release runs
 
 - **WHEN** the release workflow runs for a stable SemVer tag
-- **THEN** prereq jobs invoke the reusable Make/Bazel security, unit, conformance, coverage, and architecture/API gates
+- **THEN** prereq jobs invoke the reusable Make/Bazel security, unit, conformance, coverage, architecture/API, and dedicated kernel-integration gates
 - **AND** the publish job invokes `make ci-local`, `make changelog`, and `make release`
 - **AND** release publication uses the workflow `GITHUB_TOKEN` and GoReleaser environment expected by the Bazel release target

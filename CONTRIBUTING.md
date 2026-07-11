@@ -58,20 +58,36 @@ shape, a signature header, GitHub's cryptographic verification result, and
 forbidden co-author trailers. The default-branch ruleset independently requires
 GitHub-verified signatures and squash-only linear history.
 
+## TDD discipline
+
+The PR-only `TDD commit discipline` job recognizes a `feat:` or `fix:` commit as
+RED when it adds a `_test.go` file without touching production Go outside
+`internal/tools/`. The immediately following commit must touch production Go or
+be a `refactor:` commit. A PR may contain multiple RED/GREEN pairs but may not
+end with a dangling RED commit. `test:` commits are coverage hardening and do
+not open a RED/GREEN pair.
+
+This same job verifies that every commit in the PR range is Conventional,
+contains a signature header that GitHub verifies, and has no `Co-authored-by`
+trailer. Incompatible public API changes additionally require a Conventional
+Commit breaking marker (`!` in the subject or a `BREAKING CHANGE:` footer) and
+regenerated API baselines.
+
 ## Tests
 
 Default PR/push CI preserves the repository ruleset contexts by running
 reusable Make/Bazel jobs for security/lint/vulnerability scanning, unit tests,
 wire conformance, coverage thresholds, architecture/API compatibility, and TDD
 commit discipline. `make ci-local` runs the repository-owned command sequence
-locally through the Bazel-backed runner: build, unit tests, conformance, lint,
-govulncheck, coverage thresholds, and GoReleaser config validation. GitHub-only
+locally through the Bazel-backed runner: build, unit and race tests,
+conformance, lint, govulncheck, coverage thresholds, and GoReleaser config
+validation. GitHub-only
 services such as CodeQL, Trivy, Scorecard, Codecov upload, and SARIF upload stay
 in Actions. The local runner is intentionally host-native rather than
 containerized because Bazel already provisions the Go SDK, dependencies, and
 lint/release tools hermetically. Add an opt-in container wrapper only if a
-future CI-only OS dependency appears. Nightly reuses the same Make/Bazel gates
-and adds a snapshot release packaging pass.
+future CI-only OS dependency appears. Nightly reuses the security, unit,
+conformance, and coverage jobs and adds a snapshot release packaging pass.
 
 Integration tests interact with kernel USB/IP surfaces and may require a Linux
 host with suitable kernel modules and privileges. They are exposed as
@@ -80,10 +96,11 @@ host with suitable kernel modules and privileges. They are exposed as
 ## Release process
 
 Pushing a stable tag `vMAJOR.MINOR.PATCH` runs `.github/workflows/release.yml`.
-The workflow validates the tag, runs the same Make targets as local development,
-generates release notes through the Bazel-provisioned changelog target, and then
-publishes with `make release`. GoReleaser, Go, syft, and cosign are all resolved
-through Bazel runfiles.
+The workflow validates the tag, runs the reusable security, unit, conformance,
+architecture, coverage, and dedicated kernel-integration gates, re-runs the
+local CI sequence, generates release notes through the Bazel-provisioned
+changelog target, and then publishes with `make release`. GoReleaser, Go, syft,
+and cosign are all resolved through Bazel runfiles.
 
 ## Pull requests
 

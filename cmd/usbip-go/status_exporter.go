@@ -49,7 +49,7 @@ type statusExporter struct {
 	activation bool
 	accepting  atomic.Bool
 
-	// listenerBound is the §11.5.5 /readyz input that separates
+	// listenerBound is the operations-observability OpenSpec /readyz input that separates
 	// "bind succeeded" from "accept loop processing connections". It
 	// flips true as soon as listener.Addr() confirms a non-nil bind
 	// and stays true until the daemon exits; accepting flips true
@@ -86,8 +86,9 @@ type statusExporter struct {
 
 // newStatusExporter wires an Exporter + listener into a statusSource.
 // activation is the systemd-activation flag rendered under
-// listening.activation in the §7.7 status JSON; accepting starts false
-// and flips true on the first successful Accept of the real listener.
+// listening.activation in the operations-observability and json-contracts
+// OpenSpec status JSON; accepting starts false and flips true on the first
+// successful Accept of the real listener.
 // listenerBound flips true immediately when lis has a non-nil Addr so
 // /readyz can distinguish "bind succeeded" from "accept loop actually
 // running".
@@ -123,12 +124,6 @@ func listenerAddr(lis net.Listener) string {
 	return addr.String()
 }
 
-// BoundDevices reports the current export list. The stable one-shot
-// ListAvailable snapshot is what status consumers want; streaming
-// changes is a future addition. A ListAvailable failure propagates to
-// the handler so GET / can render a bound_devices_error field rather
-// than masquerading the failure as an empty bound_devices array.
-
 // Listening exposes the current accept-path state.
 func (s *statusExporter) Listening() listeningState {
 	return listeningState{
@@ -138,8 +133,9 @@ func (s *statusExporter) Listening() listeningState {
 	}
 }
 
-// KernelModules reports the §11.5.4 triple via usbip.ProbeKernelModules
-// with a kernelModuleProbeTTL cache in front of the probe. A cache
+// KernelModules reports the module triple required by the
+// security-release-quality and operations-observability OpenSpec documents via
+// usbip.ProbeKernelModules, with a kernelModuleProbeTTL cache in front of the probe. A cache
 // hit avoids a sysfs round-trip and the slog warn that EACCES would
 // otherwise log on every poll. Failures from the underlying probe
 // bypass the cache so the next call retries.

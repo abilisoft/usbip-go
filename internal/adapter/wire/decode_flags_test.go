@@ -56,7 +56,7 @@ func fillPaddedRegion(buf []byte, start, end int) {
 
 // TestDecodeDeviceSurfacesTruncatedPaddedStringFlags pins the
 // contract that DecodeDevice reports any padded-string field whose
-// bytes never reach NUL. The §6.2 permissive-read rule keeps the
+// bytes never reach NUL. The wire-protocol OpenSpec permissive-read rule keeps the
 // decode non-erroring, but the flags struct carries the anomaly to
 // the Codec layer where it becomes a slog.Warn.
 func TestDecodeDeviceSurfacesTruncatedPaddedStringFlags(t *testing.T) {
@@ -76,7 +76,7 @@ func TestDecodeDeviceSurfacesTruncatedPaddedStringFlags(t *testing.T) {
 	dev, flags, err := wire.DecodeDevice(bytes.NewReader(raw))
 	require.NoError(t, err)
 	require.NotEmpty(t, dev.Path,
-		"truncated path still decodes to a printable prefix per §6.2")
+		"truncated path still decodes to a printable prefix per wire-protocol OpenSpec")
 	require.Len(t, flags.TruncatedPaddedStrings, 1,
 		"path truncation must be reported via DecodeFlags")
 	require.Equal(t, "device.path", flags.TruncatedPaddedStrings[0].Field)

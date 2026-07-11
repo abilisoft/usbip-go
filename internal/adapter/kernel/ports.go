@@ -382,7 +382,7 @@ func hubTypeForSpeed(speed domain.Speed) string {
 }
 
 // ListPorts parses every row of every status file into domain.Port,
-// including unused slots. v1 contract §3.4: when modules are missing, both
+// including unused slots. importer-lifecycle and exporter-daemon OpenSpec documents: when modules are missing, both
 // the nil slice AND ErrKernelModuleMissing surface — callers must
 // check the error.
 func (a *ImporterAdapter) ListPorts(ctx context.Context) ([]domain.Port, error) {

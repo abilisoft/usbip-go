@@ -9,7 +9,7 @@ import (
 )
 
 // EventKind tags the concrete type of a domain event. Values are used
-// as the JSON "kind" discriminator in §7.5 event streams.
+// as the JSON "kind" discriminator in json-contracts OpenSpec event streams.
 type EventKind uint8
 
 // Event kinds. Canonical string forms are returned by EventKind.String

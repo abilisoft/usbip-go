@@ -15,7 +15,8 @@ import (
 // proved the module is absent"; this tri-state preserves that
 // distinction.
 //
-// JSON marshaling emits the lowercase string form so the §7.7 status
+// JSON marshaling emits the lowercase string form so the operations-observability
+// and json-contracts OpenSpec status
 // schema retains its stable `{"usbip_core": "loaded"}` shape.
 type ModuleState int
 
