@@ -256,6 +256,48 @@ func TestNewReadinessCheckerBoundsWedgedProbeConcurrency(t *testing.T) {
 	}
 }
 
+func TestReadinessCheckerHonorsCancelledRequestWhileProbeIsBusy(t *testing.T) {
+	t.Parallel()
+
+	probeStarted := make(chan struct{})
+	releaseProbe := make(chan struct{})
+	probe := func(_ context.Context) readinessState {
+		close(probeStarted)
+		<-releaseProbe
+
+		return readyState()
+	}
+
+	handler := newReadinessCheckerWithTimeout(probe, healthRequestTimeout)
+	firstDone := make(chan struct{})
+
+	go func() {
+		defer close(firstDone)
+
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/readyz", nil)
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+	}()
+
+	select {
+	case <-probeStarted:
+	case <-time.After(healthRequestTimeout):
+		t.Fatal("readiness probe did not start")
+	}
+
+	requestContext, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	request := httptest.NewRequestWithContext(requestContext, http.MethodGet, "/readyz", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusServiceUnavailable, response.Code)
+	require.Contains(t, response.Body.String(), readinessUnavailableMessage)
+
+	close(releaseProbe)
+	<-firstDone
+}
+
 // TestStartHealthServerEndToEnd exercises the full lifecycle:
 // startHealthServer binds a listener, /healthz and /readyz answer,
 // and the returned stop func cleanly shuts down without leaking the

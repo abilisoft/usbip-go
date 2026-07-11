@@ -148,7 +148,7 @@ func startExporterImportSession(t *testing.T) *exporterImportSessionFixture {
 }
 
 // TestExporterSessions_ReflectsCurrent asserts Sessions() returns the
-// set of accepted sessions. Mirrors v1 contract §5.3's `Sessions(ctx)` contract.
+// set of accepted sessions. Mirrors exporter-daemon OpenSpec's `Sessions(ctx)` contract.
 func TestExporterSessions_ReflectsCurrent(t *testing.T) {
 	t.Parallel()
 
@@ -316,7 +316,7 @@ func TestExporterShutdown_DisconnectsOnlyAfterHandoffSuccess(t *testing.T) {
 
 			disconnectCalled <- struct{}{}
 
-			return nil
+			return io.ErrUnexpectedEOF
 		},
 	}
 
@@ -634,7 +634,7 @@ func TestExporterWatchSessions_DoesNotRegisterUntilIterated(t *testing.T) {
 
 // TestExporterWatchSessions_AfterShutdown asserts WatchSessions after
 // Shutdown returns an empty iter that terminates immediately. Matches
-// the Importer.Watch post-Close contract per v1 contract §3.4.
+// the Importer.Watch post-Close contract per importer-lifecycle and exporter-daemon OpenSpec documents.
 func TestExporterWatchSessions_AfterShutdown(t *testing.T) {
 	t.Parallel()
 

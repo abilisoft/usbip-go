@@ -7,12 +7,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/abilisoft/usbip-go/internal/protocol"
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
@@ -29,6 +31,14 @@ type stringAddr struct{ s string }
 
 func (a stringAddr) Network() string { return "tcp" }
 func (a stringAddr) String() string  { return a.s }
+
+type closeFailureConn struct {
+	net.Conn
+
+	err error
+}
+
+func (c closeFailureConn) Close() error { return c.err }
 
 // TestIPFromAddr_Nil pins the nil-addr short-circuit: ipFromAddr must
 // return nil when addr is nil so callers do not have to nil-check the
@@ -133,7 +143,7 @@ func TestIPFromAddr_Unparseable(t *testing.T) {
 
 // TestACLAllow_NilReceiver pins the nil-receiver branch of
 // (*aclChecker).allow: a nil ACL must permit every peer (empty
-// allow-list means permit-all per v1 contract §11.5.2).
+// allow-list means permit-all per security-release-quality OpenSpec).
 func TestACLAllow_NilReceiver(t *testing.T) {
 	t.Parallel()
 
@@ -329,6 +339,84 @@ func TestClassifyUnbindError_AllCases(t *testing.T) {
 			require.Equal(t, tc.outcome, got)
 		})
 	}
+}
+
+func TestSessionHandleRunHandoffSkipsCancelledSession(t *testing.T) {
+	t.Parallel()
+
+	handle := &sessionHandle{
+		done:      make(chan struct{}),
+		cancelled: true,
+	}
+
+	called := false
+	ran, disconnectAfterHandoff, err := handle.runHandoff(func() error {
+		called = true
+
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.False(t, called)
+	require.False(t, ran)
+	require.False(t, disconnectAfterHandoff)
+}
+
+func TestClassifyImportLookupStatus(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, protocol.ImportStatusNA,
+		classifyImportLookupStatus(domain.ErrDeviceNotFound))
+	require.Equal(t, protocol.ImportStatusDevErr,
+		classifyImportLookupStatus(errSomeOther))
+}
+
+func TestCloseConnLoggingWarnsOnUnexpectedCloseError(t *testing.T) {
+	t.Parallel()
+
+	client, server := net.Pipe()
+
+	t.Cleanup(func() {
+		_ = client.Close()
+		_ = server.Close()
+	})
+
+	var output bytes.Buffer
+
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+	closeConnLogging(closeFailureConn{Conn: client, err: errSomeOther}, logger)
+
+	require.Contains(t, output.String(), "close connection")
+	require.Contains(t, output.String(), errSomeOther.Error())
+}
+
+func TestReconnectCallbackRunnerNotifyReplacesQueuedRequest(t *testing.T) {
+	t.Parallel()
+
+	runner := &reconnectCallbackRunner{
+		requests: make(chan reconnectCallbackRequest, reconnectCallbackQueueSize),
+	}
+	runner.requests <- reconnectCallbackRequest{attempt: 1, err: errOtherReason}
+
+	const latestAttempt = 2
+
+	runner.Notify(latestAttempt, errSomeOther)
+
+	request := <-runner.requests
+
+	require.Equal(t, latestAttempt, request.attempt)
+	require.ErrorIs(t, request.err, errSomeOther)
+}
+
+func TestReconnectCallbackRunnerNotifyDropsWhenWorkerCannotReceive(t *testing.T) {
+	t.Parallel()
+
+	runner := &reconnectCallbackRunner{
+		requests: make(chan reconnectCallbackRequest),
+	}
+
+	runner.Notify(1, errSomeOther)
+	require.Empty(t, runner.requests)
 }
 
 // TestFixedBackoffReset_Whitebox pins that FixedBackoff.Reset() is callable

@@ -93,6 +93,87 @@ func TestCompletionUnbindDynamic(t *testing.T) {
 	require.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
 }
 
+func TestCompletionBindErrorsReturnErrorDirective(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		exporter *mockExporter
+	}{
+		{
+			name: "list available",
+			exporter: &mockExporter{
+				listAvailableFn: func(_ context.Context) ([]usbip.Device, error) {
+					return nil, errTest
+				},
+			},
+		},
+		{
+			name: "list exported",
+			exporter: &mockExporter{
+				listAvailableFn: func(_ context.Context) ([]usbip.Device, error) {
+					return []usbip.Device{sampleDevice()}, nil
+				},
+				listExportedFn: func(_ context.Context) ([]usbip.Device, error) {
+					return nil, errTest
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			swapFactories(t, &mockImporter{}, test.exporter)
+
+			completions, directive := completeBindableBusIDs(newRootCmd(), nil, "")
+			require.Nil(t, completions)
+			require.Equal(t, completionErrorDirective, directive)
+		})
+	}
+}
+
+func TestCompletionUnbindListErrorReturnsErrorDirective(t *testing.T) {
+	t.Parallel()
+
+	exp := &mockExporter{
+		listExportedFn: func(_ context.Context) ([]usbip.Device, error) {
+			return nil, errTest
+		},
+	}
+	swapFactories(t, &mockImporter{}, exp)
+
+	completions, directive := completeBoundBusIDs(newRootCmd(), nil, "")
+	require.Nil(t, completions)
+	require.Equal(t, completionErrorDirective, directive)
+}
+
+func TestCompletionExporterConstructionErrorsReturnErrorDirective(t *testing.T) {
+	t.Parallel()
+
+	factoriesMu.Lock()
+
+	original := newExporter
+
+	newExporter = func(_ ...usbip.ExporterOption) (Exporter, error) {
+		return nil, errTest
+	}
+
+	t.Cleanup(func() {
+		newExporter = original
+		factoriesMu.Unlock()
+	})
+
+	bindCompletions, bindDirective := completeBindableBusIDs(newRootCmd(), nil, "")
+	require.Nil(t, bindCompletions)
+	require.Equal(t, completionErrorDirective, bindDirective)
+
+	unbindCompletions, unbindDirective := completeBoundBusIDs(newRootCmd(), nil, "")
+	require.Nil(t, unbindCompletions)
+	require.Equal(t, completionErrorDirective, unbindDirective)
+}
+
 // TestCompletionInstallDryRun — `completion install --shell=zsh
 // --dry-run` prints the would-be path to stderr (we capture both).
 // Uses t.Setenv so it cannot run parallel with other env-sensitive
