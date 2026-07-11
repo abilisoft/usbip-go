@@ -294,6 +294,10 @@ func waitForCheckpoint(t *testing.T, r io.Reader, want string) {
 func buildKillHelper(t *testing.T) string {
 	t.Helper()
 
+	if bin, ok := integration.BazelRunfilePath(filepath.Join("test", "integration", "killable", "killable_", "killable")); ok {
+		return bin
+	}
+
 	out := filepath.Join(t.TempDir(), killHelperBinary)
 
 	// go test typically runs from the package directory; traverse

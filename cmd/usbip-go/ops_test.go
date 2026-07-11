@@ -55,11 +55,11 @@ func TestAttachAckSchemaFirst(t *testing.T) {
 			_ usbip.BusID,
 			_ usbip.AttachOptions,
 		) (usbip.Port, error) {
-			return usbip.Port{ID: 3, Status: domain.StatusUsed, BusID: "1-1.2"}, nil
+			return usbip.Port{ID: 3, Status: domain.StatusUsed, BusID: testNestedBusID}, nil
 		},
 	}
 	runAckSchemaTest(t, imp, &mockExporter{},
-		[]string{"--output=json", "attach", "10.0.0.5", "1-1.2"})
+		[]string{testOutputJSONFlag, testAttachCommand, testRemoteHost, testNestedBusID})
 }
 
 // TestDetachAckSchemaFirst — detach ack bytes begin with `{"schema":`.
@@ -70,7 +70,7 @@ func TestDetachAckSchemaFirst(t *testing.T) {
 		detachFn: func(_ context.Context, _ usbip.PortID) error { return nil },
 	}
 	runAckSchemaTest(t, imp, &mockExporter{},
-		[]string{"--output=json", "detach", "3"})
+		[]string{testOutputJSONFlag, testDetachCommand, "3"})
 }
 
 // TestBindAckSchemaFirst — bind ack bytes begin with `{"schema":`.
@@ -81,7 +81,7 @@ func TestBindAckSchemaFirst(t *testing.T) {
 		bindFn: func(_ context.Context, _ usbip.BusID) error { return nil },
 	}
 	runAckSchemaTest(t, &mockImporter{}, exp,
-		[]string{"--output=json", "bind", "1-1.2"})
+		[]string{testOutputJSONFlag, testBindCommand, testNestedBusID})
 }
 
 // TestUnbindAckSchemaFirst — unbind ack bytes begin with `{"schema":`.
@@ -92,7 +92,7 @@ func TestUnbindAckSchemaFirst(t *testing.T) {
 		unbindFn: func(_ context.Context, _ usbip.BusID) error { return nil },
 	}
 	runAckSchemaTest(t, &mockImporter{}, exp,
-		[]string{"--output=json", "unbind", "1-1.2"})
+		[]string{testOutputJSONFlag, testUnbindCommand, testNestedBusID})
 }
 
 // TestAttachMissingBusID — `attach <host>` with no busid → cobra
@@ -108,14 +108,14 @@ func TestAttachMissingBusID(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"attach", "10.0.0.5"})
+	cmd.SetArgs([]string{testAttachCommand, testRemoteHost})
 
 	err := cmd.Execute()
 	require.Error(t, err)
 }
 
 // TestAttachSuccessJSON — attach with --output=json emits the ack
-// envelope with op="attach" and port details.
+// envelope with op=testAttachCommand and port details.
 func TestAttachSuccessJSON(t *testing.T) {
 	t.Parallel()
 
@@ -126,7 +126,7 @@ func TestAttachSuccessJSON(t *testing.T) {
 			_ usbip.BusID,
 			_ usbip.AttachOptions,
 		) (usbip.Port, error) {
-			return usbip.Port{ID: 3, Status: domain.StatusUsed, BusID: "1-1.2"}, nil
+			return usbip.Port{ID: 3, Status: domain.StatusUsed, BusID: testNestedBusID}, nil
 		},
 	}
 	swapFactories(t, imp, &mockExporter{})
@@ -137,7 +137,7 @@ func TestAttachSuccessJSON(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--output=json", "attach", "10.0.0.5", "1-1.2"})
+	cmd.SetArgs([]string{testOutputJSONFlag, testAttachCommand, testRemoteHost, testNestedBusID})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -145,7 +145,7 @@ func TestAttachSuccessJSON(t *testing.T) {
 	var m map[string]any
 	require.NoError(t, json.Unmarshal(out.Bytes(), &m))
 	require.Equal(t, "v1", m["schema"])
-	require.Equal(t, "attach", m["op"])
+	require.Equal(t, testAttachCommand, m["op"])
 }
 
 // TestAttachMalformedBackoff — --backoff=garbage exits with usage.
@@ -160,7 +160,7 @@ func TestAttachMalformedBackoff(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"attach", "--backoff=nonsense", "10.0.0.5", "1-1.2"})
+	cmd.SetArgs([]string{testAttachCommand, "--backoff=nonsense", testRemoteHost, testNestedBusID})
 
 	err := cmd.Execute()
 	require.Error(t, err)
@@ -184,14 +184,14 @@ func TestDetachSuccess(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--output=json", "detach", "3"})
+	cmd.SetArgs([]string{testOutputJSONFlag, testDetachCommand, "3"})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
 
 	var m map[string]any
 	require.NoError(t, json.Unmarshal(out.Bytes(), &m))
-	require.Equal(t, "detach", m["op"])
+	require.Equal(t, testDetachCommand, m["op"])
 }
 
 // TestDetachInvalidPortID — non-numeric port id → usage error.
@@ -206,7 +206,7 @@ func TestDetachInvalidPortID(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"detach", "notanum"})
+	cmd.SetArgs([]string{testDetachCommand, "notanum"})
 
 	err := cmd.Execute()
 	require.Error(t, err)
@@ -218,7 +218,7 @@ func TestPortNoFilterListsAll(t *testing.T) {
 
 	imp := &mockImporter{
 		listPortsFn: func(_ context.Context) ([]usbip.Port, error) {
-			return []usbip.Port{{ID: 0, BusID: "1-1.2"}, {ID: 1, BusID: "2-2"}}, nil
+			return []usbip.Port{{ID: 0, BusID: testNestedBusID}, {ID: 1, BusID: "2-2"}}, nil
 		},
 	}
 	swapFactories(t, imp, &mockExporter{})
@@ -229,7 +229,7 @@ func TestPortNoFilterListsAll(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--output=json", "port"})
+	cmd.SetArgs([]string{testOutputJSONFlag, "port"})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -249,7 +249,7 @@ func TestPortIDNotAttached(t *testing.T) {
 
 	imp := &mockImporter{
 		listPortsFn: func(_ context.Context) ([]usbip.Port, error) {
-			return []usbip.Port{{ID: 0, BusID: "1-1.2"}}, nil
+			return []usbip.Port{{ID: 0, BusID: testNestedBusID}}, nil
 		},
 	}
 	swapFactories(t, imp, &mockExporter{})
@@ -277,7 +277,7 @@ func TestBindSuccess(t *testing.T) {
 		bindFn: func(_ context.Context, b usbip.BusID) error {
 			called = true
 
-			require.Equal(t, usbip.BusID("1-1.2"), b)
+			require.Equal(t, usbip.BusID(testNestedBusID), b)
 
 			return nil
 		},
@@ -290,7 +290,7 @@ func TestBindSuccess(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--output=json", "bind", "1-1.2"})
+	cmd.SetArgs([]string{testOutputJSONFlag, testBindCommand, testNestedBusID})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -307,7 +307,7 @@ func TestUnbindSuccess(t *testing.T) {
 		unbindFn: func(_ context.Context, b usbip.BusID) error {
 			called = true
 
-			require.Equal(t, usbip.BusID("1-1.2"), b)
+			require.Equal(t, usbip.BusID(testNestedBusID), b)
 
 			return nil
 		},
@@ -320,7 +320,7 @@ func TestUnbindSuccess(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--output=json", "unbind", "1-1.2"})
+	cmd.SetArgs([]string{testOutputJSONFlag, testUnbindCommand, testNestedBusID})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -339,7 +339,7 @@ func TestBindInvalidBusID(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"bind", "not a busid"})
+	cmd.SetArgs([]string{testBindCommand, "not a busid"})
 
 	err := cmd.Execute()
 	require.Error(t, err)

@@ -4,19 +4,12 @@
 package usbip
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"time"
 
 	internalapp "github.com/abilisoft/usbip-go/internal/app"
 )
-
-// errExponentialBackoffConfig is the base error returned from
-// ExponentialBackoffConfig.Validate when Min, Max, or Jitter fall
-// outside their documented acceptance ranges. Wrapped via %w so
-// callers can route on it via errors.Is.
-var errExponentialBackoffConfig = errors.New("exponential backoff config")
 
 // BackoffStrategy computes delays between reconnect attempts. Concrete
 // types shipped with this package are FixedBackoff and ExponentialBackoff.
@@ -82,26 +75,33 @@ type ExponentialBackoffConfig struct {
 func (cfg ExponentialBackoffConfig) Validate() error {
 	switch {
 	case cfg.Min < 0:
-		return fmt.Errorf("%w: Min %s must be non-negative", errExponentialBackoffConfig, cfg.Min)
+		return fmt.Errorf("%w: Min %s must be non-negative", ErrExponentialBackoffConfigInvalid, cfg.Min)
 	case cfg.Max < 0:
-		return fmt.Errorf("%w: Max %s must be non-negative", errExponentialBackoffConfig, cfg.Max)
+		return fmt.Errorf("%w: Max %s must be non-negative", ErrExponentialBackoffConfigInvalid, cfg.Max)
 	case cfg.Max < cfg.Min:
-		return fmt.Errorf("%w: Max %s is below Min %s", errExponentialBackoffConfig, cfg.Max, cfg.Min)
+		return fmt.Errorf("%w: Max %s is below Min %s", ErrExponentialBackoffConfigInvalid, cfg.Max, cfg.Min)
 	case math.IsNaN(cfg.Jitter):
-		return fmt.Errorf("%w: Jitter must not be NaN", errExponentialBackoffConfig)
+		return fmt.Errorf("%w: Jitter must not be NaN", ErrExponentialBackoffConfigInvalid)
 	case cfg.Jitter < 0 || cfg.Jitter >= 1:
-		return fmt.Errorf("%w: Jitter %g must be in [0, 1)", errExponentialBackoffConfig, cfg.Jitter)
+		return fmt.Errorf("%w: Jitter %g must be in [0, 1)", ErrExponentialBackoffConfigInvalid, cfg.Jitter)
 	}
 
 	return nil
 }
 
-// NewExponentialBackoff constructs an ExponentialBackoff from cfg. The
-// returned *ExponentialBackoff is safe for concurrent Next calls.
-// Panics on invalid config (see ExponentialBackoffConfig.Validate) —
-// an out-of-range Jitter or Min > Max is a programmer error the
-// caller should fix, not catch.
+// NewExponentialBackoff constructs an ExponentialBackoff from cfg.
+//
+// Deprecated: use MustNewExponentialBackoff, whose name makes the panic
+// contract explicit. Call cfg.Validate first when invalid configuration is a
+// runtime condition.
 func NewExponentialBackoff(cfg ExponentialBackoffConfig) *ExponentialBackoff {
+	return MustNewExponentialBackoff(cfg)
+}
+
+// MustNewExponentialBackoff constructs a concurrency-safe backoff and panics
+// when cfg is invalid. Call cfg.Validate first for a fallible configuration
+// path.
+func MustNewExponentialBackoff(cfg ExponentialBackoffConfig) *ExponentialBackoff {
 	err := cfg.Validate()
 	if err != nil {
 		panic(err)

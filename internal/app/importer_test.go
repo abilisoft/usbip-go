@@ -272,7 +272,7 @@ func TestImporterListRemoteHappyPath(t *testing.T) {
 	reqBytes := []byte{0x01, 0x11, 0x80, 0x05, 0, 0, 0, 0}
 
 	want := []domain.Device{
-		{BusID: domain.BusID("1-1"), Path: "/sys/devices/pci/usb1/1-1"},
+		{BusID: domain.BusID("1-1"), Path: testRootDevicePath},
 		{BusID: domain.BusID("2-1"), Path: "/sys/devices/pci/usb2/2-1"},
 	}
 
@@ -1356,8 +1356,14 @@ func TestImporterAttachCloseRaceDetachFailureLogged(t *testing.T) {
 		closeDone <- imp.Close()
 	}()
 
-	// Give Close a moment to commit closed=true and start draining.
-	time.Sleep(50 * time.Millisecond)
+	// Close cannot return while Attach is parked. The bounded negative
+	// assertion gives Close time to commit closed=true before the gate opens.
+	select {
+	case err := <-closeDone:
+		t.Fatalf("Close returned before the in-flight Attach drained: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
 	close(gate)
 
 	select {

@@ -79,8 +79,7 @@ const (
 //
 // Implemented inline against crypto/rand instead of a third-party UUID
 // package so pkg/domain stays a pure-stdlib value-object surface (the
-// invariant the `domain-boundary` job in `_arch-checks.yml`
-// protects).
+// invariant the Bazel-backed lint suite protects).
 func NewSessionID() (SessionID, error) {
 	var id SessionID
 

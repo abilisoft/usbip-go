@@ -82,7 +82,7 @@ func ctxWithCapturedLogger(t *testing.T) (context.Context, *safeBuffer) {
 
 	buf := &safeBuffer{}
 	log := slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	ctx := context.WithValue(t.Context(), loggerCtxKey, log)
+	ctx := context.WithValue(t.Context(), loggerContextKey{}, log)
 
 	return ctx, buf
 }

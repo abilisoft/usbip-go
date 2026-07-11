@@ -28,10 +28,10 @@ import (
 func TestUnbind_NotBoundToUSBIPHost_ReturnsErrNoWrites(t *testing.T) {
 	t.Parallel()
 
-	const busID = "1-1"
+	const busID = testRootBusID
 
 	mfs := bindFS(busID)
-	// Bare device's driver is the generic "usb" driver — NOT usbip-host.
+	// Bare device's driver is the generic testUeventSubsystemUSB driver — NOT usbip-host.
 	// (bindFS already configures this; explicit for clarity.)
 	mfs["sys/bus/usb/devices/"+busID+"/driver/driver_name"].Data = []byte("usb\n")
 	mfs["sys/bus/usb/devices/"+busID+"/driver"].Data = []byte("usb\n")

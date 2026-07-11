@@ -13,14 +13,14 @@ package app
 //go:generate moq -out kernel_exporter_mock_test.go -pkg app_test . ExporterKernel
 //go:generate moq -out kernel_events_mock_test.go -pkg app_test . KernelEvents
 //go:generate moq -out codec_mock_test.go -pkg app_test . ProtocolCodec
-//go:generate moq -out transport_mock_test.go -pkg app_test . Transport
+//go:generate moq -out transport_mock_test.go -pkg app_test . Dialer
 
 import (
 	"context"
 	"io"
 	"net"
 
-	"github.com/abilisoft/usbip-go/internal/adapter/wire"
+	"github.com/abilisoft/usbip-go/internal/protocol"
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
@@ -81,29 +81,19 @@ type ProtocolCodec interface {
 	EncodeOpRepDevlist(w io.Writer, devs []domain.Device) error
 	EncodeOpRepImport(w io.Writer, d domain.Device) error
 	EncodeOpRepImportError(w io.Writer, status uint32) error
-	DecodeHeader(r io.Reader) (version uint16, op wire.OpCode, status uint32, err error)
+	DecodeHeader(r io.Reader) (version uint16, op protocol.OpCode, status uint32, err error)
 	DecodeOpRepDevlist(r io.Reader) ([]domain.Device, error)
 	DecodeOpReqImport(r io.Reader) (domain.BusID, error)
 	DecodeOpReqImportBody(r io.Reader) (domain.BusID, error)
 	DecodeOpRepImport(r io.Reader) (domain.Device, error)
 }
 
-// Transport abstracts the TCP transport used by importer and exporter.
+// Dialer abstracts importer-side TCP connection establishment.
 // Production uses internal/adapter/transport; tests inject a fake.
-//
-// TransportOptions is passed by value on every call so the adapter
-// applies socket tuning per-dial (importer side) and per-listen
-// (exporter side). PR 1a wires the parameter through; PR 1b makes
-// adapter-side tuning honor non-zero fields. Zero-valued options keep
-// v1.0.0 behavior.
-type Transport interface {
+type Dialer interface {
 	Dial(ctx context.Context, endpoint domain.RemoteEndpoint, opts TransportOptions) (net.Conn, error)
-	Listen(ctx context.Context, addr string, opts TransportOptions) (net.Listener, error)
 }
 
-// Compile-time assertion: wire.Codec satisfies ProtocolCodec. If this
-// line fails to build, either the wire package drifted from the
-// interface or the interface changed shape without an adapter update;
-// either way the drift must be fixed — do NOT silently relax this
-// assertion.
-var _ ProtocolCodec = (*wire.Codec)(nil)
+// Transport preserves the internal name used by existing option wiring while
+// exposing only the capability the importer actually consumes.
+type Transport = Dialer

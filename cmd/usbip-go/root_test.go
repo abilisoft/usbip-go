@@ -25,7 +25,7 @@ func TestRootHelpPrintsUsage(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--help"})
+	cmd.SetArgs([]string{testHelpFlag})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -45,7 +45,7 @@ func TestRootInvalidOutputFlag(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--output=bogus", "version"})
+	cmd.SetArgs([]string{"--output=bogus", testVersionToken})
 
 	err := cmd.Execute()
 	require.Error(t, err)
@@ -59,7 +59,7 @@ func TestRootInvalidLogFormat(t *testing.T) {
 	t.Parallel()
 
 	_, err := buildLogger(globalFlags{
-		LogLevel:  "info",
+		LogLevel:  logLevelInfo,
 		LogFormat: "bogus",
 	})
 	require.Error(t, err)
@@ -72,8 +72,8 @@ func TestBuildLoggerJSONFormat(t *testing.T) {
 	t.Parallel()
 
 	log, err := buildLogger(globalFlags{
-		LogLevel:  "info",
-		LogFormat: "json",
+		LogLevel:  logLevelInfo,
+		LogFormat: logFormatJSON,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, log)
@@ -85,7 +85,7 @@ func TestBuildLoggerPrettyFormat(t *testing.T) {
 	t.Parallel()
 
 	log, err := buildLogger(globalFlags{
-		LogLevel:  "info",
+		LogLevel:  logLevelInfo,
 		LogFormat: "pretty",
 	})
 	require.NoError(t, err)
@@ -97,15 +97,15 @@ func TestBuildLoggerPrettyFormat(t *testing.T) {
 func TestParseLevelCounterPromotion(t *testing.T) {
 	t.Parallel()
 
-	lvl, err := parseLevel("info", 0)
+	lvl, err := parseLevel(logLevelInfo, 0)
 	require.NoError(t, err)
 	require.NotNil(t, lvl)
 
-	debug, err := parseLevel("info", 1)
+	debug, err := parseLevel(logLevelInfo, 1)
 	require.NoError(t, err)
 	require.NotEqual(t, lvl, debug)
 
-	trace, err := parseLevel("info", 2)
+	trace, err := parseLevel(logLevelInfo, 2)
 	require.NoError(t, err)
 	require.NotEqual(t, debug, trace)
 }
@@ -125,7 +125,7 @@ func TestGlobalFlagsDefaults(t *testing.T) {
 
 	cmd := newRootCmd()
 	// Execute a no-op subcommand (version) to trigger flag parse.
-	cmd.SetArgs([]string{"version"})
+	cmd.SetArgs([]string{testVersionToken})
 
 	var out bytes.Buffer
 
@@ -137,13 +137,13 @@ func TestGlobalFlagsDefaults(t *testing.T) {
 }
 
 // TestLoggerOrDefaultReturnsCtxLogger — when ctx carries a logger via
-// loggerCtxKey, loggerOrDefault MUST return that exact instance so
+// loggerContextKey, loggerOrDefault MUST return that exact instance so
 // downstream log calls share the operator's configured handler.
 func TestLoggerOrDefaultReturnsCtxLogger(t *testing.T) {
 	t.Parallel()
 
 	custom := slog.New(slog.DiscardHandler)
-	ctx := context.WithValue(t.Context(), loggerCtxKey, custom)
+	ctx := context.WithValue(t.Context(), loggerContextKey{}, custom)
 
 	got := loggerOrDefault(ctx)
 	require.Same(t, custom, got,

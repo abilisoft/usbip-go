@@ -20,7 +20,7 @@ import (
 // listExportedFS builds a sysfs fixture with three devices in
 // distinct states:
 //
-//  1. busID="1-1": bound to usbip-host, usbip_status=1 (available) → EXPORTED
+//  1. busID=testRootBusID: bound to usbip-host, usbip_status=1 (available) → EXPORTED
 //  2. busID="2-1": bound to cdc_ether (native) → NOT exported
 //  3. busID="3-1": bound to usbip-host, usbip_status=2 (USED) → NOT exported
 //
@@ -28,10 +28,10 @@ import (
 // must be on usbip-host AND not currently claimed by an importer.
 func listExportedFS() fstest.MapFS {
 	mfs := fstest.MapFS{
-		"sys/module/usbip_core":                      &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host":                      &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host":             &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host/match_busid": &fstest.MapFile{Data: []byte("")},
+		testFSModuleUSBIPCorePath:     &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleUSBIPHostPath:     &fstest.MapFile{Mode: fs.ModeDir},
+		testFSUSBIPHostDir:            &fstest.MapFile{Mode: fs.ModeDir},
+		testFSUSBIPHostMatchBusIDPath: &fstest.MapFile{Data: []byte("")},
 	}
 
 	for _, b := range []struct {
@@ -39,7 +39,7 @@ func listExportedFS() fstest.MapFS {
 		driver string
 		status string
 	}{
-		{"1-1", "usbip-host", "1"},
+		{testRootBusID, "usbip-host", "1"},
 		{"2-1", "cdc_ether", ""},
 		{"3-1", "usbip-host", "2"},
 	} {
@@ -51,10 +51,10 @@ func listExportedFS() fstest.MapFS {
 		mfs[base+"/bcdDevice"] = &fstest.MapFile{Data: []byte("0100\n")}
 		mfs[base+"/busnum"] = &fstest.MapFile{Data: []byte("1\n")}
 		mfs[base+"/devnum"] = &fstest.MapFile{Data: []byte("2\n")}
-		mfs[base+"/speed"] = &fstest.MapFile{Data: []byte("480\n")}
-		mfs[base+"/bDeviceClass"] = &fstest.MapFile{Data: []byte("00\n")}
-		mfs[base+"/bDeviceSubClass"] = &fstest.MapFile{Data: []byte("00\n")}
-		mfs[base+"/bDeviceProtocol"] = &fstest.MapFile{Data: []byte("00\n")}
+		mfs[base+"/speed"] = &fstest.MapFile{Data: []byte(testHighSpeedRaw)}
+		mfs[base+"/bDeviceClass"] = &fstest.MapFile{Data: []byte(testZeroDeviceClassRaw)}
+		mfs[base+"/bDeviceSubClass"] = &fstest.MapFile{Data: []byte(testZeroDeviceClassRaw)}
+		mfs[base+"/bDeviceProtocol"] = &fstest.MapFile{Data: []byte(testZeroDeviceClassRaw)}
 		mfs[base+"/bConfigurationValue"] = &fstest.MapFile{Data: []byte("1\n")}
 		mfs[base+"/bNumConfigurations"] = &fstest.MapFile{Data: []byte("1\n")}
 		mfs[base+"/bNumInterfaces"] = &fstest.MapFile{Data: []byte("1\n")}
@@ -89,7 +89,7 @@ func TestListExportedDevices_FilterByDriverAndStatus(t *testing.T) {
 
 	require.Len(t, devs, 1,
 		"only the usbip-host bound + not-USED device should be reported")
-	require.Equal(t, domain.BusID("1-1"), devs[0].BusID,
+	require.Equal(t, domain.BusID(testRootBusID), devs[0].BusID,
 		"1-1 is bound to usbip-host with status=1 (available)")
 }
 

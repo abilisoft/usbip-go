@@ -31,7 +31,7 @@ import (
 func TestUnbind_MatchBusIDErrorIsPrimaryReturn(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	rec := &writeRecord{}
 
 	a, err := kernel.NewExporterAdapter(
@@ -48,7 +48,7 @@ func TestUnbind_MatchBusIDErrorIsPrimaryReturn(t *testing.T) {
 		"all four sysfs writes must be attempted: sockfd+unbind+match+rebind")
 
 	require.Equal(t,
-		"/sys/bus/usb/drivers/usbip-host/match_busid",
+		testUSBIPHostMatchBusIDPath,
 		rec.calls[2].Path,
 		"failed write must be the match_busid path")
 }
@@ -65,7 +65,7 @@ func TestUnbind_MatchBusIDErrorIsPrimaryReturn(t *testing.T) {
 func TestUnbind_MatchBusIDAndRebindErrorLogsSecondary(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	rec := &writeRecord{}
 
 	// Fail writes at index 2 (match_busid) and index 3 (rebind).
@@ -110,7 +110,7 @@ func TestUnbind_MatchBusIDAndRebindErrorLogsSecondary(t *testing.T) {
 func TestUnbind_RebindErrorIsPrimaryReturn(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	rec := &writeRecord{}
 
 	a, err := kernel.NewExporterAdapter(

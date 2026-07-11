@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,8 +28,8 @@ func readyState() readinessState {
 		Accepting:      true,
 		StatusWritable: true,
 		Modules: map[string]usbip.ModuleState{
-			"usbip_core": usbip.ModuleStateLoaded,
-			"usbip_host": usbip.ModuleStateLoaded,
+			testUSBIPCoreModule: usbip.ModuleStateLoaded,
+			testUSBIPHostModule: usbip.ModuleStateLoaded,
 		},
 	}
 }
@@ -48,13 +50,13 @@ func TestReadinessStateReady(t *testing.T) {
 		{"not accepting", func(s *readinessState) { s.Accepting = false }},
 		{"status not writable", func(s *readinessState) { s.StatusWritable = false }},
 		{"missing usbip_core", func(s *readinessState) {
-			s.Modules["usbip_core"] = usbip.ModuleStateMissing
+			s.Modules[testUSBIPCoreModule] = usbip.ModuleStateMissing
 		}},
 		{"missing usbip_host", func(s *readinessState) {
-			s.Modules["usbip_host"] = usbip.ModuleStateMissing
+			s.Modules[testUSBIPHostModule] = usbip.ModuleStateMissing
 		}},
 		{"unknown usbip_core", func(s *readinessState) {
-			s.Modules["usbip_core"] = usbip.ModuleStateUnknown
+			s.Modules[testUSBIPCoreModule] = usbip.ModuleStateUnknown
 		}},
 		{"empty modules map", func(s *readinessState) {
 			s.Modules = map[string]usbip.ModuleState{}
@@ -173,6 +175,85 @@ func TestNewReadinessCheckerAppliesPerRequestTimeout(t *testing.T) {
 		"probe context must carry a deadline; got zero time")
 	require.LessOrEqual(t, probedDeadline.Sub(before), healthRequestTimeout+50*time.Millisecond,
 		"probe deadline must be ≤ healthRequestTimeout from receipt")
+}
+
+// TestNewReadinessCheckerBoundsWedgedProbeConcurrency proves repeated
+// requests cannot amplify one cancellation-ignoring readiness probe
+// into an unbounded goroutine leak.
+func TestNewReadinessCheckerBoundsWedgedProbeConcurrency(t *testing.T) {
+	t.Parallel()
+
+	probeStarted := make(chan struct{})
+	releaseProbe := make(chan struct{})
+	probeDone := make(chan struct{})
+
+	var (
+		probeCalls atomic.Int32
+		startOnce  sync.Once
+	)
+
+	probe := func(_ context.Context) readinessState {
+		probeCalls.Add(1)
+		startOnce.Do(func() { close(probeStarted) })
+		<-releaseProbe
+		close(probeDone)
+
+		return readyState()
+	}
+
+	const probeTimeout = 25 * time.Millisecond
+
+	h := newReadinessCheckerWithTimeout(probe, probeTimeout)
+
+	firstDone := make(chan int, 1)
+
+	go func() {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/readyz", nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+
+		firstDone <- rec.Code
+	}()
+
+	select {
+	case <-probeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("readiness probe did not start")
+	}
+
+	const concurrentRequests = 32
+
+	var wg sync.WaitGroup
+
+	statuses := make(chan int, concurrentRequests)
+	for range concurrentRequests {
+		wg.Go(func() {
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/readyz", nil)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+
+			statuses <- rec.Code
+		})
+	}
+
+	wg.Wait()
+	close(statuses)
+
+	for status := range statuses {
+		require.Equal(t, http.StatusServiceUnavailable, status)
+	}
+
+	require.EqualValues(t, 1, probeCalls.Load(),
+		"a wedged probe must occupy the sole slot instead of spawning more probes")
+	require.Equal(t, http.StatusServiceUnavailable, <-firstDone)
+
+	close(releaseProbe)
+
+	select {
+	case <-probeDone:
+	case <-time.After(time.Second):
+		t.Fatal("readiness probe did not exit after release")
+	}
 }
 
 // TestStartHealthServerEndToEnd exercises the full lifecycle:
@@ -313,8 +394,8 @@ func TestNewDaemonReadinessProbeReadyState(t *testing.T) {
 	src := &statusExporter{
 		kernelModuleProbe: func(_ context.Context) (map[string]usbip.ModuleState, error) {
 			return map[string]usbip.ModuleState{
-				"usbip_core": usbip.ModuleStateLoaded,
-				"usbip_host": usbip.ModuleStateLoaded,
+				testUSBIPCoreModule: usbip.ModuleStateLoaded,
+				testUSBIPHostModule: usbip.ModuleStateLoaded,
 			}, nil
 		},
 		kernelModuleClock: time.Now,

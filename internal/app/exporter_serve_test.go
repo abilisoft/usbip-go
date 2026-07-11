@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -25,9 +26,11 @@ import (
 // can unwind. Mirrors the memnet-style listeners used across the Go
 // ecosystem for transport-agnostic server tests.
 type pipeListener struct {
-	accept chan net.Conn
-	closed chan struct{}
-	closeN atomic.Int32
+	accept     chan net.Conn
+	accepting  chan struct{}
+	acceptOnce sync.Once
+	closed     chan struct{}
+	closeN     atomic.Int32
 }
 
 // newPipeListener returns a listener whose Accept returns conns
@@ -35,14 +38,17 @@ type pipeListener struct {
 // into dial() and consume server ends through Serve.
 func newPipeListener() *pipeListener {
 	return &pipeListener{
-		accept: make(chan net.Conn),
-		closed: make(chan struct{}),
+		accept:    make(chan net.Conn),
+		accepting: make(chan struct{}),
+		closed:    make(chan struct{}),
 	}
 }
 
 // Accept blocks until dial pushes a server conn or the listener is
 // closed.
 func (l *pipeListener) Accept() (net.Conn, error) {
+	l.acceptOnce.Do(func() { close(l.accepting) })
+
 	select {
 	case c := <-l.accept:
 		return c, nil
@@ -64,6 +70,17 @@ func (l *pipeListener) Close() error {
 // Addr returns a synthetic pipe address. Tests that assert remote IP
 // must wrap with a conn that reports a plausible TCPAddr instead.
 func (*pipeListener) Addr() net.Addr { return fakeAddr{} }
+
+// waitUntilAccepting blocks until Serve has entered its first Accept call.
+func (l *pipeListener) waitUntilAccepting(t *testing.T) {
+	t.Helper()
+
+	select {
+	case <-l.accepting:
+	case <-time.After(2 * time.Second):
+		t.Fatal("listener did not enter Accept within 2s")
+	}
+}
 
 // dial creates a net.Pipe and pushes the server end onto the accept
 // channel; returns the client end so the test can drive the session.
@@ -306,8 +323,7 @@ func TestExporterServe_CtxCancellationStopsAccepting(t *testing.T) {
 
 	go func() { serveDone <- exp.Serve(ctx, lis) }()
 
-	// Give Serve a moment to park on Accept.
-	time.Sleep(10 * time.Millisecond)
+	lis.waitUntilAccepting(t)
 
 	cancel()
 

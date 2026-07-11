@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/abilisoft/usbip-go/internal/protocol"
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
@@ -179,10 +180,10 @@ func DecodeOpRepImport(r io.Reader) (domain.Device, DecodeFlags, error) {
 //	ST_DEV_ERR    = 3  // stub-side internal error
 //	ST_NODEV      = 4  // no such device on remote
 const (
-	ImportStatusNA      uint32 = 1
-	ImportStatusDevBusy uint32 = 2
-	ImportStatusDevErr  uint32 = 3
-	ImportStatusNoDev   uint32 = 4
+	ImportStatusNA      = protocol.ImportStatusNA
+	ImportStatusDevBusy = protocol.ImportStatusDevBusy
+	ImportStatusDevErr  = protocol.ImportStatusDevErr
+	ImportStatusNoDev   = protocol.ImportStatusNoDev
 )
 
 // mapImportStatus converts a non-zero OP_REP_IMPORT status to the

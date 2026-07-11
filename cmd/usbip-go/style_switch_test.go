@@ -18,31 +18,18 @@ import (
 func TestStatusStyle_AllBranches(t *testing.T) {
 	t.Parallel()
 
+	const statusErrorCaseName = "error"
+
 	cases := []struct {
 		name   string
-		status string
+		status domain.Status
 	}{
-		// active group
-		{"used", "used"},
-		{"active", "active"},
-		{"in_use", "in_use"},
-		{"attached", "attached"},
-		// error group
-		{"error", "error"},
-		{"lost", "lost"},
-		{"disconnected", "disconnected"},
-		{"failed", "failed"},
-		// available group
-		{"available", "available"},
-		{"idle", "idle"},
-		{"free", "free"},
-		{"ready", "ready"},
-		// pending group
-		{"pending", "pending"},
-		{"connecting", "connecting"},
-		{"negotiating", "negotiating"},
-		// default
-		{"unknown_status", "some-unknown-status"},
+		{"null", domain.StatusNull},
+		{"not_assigned", domain.StatusNotAssigned},
+		{"available", domain.StatusAvailable},
+		{"used", domain.StatusUsed},
+		{statusErrorCaseName, domain.StatusError},
+		{"out_of_enum", domain.Status(999)},
 	}
 
 	for _, tc := range cases {
@@ -55,20 +42,9 @@ func TestStatusStyle_AllBranches(t *testing.T) {
 			// the same status string always returns the same value (pure
 			// function).
 			require.Equal(t, got, statusStyle(tc.status),
-				"statusStyle must be deterministic for %q", tc.status)
+				"statusStyle must be deterministic for %v", tc.status)
 		})
 	}
-}
-
-// TestStatusStyle_CaseInsensitive pins ToLower normalisation: uppercase
-// variants of known statuses must resolve to the same style as their
-// lowercase form.
-func TestStatusStyle_CaseInsensitive(t *testing.T) {
-	t.Parallel()
-
-	require.Equal(t, statusStyle("ERROR"), statusStyle("error"))
-	require.Equal(t, statusStyle("PENDING"), statusStyle("pending"))
-	require.Equal(t, statusStyle("USED"), statusStyle("used"))
 }
 
 // TestSpeedStyle_AllBranches pins every case in speedStyle. Asserts

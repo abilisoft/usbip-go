@@ -173,12 +173,12 @@ func TestStatusUnlinkStale(t *testing.T) {
 	require.NoError(t, f.Close())
 
 	src := &fakeStatusSource{
-		listenAddr: "0.0.0.0:3240",
+		listenAddr: defaultListen,
 		accepting:  true,
 		modules: map[string]usbip.ModuleState{
-			"usbip_core": usbip.ModuleStateLoaded,
-			"vhci_hcd":   usbip.ModuleStateLoaded,
-			"usbip_host": usbip.ModuleStateLoaded,
+			testUSBIPCoreModule: usbip.ModuleStateLoaded,
+			testVHCIHCDModule:   usbip.ModuleStateLoaded,
+			testUSBIPHostModule: usbip.ModuleStateLoaded,
 		},
 	}
 
@@ -235,25 +235,23 @@ func TestStatusAlreadyRunning(t *testing.T) {
 	require.ErrorIs(t, err, errAlreadyRunning)
 }
 
-// testSessionID is a fixed 16-byte UUID used across JSON golden tests
-// so the expected renders stay deterministic.
-var testSessionID = domain.SessionID{
-	0x01, 0x02, 0x03, 0x04,
-	0x05, 0x06, 0x07, 0x08,
-	0x09, 0x0a, 0x0b, 0x0c,
-	0x0d, 0x0e, 0x0f, 0x10,
-}
-
 // TestStatusGetJSON proves the §7.7 schema-v1 JSON is rendered by
 // GET /. Every required key is asserted.
 func TestStatusGetJSON(t *testing.T) {
 	t.Parallel()
 
+	sessionID := domain.SessionID{
+		0x01, 0x02, 0x03, 0x04,
+		0x05, 0x06, 0x07, 0x08,
+		0x09, 0x0a, 0x0b, 0x0c,
+		0x0d, 0x0e, 0x0f, 0x10,
+	}
+
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "status.sock")
 
 	src := &fakeStatusSource{
-		listenAddr: "0.0.0.0:3240",
+		listenAddr: defaultListen,
 		activation: true,
 		accepting:  true,
 		bound: []usbip.Device{
@@ -261,16 +259,16 @@ func TestStatusGetJSON(t *testing.T) {
 		},
 		sessions: []usbip.Session{
 			{
-				ID:         testSessionID,
+				ID:         sessionID,
 				BusID:      usbip.BusID("1-1.2"),
 				RemoteAddr: netip.MustParseAddrPort("10.0.0.8:54221"),
 				StartedAt:  time.Unix(1_700_000_000, 0),
 			},
 		},
 		modules: map[string]usbip.ModuleState{
-			"usbip_core": usbip.ModuleStateLoaded,
-			"vhci_hcd":   usbip.ModuleStateLoaded,
-			"usbip_host": usbip.ModuleStateMissing,
+			testUSBIPCoreModule: usbip.ModuleStateLoaded,
+			testVHCIHCDModule:   usbip.ModuleStateLoaded,
+			testUSBIPHostModule: usbip.ModuleStateMissing,
 		},
 	}
 
@@ -307,9 +305,9 @@ func TestStatusGetJSON(t *testing.T) {
 
 	km, ok := decoded["kernel_modules"].(map[string]any)
 	require.True(t, ok)
-	require.Equal(t, "loaded", km["usbip_core"])
-	require.Equal(t, "loaded", km["vhci_hcd"])
-	require.Equal(t, "missing", km["usbip_host"])
+	require.Equal(t, testLoadedModuleState, km[testUSBIPCoreModule])
+	require.Equal(t, testLoadedModuleState, km[testVHCIHCDModule])
+	require.Equal(t, "missing", km[testUSBIPHostModule])
 }
 
 // TestStatusDrainTriggersShutdown proves POST /drain invokes Drain on
@@ -321,9 +319,9 @@ func TestStatusDrainTriggersShutdown(t *testing.T) {
 	sockPath := filepath.Join(dir, "status.sock")
 
 	src := &fakeStatusSource{
-		listenAddr: "0.0.0.0:3240",
+		listenAddr: defaultListen,
 		accepting:  true,
-		modules:    map[string]usbip.ModuleState{"usbip_core": usbip.ModuleStateLoaded},
+		modules:    map[string]usbip.ModuleState{testUSBIPCoreModule: usbip.ModuleStateLoaded},
 	}
 
 	cleanup := startStatusTestServer(t, src, sockPath)
@@ -359,9 +357,9 @@ func TestStatusFileMode0660(t *testing.T) {
 	sockPath := filepath.Join(dir, "status.sock")
 
 	src := &fakeStatusSource{
-		listenAddr: "0.0.0.0:3240",
+		listenAddr: defaultListen,
 		accepting:  true,
-		modules:    map[string]usbip.ModuleState{"usbip_core": usbip.ModuleStateLoaded},
+		modules:    map[string]usbip.ModuleState{testUSBIPCoreModule: usbip.ModuleStateLoaded},
 	}
 
 	cleanup := startStatusTestServer(t, src, sockPath)
@@ -384,9 +382,9 @@ func TestStatusGroupChownSkipsIfMissing(t *testing.T) {
 	sockPath := filepath.Join(dir, "status.sock")
 
 	src := &fakeStatusSource{
-		listenAddr: "0.0.0.0:3240",
+		listenAddr: defaultListen,
 		accepting:  true,
-		modules:    map[string]usbip.ModuleState{"usbip_core": usbip.ModuleStateLoaded},
+		modules:    map[string]usbip.ModuleState{testUSBIPCoreModule: usbip.ModuleStateLoaded},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -439,82 +437,51 @@ func TestStatusBindSerialisedByFlock(t *testing.T) {
 	sockPath := filepath.Join(dir, "status.sock")
 
 	src := &fakeStatusSource{
-		listenAddr: "0.0.0.0:3240",
+		listenAddr: defaultListen,
 		accepting:  true,
-		modules:    map[string]usbip.ModuleState{"usbip_core": usbip.ModuleStateLoaded},
+		modules:    map[string]usbip.ModuleState{testUSBIPCoreModule: usbip.ModuleStateLoaded},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	type result struct {
-		err     error
-		started bool
-	}
-
 	const racers = 2
 
-	results := make(chan result, racers)
+	results := make(chan error, racers)
+	started := make(chan struct{})
 
 	var wg sync.WaitGroup
 
 	for range racers {
 		wg.Go(func() {
-			started := make(chan struct{})
-
-			doneStart := make(chan struct{})
-
-			go func() {
-				select {
-				case <-started:
-				case <-time.After(2 * time.Second):
-				}
-
-				close(doneStart)
-			}()
-
-			err := serveStatus(ctx, sockPath, "", src, started)
-
-			<-doneStart
-
-			results <- result{err: err, started: true}
+			results <- serveStatus(ctx, sockPath, "", src, started)
 		})
 	}
 
-	// Give both goroutines a chance to reach the bind path, then
-	// cancel so the winning serveStatus returns cleanly.
-	time.Sleep(300 * time.Millisecond)
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("neither status server bound within 2s")
+	}
+
+	var loserErr error
+
+	select {
+	case loserErr = <-results:
+	case <-time.After(2 * time.Second):
+		t.Fatal("competing status server did not complete collision detection")
+	}
+
+	require.ErrorIs(t, loserErr, errAlreadyRunning,
+		"the losing daemon must observe the live winner")
+
 	cancel()
 	wg.Wait()
 	close(results)
 
-	var (
-		loserErrs int
-		winnerOK  int
-	)
-
-	for r := range results {
-		switch {
-		case r.err == nil:
-			winnerOK++
-		case errors.Is(r.err, errAlreadyRunning):
-			loserErrs++
-		default:
-			// A context.Canceled or closed-listener return from the
-			// winner is indistinguishable from nil for this test; any
-			// other error from the loser would indicate a TOCTOU race
-			// surfacing through bind / unlink.
-			if isClosedErr(r.err) {
-				winnerOK++
-			} else {
-				t.Errorf("unexpected serveStatus error: %v", r.err)
-			}
-		}
-	}
-
-	require.Equal(t, 1, winnerOK, "expected exactly one daemon to bind")
-	require.Equal(t, 1, loserErrs,
-		"expected the other daemon to see errAlreadyRunning, got %d", loserErrs)
+	winnerErr := <-results
+	require.True(t, winnerErr == nil || isClosedErr(winnerErr),
+		"winning status server must shut down cleanly, got %v", winnerErr)
 }
 
 // TestStatusGroupChownResolvesCallerGroup proves applyStatusSocketACL
@@ -581,7 +548,7 @@ func TestApplyStatusSocketACL_UnknownGroupRoutesViaCtxLogger(t *testing.T) {
 	var buf bytes.Buffer
 
 	captured := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	ctx := context.WithValue(t.Context(), loggerCtxKey, captured)
+	ctx := context.WithValue(t.Context(), loggerContextKey{}, captured)
 
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "status.sock")
@@ -611,7 +578,7 @@ func TestApplyStatusSocketACL_EmptyGroupShortCircuits(t *testing.T) {
 	var buf bytes.Buffer
 
 	captured := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	ctx := context.WithValue(t.Context(), loggerCtxKey, captured)
+	ctx := context.WithValue(t.Context(), loggerContextKey{}, captured)
 
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "status.sock")
@@ -645,9 +612,9 @@ func TestStatusDrainRejectsQueryParams(t *testing.T) {
 	sockPath := filepath.Join(dir, "status.sock")
 
 	src := &fakeStatusSource{
-		listenAddr: "0.0.0.0:3240",
+		listenAddr: defaultListen,
 		accepting:  true,
-		modules:    map[string]usbip.ModuleState{"usbip_core": usbip.ModuleStateLoaded},
+		modules:    map[string]usbip.ModuleState{testUSBIPCoreModule: usbip.ModuleStateLoaded},
 	}
 
 	cleanup := startStatusTestServer(t, src, sockPath)
@@ -684,9 +651,9 @@ func TestStatusDrainHandlerIdempotent(t *testing.T) {
 	sockPath := filepath.Join(dir, "status.sock")
 
 	src := &fakeStatusSource{
-		listenAddr: "0.0.0.0:3240",
+		listenAddr: defaultListen,
 		accepting:  true,
-		modules:    map[string]usbip.ModuleState{"usbip_core": usbip.ModuleStateLoaded},
+		modules:    map[string]usbip.ModuleState{testUSBIPCoreModule: usbip.ModuleStateLoaded},
 	}
 
 	cleanup := startStatusTestServer(t, src, sockPath)
@@ -763,18 +730,14 @@ func TestStatusDrainHandlerIdempotent(t *testing.T) {
 	require.Equalf(t, drainCalls-1, ok,
 		"every other POST must receive 200 idempotent ack")
 
-	// Wait for any spawned drain goroutines to settle. Drain is a
-	// no-op fake here so 100ms is generous; the assertion is on the
-	// post-settle counter, not on timing.
+	// Exactly one 202 response proves exactly one request won the CAS and
+	// launched Drain. Wait only for that accepted request's asynchronous
+	// call to become observable; no timing window is needed because every
+	// other handler already returned from the no-launch branch.
 	require.Eventually(t, func() bool {
-		return src.drainCalled.Load() >= 1
+		return src.drainCalled.Load() == 1
 	}, time.Second, 10*time.Millisecond,
-		"at least one Drain invocation must have landed")
-
-	// Hold a small extra window to let any straggler goroutines run;
-	// the guard MUST keep drainCalled at exactly 1 across all 10
-	// concurrent POSTs.
-	time.Sleep(50 * time.Millisecond)
+		"the accepted drain request must invoke Drain exactly once")
 
 	require.Equalf(t, int32(1), src.drainCalled.Load(),
 		"POST /drain must be idempotent at the handler level — got %d Drain invocations across %d POSTs",

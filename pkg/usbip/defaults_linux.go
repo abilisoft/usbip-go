@@ -40,7 +40,11 @@ func newDefaultImporter(opts []ImporterOption) (*Importer, error) {
 	// internalapp.NewImporter contract emits on the same input.
 	transportErr := internalapp.ValidateTransportOptions(cfg.transportOptions)
 	if transportErr != nil {
-		return nil, fmt.Errorf("usbip.NewImporter: %w", transportErr)
+		return nil, fmt.Errorf(
+			"usbip.NewImporter: %w: %s",
+			ErrTransportOptionsInvalid,
+			transportErr.Error(),
+		)
 	}
 
 	k, err := kernel.NewImporterAdapter()
@@ -98,7 +102,11 @@ func newDefaultExporter(opts []ExporterOption) (*Exporter, error) {
 	// NewExporterWithError already handles.
 	transportErr := internalapp.ValidateTransportOptions(cfg.transportOptions)
 	if transportErr != nil {
-		return nil, fmt.Errorf("usbip.NewExporter: %w", transportErr)
+		return nil, fmt.Errorf(
+			"usbip.NewExporter: %w: %s",
+			ErrTransportOptionsInvalid,
+			transportErr.Error(),
+		)
 	}
 
 	k, err := kernel.NewExporterAdapter()
@@ -115,30 +123,25 @@ func newDefaultExporter(opts []ExporterOption) (*Exporter, error) {
 
 	baseOpts := make([]internalapp.ExporterOption, 0, exporterBaseOptCount+len(extra))
 
-	// One transport instance is shared between the internal Exporter
-	// (for any future internal Listen call) and the public wrapper's
-	// ListenAndServe path. Storing it on the wrapper avoids
-	// constructing a second NetTransport just to honor the public
-	// option, and keeps a single source of truth for transport
-	// configuration.
+	// The public wrapper owns listener creation; the app Exporter consumes
+	// only caller-supplied listeners and therefore needs no transport.
 	tr := transport.New()
 
 	baseOpts = append(
 		baseOpts,
 		internalapp.WithExporterKernel(k),
 		internalapp.WithExporterEvents(e),
-		internalapp.WithExporterTransport(tr),
 		internalapp.WithExporterCodec(&wire.Codec{}),
 	)
 	baseOpts = append(baseOpts, extra...)
 
 	inner, err := internalapp.NewExporterWithError(baseOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("construct exporter: %w", err)
+		return nil, fmt.Errorf("construct exporter: %w", translateInternalErr(err))
 	}
 
 	return &Exporter{inner: inner, cfg: cfg, transport: tr}, nil
 }
 
 // exporterBaseOptCount mirrors importerBaseOptCount for the exporter.
-const exporterBaseOptCount = 4
+const exporterBaseOptCount = 3

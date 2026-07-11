@@ -159,9 +159,11 @@ func TestExporter_HandshakeTimeoutClosesConnExactlyOnce(t *testing.T) {
 
 	serverConn := lis.snapshot()[0]
 
-	// Give the handler a moment to park in DecodeHeader before firing
-	// the timeout — matches TestExporter_HandshakeTimeout's pattern.
-	time.Sleep(20 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		return clk.Pending() >= 1
+	}, 2*time.Second, 5*time.Millisecond,
+		"handler must arm its handshake deadline before the clock advances")
+
 	clk.Advance(handshakeTimeout + 10*time.Millisecond)
 
 	// Wait for the close-once path to run.
@@ -171,14 +173,14 @@ func TestExporter_HandshakeTimeoutClosesConnExactlyOnce(t *testing.T) {
 		t.Fatal("server-side conn was never closed within 2s")
 	}
 
-	// Drain a brief grace period so any spurious second Close surfaces
-	// in the counter before we assert.
-	time.Sleep(50 * time.Millisecond)
+	// Shutdown drains the handler waitgroup, so any deferred cleanup that
+	// could issue a second Close has completed before the assertion.
+	require.NoError(t, exp.Shutdown(context.Background()))
+	<-serveDone
 
 	require.Equal(t, 1, serverConn.closeCount(),
 		"handshake-timeout must close the conn exactly once; "+
 			"a second Close indicates the deferred cleanup is not guarded")
 
 	cancel()
-	<-serveDone
 }

@@ -33,7 +33,7 @@ import (
 func TestUnbind_DisconnectsSockfdBeforeUnbindWrite(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	rec := &writeRecord{}
 
 	a, err := kernel.NewExporterAdapter(
@@ -56,6 +56,6 @@ func TestUnbind_DisconnectsSockfdBeforeUnbindWrite(t *testing.T) {
 		"first write must be the disconnect payload (-1) so the kernel drops any active session before the driver unbind")
 
 	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/unbind", rec.calls[1].Path)
-	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/match_busid", rec.calls[2].Path)
+	require.Equal(t, testUSBIPHostMatchBusIDPath, rec.calls[2].Path)
 	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/rebind", rec.calls[3].Path)
 }

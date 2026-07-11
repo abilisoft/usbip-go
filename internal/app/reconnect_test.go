@@ -328,6 +328,8 @@ func TestImporterReconnectBackoffRespected(t *testing.T) {
 func TestImporterReconnectMaxAttemptsExhausts(t *testing.T) {
 	t.Parallel()
 
+	const maxReconnectAttempts = 3
+
 	var attachCount atomic.Int32
 
 	attachFn := func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
@@ -341,12 +343,9 @@ func TestImporterReconnectMaxAttemptsExhausts(t *testing.T) {
 
 	imp, clk, registry, kernel := newReconnectFixture(t, attachFn)
 
-	var reconnects atomic.Int32
-
 	opts := attachOptionsWithBackoff()
 
-	opts.MaxAttempts = 3
-	opts.OnReconnect = func(_ int, _ error) { reconnects.Add(1) }
+	opts.MaxAttempts = maxReconnectAttempts
 
 	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), opts)
 	require.NoError(t, err)
@@ -358,7 +357,7 @@ func TestImporterReconnectMaxAttemptsExhausts(t *testing.T) {
 	// Drive the watcher through three full attempts. Each iteration
 	// advances the clock until AttachRemote has been invoked (i.e. the
 	// backoff elapsed for this attempt).
-	for i := range 3 {
+	for i := range maxReconnectAttempts {
 		want := int32(i + 2) // +1 for the initial attach, +1 for this reconnect
 		require.Eventually(t, func() bool {
 			clk.Advance(reconnectTestBackoff().Delay)
@@ -373,8 +372,8 @@ func TestImporterReconnectMaxAttemptsExhausts(t *testing.T) {
 	// the watcher exited after MaxAttempts.
 	require.NoError(t, imp.Close())
 
-	require.Equal(t, int32(3), reconnects.Load(), "OnReconnect must fire exactly MaxAttempts times")
-	require.Len(t, kernel.AttachRemoteCalls(), 4, "initial attach + 3 reconnect attempts")
+	require.Len(t, kernel.AttachRemoteCalls(), maxReconnectAttempts+1,
+		"initial attach plus MaxAttempts reconnect attempts")
 }
 
 // TestImporterReconnectDetachCancelsWatcher covers the §5.5 cancellation

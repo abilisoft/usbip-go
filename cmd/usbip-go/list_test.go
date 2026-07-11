@@ -91,8 +91,17 @@ func (m *mockImporter) Close() error {
 // mockExporter is the Exporter counterpart.
 type mockExporter struct {
 	listAvailableFn func(context.Context) ([]usbip.Device, error)
+	listExportedFn  func(context.Context) ([]usbip.Device, error)
 	bindFn          func(context.Context, usbip.BusID) error
 	unbindFn        func(context.Context, usbip.BusID) error
+}
+
+func (m *mockExporter) ListExported(ctx context.Context) ([]usbip.Device, error) {
+	if m.listExportedFn != nil {
+		return m.listExportedFn(ctx)
+	}
+
+	return nil, nil
 }
 
 func (m *mockExporter) ListAvailable(ctx context.Context) ([]usbip.Device, error) {
@@ -193,7 +202,7 @@ func TestListDefaultsToLocalJSON(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--output=json", "list"})
+	cmd.SetArgs([]string{testOutputJSONFlag, testListCommand})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -211,12 +220,12 @@ func TestListRejectsRemovedSelectorFlags(t *testing.T) {
 	t.Parallel()
 
 	cases := [][]string{
-		{"list", "--remote", "10.0.0.5"},
-		{"list", "--local"},
-		{"list", "--ports"},
-		{"list", "-r", "10.0.0.5"},
-		{"list", "-l"},
-		{"list", "-p"},
+		{testListCommand, "--remote", testRemoteHost},
+		{testListCommand, "--local"},
+		{testListCommand, "--ports"},
+		{testListCommand, "-r", testRemoteHost},
+		{testListCommand, "-l"},
+		{testListCommand, "-p"},
 	}
 
 	for _, args := range cases {
@@ -258,7 +267,7 @@ func TestListRemoteJSONHasSchemaV1(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--output=json", "list", "10.0.0.5"})
+	cmd.SetArgs([]string{testOutputJSONFlag, testListCommand, testRemoteHost})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -286,7 +295,7 @@ func TestListRemoteTable(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"list", "10.0.0.5"})
+	cmd.SetArgs([]string{testListCommand, testRemoteHost})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -310,7 +319,7 @@ func TestListRemoteError(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"list", "10.0.0.5"})
+	cmd.SetArgs([]string{testListCommand, testRemoteHost})
 
 	err := cmd.Execute()
 	require.Error(t, err)

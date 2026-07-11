@@ -5,6 +5,7 @@ package app_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"runtime"
@@ -17,6 +18,8 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/domain"
 	"github.com/stretchr/testify/require"
 )
+
+var errReconnectCallbackBoundTest = errors.New("reconnect callback bound test")
 
 // newLeakProbeFixture builds a reconnect-enabled Importer whose
 // OnReconnect callback blocks on a release channel. After a reconnect
@@ -230,6 +233,92 @@ func TestImporterOnReconnectCallbackGoroutine_ObservedByWG(t *testing.T) {
 	// for scheduling jitter but catches that regression.
 	require.GreaterOrEqual(t, elapsed, 30*time.Millisecond,
 		"Close must wait on wg for the wg-tracked OnReconnect callback")
+}
+
+// TestImporterOnReconnectCallbackConcurrencyIsBounded proves a slow
+// callback coalesces a rapid retry stream instead of spawning one
+// goroutine per attempt.
+func TestImporterOnReconnectCallbackConcurrencyIsBounded(t *testing.T) {
+	t.Parallel()
+
+	var attachCalls atomic.Int32
+
+	attachFn := func(
+		_ context.Context,
+		_ net.Conn,
+		_ app.RemoteDeviceSpec,
+	) (domain.PortID, error) {
+		if attachCalls.Add(1) == 1 {
+			return domain.PortID(1), nil
+		}
+
+		return 0, errReconnectCallbackBoundTest
+	}
+
+	imp, _, registry, _ := newReconnectFixture(t, attachFn)
+	releaseCallback := make(chan struct{})
+	callbackStarted := make(chan struct{})
+
+	var (
+		callbackCalls atomic.Int32
+		inFlight      atomic.Int32
+		maxInFlight   atomic.Int32
+	)
+
+	const maxAttempts = 100
+
+	opts := attachOptionsWithBackoff()
+
+	opts.Backoff = app.FixedBackoff{Delay: 0}
+	opts.MaxAttempts = maxAttempts
+	opts.OnReconnect = func(_ int, _ error) {
+		callbackCalls.Add(1)
+
+		current := inFlight.Add(1)
+
+		for {
+			maximum := maxInFlight.Load()
+			if current <= maximum || maxInFlight.CompareAndSwap(maximum, current) {
+				break
+			}
+		}
+
+		select {
+		case callbackStarted <- struct{}{}:
+		default:
+		}
+
+		<-releaseCallback
+		inFlight.Add(-1)
+	}
+
+	port, err := imp.Attach(context.Background(), testRemote(), attachBusID(), opts)
+	require.NoError(t, err)
+
+	registry.waitFor(t, 1)
+
+	registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
+
+	select {
+	case <-callbackStarted:
+	case <-time.After(reconnectTestSettleBudget):
+		t.Fatal("OnReconnect did not start")
+	}
+
+	require.Eventually(t, func() bool {
+		return attachCalls.Load() == maxAttempts+1
+	}, reconnectTestSettleBudget, 5*time.Millisecond,
+		"all reconnect attempts must run while the callback is blocked")
+
+	require.EqualValues(t, 1, callbackCalls.Load(),
+		"a blocked callback must have at most one active invocation")
+	require.EqualValues(t, 1, maxInFlight.Load())
+
+	close(releaseCallback)
+	require.NoError(t, imp.Close())
+	require.LessOrEqual(t, callbackCalls.Load(), int32(2),
+		"only the running and latest coalesced callbacks may execute")
+	require.EqualValues(t, 1, maxInFlight.Load())
 }
 
 // TestImporterCloseTimeoutBoundedWaiterDoesNotLeak pins the contract

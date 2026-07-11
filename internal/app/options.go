@@ -25,8 +25,8 @@ type importerConfig struct {
 	clock     Clock
 	logger    *slog.Logger
 	// transportOptions is the per-Importer TCP-level tuning bag. The
-	// zero value preserves v1.0.0 behavior; PR 1b wires non-zero
-	// fields through the adapter.
+	// zero value preserves v1.0.0 behavior; non-zero fields flow through
+	// each Dial call to the transport adapter.
 	transportOptions TransportOptions
 }
 
@@ -65,11 +65,10 @@ func WithImporterLogger(l *slog.Logger) ImporterOption {
 
 // WithImporterTransportOptions stores TCP-level tuning that the
 // Importer's Dial calls hand to the Transport adapter. Zero-valued
-// fields preserve v1.0.0 behavior; non-zero fields take effect once
-// PR 1b lands the adapter side. NewImporter validates the struct and
-// panics on negative values so a misconfigured caller surfaces the
-// error at construction time rather than as a confusing socket error
-// later.
+// fields preserve v1.0.0 behavior; non-zero fields are applied by the
+// adapter. NewImporter validates the struct and panics on negative values
+// so a misconfigured caller surfaces the error at construction time rather
+// than as a confusing socket error later.
 func WithImporterTransportOptions(opts TransportOptions) ImporterOption {
 	return func(c *importerConfig) { c.transportOptions = opts }
 }
@@ -87,16 +86,11 @@ type ExporterOption func(*exporterConfig)
 // returned from a public API. Resource-limit fields follow v1 contract §11.5.3;
 // zero means "apply the documented default".
 type exporterConfig struct {
-	kernel    ExporterKernel
-	events    KernelEvents
-	transport Transport
-	codec     ProtocolCodec
-	clock     Clock
-	logger    *slog.Logger
-	// transportOptions is the per-Exporter TCP-level tuning bag. The
-	// zero value preserves v1.0.0 behavior; PR 1b wires non-zero
-	// fields through the listener-accept path.
-	transportOptions TransportOptions
+	kernel ExporterKernel
+	events KernelEvents
+	codec  ProtocolCodec
+	clock  Clock
+	logger *slog.Logger
 
 	maxSessions        int
 	maxSessionsPerPeer int
@@ -123,11 +117,6 @@ func WithExporterEvents(e KernelEvents) ExporterOption {
 	return func(c *exporterConfig) { c.events = e }
 }
 
-// WithExporterTransport injects the TCP transport. Required.
-func WithExporterTransport(t Transport) ExporterOption {
-	return func(c *exporterConfig) { c.transport = t }
-}
-
 // WithExporterCodec injects the USBIP wire codec. Required.
 func WithExporterCodec(p ProtocolCodec) ExporterOption {
 	return func(c *exporterConfig) { c.codec = p }
@@ -143,25 +132,6 @@ func WithExporterClock(clk Clock) ExporterOption {
 // slog.Default() when unspecified.
 func WithExporterLogger(l *slog.Logger) ExporterOption {
 	return func(c *exporterConfig) { c.logger = l }
-}
-
-// WithExporterTransportOptions stores TCP-level tuning that the
-// Exporter would hand to the Transport adapter on accepted
-// connections. Zero-valued fields preserve v1.0.0 behavior.
-// NewExporterWithError validates the struct and returns
-// ErrTransportOptionsInvalid on negative values (matching the
-// ACL-validation precedent); NewExporter panics with the same error.
-//
-// IMPORTANT (PR 1a scope): the option is stored but currently inert
-// at runtime. Exporter.Serve consumes a caller-supplied net.Listener
-// (the daemon path in cmd/usbip-go builds its own listener via
-// systemd activation or net.ListenConfig and hands it in directly),
-// so options set via this function do not reach accepted connections
-// today. PR 1b adds an Exporter-owned listener path that honors these
-// options. Callers wiring a caller-owned listener must apply socket
-// tuning to their own listener until then.
-func WithExporterTransportOptions(opts TransportOptions) ExporterOption {
-	return func(c *exporterConfig) { c.transportOptions = opts }
 }
 
 // WithExporterMaxSessions caps the total concurrent accepted sessions
@@ -242,16 +212,17 @@ type AttachOptions struct {
 	// infinite.
 	MaxAttempts int
 
-	// OnReconnect is invoked before every retry with the 1-indexed
-	// attempt number and the error that triggered the retry. nil
-	// disables the callback.
+	// OnReconnect receives retry notifications with the 1-indexed
+	// attempt number and the error that triggered the retry. nil disables
+	// the callback.
 	//
-	// The callback is invoked from a separate goroutine so a slow
-	// callback cannot stall the retry cadence. It may be called
-	// concurrently with other Importer operations (Detach, Close, or
-	// an in-flight reconnect). Panics from the callback are recovered
-	// and logged via the Importer's logger but are not propagated to
-	// the caller or the watcher goroutine.
+	// A single separate goroutine invokes callbacks, so they never overlap
+	// and a slow callback cannot stall the retry cadence. If attempts
+	// outpace the callback, pending notifications are coalesced to the
+	// latest attempt. The callback may run concurrently with other Importer
+	// operations (Detach, Close, or an in-flight reconnect). Panics are
+	// recovered and logged via the Importer's logger but are not propagated
+	// to the caller or watcher goroutine.
 	OnReconnect func(attempt int, err error)
 
 	// StatusPollInterval controls the backstop poll period. Defaults

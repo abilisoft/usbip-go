@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -20,7 +19,7 @@ import (
 // ProbeKernelModules. Exposed as a function (not a var) so tests
 // cannot mutate the slice.
 func probedModuleNames() []string {
-	return []string{"usbip_core", "vhci_hcd", "usbip_host"}
+	return []string{KernelModuleUSBIPCore, KernelModuleVHCIHCD, KernelModuleUSBIPHost}
 }
 
 // moduleSysfsRoot is the sysfs root for loaded kernel modules. Paired
@@ -69,8 +68,7 @@ var (
 //
 //   - stat OK                 → Loaded
 //   - ENOENT / fs.ErrNotExist → Missing
-//   - any other error         → Unknown (logged at warn; the cause is
-//     an operator-visible signal, not a fatal)
+//   - any other error         → Unknown
 func probeOneAt(root, name string) ModuleState {
 	path := filepath.Join(root, name)
 
@@ -88,10 +86,6 @@ func probeOneAt(root, name string) ModuleState {
 	case errors.Is(err, fs.ErrNotExist):
 		return ModuleStateMissing
 	default:
-		slog.Default().Warn("kernel module probe: sysfs stat failed",
-			slog.String("module", name), slog.String("path", path),
-			slog.Any("err", err))
-
 		return ModuleStateUnknown
 	}
 }

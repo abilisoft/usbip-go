@@ -34,8 +34,18 @@ import (
 // vudc gadget. Any missing entry triggers t.Skip per the v1 contract §8.4
 // "skip-when-env-lacks-dep" exception, not the no-shortcuts rule.
 func harnessModuleNames() []string {
-	return []string{"usbip_core", "vhci_hcd", "usbip_host", "usbip_vudc"}
+	return []string{
+		usbip.KernelModuleUSBIPCore,
+		usbip.KernelModuleVHCIHCD,
+		usbip.KernelModuleUSBIPHost,
+		kernelModuleUSBIPVUDC,
+	}
 }
+
+// kernelModuleUSBIPVUDC is integration-only: unlike the three modules exposed
+// by usbip.ProbeKernelModules, usbip_vudc is required only by the virtual UDC
+// harness and is not part of the public runtime-readiness contract.
+const kernelModuleUSBIPVUDC = "usbip_vudc"
 
 // vudcVendorID / vudcProductID / vudcBcdDevice mirror the upstream
 // capture script (scripts/capture-wire-fixtures.sh) so the harness
@@ -529,8 +539,8 @@ func writeGadgetFunctionWithBacking(t *testing.T, root string, backing []byte) e
 // "vhci_hcd: cannot find a urb of seqnum ..." and a hung Attach.
 // Tracking used instances in-process and always picking a fresh one
 // eliminates the race — the vudc kernel module's `num=` param
-// (set to 8 in flake.nix) provisions enough for every test case the
-// integration suite runs in one invocation.
+// must provision enough instances for every test case the integration
+// suite runs in one invocation.
 var vudcUsageTracker = struct {
 	mu   sync.Mutex
 	used map[string]bool

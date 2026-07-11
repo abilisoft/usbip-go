@@ -17,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/abilisoft/usbip-go/pkg/usbip"
 )
 
 // dummyHCDModule is the kernel module that creates a virtual USB host
@@ -43,13 +45,18 @@ const gadgetConfigfsRoot = "/sys/kernel/config/usb_gadget"
 // for clarity.
 func dummyHCDRequiredModules() []string {
 	return []string{
-		"libcomposite", // configfs gadget framework
-		"dummy_hcd",    // virtual HCD + UDC pair
-		"usbip_core",
-		"usbip_host", // device-level driver
-		"vhci_hcd",   // importer-side virtual HCD
+		kernelModuleLibcomposite,
+		dummyHCDModule,
+		usbip.KernelModuleUSBIPCore,
+		usbip.KernelModuleUSBIPHost,
+		usbip.KernelModuleVHCIHCD,
 	}
 }
+
+// kernelModuleLibcomposite provides the configfs gadget framework used by the
+// dummy_hcd harness. It is not a USB/IP runtime module and therefore does not
+// belong in pkg/usbip's public readiness-module set.
+const kernelModuleLibcomposite = "libcomposite"
 
 // SetupDummyHCDGadget creates a real-USB-shaped gadget on dummy_udc.0
 // and returns its busid. The gadget is torn down via t.Cleanup.
@@ -421,6 +428,10 @@ func snapshotDummyBusIDs() map[string]struct{} {
 func AbsCmdPath(t *testing.T, name string) string {
 	t.Helper()
 
+	if bin, ok := BazelRunfilePath(filepath.Join("cmd", name, name+"_", name)); ok {
+		return bin
+	}
+
 	tmp, err := filepath.Abs(t.TempDir())
 	if err != nil {
 		t.Fatalf("abs tempdir: %v", err)
@@ -439,6 +450,35 @@ func AbsCmdPath(t *testing.T, name string) string {
 	}
 
 	return binPath
+}
+
+// BazelRunfilePath returns a Bazel data/runfiles path when the test is
+// running under Bazel. The rel argument is the repository-relative path
+// inside the runfiles workspace, for example
+// "cmd/usbip-go/usbip-go_/usbip-go".
+func BazelRunfilePath(rel string) (string, bool) {
+	workspace := os.Getenv("TEST_WORKSPACE")
+	if workspace == "" {
+		workspace = "_main"
+	}
+
+	for _, root := range []string{os.Getenv("RUNFILES_DIR"), os.Getenv("TEST_SRCDIR")} {
+		if root == "" {
+			continue
+		}
+
+		for _, candidate := range []string{
+			filepath.Join(root, rel),
+			filepath.Join(root, workspace, rel),
+			filepath.Join(root, "_main", rel),
+		} {
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				return candidate, true
+			}
+		}
+	}
+
+	return "", false
 }
 
 // repoRootForIntegration walks up looking for go.mod.

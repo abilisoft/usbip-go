@@ -23,7 +23,7 @@ func TestJSONEventForwardCompatTolerant(t *testing.T) {
 
 	// Round-trip a PortAttachedEvent through jsonRenderer.Event.
 	ev := domain.PortAttachedEvent{
-		Port: usbip.Port{ID: 1, Status: domain.StatusUsed, BusID: "1-1.2"},
+		Port: usbip.Port{ID: 1, Status: domain.StatusUsed, BusID: testNestedBusID},
 	}
 
 	var buf bytes.Buffer

@@ -19,6 +19,13 @@ import (
 // schema retains its stable `{"usbip_core": "loaded"}` shape.
 type ModuleState int
 
+// Canonical Linux USB/IP kernel module names used as ProbeKernelModules keys.
+const (
+	KernelModuleUSBIPCore = "usbip_core"
+	KernelModuleVHCIHCD   = "vhci_hcd"
+	KernelModuleUSBIPHost = "usbip_host"
+)
+
 // ModuleState constants. Order is public API: the iota placement
 // determines what the zero value means. ModuleStateUnknown is 0 so a
 // forgotten-to-populate map entry flags as Unknown rather than the

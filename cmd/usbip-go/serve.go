@@ -52,6 +52,7 @@ func newServeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the USB/IP exporter daemon (replaces upstream `usbipd`)",
+		Args:  cobra.NoArgs,
 		Long: "Serve runs the foreground daemon that exports local USB " +
 			"devices over the USB/IP protocol. systemd or an equivalent " +
 			"supervisor manages the lifecycle.",
@@ -141,7 +142,9 @@ func runDaemon(ctx context.Context, cfg *ServeConfig) error {
 		cancelServe(errDrainRequested)
 	})
 
-	statusErrCh, statusBound, statusStartErr := maybeStartStatusServer(statusCtx, cfg, log, src)
+	statusErrCh, statusBound, statusStartErr := maybeStartStatusServer(
+		statusCtx, cfg, log, src, statusReadyTimeout,
+	)
 	if statusStartErr != nil {
 		return statusStartErr
 	}
@@ -396,12 +399,15 @@ func currentServeStatusFn() func(
 // The function synchronises on the goroutine's start signal so the
 // caller can decide, before any Serve work begins, whether this
 // process legitimately owns the UDS path. A late-bound daemon that
-// loses the flock race must not unlink the incumbent peer's file.
+// loses the flock race must not unlink the incumbent peer's file. The caller
+// supplies readyTimeout so this coordination policy remains directly testable
+// without wall-clock sleeps.
 func maybeStartStatusServer(
 	ctx context.Context,
 	cfg *ServeConfig,
 	log *slog.Logger,
 	src *statusExporter,
+	readyTimeout time.Duration,
 ) (<-chan error, bool, error) {
 	if cfg.StatusSocket == "" {
 		return nil, false, nil
@@ -454,10 +460,10 @@ func maybeStartStatusServer(
 		// dedicated exit code; otherwise the caller returns err and
 		// runDaemon's own exit-code mapping handles it.
 		return nil, false, err
-	case <-time.After(statusReadyTimeout):
+	case <-time.After(readyTimeout):
 		log.Warn("status server did not signal ready within budget",
 			slog.String("path", cfg.StatusSocket),
-			slog.Duration("budget", statusReadyTimeout))
+			slog.Duration("budget", readyTimeout))
 
 		// A timeout means the goroutine has not proven a successful
 		// bind. Granting ownership on guess would register an unlink

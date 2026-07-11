@@ -46,6 +46,7 @@ func TestNewExporterAllowCIDRInvalidReturnsError(t *testing.T) {
 
 	_, err := usbip.NewExporter(usbip.WithExporterAllowCIDR("not-a-cidr"))
 	require.Error(t, err)
+	require.ErrorIs(t, err, usbip.ErrACLInvalid)
 }
 
 // TestNewImporterAppliesOptions drives every NewImporter option so the

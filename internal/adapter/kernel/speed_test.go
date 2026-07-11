@@ -29,8 +29,8 @@ func TestReadSpeedAttr(t *testing.T) {
 	}{
 		{"low_speed_1.5_mbps", "1.5\n", domain.SpeedLow},
 		{"full_speed_12_mbps", "12\n", domain.SpeedFull},
-		{"high_speed_480_mbps", "480\n", domain.SpeedHigh},
-		{"super_speed_5000_mbps", "5000\n", domain.SpeedSuper},
+		{"high_speed_480_mbps", testHighSpeedRaw, domain.SpeedHigh},
+		{"super_speed_5000_mbps", testSuperSpeedRaw, domain.SpeedSuper},
 		{"super_speed_plus_10000_mbps", "10000\n", domain.SpeedSuperPlus},
 		{"super_speed_plus_20000_mbps_usb32_gen2x2", "20000\n", domain.SpeedSuperPlus},
 		{"unknown_pre_enumeration", "unknown\n", domain.SpeedUnknown},

@@ -38,6 +38,11 @@ const reconnectSourceUevent = "uevent"
 // the ListPorts backstop sweep.
 const reconnectSourcePoll = "poll"
 
+// reconnectCallbackQueueSize keeps one latest pending notification
+// behind the callback currently executing. Slow callbacks therefore
+// coalesce attempts instead of creating unbounded goroutines.
+const reconnectCallbackQueueSize = 1
+
 // reconnectParams bundles everything spawnReconnectWatcher needs for a
 // single watcher lifecycle. Extracting the struct keeps the watcher
 // entry-point argument list within the project's argument-limit lint
@@ -48,6 +53,23 @@ type reconnectParams struct {
 	endpoint domain.RemoteEndpoint
 	busID    domain.BusID
 	opts     AttachOptions
+}
+
+type reconnectCallbackRequest struct {
+	attempt int
+	err     error
+}
+
+// reconnectCallbackRunner invokes OnReconnect sequentially. It owns
+// one worker and one pending slot per reconnect watcher; when both are
+// occupied, Notify replaces the pending request with the latest
+// attempt.
+type reconnectCallbackRunner struct {
+	requests chan reconnectCallbackRequest
+	callback func(int, error)
+	portID   domain.PortID
+	source   string
+	logger   *slog.Logger
 }
 
 // spawnReconnectWatcher enrols a new reconnect goroutine in the
@@ -158,7 +180,12 @@ func (i *Importer) runReconnectWatcher(parent context.Context, p reconnectParams
 		return
 	}
 
-	i.runReconnectLoop(ctx, p, detected)
+	callbacks := i.newReconnectCallbackRunner(p.opts.OnReconnect, p.portID, detected)
+	if callbacks != nil {
+		defer callbacks.Close()
+	}
+
+	i.runReconnectLoop(ctx, p, detected, callbacks)
 }
 
 // detectTick is the outcome of a single waitForDetach select iteration.
@@ -364,7 +391,12 @@ func (i *Importer) portIsDetached(ctx context.Context, id domain.PortID) bool {
 // before cancel; the watcher checks the flag after Attach returns and
 // issues kernel.DetachPort on the replacement port so the device the
 // user asked to release does not silently reappear.
-func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, source string) {
+func (i *Importer) runReconnectLoop(
+	ctx context.Context,
+	p reconnectParams,
+	source string,
+	callbacks *reconnectCallbackRunner,
+) {
 	lastErr := fmt.Errorf("%w: port %d via %s", ErrPortDetached, p.portID, source)
 
 	// attempt is declared outside the for-init so the give-up log line
@@ -385,7 +417,7 @@ func (i *Importer) runReconnectLoop(ctx context.Context, p reconnectParams, sour
 		// sound sync point for deterministic clock control.
 		delayCh := i.armBackoff(p, attempt)
 
-		i.fireOnReconnect(p.opts.OnReconnect, attempt, lastErr, p.portID, source)
+		callbacks.Notify(attempt, lastErr)
 
 		if !i.waitBackoffChan(ctx, delayCh) {
 			i.logger.Info("reconnect canceled",
@@ -625,49 +657,90 @@ func (i *Importer) removeHandle(id domain.PortID, owned *portHandle) {
 	}
 }
 
-// fireOnReconnect invokes cb in a fresh goroutine with panic recovery.
-// Running off the watcher goroutine isolates a slow callback from the
-// retry cadence (the watcher must stay responsive to ctx cancellation);
-// the recover block logs and drops panics so a buggy caller cannot
-// crash the process or leave the watcher in an indeterminate state.
-// cb may run concurrently with other Importer operations — callers who
-// need synchronous semantics must wire their own buffering.
-//
-// portID and source are logged on the panic-recovery path so
-// operators can correlate the panic with the affected device and the
-// detach-detection source (uevent vs poll) that drove the retry loop.
-//
-// The callback goroutine is enrolled in i.wg so Close's bounded drain
-// observes it. Without wg enrolment a blocking callback could outlive
-// Close indefinitely; Close.waitGroupBounded waits up to
-// shutdownTimeout on the tracked goroutine before returning.
-func (i *Importer) fireOnReconnect(
-	cb func(int, error),
-	attempt int,
-	err error,
+// newReconnectCallbackRunner starts the single callback worker while
+// the parent reconnect watcher is still enrolled in i.wg. This keeps
+// Close's drain-channel capture safe from a late zero-to-one add.
+func (i *Importer) newReconnectCallbackRunner(
+	callback func(int, error),
 	portID domain.PortID,
 	source string,
-) {
-	if cb == nil {
+) *reconnectCallbackRunner {
+	if callback == nil {
+		return nil
+	}
+
+	runner := &reconnectCallbackRunner{
+		requests: make(chan reconnectCallbackRequest, reconnectCallbackQueueSize),
+		callback: callback,
+		portID:   portID,
+		source:   source,
+		logger:   i.logger,
+	}
+
+	i.wg.Go(runner.run)
+
+	return runner
+}
+
+// Notify queues the latest callback request without blocking the
+// reconnect watcher. A nil runner is a no-op so the loop does not need
+// a branch when OnReconnect is unset.
+func (r *reconnectCallbackRunner) Notify(attempt int, err error) {
+	if r == nil {
 		return
 	}
 
-	i.wg.Go(func() {
-		defer func() {
-			r := recover()
-			if r == nil {
-				return
-			}
+	request := reconnectCallbackRequest{attempt: attempt, err: err}
+	select {
+	case r.requests <- request:
+		return
+	default:
+	}
 
-			i.logger.Error(
-				"OnReconnect callback panicked",
-				slog.Uint64("port_id", uint64(portID)),
-				slog.Int("attempt", attempt),
-				slog.String("source", source),
-				slog.Any("panic", r),
-			)
-		}()
+	// The sole producer is the reconnect watcher, so replacing the
+	// queued item cannot race another Notify. The worker may drain
+	// between these selects; the final non-blocking send handles both
+	// interleavings.
+	select {
+	case <-r.requests:
+	default:
+	}
 
-		cb(attempt, err)
-	})
+	select {
+	case r.requests <- request:
+	default:
+	}
+}
+
+// Close stops the worker after it finishes the running and latest
+// queued callbacks. Only the owning reconnect watcher calls Close.
+func (r *reconnectCallbackRunner) Close() {
+	close(r.requests)
+}
+
+func (r *reconnectCallbackRunner) run() {
+	for request := range r.requests {
+		r.invoke(request)
+	}
+}
+
+// invoke isolates callback panics so a caller cannot terminate the
+// process or the callback worker.
+func (r *reconnectCallbackRunner) invoke(request reconnectCallbackRequest) {
+	defer func() {
+		panicValue := recover()
+		if panicValue == nil {
+			return
+		}
+
+		r.logger.Error(
+			"OnReconnect callback panicked",
+			slog.Uint64("port_id", uint64(r.portID)),
+			slog.Int("attempt", request.attempt),
+			slog.String("source", r.source),
+			slog.Any("panic", panicValue),
+		)
+	}()
+
+	r.callback(request.attempt, request.err)
 }

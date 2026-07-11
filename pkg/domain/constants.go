@@ -23,10 +23,18 @@ const (
 	// SysPathSize is the wire-format sysfs-path field length.
 	SysPathSize = 256
 
-	// DefaultDialTimeout is the default timeout for TCP dial operations.
+	// DefaultDialTimeout is the recommended dial budget for callers that want
+	// an explicit bound. The transport zero value deliberately uses net.Dialer's
+	// platform default and does not apply this constant automatically.
 	DefaultDialTimeout = 10 * time.Second
-	// DefaultHandshakeTimeout is the default timeout for USBIP OP handshake.
+	// DefaultHandshakeTimeout is the legacy recommended handshake budget.
+	//
+	// Deprecated: use DefaultExporterHandshakeTimeout for the runtime default or
+	// configure an explicit timeout for the relevant operation.
 	DefaultHandshakeTimeout = 5 * time.Second
-	// DefaultShutdownTimeout is the default timeout for graceful shutdown.
+	// DefaultExporterHandshakeTimeout is the Exporter's USB/IP OP handshake bound.
+	DefaultExporterHandshakeTimeout = 10 * time.Second
+	// DefaultShutdownTimeout is the CLI daemon's default graceful-shutdown budget.
+	// Library callers control shutdown with their context or explicit options.
 	DefaultShutdownTimeout = 30 * time.Second
 )

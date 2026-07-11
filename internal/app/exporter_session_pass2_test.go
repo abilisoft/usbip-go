@@ -177,7 +177,7 @@ func (k *preHandoffKernelEvents) publishDetach() {
 	ev := domain.PortDetachedEvent{
 		At:     time.Now(),
 		Port:   domain.Port{BusID: k.busID},
-		Reason: "kernel session-end",
+		Reason: testKernelSessionEndReason,
 	}
 
 	for _, ch := range k.subs {
@@ -270,7 +270,7 @@ func TestExporterSession_ClosesAcceptedConnAfterSessionEnd(t *testing.T) {
 	events <- domain.PortDetachedEvent{
 		At:     time.Now(),
 		Port:   domain.Port{BusID: sessionBusID},
-		Reason: "kernel session-end",
+		Reason: testKernelSessionEndReason,
 	}
 
 	require.Eventually(t, func() bool {
@@ -651,6 +651,8 @@ func TestExporterShutdown_TimeoutIsMinOfCtxAndConfig(t *testing.T) {
 
 	elapsed := time.Since(start)
 
+	require.GreaterOrEqual(t, elapsed, configTimeout/2,
+		"Shutdown returned before the configured backstop could fire")
 	require.Less(t, elapsed, callerBudget/2,
 		"Shutdown timeout must be min(ctx deadline, configured timeout); "+
 			"any regression where a ctx deadline disables the backstop "+

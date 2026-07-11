@@ -22,7 +22,7 @@ func TestSpeed_String(t *testing.T) {
 		{"low", domain.SpeedLow, "Low-Speed (1.5Mbps)"},
 		{"full", domain.SpeedFull, "Full-Speed (12Mbps)"},
 		{"high", domain.SpeedHigh, "High-Speed (480Mbps)"},
-		{"wireless", domain.SpeedWireless, "Wireless"},
+		{testWirelessLabel, domain.SpeedWireless, "Wireless"},
 		{"super", domain.SpeedSuper, "SuperSpeed (5Gbps)"},
 		{"superplus", domain.SpeedSuperPlus, "SuperSpeed+ (10/20Gbps)"},
 		{"fallback", domain.Speed(42), "speed(42)"},

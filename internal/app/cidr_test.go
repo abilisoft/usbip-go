@@ -110,10 +110,8 @@ func TestExporterACL_Reject(t *testing.T) {
 	require.Error(t, err)
 	require.NoError(t, client.Close())
 
-	// Give the accept handler a moment to run (rejected path); then
-	// assert the codec was never reached.
-	time.Sleep(50 * time.Millisecond)
-
+	// The read error proves the rejection handler closed its side of the
+	// pipe, so its decision not to decode is already observable.
 	require.Empty(t, codec.DecodeHeaderCalls(),
 		"rejected peer must not reach the codec")
 
@@ -130,7 +128,6 @@ func TestExporterACL_InvalidCIDR_RejectsAtConstruction(t *testing.T) {
 	_, err := app.NewExporterWithError(
 		app.WithExporterKernel(&ExporterKernelMock{}),
 		app.WithExporterEvents(&KernelEventsMock{}),
-		app.WithExporterTransport(&TransportMock{}),
 		app.WithExporterCodec(&ProtocolCodecMock{}),
 		app.WithExporterACL("bogus"),
 	)
@@ -170,9 +167,14 @@ func TestExporterACL_ServeContinuesAfterReject(t *testing.T) {
 
 	c1, err := badListener.dial(ctx)
 	require.NoError(t, err)
-	require.NoError(t, c1.Close())
 
-	time.Sleep(50 * time.Millisecond)
+	// The peer may already be closed by the rejection handler; the deadline
+	// is only a safety bound for the read when it is still open.
+	_ = c1.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+	_, err = c1.Read(make([]byte, 1))
+	require.Error(t, err)
+	require.NoError(t, c1.Close())
 
 	select {
 	case <-serveDone:

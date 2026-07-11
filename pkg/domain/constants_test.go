@@ -21,5 +21,6 @@ func TestConstants_KnownValues(t *testing.T) {
 	require.Equal(t, 256, domain.SysPathSize)
 	require.Equal(t, 10*time.Second, domain.DefaultDialTimeout)
 	require.Equal(t, 5*time.Second, domain.DefaultHandshakeTimeout)
+	require.Equal(t, 10*time.Second, domain.DefaultExporterHandshakeTimeout)
 	require.Equal(t, 30*time.Second, domain.DefaultShutdownTimeout)
 }

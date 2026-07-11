@@ -48,14 +48,14 @@ func TestKernelModulesCachedWithinTTL(t *testing.T) {
 		calls.Add(1)
 
 		return map[string]usbip.ModuleState{
-			"usbip_core": usbip.ModuleStateLoaded,
+			testUSBIPCoreModule: usbip.ModuleStateLoaded,
 		}, nil
 	})
 
 	// First call — must populate the cache and invoke the probe once.
 	mods, err := s.KernelModules(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, usbip.ModuleStateLoaded, mods["usbip_core"])
+	require.Equal(t, usbip.ModuleStateLoaded, mods[testUSBIPCoreModule])
 	require.EqualValues(t, 1, calls.Load(),
 		"first call must invoke probe exactly once")
 
@@ -89,7 +89,7 @@ func TestKernelModulesReprobesAfterTTL(t *testing.T) {
 		calls.Add(1)
 
 		return map[string]usbip.ModuleState{
-			"usbip_core": usbip.ModuleStateLoaded,
+			testUSBIPCoreModule: usbip.ModuleStateLoaded,
 		}, nil
 	})
 	s.setKernelModuleClock(func() time.Time {

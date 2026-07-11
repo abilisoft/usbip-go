@@ -85,7 +85,7 @@ func TestProbeOneAtEACCESReturnsUnknown(t *testing.T) {
 
 	t.Cleanup(func() { usbip.SwapProbeStatFnForTest(old) })
 
-	state := usbip.ProbeOneAtForTest("/any-root", "usbip_core")
+	state := usbip.ProbeOneAtForTest("/any-root", usbip.KernelModuleUSBIPCore)
 	require.Equal(t, usbip.ModuleStateUnknown, state,
 		"EACCES under parent must classify as Unknown, got %q", state)
 }

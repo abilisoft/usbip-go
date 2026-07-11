@@ -28,7 +28,7 @@ func TestRunCtx_NoColorAppliedBeforeHelp(t *testing.T) {
 		_ = os.Unsetenv("NO_COLOR")
 	})
 
-	code, _ := runCtx(context.Background(), []string{"--no-color", "--help"})
+	code, _ := runCtx(context.Background(), []string{"--no-color", testHelpFlag})
 	require.Zero(t, code, "--help must exit cleanly")
 
 	require.Equal(t, "1", os.Getenv("NO_COLOR"),
@@ -46,7 +46,7 @@ func TestRunCtx_NoColorEqualsFormAlsoApplied(t *testing.T) {
 		_ = os.Unsetenv("NO_COLOR")
 	})
 
-	code, _ := runCtx(context.Background(), []string{"--no-color=true", "--help"})
+	code, _ := runCtx(context.Background(), []string{"--no-color=true", testHelpFlag})
 	require.Zero(t, code, "--help must exit cleanly")
 
 	require.Equal(t, "1", os.Getenv("NO_COLOR"),

@@ -78,7 +78,7 @@ func run(hostArg, busIDArg string) error {
 
 	logger := slog.Default()
 
-	backoff := usbip.NewExponentialBackoff(usbip.ExponentialBackoffConfig{
+	backoff := usbip.MustNewExponentialBackoff(usbip.ExponentialBackoffConfig{
 		Min:    backoffInitial,
 		Max:    backoffCeiling,
 		Jitter: backoffJitter,

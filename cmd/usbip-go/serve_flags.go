@@ -6,6 +6,7 @@ package main
 import (
 	"time"
 
+	"github.com/abilisoft/usbip-go/pkg/domain"
 	"github.com/spf13/cobra"
 )
 
@@ -19,11 +20,9 @@ const (
 	defaultMaxSessionsPerPeer = 8
 	defaultAcceptRateLimit    = 10.0
 	defaultMaxHandshakeBytes  = 65536
-	defaultHandshakeTimeout   = 10 * time.Second
-	defaultShutdownTimeout    = 30 * time.Second
+	defaultHandshakeTimeout   = domain.DefaultExporterHandshakeTimeout
+	defaultShutdownTimeout    = domain.DefaultShutdownTimeout
 	defaultDrainTimeout       = 60 * time.Second
-	defaultLogLevel           = "info"
-	defaultLogFormat          = "auto"
 )
 
 // ServeConfig is the parsed command-line configuration for the

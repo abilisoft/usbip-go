@@ -10,6 +10,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/abilisoft/usbip-go/pkg/domain"
 	"golang.org/x/time/rate"
 )
 
@@ -22,7 +23,7 @@ const (
 	defaultAcceptRateLimit    = 10.0
 	defaultAcceptBurst        = 20
 	defaultMaxHandshakeBytes  = 64 * 1024
-	defaultHandshakeTimeout   = 10 * time.Second
+	defaultHandshakeTimeout   = domain.DefaultExporterHandshakeTimeout
 )
 
 // exporterLimits bundles the resolved-from-defaults resource caps so

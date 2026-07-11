@@ -28,12 +28,12 @@ import (
 // controller count is inferred from len(statusN)+1.
 func statusFS(status string, statusN map[int]string, nports int) fstest.MapFS {
 	m := fstest.MapFS{
-		"sys/module/usbip_core":                  &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/vhci_hcd":                    &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host":                  &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/devices/platform/vhci_hcd.0":        &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/devices/platform/vhci_hcd.0/nports": &fstest.MapFile{Data: []byte(itoaBytes(nports))},
-		"sys/devices/platform/vhci_hcd.0/status": &fstest.MapFile{Data: []byte(status)},
+		testFSModuleUSBIPCorePath:       &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleVHCIHCDPath:         &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleUSBIPHostPath:       &fstest.MapFile{Mode: fs.ModeDir},
+		testFSVHCIController0Dir:        &fstest.MapFile{Mode: fs.ModeDir},
+		testFSVHCIController0NPortsPath: &fstest.MapFile{Data: []byte(itoaBytes(nports))},
+		testFSVHCIController0StatusPath: &fstest.MapFile{Data: []byte(status)},
 	}
 
 	for i, body := range statusN {
@@ -223,7 +223,7 @@ func TestListPorts_ModuleMissingReturnsBoth(t *testing.T) {
 		"hs  0000 003 003 01020304 000005 1-1\n"
 
 	mfs := statusFS(status, nil, 16)
-	delete(mfs, "sys/module/vhci_hcd")
+	delete(mfs, testFSModuleVHCIHCDPath)
 
 	a, err := kernel.NewImporterAdapter(kernel.WithFS(mfs))
 	require.NoError(t, err)
@@ -338,15 +338,15 @@ func TestListPorts_ToleratesIncompleteBusMap(t *testing.T) {
 	t.Parallel()
 
 	mfs := fstest.MapFS{
-		"sys/module/usbip_core":                       {Mode: fs.ModeDir},
-		"sys/module/vhci_hcd":                         {Mode: fs.ModeDir},
-		"sys/devices/platform/vhci_hcd.0":             {Mode: fs.ModeDir},
-		"sys/devices/platform/vhci_hcd.0/nports":      {Data: []byte("16\n")},
-		"sys/devices/platform/vhci_hcd.0/usb1/busnum": {Data: []byte("1\n")},
+		testFSModuleUSBIPCorePath:           {Mode: fs.ModeDir},
+		testFSModuleVHCIHCDPath:             {Mode: fs.ModeDir},
+		testFSVHCIController0Dir:            {Mode: fs.ModeDir},
+		testFSVHCIController0NPortsPath:     {Data: []byte(testNPorts16Raw)},
+		testFSVHCIController0USB1BusNumPath: {Data: []byte("1\n")},
 		// Note: no usb2 entry — the SS sibling is missing. The full
 		// Topology would fail len(BusMap)==2; the StatusTopology must
 		// not care.
-		"sys/devices/platform/vhci_hcd.0/status": {Data: []byte(
+		testFSVHCIController0StatusPath: {Data: []byte(
 			"hub port sta spd dev      sockfd local_busid\n" +
 				"hs  0000 000 000 00000000 000000 0-0\n" +
 				"ss  0008 000 000 00000000 000000 0-0\n",

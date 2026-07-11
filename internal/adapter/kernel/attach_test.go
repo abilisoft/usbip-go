@@ -120,19 +120,19 @@ func (c *closeCountingConn) SyscallConn() (syscall.RawConn, error) {
 // HS rows are flat 0..3 and SS rows are flat 4..7.
 func attachFS() fstest.MapFS {
 	return fstest.MapFS{
-		"sys/module/usbip_core":                  &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/vhci_hcd":                    &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/devices/platform/vhci_hcd.0":        &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/devices/platform/vhci_hcd.0/nports": &fstest.MapFile{Data: []byte("8\n")},
-		"sys/devices/platform/vhci_hcd.0/status": &fstest.MapFile{Data: []byte(
+		testFSModuleUSBIPCorePath:       &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleVHCIHCDPath:         &fstest.MapFile{Mode: fs.ModeDir},
+		testFSVHCIController0Dir:        &fstest.MapFile{Mode: fs.ModeDir},
+		testFSVHCIController0NPortsPath: &fstest.MapFile{Data: []byte("8\n")},
+		testFSVHCIController0StatusPath: &fstest.MapFile{Data: []byte(
 			"hub port sta spd dev      sockfd local_busid\n" +
 				"hs  0000 000 000 00000000 000000 0-0\n" +
 				"hs  0001 000 000 00000000 000000 0-0\n" +
 				"ss  0004 000 000 00000000 000000 0-0\n" +
 				"ss  0005 000 000 00000000 000000 0-0\n",
 		)},
-		"sys/devices/platform/vhci_hcd.0/usb1/busnum": &fstest.MapFile{Data: []byte("1\n")},
-		"sys/devices/platform/vhci_hcd.0/usb2/busnum": &fstest.MapFile{Data: []byte("2\n")},
+		testFSVHCIController0USB1BusNumPath: &fstest.MapFile{Data: []byte("1\n")},
+		testFSVHCIController0USB2BusNumPath: &fstest.MapFile{Data: []byte("2\n")},
 	}
 }
 
@@ -280,11 +280,11 @@ func TestAttachRemote_SucceedsDespiteIncompleteBusMap(t *testing.T) {
 	// fail with errTopologyIncomplete; discoverStatusTopology must
 	// succeed because it never walks usb* children.
 	mfs := fstest.MapFS{
-		"sys/module/usbip_core":                  &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/vhci_hcd":                    &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/devices/platform/vhci_hcd.0":        &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/devices/platform/vhci_hcd.0/nports": &fstest.MapFile{Data: []byte("8\n")},
-		"sys/devices/platform/vhci_hcd.0/status": &fstest.MapFile{Data: []byte(
+		testFSModuleUSBIPCorePath:       &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleVHCIHCDPath:         &fstest.MapFile{Mode: fs.ModeDir},
+		testFSVHCIController0Dir:        &fstest.MapFile{Mode: fs.ModeDir},
+		testFSVHCIController0NPortsPath: &fstest.MapFile{Data: []byte("8\n")},
+		testFSVHCIController0StatusPath: &fstest.MapFile{Data: []byte(
 			"hub port sta spd dev      sockfd local_busid\n" +
 				"hs  0000 000 000 00000000 000000 0-0\n",
 		)},
@@ -576,11 +576,11 @@ func TestDetachPort_SucceedsDespiteIncompleteBusMap(t *testing.T) {
 	// fail with errTopologyIncomplete; discoverStatusTopology must
 	// succeed because it never walks usb* children.
 	mfs := fstest.MapFS{
-		"sys/module/usbip_core":                  &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/vhci_hcd":                    &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/devices/platform/vhci_hcd.0":        &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/devices/platform/vhci_hcd.0/nports": &fstest.MapFile{Data: []byte("8\n")},
-		"sys/devices/platform/vhci_hcd.0/status": &fstest.MapFile{Data: []byte(
+		testFSModuleUSBIPCorePath:       &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleVHCIHCDPath:         &fstest.MapFile{Mode: fs.ModeDir},
+		testFSVHCIController0Dir:        &fstest.MapFile{Mode: fs.ModeDir},
+		testFSVHCIController0NPortsPath: &fstest.MapFile{Data: []byte("8\n")},
+		testFSVHCIController0StatusPath: &fstest.MapFile{Data: []byte(
 			"hub port sta spd dev      sockfd local_busid\n" +
 				"hs  0000 000 000 00000000 000000 0-0\n",
 		)},
@@ -633,7 +633,7 @@ func TestAttachRemote_HappyPath(t *testing.T) {
 	require.EqualValues(t, 0, portID)
 
 	require.Len(t, gotWrites, 1)
-	require.Equal(t, "/sys/devices/platform/vhci_hcd.0/attach", gotWrites[0].Path)
+	require.Equal(t, testVHCIAttachPath, gotWrites[0].Path)
 	// The fd in the payload is a dup of the conn's fd (different number, same socket).
 	// Verify all fields except the fd value; the fd must be a positive integer.
 	var portVal, fdVal, devIDVal, speedVal uint32
@@ -696,7 +696,7 @@ func TestAttachRemote_NoFreePortDoesNotCloseConn(t *testing.T) {
 	// flat 4..7 under single-controller nports=8 (HCPorts=4).
 	mfs := attachFS()
 
-	mfs["sys/devices/platform/vhci_hcd.0/status"] = &fstest.MapFile{Data: []byte(
+	mfs[testFSVHCIController0StatusPath] = &fstest.MapFile{Data: []byte(
 		"hub port sta spd dev      sockfd local_busid\n" +
 			"hs  0000 003 003 01020304 000005 1-1\n" +
 			"hs  0001 003 003 01020304 000005 1-1\n" +
@@ -733,7 +733,7 @@ func TestAttachRemote_ModuleMissing(t *testing.T) {
 	wrapped := &closeCountingConn{Conn: left}
 
 	mfs := attachFS()
-	delete(mfs, "sys/module/vhci_hcd")
+	delete(mfs, testFSModuleVHCIHCDPath)
 
 	a, err := kernel.NewImporterAdapter(
 		kernel.WithFS(mfs),
@@ -835,7 +835,7 @@ type mutableStatusFS struct {
 
 // Open implements fs.FS.
 func (m *mutableStatusFS) Open(name string) (fs.File, error) {
-	if name == "sys/devices/platform/vhci_hcd.0/status" {
+	if name == testFSVHCIController0StatusPath {
 		fresh := fstest.MapFS{
 			name: &fstest.MapFile{Data: m.state.statusText()},
 		}
@@ -886,12 +886,12 @@ func TestFindFreePort_SSMatchesFlatBoundary(t *testing.T) {
 
 	mfs := &mutableStatusFS{
 		inner: fstest.MapFS{
-			"sys/module/usbip_core":                       &fstest.MapFile{Mode: fs.ModeDir},
-			"sys/module/vhci_hcd":                         &fstest.MapFile{Mode: fs.ModeDir},
-			"sys/devices/platform/vhci_hcd.0":             &fstest.MapFile{Mode: fs.ModeDir},
-			"sys/devices/platform/vhci_hcd.0/nports":      &fstest.MapFile{Data: fmt.Appendf(nil, "%d\n", testNPorts)},
-			"sys/devices/platform/vhci_hcd.0/usb1/busnum": &fstest.MapFile{Data: []byte("1\n")},
-			"sys/devices/platform/vhci_hcd.0/usb2/busnum": &fstest.MapFile{Data: []byte("2\n")},
+			testFSModuleUSBIPCorePath:           &fstest.MapFile{Mode: fs.ModeDir},
+			testFSModuleVHCIHCDPath:             &fstest.MapFile{Mode: fs.ModeDir},
+			testFSVHCIController0Dir:            &fstest.MapFile{Mode: fs.ModeDir},
+			testFSVHCIController0NPortsPath:     &fstest.MapFile{Data: fmt.Appendf(nil, "%d\n", testNPorts)},
+			testFSVHCIController0USB1BusNumPath: &fstest.MapFile{Data: []byte("1\n")},
+			testFSVHCIController0USB2BusNumPath: &fstest.MapFile{Data: []byte("2\n")},
 		},
 		state: state,
 	}
@@ -931,18 +931,18 @@ func TestAttachRemote_SerializedUnderContention(t *testing.T) {
 
 	mfs := &mutableStatusFS{
 		inner: fstest.MapFS{
-			"sys/module/usbip_core":                       &fstest.MapFile{Mode: fs.ModeDir},
-			"sys/module/vhci_hcd":                         &fstest.MapFile{Mode: fs.ModeDir},
-			"sys/devices/platform/vhci_hcd.0":             &fstest.MapFile{Mode: fs.ModeDir},
-			"sys/devices/platform/vhci_hcd.0/nports":      &fstest.MapFile{Data: fmt.Appendf(nil, "%d\n", testNPorts)},
-			"sys/devices/platform/vhci_hcd.0/usb1/busnum": &fstest.MapFile{Data: []byte("1\n")},
-			"sys/devices/platform/vhci_hcd.0/usb2/busnum": &fstest.MapFile{Data: []byte("2\n")},
+			testFSModuleUSBIPCorePath:           &fstest.MapFile{Mode: fs.ModeDir},
+			testFSModuleVHCIHCDPath:             &fstest.MapFile{Mode: fs.ModeDir},
+			testFSVHCIController0Dir:            &fstest.MapFile{Mode: fs.ModeDir},
+			testFSVHCIController0NPortsPath:     &fstest.MapFile{Data: fmt.Appendf(nil, "%d\n", testNPorts)},
+			testFSVHCIController0USB1BusNumPath: &fstest.MapFile{Data: []byte("1\n")},
+			testFSVHCIController0USB2BusNumPath: &fstest.MapFile{Data: []byte("2\n")},
 		},
 		state: state,
 	}
 
 	writer := func(p, data string) error {
-		if p != "/sys/devices/platform/vhci_hcd.0/attach" {
+		if p != testVHCIAttachPath {
 			return nil
 		}
 

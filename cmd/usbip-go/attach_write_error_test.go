@@ -28,7 +28,7 @@ func TestRenderAttachResult_WriteAckError(t *testing.T) {
 
 	port := usbip.Port{
 		ID:    3,
-		BusID: domain.BusID("1-1"),
+		BusID: domain.BusID(testRootBusID),
 	}
 
 	err := renderAttachResult(cmd, port)

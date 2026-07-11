@@ -113,4 +113,16 @@ var (
 	// so errors.Is classification is available through the public
 	// surface without a cross-package import.
 	ErrAttachOptionsInvalid = errors.New("attach options invalid")
+
+	// ErrTransportOptionsInvalid indicates a negative TCP tuning value
+	// was passed to NewImporter or NewExporter.
+	ErrTransportOptionsInvalid = errors.New("transport options invalid")
+
+	// ErrACLInvalid indicates an exporter allow-list entry is not a
+	// valid CIDR prefix.
+	ErrACLInvalid = errors.New("acl cidr invalid")
+
+	// ErrExponentialBackoffConfigInvalid indicates an exponential
+	// backoff configuration failed validation.
+	ErrExponentialBackoffConfigInvalid = errors.New("exponential backoff config invalid")
 )

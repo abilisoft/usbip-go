@@ -25,7 +25,7 @@ import (
 func TestBind_AlreadyBoundToUSBIPHost_ShortCircuits(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	mfs := bindFS(string(busID))
 	// Override the bare-device driver to usbip-host (production state
 	// after a successful prior bind).
@@ -45,9 +45,9 @@ func TestBind_AlreadyBoundToUSBIPHost_ShortCircuits(t *testing.T) {
 		"Bind must short-circuit with ErrDeviceAlreadyBound when device's driver is already usbip-host")
 
 	for _, c := range rec.calls {
-		require.NotEqual(t, "/sys/bus/usb/drivers/usbip-host/match_busid", c.Path,
+		require.NotEqual(t, testUSBIPHostMatchBusIDPath, c.Path,
 			"already-bound short-circuit must fire BEFORE match_busid is written")
-		require.NotEqual(t, "/sys/bus/usb/drivers/usbip-host/bind", c.Path,
+		require.NotEqual(t, testUSBIPHostBindPath, c.Path,
 			"already-bound short-circuit must fire BEFORE the bind write")
 	}
 }
@@ -59,7 +59,7 @@ func TestBind_AlreadyBoundToUSBIPHost_ShortCircuits(t *testing.T) {
 func TestBind_NoDeviceDriverSkipsDeviceUnbind(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	mfs := bindFS(string(busID))
 	delete(mfs, "sys/bus/usb/devices/"+string(busID)+"/driver/driver_name")
 	delete(mfs, "sys/bus/usb/devices/"+string(busID)+"/driver")

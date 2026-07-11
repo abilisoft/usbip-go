@@ -153,8 +153,7 @@ func MapError(err error) int {
 		}
 	}
 
-	var netErr net.Error
-	if errors.As(err, &netErr) {
+	if _, ok := errors.AsType[net.Error](err); ok {
 		return ExitNetwork
 	}
 
@@ -189,8 +188,7 @@ func FormatError(err error) string {
 		return entry.format
 	}
 
-	var netErr net.Error
-	if errors.As(err, &netErr) {
+	if _, ok := errors.AsType[net.Error](err); ok {
 		return "usbip-go: network error: " + flattenErrorText(err.Error())
 	}
 
@@ -213,8 +211,7 @@ func flattenErrorText(s string) string {
 // parse errors with its own message; matching on the sentinel-like
 // prefix is the pragmatic workaround since the wrapper is unexported.
 func isUsageError(err error) bool {
-	var usageErr *usageError
-	if errors.As(err, &usageErr) {
+	if _, ok := errors.AsType[*usageError](err); ok {
 		return true
 	}
 

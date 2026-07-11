@@ -93,7 +93,7 @@ func runListLocal(ctx context.Context, r Renderer, out io.Writer) error {
 // outputFromCtx reads the globalFlags.Output stashed by
 // PersistentPreRunE. Defaults to "table" when missing.
 func outputFromCtx(ctx context.Context) string {
-	gf, ok := ctx.Value(flagsCtxKey).(*globalFlags)
+	gf, ok := ctx.Value(flagsContextKey{}).(*globalFlags)
 	if !ok || gf == nil {
 		return "table"
 	}

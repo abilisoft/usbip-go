@@ -93,7 +93,7 @@ func TestImporterAfterCloseYieldsPublicSentinel(t *testing.T) {
 	imp := usbip.NewImporterFromInternalForTest(s.inner)
 	require.NoError(t, imp.Close())
 
-	_, err := imp.ListRemote(t.Context(), usbip.RemoteEndpoint{Host: "peer"})
+	_, err := imp.ListRemote(t.Context(), usbip.RemoteEndpoint{Host: testPeerHost})
 	require.ErrorIs(t, err, usbip.ErrImporterClosed)
 	require.NotErrorIs(t, err, internalapp.ErrImporterClosed,
 		"facade must translate internal/app.ErrImporterClosed, not leak it")

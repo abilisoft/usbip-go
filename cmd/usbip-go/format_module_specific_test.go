@@ -35,13 +35,13 @@ func TestFormatError_KernelModuleMissingNamesTheActualModule(t *testing.T) {
 		{
 			name:          "importer_missing_vhci_hcd",
 			wrappedDetail: "run `sudo modprobe vhci_hcd`",
-			mustContain:   "vhci_hcd",
+			mustContain:   testVHCIHCDModule,
 			mustNotEqual:  "usbip-go: kernel module not loaded. Try: sudo modprobe usbip_core vhci_hcd usbip_host",
 		},
 		{
 			name:          "exporter_missing_usbip_host",
 			wrappedDetail: "run `sudo modprobe usbip_host`",
-			mustContain:   "usbip_host",
+			mustContain:   testUSBIPHostModule,
 			mustNotEqual:  "usbip-go: kernel module not loaded. Try: sudo modprobe usbip_core vhci_hcd usbip_host",
 		},
 	}

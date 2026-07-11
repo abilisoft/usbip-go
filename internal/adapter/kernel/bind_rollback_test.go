@@ -33,7 +33,7 @@ import (
 func TestBind_RollsBackMatchBusidOnBindFailure(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	rec := &writeRecord{}
 
 	// Persistently fail every usbip-host/bind write so the retry
@@ -44,7 +44,7 @@ func TestBind_RollsBackMatchBusidOnBindFailure(t *testing.T) {
 		rec.calls = append(rec.calls, writeCall{Path: p, Data: data})
 		rec.mu.Unlock()
 
-		if p == "/sys/bus/usb/drivers/usbip-host/bind" {
+		if p == testUSBIPHostBindPath {
 			return unix.EBUSY
 		}
 
@@ -67,7 +67,7 @@ func TestBind_RollsBackMatchBusidOnBindFailure(t *testing.T) {
 	var sawDel bool
 
 	for _, c := range rec.calls {
-		if c.Path == "/sys/bus/usb/drivers/usbip-host/match_busid" && c.Data == "del "+string(busID) {
+		if c.Path == testUSBIPHostMatchBusIDPath && c.Data == "del "+string(busID) {
 			sawDel = true
 		}
 	}

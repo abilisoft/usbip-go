@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net"
+	"sync"
 
 	"github.com/abilisoft/usbip-go/internal/app"
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -206,4 +207,50 @@ func NewVHCIEventMapperWithLoaderForTest(loader func() (Topology, error)) VHCIEv
 // (domain.Event, bool) pair verbatim.
 func (m VHCIEventMapperForTest) MapEventForTest(fields map[string]string) (domain.Event, bool) {
 	return m.inner.mapEvent(fields)
+}
+
+// DetachSerializationHarness exposes only the synchronization observations
+// needed by the external regression test.
+type DetachSerializationHarness struct {
+	adapter    *EventsAdapter
+	dispatcher *eventDispatcher
+}
+
+// NewDetachSerializationHarness builds a dispatcher with one subscriber.
+func NewDetachSerializationHarness() *DetachSerializationHarness {
+	dispatcher := &eventDispatcher{
+		subscribers: map[int64]chan domain.Event{1: make(chan domain.Event)},
+	}
+
+	return &DetachSerializationHarness{
+		adapter:    &EventsAdapter{dispMu: &sync.Mutex{}, disp: dispatcher},
+		dispatcher: dispatcher,
+	}
+}
+
+// LockAdapter holds the adapter lifecycle lock.
+func (h *DetachSerializationHarness) LockAdapter() { h.adapter.dispMu.Lock() }
+
+// UnlockAdapter releases the adapter lifecycle lock.
+func (h *DetachSerializationHarness) UnlockAdapter() { h.adapter.dispMu.Unlock() }
+
+// Remove runs the last-subscriber removal path.
+func (h *DetachSerializationHarness) Remove() bool {
+	return h.adapter.removeSubscriberAndDetach(h.dispatcher, 1)
+}
+
+// SubscriberCount returns the current subscriber count under its lock.
+func (h *DetachSerializationHarness) SubscriberCount() int {
+	h.dispatcher.mu.Lock()
+	defer h.dispatcher.mu.Unlock()
+
+	return len(h.dispatcher.subscribers)
+}
+
+// Detached reports whether the adapter dropped the dispatcher.
+func (h *DetachSerializationHarness) Detached() bool {
+	h.adapter.dispMu.Lock()
+	defer h.adapter.dispMu.Unlock()
+
+	return h.adapter.disp == nil
 }

@@ -222,26 +222,37 @@ func (a *EventsAdapter) buildUnsubscribe(d *eventDispatcher, id int64, unsubSig 
 		once.Do(func() {
 			close(unsubSig)
 
-			empty := d.removeSubscriber(id)
-			if !empty {
+			if !a.removeSubscriberAndDetach(d, id) {
 				return
 			}
 
-			a.tearDownDispatcher(d)
+			tearDownDispatcher(d)
 		})
 	}
 }
 
-// tearDownDispatcher cancels the run loop and closes the socket.
-func (a *EventsAdapter) tearDownDispatcher(d *eventDispatcher) {
+// removeSubscriberAndDetach serializes the last-subscriber decision
+// with Subscribe. Holding dispMu while removing from d prevents a new
+// subscriber from joining the old dispatcher after it was observed
+// empty but before teardown detached it.
+func (a *EventsAdapter) removeSubscriberAndDetach(d *eventDispatcher, id int64) bool {
 	a.dispMu.Lock()
+	defer a.dispMu.Unlock()
 
-	if a.disp == d {
-		a.disp = nil
+	empty := d.removeSubscriber(id)
+	if !empty || a.disp != d {
+		return false
 	}
 
-	a.dispMu.Unlock()
+	a.disp = nil
 
+	return true
+}
+
+// tearDownDispatcher cancels a dispatcher that has already been
+// detached under EventsAdapter.dispMu, closes its socket, and waits
+// for the run loop to exit.
+func tearDownDispatcher(d *eventDispatcher) {
 	d.cancel()
 
 	_ = d.sock.Close()
@@ -634,7 +645,7 @@ func parseUeventFields(payload []byte) map[string]string {
 // splitNULBytes splits payload on NUL bytes and returns the string
 // pieces. Empty pieces are skipped.
 func splitNULBytes(payload []byte) []string {
-	parts := make([]string, 0, 8)
+	parts := []string{}
 	start := 0
 
 	for i, b := range payload {

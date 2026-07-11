@@ -22,7 +22,9 @@ func TestDefaultTimeouts_ExactValues(t *testing.T) {
 	require.Equal(t, 10*time.Second, domain.DefaultDialTimeout,
 		"DefaultDialTimeout must be 10s; ARITHMETIC_BASE on the multiplicand changes the perceived budget")
 	require.Equal(t, 5*time.Second, domain.DefaultHandshakeTimeout,
-		"DefaultHandshakeTimeout must be 5s")
+		"legacy DefaultHandshakeTimeout must remain 5s for v1 compatibility")
+	require.Equal(t, 10*time.Second, domain.DefaultExporterHandshakeTimeout,
+		"DefaultExporterHandshakeTimeout must match the runtime's 10s bound")
 	require.Equal(t, 30*time.Second, domain.DefaultShutdownTimeout,
 		"DefaultShutdownTimeout must be 30s")
 }
@@ -42,7 +44,7 @@ func TestParseRemote_BracketedIPv6Variants(t *testing.T) {
 		got, err := domain.ParseRemote("[::1]")
 		require.NoError(t, err,
 			"bracketed IPv6 with no port falls through to DefaultPort")
-		require.Equal(t, "::1", got.Host)
+		require.Equal(t, testIPv6Loopback, got.Host)
 	})
 
 	t.Run("bracketed_with_port", func(t *testing.T) {
@@ -50,7 +52,7 @@ func TestParseRemote_BracketedIPv6Variants(t *testing.T) {
 
 		got, err := domain.ParseRemote("[::1]:3240")
 		require.NoError(t, err)
-		require.Equal(t, "::1", got.Host)
+		require.Equal(t, testIPv6Loopback, got.Host)
 		require.Equal(t, uint16(3240), got.Port)
 	})
 

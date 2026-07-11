@@ -18,6 +18,24 @@ import (
 // we encode it as slog.LevelDebug - 4 per slog convention.
 const traceLevel = slog.LevelDebug - 4
 
+// Log-level and handler-format values are shared by parsing, defaults, and
+// shell completion. Keeping them named prevents those user-facing enums from
+// drifting across the command surface.
+const (
+	logLevelError = "error"
+	logLevelWarn  = "warn"
+	logLevelInfo  = "info"
+	logLevelDebug = "debug"
+	logLevelTrace = "trace"
+
+	logFormatAuto   = "auto"
+	logFormatPretty = "pretty"
+	logFormatJSON   = "json"
+
+	defaultLogLevel  = logLevelInfo
+	defaultLogFormat = logFormatAuto
+)
+
 // errInvalidLogFormat is the sentinel base for an unrecognised
 // --log-format value; wrapped with the offending value so the caller
 // sees both the classification and the concrete input.
@@ -41,15 +59,15 @@ func buildLogger(f globalFlags) (*slog.Logger, error) {
 	noColor := os.Getenv("NO_COLOR") != "" || f.NoColor
 
 	switch f.LogFormat {
-	case "auto":
+	case logFormatAuto:
 		if isTTY && !noColor {
 			return newTintLogger(lvl, noColor), nil
 		}
 
 		return newJSONLogger(lvl), nil
-	case "pretty":
+	case logFormatPretty:
 		return newTintLogger(lvl, noColor), nil
-	case "json":
+	case logFormatJSON:
 		return newJSONLogger(lvl), nil
 	default:
 		return nil, fmt.Errorf("%w %q (want auto, pretty, or json)", errInvalidLogFormat, f.LogFormat)
@@ -113,15 +131,15 @@ func parseLevel(name string, verbose int) (slog.Level, error) {
 // baseLevel is the pure name→level lookup used by parseLevel.
 func baseLevel(name string) (slog.Level, error) {
 	switch name {
-	case "trace":
+	case logLevelTrace:
 		return traceLevel, nil
-	case "debug":
+	case logLevelDebug:
 		return slog.LevelDebug, nil
-	case "info":
+	case logLevelInfo:
 		return slog.LevelInfo, nil
-	case "warn":
+	case logLevelWarn:
 		return slog.LevelWarn, nil
-	case "error":
+	case logLevelError:
 		return slog.LevelError, nil
 	default:
 		return 0, fmt.Errorf("%w %q (want error/warn/info/debug/trace)", errInvalidLogLevel, name)

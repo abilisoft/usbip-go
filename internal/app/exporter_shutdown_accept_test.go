@@ -51,8 +51,7 @@ func TestExporterShutdown_RejectsNewConnections(t *testing.T) {
 
 	go func() { serveDone <- exp.Serve(ctx, lis) }()
 
-	// Let Serve park on Accept before we call Shutdown.
-	time.Sleep(20 * time.Millisecond)
+	lis.waitUntilAccepting(t)
 
 	// Shut down. Per the documented contract, no ctx-cancel first —
 	// Shutdown alone must be enough to stop accepts and unwind Serve.

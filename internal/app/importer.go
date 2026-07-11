@@ -378,8 +378,8 @@ func (i *Importer) ListRemote(ctx context.Context, endpoint domain.RemoteEndpoin
 // has already completed; a close failure is informational only.
 func closeConnLogging(conn net.Conn, logger *slog.Logger) {
 	err := conn.Close()
-	if err != nil {
-		logger.Warn("close importer conn", slog.Any("err", err))
+	if err != nil && !errors.Is(err, net.ErrClosed) {
+		logger.Warn("close connection", slog.Any("err", err))
 	}
 }
 

@@ -50,6 +50,10 @@ func translateInternalErr(err error) error {
 			internalapp.ErrAttachOptionsInvalid.Error()+": ")
 
 		return fmt.Errorf("%w: %s", ErrAttachOptionsInvalid, detail)
+	case errors.Is(err, internalapp.ErrACLInvalid):
+		detail := strings.TrimPrefix(err.Error(), internalapp.ErrACLInvalid.Error()+": ")
+
+		return fmt.Errorf("%w: %s", ErrACLInvalid, detail)
 	}
 
 	return err
@@ -148,10 +152,12 @@ type AttachOptions struct {
 	// infinite.
 	MaxAttempts int
 
-	// OnReconnect is invoked before every retry with the 1-indexed
-	// attempt number and the error that triggered the retry. nil
-	// disables the callback. Panics from the callback are recovered
-	// and logged via the Importer's logger.
+	// OnReconnect receives retry notifications with the 1-indexed attempt
+	// number and the error that triggered the retry. nil disables the
+	// callback. Notifications run serially outside the retry goroutine; when
+	// attempts outpace a slow callback, pending notifications are coalesced
+	// to the latest attempt. Panics are recovered and logged via the
+	// Importer's logger.
 	OnReconnect func(attempt int, err error)
 
 	// StatusPollInterval controls the backstop poll period. Zero picks
@@ -270,7 +276,11 @@ func (i *Importer) mergeAttachOptions(opts AttachOptions) AttachOptions {
 type Exporter struct {
 	inner     *internalapp.Exporter
 	cfg       exporterConfig
-	transport internalapp.Transport
+	transport listenerFactory
+}
+
+type listenerFactory interface {
+	Listen(ctx context.Context, addr string, opts internalapp.TransportOptions) (net.Listener, error)
 }
 
 // NewExporter constructs an Exporter backed by the default Linux

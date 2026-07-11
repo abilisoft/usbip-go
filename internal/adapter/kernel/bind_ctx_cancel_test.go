@@ -33,7 +33,7 @@ import (
 func TestBind_CtxCancelsRetryBackoff(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 
 	clock := testutil.NewFakeClockAt(time.Unix(0, 0))
 
@@ -81,8 +81,8 @@ func TestBind_VHCIGuard_ErrInvalidMeansNotASymlink(t *testing.T) {
 	busID := domain.BusID("3-1")
 
 	mfs := fstest.MapFS{
-		"sys/module/usbip_core":                &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host":                &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleUSBIPCorePath:              &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleUSBIPHostPath:              &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + string(busID): &fstest.MapFile{Mode: fs.ModeDir},
 	}
 

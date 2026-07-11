@@ -26,6 +26,17 @@ const healthRequestTimeout = 2 * time.Second
 // loris probe holding the listener socket open.
 const healthReadHeaderTimeout = 5 * time.Second
 
+// readinessProbeConcurrency bounds probes that ignore cancellation.
+// A single wedged probe may remain, but request amplification cannot
+// create an unbounded goroutine leak.
+const readinessProbeConcurrency = 1
+
+const (
+	readinessUnavailableMessage = "not ready"
+	readinessTimeoutMessage     = "not ready: probe timeout"
+	readinessBusyMessage        = "not ready: probe already running"
+)
+
 // readinessProbe is the closure invoked by the /readyz handler on
 // every request. It returns a snapshot of the daemon's readiness
 // inputs (kernel modules, listener bound, accept loop running, status
@@ -44,12 +55,6 @@ type readinessState struct {
 	Modules        map[string]usbip.ModuleState
 }
 
-// requiredKernelModules is the closed set of modules that MUST be
-// loaded for the exporter to function. Every name in this slice must
-// appear with usbip.ModuleStateLoaded in readinessState.Modules
-// before /readyz returns 200.
-var requiredKernelModules = []string{"usbip_core", "usbip_host"}
-
 // ready reports whether every readiness input is satisfied. Returns
 // false when any required kernel module is missing, the listener is
 // not bound, the accept loop is not running, or the status socket is
@@ -59,7 +64,13 @@ func (s readinessState) ready() bool {
 		return false
 	}
 
-	for _, name := range requiredKernelModules {
+	// This local array is the closed exporter module set. Keeping it local
+	// prevents package-level mutable readiness policy while retaining a
+	// single authoritative check.
+	for _, name := range [...]string{
+		usbip.KernelModuleUSBIPCore,
+		usbip.KernelModuleUSBIPHost,
+	} {
 		if s.Modules[name] != usbip.ModuleStateLoaded {
 			return false
 		}
@@ -68,35 +79,55 @@ func (s readinessState) ready() bool {
 	return true
 }
 
-// newReadinessChecker returns an http.Handler that runs probe on each
-// request and writes 200 OK when ready() is true, 503 otherwise. The
-// per-request ctx carries the timeout, but a wedged probe that
-// ignores ctx would still stall the handler — so the result is also
-// raced against the timeout in a select. A timed-out probe surfaces
-// as 503 and the handler returns immediately; the orphaned probe
-// goroutine completes in its own time without holding the conn.
+// newReadinessChecker returns an http.Handler that runs at most one
+// probe at a time and writes 200 OK when ready() is true, 503
+// otherwise. The bound prevents repeated requests from spawning an
+// unbounded number of goroutines when a broken probe ignores ctx.
 func newReadinessChecker(probe readinessProbe) http.Handler {
+	return newReadinessCheckerWithTimeout(probe, healthRequestTimeout)
+}
+
+// newReadinessCheckerWithTimeout is the testable implementation behind
+// newReadinessChecker. A busy checker fails closed immediately instead
+// of queuing work behind a wedged probe.
+func newReadinessCheckerWithTimeout(probe readinessProbe, timeout time.Duration) http.Handler {
+	probeSlot := make(chan struct{}, readinessProbeConcurrency)
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), healthRequestTimeout)
+		select {
+		case probeSlot <- struct{}{}:
+		case <-r.Context().Done():
+			http.Error(w, readinessUnavailableMessage, http.StatusServiceUnavailable)
+
+			return
+		default:
+			http.Error(w, readinessBusyMessage, http.StatusServiceUnavailable)
+
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
 
 		result := make(chan readinessState, 1)
 
 		go func() {
+			defer func() { <-probeSlot }()
+
 			result <- probe(ctx)
 		}()
 
 		select {
 		case state := <-result:
 			if !state.ready() {
-				http.Error(w, "not ready", http.StatusServiceUnavailable)
+				http.Error(w, readinessUnavailableMessage, http.StatusServiceUnavailable)
 
 				return
 			}
 
 			w.WriteHeader(http.StatusOK)
 		case <-ctx.Done():
-			http.Error(w, "not ready: probe timeout", http.StatusServiceUnavailable)
+			http.Error(w, readinessTimeoutMessage, http.StatusServiceUnavailable)
 		}
 	})
 }

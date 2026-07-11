@@ -30,7 +30,7 @@ import (
 func TestUnbind_UnbindFails_SkipsRebind(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	rec := &writeRecord{}
 
 	a, err := kernel.NewExporterAdapter(
@@ -50,7 +50,7 @@ func TestUnbind_UnbindFails_SkipsRebind(t *testing.T) {
 		"unbind failure must skip rebind to avoid kernel NULL deref in do_rebind")
 
 	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/unbind", rec.calls[1].Path)
-	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/match_busid", rec.calls[2].Path)
+	require.Equal(t, testUSBIPHostMatchBusIDPath, rec.calls[2].Path)
 
 	for _, c := range rec.calls {
 		require.NotEqual(t, "/sys/bus/usb/drivers/usbip-host/rebind", c.Path,

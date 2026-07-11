@@ -61,7 +61,7 @@ func NewExporterFromInternalForTest(inner *internalapp.Exporter) *Exporter {
 // observed end-to-end.
 func NewExporterFromInternalForTestWithTransportOptions(
 	inner *internalapp.Exporter,
-	tr internalapp.Transport,
+	tr listenerFactory,
 	opts TransportOptions,
 ) *Exporter {
 	return &Exporter{

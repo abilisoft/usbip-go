@@ -26,11 +26,11 @@ import (
 func TestBind_HubGuard_NonENOENTReadErrorPropagates(t *testing.T) {
 	t.Parallel()
 
-	const busID = "1-1"
+	const busID = testRootBusID
 
 	mfs := bindFS(busID)
 
-	mfs["sys/bus/usb/devices/"+busID+"/bDeviceClass"] = &fstest.MapFile{Data: []byte("00\n")}
+	mfs["sys/bus/usb/devices/"+busID+"/bDeviceClass"] = &fstest.MapFile{Data: []byte(testZeroDeviceClassRaw)}
 
 	poisoned := poisonFS{
 		inner:     mfs,
@@ -63,11 +63,11 @@ func TestBind_HubGuard_NonENOENTReadErrorPropagates(t *testing.T) {
 func TestBind_HubGuard_NonHubClassPasses(t *testing.T) {
 	t.Parallel()
 
-	const busID = "1-1"
+	const busID = testRootBusID
 
 	mfs := bindFS(busID)
 
-	mfs["sys/bus/usb/devices/"+busID+"/bDeviceClass"] = &fstest.MapFile{Data: []byte("00\n")}
+	mfs["sys/bus/usb/devices/"+busID+"/bDeviceClass"] = &fstest.MapFile{Data: []byte(testZeroDeviceClassRaw)}
 
 	rec := &writeRecord{}
 
@@ -109,7 +109,7 @@ func TestListExportedDevices_PropagatesListLocalErr(t *testing.T) {
 func TestListExportedDevices_NoUsbipStatusAttr_HiddenFromList(t *testing.T) {
 	t.Parallel()
 
-	const busID = "1-1"
+	const busID = testRootBusID
 
 	// Reuse the listExported fixture but drop the usbip_status file
 	// for the lone usbip-host bound device.

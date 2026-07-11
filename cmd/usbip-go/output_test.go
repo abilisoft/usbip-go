@@ -25,7 +25,7 @@ const schemaFirstPrefix = `{"schema":`
 func goldenDevices() []usbip.Device {
 	return []usbip.Device{
 		{
-			BusID:         domain.BusID("1-1.2"),
+			BusID:         domain.BusID(testNestedBusID),
 			BusNum:        1,
 			DevNum:        2,
 			Speed:         domain.SpeedHigh,
@@ -33,11 +33,11 @@ func goldenDevices() []usbip.Device {
 			ProductID:     0x1666,
 			Class:         0x03,
 			NumInterfaces: 1,
-			Manufacturer:  "Kingston",
-			Product:       "DataTraveler",
+			Manufacturer:  testManufacturer,
+			Product:       testProduct,
 		},
 		{
-			BusID:         domain.BusID("2-1"),
+			BusID:         domain.BusID(testSecondaryBusID),
 			BusNum:        2,
 			DevNum:        3,
 			Speed:         domain.SpeedSuper,
@@ -97,7 +97,7 @@ func TestJSONRendererPortsSchemaFirst(t *testing.T) {
 	t.Parallel()
 
 	ports := []usbip.Port{
-		{ID: 1, Status: domain.StatusUsed, Speed: domain.SpeedHigh, BusID: "1-1.2"},
+		{ID: 1, Status: domain.StatusUsed, Speed: domain.SpeedHigh, BusID: testNestedBusID},
 	}
 
 	var out bytes.Buffer
@@ -117,7 +117,7 @@ func TestJSONRendererSessionsSchemaFirst(t *testing.T) {
 	sessions := []usbip.Session{
 		{
 			ID:        domain.SessionID{},
-			BusID:     "1-1.2",
+			BusID:     testNestedBusID,
 			StartedAt: time.Unix(0, 0).UTC(),
 		},
 	}
@@ -136,7 +136,7 @@ func TestJSONRendererSessionsSchemaFirst(t *testing.T) {
 func TestJSONEventRecord(t *testing.T) {
 	t.Parallel()
 
-	ev := domain.PortAttachedEvent{Port: usbip.Port{ID: 1, BusID: "1-1.2"}}
+	ev := domain.PortAttachedEvent{Port: usbip.Port{ID: 1, BusID: testNestedBusID}}
 
 	var out bytes.Buffer
 	require.NoError(t, jsonRenderer{}.Event(&out, ev))

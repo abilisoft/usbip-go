@@ -88,7 +88,7 @@ func TestConcreteEvents_ImplementEvent(t *testing.T) {
 
 	now := time.Now()
 	port := domain.Port{ID: 1}
-	dev := domain.Device{BusID: "1-1"}
+	dev := domain.Device{BusID: testRootBusID}
 	sess := domain.Session{}
 
 	cases := []struct {

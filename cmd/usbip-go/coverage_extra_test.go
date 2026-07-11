@@ -143,7 +143,7 @@ func TestXDGDataHomeFallsBackToHomeDir(t *testing.T) {
 func TestRunUninstallRemovesExistingFile(t *testing.T) {
 	t.Parallel()
 
-	tmp := filepath.Join(t.TempDir(), "completion")
+	tmp := filepath.Join(t.TempDir(), testCompletionCommand)
 	require.NoError(t, os.WriteFile(tmp, []byte("# stub"), 0o600))
 
 	var buf bytes.Buffer
@@ -202,8 +202,8 @@ func TestCompletePortIDsListsKnownPorts(t *testing.T) {
 	imp := &mockImporter{
 		listPortsFn: func(_ context.Context) ([]usbip.Port, error) {
 			return []usbip.Port{
-				{ID: 100, BusID: "1-1.2"},
-				{ID: 256, BusID: "2-1"},
+				{ID: 100, BusID: testNestedBusID},
+				{ID: 256, BusID: testSecondaryBusID},
 			}, nil
 		},
 	}
@@ -244,7 +244,7 @@ func TestCompletePortIDsErrorReturnsDirective(t *testing.T) {
 func TestCompleteBoundBusIDsForwards(t *testing.T) {
 	exp := &mockExporter{
 		listAvailableFn: func(_ context.Context) ([]usbip.Device, error) {
-			return []usbip.Device{{BusID: domain.BusID("1-1.2")}}, nil
+			return []usbip.Device{{BusID: domain.BusID(testNestedBusID)}}, nil
 		},
 	}
 	swapFactories(t, &mockImporter{}, exp)
@@ -294,7 +294,13 @@ func TestRunDetachImporterErrorPropagates(t *testing.T) {
 func TestBaseLevelAcceptedNames(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{"trace", "debug", "info", "warn", "error"} {
+	for _, name := range []string{
+		logLevelTrace,
+		logLevelDebug,
+		logLevelInfo,
+		logLevelWarn,
+		logLevelError,
+	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -320,9 +326,9 @@ func TestWriteBindAckJSONBindOp(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	err := writeBindAckJSON(&buf, "bind", "1-1.2")
+	err := writeBindAckJSON(&buf, testBindCommand, testNestedBusID)
 	require.NoError(t, err)
-	require.Contains(t, buf.String(), "1-1.2")
+	require.Contains(t, buf.String(), testNestedBusID)
 }
 
 // TestWriteBindAckJSONUnbindOp covers the unbind branch.
@@ -331,9 +337,9 @@ func TestWriteBindAckJSONUnbindOp(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	err := writeBindAckJSON(&buf, "unbind", "1-1.2")
+	err := writeBindAckJSON(&buf, testUnbindCommand, testNestedBusID)
 	require.NoError(t, err)
-	require.Contains(t, buf.String(), "1-1.2")
+	require.Contains(t, buf.String(), testNestedBusID)
 }
 
 // TestWriteBindAckJSONUnknownOp covers the default branch's
@@ -343,7 +349,7 @@ func TestWriteBindAckJSONUnknownOp(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	err := writeBindAckJSON(&buf, "rebind", "1-1.2")
+	err := writeBindAckJSON(&buf, "rebind", testNestedBusID)
 	require.Error(t, err)
 }
 
@@ -374,7 +380,7 @@ func TestRunListLocalRendersAvailable(t *testing.T) {
 	exp := &mockExporter{
 		listAvailableFn: func(_ context.Context) ([]usbip.Device, error) {
 			return []usbip.Device{
-				{BusID: "1-1.2", VendorID: 0x0951, ProductID: 0x1664},
+				{BusID: testNestedBusID, VendorID: 0x0951, ProductID: 0x1664},
 			}, nil
 		},
 	}
@@ -384,7 +390,7 @@ func TestRunListLocalRendersAvailable(t *testing.T) {
 
 	err := runListLocal(context.Background(), tableRenderer{}, &buf)
 	require.NoError(t, err)
-	require.Contains(t, buf.String(), "1-1.2")
+	require.Contains(t, buf.String(), testNestedBusID)
 }
 
 // TestVersionCmdRendersStampedLabels exercises the version subcommand:
@@ -471,7 +477,7 @@ func TestRunCompletionInstall_UninstallBranch(t *testing.T) {
 }
 
 // TestOutputFromCtx_MissingFlagsFallsBackToTable pins the default branch
-// of outputFromCtx: a context without the flagsCtxKey stashed by
+// of outputFromCtx: a context without the flagsContextKey stashed by
 // PersistentPreRunE must return "table".
 func TestOutputFromCtx_MissingFlagsFallsBackToTable(t *testing.T) {
 	t.Parallel()
@@ -511,7 +517,7 @@ func TestCompleteAttachArgs_DefaultBranch(t *testing.T) {
 	cmd := newRootCmd()
 	cmd.SetContext(context.Background())
 
-	got, _ := completeAttachArgs(cmd, []string{"host", "1-1", "extra"}, "")
+	got, _ := completeAttachArgs(cmd, []string{"host", testRootBusID, "extra"}, "")
 	require.Nil(t, got)
 }
 
@@ -521,6 +527,6 @@ func TestParseAttachArgs_InvalidBackoff(t *testing.T) {
 	t.Parallel()
 
 	af := &attachFlags{Backoff: "invalid-backoff-spec"}
-	_, err := parseAttachArgs([]string{"10.0.0.1", "1-1"}, af)
+	_, err := parseAttachArgs([]string{"10.0.0.1", testRootBusID}, af)
 	require.Error(t, err)
 }

@@ -1,0 +1,56 @@
+// SPDX-FileCopyrightText: 2026 AbiliSoft
+// SPDX-License-Identifier: Apache-2.0
+
+//go:build linux
+
+package kernel_test
+
+// Shared sysfs and devpath fixtures keep the kernel-adapter tests aligned on
+// the same synthetic topology instead of repeating path literals across files.
+const (
+	testFSUSBIPHostBindPath             = "sys/bus/usb/drivers/usbip-host/bind"
+	testFSUSBIPHostDir                  = "sys/bus/usb/drivers/usbip-host"
+	testFSUSBIPHostMatchBusIDPath       = "sys/bus/usb/drivers/usbip-host/match_busid"
+	testFSUSBIPHostRebindPath           = "sys/bus/usb/drivers/usbip-host/rebind"
+	testFSUSBIPHostUnbindPath           = "sys/bus/usb/drivers/usbip-host/unbind"
+	testFSModuleUSBIPCorePath           = "sys/module/usbip_core"
+	testFSModuleUSBIPHostPath           = "sys/module/usbip_host"
+	testFSModuleVHCIHCDPath             = "sys/module/vhci_hcd"
+	testFSVHCIController0Dir            = "sys/devices/platform/vhci_hcd.0"
+	testFSVHCIController0NPortsPath     = "sys/devices/platform/vhci_hcd.0/nports"
+	testFSVHCIController0StatusPath     = "sys/devices/platform/vhci_hcd.0/status"
+	testFSVHCIController0USB1BusNumPath = "sys/devices/platform/vhci_hcd.0/usb1/busnum"
+	testFSVHCIController0USB2BusNumPath = "sys/devices/platform/vhci_hcd.0/usb2/busnum"
+	testHighSpeedRaw                    = "480\n"
+	testNPorts16Raw                     = "16\n"
+	testNPorts32Raw                     = "32\n"
+	testOpenOperation                   = "open"
+	testPhysicalUSBDeviceDevPath        = "/devices/pci0000:00/0000:00:14.0/usb1/1-1"
+	testRootBusID                       = "1-1"
+	testSuperSpeedRaw                   = "5000\n"
+	testUSBDeviceVendorPath             = "/sys/bus/usb/devices/1-1/idVendor"
+	testUSBIPHostBindPath               = "/sys/bus/usb/drivers/usbip-host/bind"
+	testUSBIPHostMatchBusIDPath         = "/sys/bus/usb/drivers/usbip-host/match_busid"
+	testVHCIAttachPath                  = "/sys/devices/platform/vhci_hcd.0/attach"
+	testVHCIController0NPortsPath       = "/sys/devices/platform/vhci_hcd.0/nports"
+	testVHCIController0Status1Path      = "/sys/devices/platform/vhci_hcd.0/status.1"
+	testVHCIController0StatusPath       = "/sys/devices/platform/vhci_hcd.0/status"
+	testVHCIController0USB1BusNumPath   = "/sys/devices/platform/vhci_hcd.0/usb1/busnum"
+	testVHCIController0USB1SpeedPath    = "/sys/devices/platform/vhci_hcd.0/usb1/speed"
+	testVHCIController0USB2BusNumPath   = "/sys/devices/platform/vhci_hcd.0/usb2/busnum"
+	testVHCIController0USB2SpeedPath    = "/sys/devices/platform/vhci_hcd.0/usb2/speed"
+	testVHCIController0USB3BusNumPath   = "/sys/devices/platform/vhci_hcd.0/usb3/busnum"
+	testVHCIController1USB3BusNumPath   = "/sys/devices/platform/vhci_hcd.1/usb3/busnum"
+	testVHCIController1USB3SpeedPath    = "/sys/devices/platform/vhci_hcd.1/usb3/speed"
+	testVHCIController1USB4BusNumPath   = "/sys/devices/platform/vhci_hcd.1/usb4/busnum"
+	testVHCIController1USB4SpeedPath    = "/sys/devices/platform/vhci_hcd.1/usb4/speed"
+	testVHCIDeviceDevPath               = "/devices/platform/vhci_hcd.0/usb1/1-1"
+	testUeventActionAdd                 = "add"
+	testUeventActionField               = "ACTION"
+	testUeventActionRemove              = "remove"
+	testUeventDevPathField              = "DEVPATH"
+	testUeventSubsystemField            = "SUBSYSTEM"
+	testUeventSubsystemUSB              = "usb"
+	testUeventSubsystemUSBIPHost        = "usbip_host"
+	testZeroDeviceClassRaw              = "00\n"
+)

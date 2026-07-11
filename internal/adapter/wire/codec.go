@@ -7,13 +7,16 @@ import (
 	"io"
 	"log/slog"
 
+	"github.com/abilisoft/usbip-go/internal/app"
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
+var _ app.ProtocolCodec = (*Codec)(nil)
+
 // Codec is the wire-level USBIP protocol codec. All methods forward to
 // the package-level encode/decode helpers. Per v1 contract §5.1 this type
-// implements the app.ProtocolCodec interface; the compile-time
-// assertion lives with the interface declaration in internal/app.
+// implements the app.ProtocolCodec interface; the compile-time assertion
+// above keeps the adapter honest without making app import this package.
 //
 // Codec carries a *slog.Logger so permissive-read signals surfaced by
 // the package-level helpers (e.g. trailing bytes after OP_REP_DEVLIST,

@@ -44,7 +44,7 @@ func TestListenOrActivationFallsBackWhenNoEnv(t *testing.T) {
 	t.Setenv("LISTEN_FDS", "")
 	t.Setenv("LISTEN_FDNAMES", "")
 
-	cfg := &ServeConfig{Listen: "127.0.0.1:0"}
+	cfg := &ServeConfig{Listen: testEphemeralListenAddr}
 
 	lis, err := listenOrActivation(context.Background(), cfg)
 	require.NoError(t, err)
@@ -69,7 +69,7 @@ func TestListenOrActivationIgnoresMismatchedPID(t *testing.T) {
 	t.Setenv("LISTEN_FDS", "1")
 	t.Setenv("LISTEN_FDNAMES", "usbip-go")
 
-	cfg := &ServeConfig{Listen: "127.0.0.1:0"}
+	cfg := &ServeConfig{Listen: testEphemeralListenAddr}
 
 	lis, err := listenOrActivation(context.Background(), cfg)
 	require.NoError(t, err)
@@ -87,7 +87,7 @@ func TestListenOrActivationNamedSocket(t *testing.T) {
 	// Not parallel: swaps the package-level seam.
 	orig := listenersWithNames
 
-	srcLis := tcpListen(t, "127.0.0.1:0")
+	srcLis := tcpListen(t, testEphemeralListenAddr)
 	t.Cleanup(func() { _ = srcLis.Close() })
 
 	listenersWithNames = func() (map[string][]net.Listener, error) {
@@ -96,7 +96,7 @@ func TestListenOrActivationNamedSocket(t *testing.T) {
 
 	t.Cleanup(func() { listenersWithNames = orig })
 
-	cfg := &ServeConfig{Listen: "127.0.0.1:1"} // unused when activation succeeds
+	cfg := &ServeConfig{Listen: testActivatedListenAddr} // unused when activation succeeds
 
 	lis, err := listenOrActivation(context.Background(), cfg)
 	require.NoError(t, err)
@@ -112,10 +112,10 @@ func TestListenOrActivationAmbiguousFds(t *testing.T) {
 	// Not parallel: swaps the package-level seam.
 	orig := listenersWithNames
 
-	lisA := tcpListen(t, "127.0.0.1:0")
+	lisA := tcpListen(t, testEphemeralListenAddr)
 	t.Cleanup(func() { _ = lisA.Close() })
 
-	lisB := tcpListen(t, "127.0.0.1:0")
+	lisB := tcpListen(t, testEphemeralListenAddr)
 	t.Cleanup(func() { _ = lisB.Close() })
 
 	listenersWithNames = func() (map[string][]net.Listener, error) {
@@ -127,7 +127,7 @@ func TestListenOrActivationAmbiguousFds(t *testing.T) {
 
 	t.Cleanup(func() { listenersWithNames = orig })
 
-	cfg := &ServeConfig{Listen: "127.0.0.1:1"} // unused when ambiguity is detected
+	cfg := &ServeConfig{Listen: testActivatedListenAddr} // unused when ambiguity is detected
 
 	lis, err := listenOrActivation(context.Background(), cfg)
 	require.Error(t, err)
@@ -149,7 +149,7 @@ func TestListenOrActivation_LegacyFdNameWarns(t *testing.T) {
 
 	var lc net.ListenConfig
 
-	srcLis, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	srcLis, err := lc.Listen(context.Background(), "tcp", testEphemeralListenAddr)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = srcLis.Close() })
 
@@ -161,7 +161,7 @@ func TestListenOrActivation_LegacyFdNameWarns(t *testing.T) {
 
 	t.Cleanup(func() { listenersWithNames = orig })
 
-	cfg := &ServeConfig{Listen: "127.0.0.1:1"}
+	cfg := &ServeConfig{Listen: testActivatedListenAddr}
 
 	lis, err := listenOrActivation(context.Background(), cfg)
 	require.NoError(t, err,
@@ -206,7 +206,7 @@ func TestListenOrActivation_ErrorPath(t *testing.T) {
 
 	t.Cleanup(func() { listenersWithNames = orig })
 
-	cfg := &ServeConfig{Listen: "127.0.0.1:0"}
+	cfg := &ServeConfig{Listen: testEphemeralListenAddr}
 
 	lis, err := listenOrActivation(context.Background(), cfg)
 	require.NoError(t, err,

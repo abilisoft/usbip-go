@@ -23,7 +23,7 @@ func TestFormatAck_StructureAndContents(t *testing.T) {
 		action  string
 		subject string
 	}{
-		{"bound", "1-1"},
+		{"bound", testRootBusID},
 		{"unbound", "3-1.2"},
 		{"detached port", "0"},
 		{"installed bash completion to", "/etc/bash_completion.d/usbip-go"},
@@ -54,7 +54,7 @@ func TestFormatAck_StructureAndContents(t *testing.T) {
 func TestFormatAck_AlwaysEmitsAnsiPreNormalisation(t *testing.T) {
 	t.Parallel()
 
-	got := formatAck("bound", "1-1")
+	got := formatAck("bound", testRootBusID)
 
 	require.Contains(t, got, "\x1b[",
 		"formatAck must always emit ANSI escapes pre-normalisation; "+

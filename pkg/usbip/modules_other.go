@@ -10,7 +10,7 @@ import "context"
 // probedModuleNames mirrors the Linux list byte-for-byte so the JSON
 // schema is shape-stable across platforms.
 func probedModuleNames() []string {
-	return []string{"usbip_core", "vhci_hcd", "usbip_host"}
+	return []string{KernelModuleUSBIPCore, KernelModuleVHCIHCD, KernelModuleUSBIPHost}
 }
 
 // ProbeKernelModules on non-Linux has no sysfs to consult. Every

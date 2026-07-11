@@ -31,18 +31,18 @@ import (
 func TestBind_SkipsUnbindWhenInterfaceHasNoDriver(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	iface := string(busID) + ":1.0"
 
 	// Bind fixture WITHOUT the driver_name file or the driver
 	// symlink — interface dir exists but currentDriver yields
 	// ErrDeviceNotBound.
 	mfs := fstest.MapFS{
-		"sys/module/usbip_core":                                         &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host":                                         &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host":                                &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host/match_busid":                    &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/bind":                           &fstest.MapFile{Data: []byte("")},
+		testFSModuleUSBIPCorePath:                                       &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleUSBIPHostPath:                                       &fstest.MapFile{Mode: fs.ModeDir},
+		testFSUSBIPHostDir:                                              &fstest.MapFile{Mode: fs.ModeDir},
+		testFSUSBIPHostMatchBusIDPath:                                   &fstest.MapFile{Data: []byte("")},
+		testFSUSBIPHostBindPath:                                         &fstest.MapFile{Data: []byte("")},
 		"sys/bus/usb/devices/" + string(busID):                          &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + string(busID) + "/bConfigurationValue": &fstest.MapFile{Data: []byte("1\n")},
 		"sys/bus/usb/devices/" + iface:                                  &fstest.MapFile{Mode: fs.ModeDir},
@@ -64,8 +64,8 @@ func TestBind_SkipsUnbindWhenInterfaceHasNoDriver(t *testing.T) {
 	// Exactly two writes when there is no old driver: match_busid + bind.
 	require.Len(t, rec.calls, 2,
 		"with no driver to unbind, the sequence is just match_busid add + usbip-host bind")
-	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/match_busid", rec.calls[0].Path)
-	require.Equal(t, "/sys/bus/usb/drivers/usbip-host/bind", rec.calls[1].Path)
+	require.Equal(t, testUSBIPHostMatchBusIDPath, rec.calls[0].Path)
+	require.Equal(t, testUSBIPHostBindPath, rec.calls[1].Path)
 	require.Equal(t, string(busID), rec.calls[1].Data,
 		"usbip-host bind takes the BARE busid")
 }

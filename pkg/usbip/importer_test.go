@@ -70,7 +70,7 @@ func TestImporterListRemoteForwards(t *testing.T) {
 
 	s := newInternalImporterForTest(t)
 
-	want := []domain.Device{{BusID: "1-1"}, {BusID: "1-2"}}
+	want := []domain.Device{{BusID: testRootBusID}, {BusID: "1-2"}}
 
 	s.codec.decodeOpRepDevlistFn = func(_ io.Reader) ([]domain.Device, error) {
 		return want, nil
@@ -96,7 +96,7 @@ func TestImporterAttachForwards(t *testing.T) {
 
 	s := newInternalImporterForTest(t)
 
-	decoded := domain.Device{BusID: "1-1", Speed: domain.SpeedHigh, BusNum: 1, DevNum: 2}
+	decoded := domain.Device{BusID: testRootBusID, Speed: domain.SpeedHigh, BusNum: 1, DevNum: 2}
 
 	s.codec.decodeOpRepImportFn = func(_ io.Reader) (domain.Device, error) {
 		return decoded, nil
@@ -118,11 +118,11 @@ func TestImporterAttachForwards(t *testing.T) {
 
 	port, err := imp.Attach(t.Context(),
 		usbip.RemoteEndpoint{Host: "peer.test"},
-		usbip.BusID("1-1"),
+		usbip.BusID(testRootBusID),
 		usbip.AttachOptions{})
 	require.NoError(t, err)
 	require.Equal(t, usbip.PortID(7), port.ID)
-	require.Equal(t, usbip.BusID("1-1"), port.BusID)
+	require.Equal(t, usbip.BusID(testRootBusID), port.BusID)
 }
 
 // TestImporterDetachForwards proves Detach reaches the kernel stub
@@ -133,7 +133,7 @@ func TestImporterDetachForwards(t *testing.T) {
 	s := newInternalImporterForTest(t)
 
 	s.codec.decodeOpRepImportFn = func(_ io.Reader) (domain.Device, error) {
-		return domain.Device{BusID: "1-1", Speed: domain.SpeedHigh, BusNum: 1, DevNum: 2}, nil
+		return domain.Device{BusID: testRootBusID, Speed: domain.SpeedHigh, BusNum: 1, DevNum: 2}, nil
 	}
 
 	s.kernel.attachRemoteFn = func(
@@ -156,7 +156,7 @@ func TestImporterDetachForwards(t *testing.T) {
 		require.NoError(t, imp.Close())
 	})
 
-	_, err := imp.Attach(t.Context(), usbip.RemoteEndpoint{Host: "peer"}, "1-1", usbip.AttachOptions{})
+	_, err := imp.Attach(t.Context(), usbip.RemoteEndpoint{Host: testPeerHost}, testRootBusID, usbip.AttachOptions{})
 	require.NoError(t, err)
 
 	require.NoError(t, imp.Detach(t.Context(), usbip.PortID(3)))
@@ -208,7 +208,7 @@ func TestImporterWatchYieldsEvents(t *testing.T) {
 		return ch, func() { close(cancelled) }, nil
 	}
 
-	ch <- domain.DeviceBoundEvent{Device: domain.Device{BusID: "1-1"}}
+	ch <- domain.DeviceBoundEvent{Device: domain.Device{BusID: testRootBusID}}
 
 	close(ch)
 
@@ -257,7 +257,7 @@ func TestImporterAfterCloseSurfacesSentinel(t *testing.T) {
 	imp := usbip.NewImporterFromInternalForTest(s.inner)
 	require.NoError(t, imp.Close())
 
-	_, err := imp.ListRemote(t.Context(), usbip.RemoteEndpoint{Host: "peer"})
+	_, err := imp.ListRemote(t.Context(), usbip.RemoteEndpoint{Host: testPeerHost})
 	require.ErrorIs(t, err, usbip.ErrImporterClosed)
 }
 

@@ -88,7 +88,7 @@ func uevent(fields map[string]string) []byte {
 
 	// Kernel prepends "ACTION@DEVPATH" as the first NUL-terminated
 	// token; include an ignored placeholder for realism.
-	header := fields["ACTION"] + "@" + fields["DEVPATH"]
+	header := fields[testUeventActionField] + "@" + fields[testUeventDevPathField]
 
 	out = append(out, []byte(header)...)
 	out = append(out, 0)
@@ -138,9 +138,9 @@ func TestSubscribe_DeliversParsedEvent(t *testing.T) {
 	require.NotNil(t, unsub)
 
 	sock.feed(uevent(map[string]string{
-		"ACTION":    "remove",
-		"SUBSYSTEM": "usb",
-		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb1/1-5",
+		testUeventActionField:    testUeventActionRemove,
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   "/devices/platform/vhci_hcd.0/usb1/1-5",
 	}))
 
 	select {
@@ -171,9 +171,9 @@ func TestSubscribe_FanOutToTwoConsumers(t *testing.T) {
 	require.NoError(t, err)
 
 	sock.feed(uevent(map[string]string{
-		"ACTION":    "add",
-		"SUBSYSTEM": "usb",
-		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb1/1-1",
+		testUeventActionField:    testUeventActionAdd,
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   testVHCIDeviceDevPath,
 	}))
 
 	seenCount := 0
@@ -321,9 +321,9 @@ func TestSubscribe_FirstSubscriberCancelDoesNotStopOthers(t *testing.T) {
 
 	// Feed an event AFTER subscriber 1 has been torn down.
 	sock.feed(uevent(map[string]string{
-		"ACTION":    "add",
-		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb1/1-1",
-		"SUBSYSTEM": "usb",
+		testUeventActionField:    testUeventActionAdd,
+		testUeventDevPathField:   testVHCIDeviceDevPath,
+		testUeventSubsystemField: testUeventSubsystemUSB,
 	}))
 
 	select {
@@ -357,28 +357,28 @@ func TestSubscribe_UsbipHostEmitsDeviceBindEvents(t *testing.T) {
 	}{
 		{
 			name:      "bind_simple",
-			action:    "add",
-			devpath:   "/devices/pci0000:00/0000:00:14.0/usb1/1-1",
+			action:    testUeventActionAdd,
+			devpath:   testPhysicalUSBDeviceDevPath,
 			wantKind:  domain.EventDeviceBound,
-			wantBusID: domain.BusID("1-1"),
+			wantBusID: domain.BusID(testRootBusID),
 		},
 		{
 			name:      "unbind_simple",
-			action:    "remove",
-			devpath:   "/devices/pci0000:00/0000:00:14.0/usb1/1-1",
+			action:    testUeventActionRemove,
+			devpath:   testPhysicalUSBDeviceDevPath,
 			wantKind:  domain.EventDeviceUnbound,
-			wantBusID: domain.BusID("1-1"),
+			wantBusID: domain.BusID(testRootBusID),
 		},
 		{
 			name:      "bind_dotted",
-			action:    "add",
+			action:    testUeventActionAdd,
 			devpath:   "/devices/pci0000:00/0000:00:14.0/usb1/1-1.2",
 			wantKind:  domain.EventDeviceBound,
 			wantBusID: domain.BusID("1-1.2"),
 		},
 		{
 			name:      "unbind_dotted",
-			action:    "remove",
+			action:    testUeventActionRemove,
 			devpath:   "/devices/pci0000:00/0000:00:14.0/usb2/2-3.4.5",
 			wantKind:  domain.EventDeviceUnbound,
 			wantBusID: domain.BusID("2-3.4.5"),
@@ -401,9 +401,9 @@ func TestSubscribe_UsbipHostEmitsDeviceBindEvents(t *testing.T) {
 			defer unsub()
 
 			sock.feed(uevent(map[string]string{
-				"ACTION":    tc.action,
-				"SUBSYSTEM": "usbip_host",
-				"DEVPATH":   tc.devpath,
+				testUeventActionField:    tc.action,
+				testUeventSubsystemField: testUeventSubsystemUSBIPHost,
+				testUeventDevPathField:   tc.devpath,
 			}))
 
 			select {
@@ -445,14 +445,14 @@ func TestSubscribe_DottedBusIDProducesEvent(t *testing.T) {
 	}{
 		{
 			name:      "remove_one_dot",
-			action:    "remove",
+			action:    testUeventActionRemove,
 			devpath:   "/devices/platform/vhci_hcd.0/usb1/1-1.2",
 			wantKind:  domain.EventPortDetached,
 			wantBusID: domain.BusID("1-1.2"),
 		},
 		{
 			name:      "add_two_dots",
-			action:    "add",
+			action:    testUeventActionAdd,
 			devpath:   "/devices/platform/vhci_hcd.0/usb2/2-3.4.5",
 			wantKind:  domain.EventPortAttached,
 			wantBusID: domain.BusID("2-3.4.5"),
@@ -482,9 +482,9 @@ func TestSubscribe_DottedBusIDProducesEvent(t *testing.T) {
 			defer unsub()
 
 			sock.feed(uevent(map[string]string{
-				"ACTION":    tc.action,
-				"SUBSYSTEM": "usb",
-				"DEVPATH":   tc.devpath,
+				testUeventActionField:    tc.action,
+				testUeventSubsystemField: testUeventSubsystemUSB,
+				testUeventDevPathField:   tc.devpath,
 			}))
 
 			select {
@@ -556,9 +556,9 @@ func TestEventsAdapter_SubscribeSucceedsWithoutVHCI(t *testing.T) {
 	// as a DeviceBoundEvent, because the usbip_host classifier is
 	// orthogonal to the VHCI topology.
 	sock.feed(uevent(map[string]string{
-		"ACTION":    "add",
-		"SUBSYSTEM": "usbip_host",
-		"DEVPATH":   "/devices/pci0000:00/0000:00:14.0/usb1/1-1",
+		testUeventActionField:    testUeventActionAdd,
+		testUeventSubsystemField: testUeventSubsystemUSBIPHost,
+		testUeventDevPathField:   testPhysicalUSBDeviceDevPath,
 	}))
 
 	select {
@@ -567,7 +567,7 @@ func TestEventsAdapter_SubscribeSucceedsWithoutVHCI(t *testing.T) {
 
 		bound, isBound := ev.(domain.DeviceBoundEvent)
 		require.True(t, isBound, "expected DeviceBoundEvent, got %T", ev)
-		require.Equal(t, domain.BusID("1-1"), bound.Device.BusID)
+		require.Equal(t, domain.BusID(testRootBusID), bound.Device.BusID)
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for usbip_host event without VHCI")
 	}
@@ -576,9 +576,9 @@ func TestEventsAdapter_SubscribeSucceedsWithoutVHCI(t *testing.T) {
 	// (no nports file), and the event must be dropped. Nothing should
 	// arrive on the channel within the polling window.
 	sock.feed(uevent(map[string]string{
-		"ACTION":    "remove",
-		"SUBSYSTEM": "usb",
-		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb1/1-1",
+		testUeventActionField:    testUeventActionRemove,
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   testVHCIDeviceDevPath,
 	}))
 
 	select {
@@ -623,9 +623,9 @@ func TestSubscribe_EmitsFlatPortIDForVhciEvent(t *testing.T) {
 	defer unsub()
 
 	sock.feed(uevent(map[string]string{
-		"ACTION":    "add",
-		"SUBSYSTEM": "usb",
-		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb1/1-5",
+		testUeventActionField:    testUeventActionAdd,
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   "/devices/platform/vhci_hcd.0/usb1/1-5",
 	}))
 
 	select {
@@ -669,9 +669,9 @@ func TestSubscribe_EmitsFlatPortIDForMultiController(t *testing.T) {
 	defer unsub()
 
 	sock.feed(uevent(map[string]string{
-		"ACTION":    "remove",
-		"SUBSYSTEM": "usb",
-		"DEVPATH":   "/devices/platform/vhci_hcd.1/usb4/4-2",
+		testUeventActionField:    testUeventActionRemove,
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   "/devices/platform/vhci_hcd.1/usb4/4-2",
 	}))
 
 	select {
@@ -702,9 +702,9 @@ func TestSubscribe_RegistrationRaceDoesNotDropEvent(t *testing.T) {
 	// addSubscriber lands, this event is broadcast to zero subscribers
 	// and lost.
 	sock.feed(uevent(map[string]string{
-		"ACTION":    "add",
-		"DEVPATH":   "/devices/platform/vhci_hcd.0/usb1/1-1",
-		"SUBSYSTEM": "usb",
+		testUeventActionField:    testUeventActionAdd,
+		testUeventDevPathField:   testVHCIDeviceDevPath,
+		testUeventSubsystemField: testUeventSubsystemUSB,
 	}))
 
 	ch, unsub, err := a.Subscribe(t.Context())

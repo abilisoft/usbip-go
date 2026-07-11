@@ -205,7 +205,6 @@ func exporterConfigToInternal(cfg exporterConfig) []internalapp.ExporterOption {
 
 	out = appendExporterLoggerAndLimits(out, cfg)
 	out = appendExporterTimeouts(out, cfg)
-	out = appendExporterTransport(out, cfg)
 
 	return out
 }
@@ -261,19 +260,8 @@ func appendExporterTimeouts(
 	return out
 }
 
-// appendExporterTransport forwards the per-Exporter transport tuning.
-func appendExporterTransport(
-	out []internalapp.ExporterOption, cfg exporterConfig,
-) []internalapp.ExporterOption {
-	if cfg.transportOptions != (TransportOptions{}) {
-		out = append(out, internalapp.WithExporterTransportOptions(cfg.transportOptions))
-	}
-
-	return out
-}
-
 // exporterInternalOptCap is the ceiling used to preallocate the slice
 // returned by exporterConfigToInternal. It matches the number of
-// option branches inside that function (10 including the shutdown-
+// option branches inside that function (9 including the shutdown-
 // timeout plumbing).
-const exporterInternalOptCap = 10
+const exporterInternalOptCap = 9

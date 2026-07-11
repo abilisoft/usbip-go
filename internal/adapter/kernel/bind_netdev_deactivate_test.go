@@ -34,16 +34,16 @@ func TestBind_DeactivatesNetdev(t *testing.T) {
 	t.Parallel()
 
 	const (
-		busID   = "1-1"
+		busID   = testRootBusID
 		netName = "enxAA00"
 	)
 
 	mfs := fstest.MapFS{
-		"sys/module/usbip_core":                                    &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/module/usbip_host":                                    &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host":                           &fstest.MapFile{Mode: fs.ModeDir},
-		"sys/bus/usb/drivers/usbip-host/match_busid":               &fstest.MapFile{Data: []byte("")},
-		"sys/bus/usb/drivers/usbip-host/bind":                      &fstest.MapFile{Data: []byte("")},
+		testFSModuleUSBIPCorePath:                                  &fstest.MapFile{Mode: fs.ModeDir},
+		testFSModuleUSBIPHostPath:                                  &fstest.MapFile{Mode: fs.ModeDir},
+		testFSUSBIPHostDir:                                         &fstest.MapFile{Mode: fs.ModeDir},
+		testFSUSBIPHostMatchBusIDPath:                              &fstest.MapFile{Data: []byte("")},
+		testFSUSBIPHostBindPath:                                    &fstest.MapFile{Data: []byte("")},
 		"sys/bus/usb/devices/" + busID:                             &fstest.MapFile{Mode: fs.ModeDir},
 		"sys/bus/usb/devices/" + busID + "/bConfigurationValue":    &fstest.MapFile{Data: []byte("1\n")},
 		"sys/bus/usb/devices/" + busID + ":1.0":                    &fstest.MapFile{Mode: fs.ModeDir},

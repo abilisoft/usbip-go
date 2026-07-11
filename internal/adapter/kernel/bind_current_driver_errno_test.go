@@ -28,7 +28,7 @@ type poisonFS struct {
 
 func (p poisonFS) Open(name string) (fs.File, error) {
 	if name == p.target {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: p.injectErr}
+		return nil, &fs.PathError{Op: testOpenOperation, Path: name, Err: p.injectErr}
 	}
 
 	f, err := p.inner.Open(name)

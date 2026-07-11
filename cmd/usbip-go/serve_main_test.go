@@ -53,7 +53,7 @@ func TestMain(m *testing.M) {
 func specFlags() []string {
 	return []string{
 		"--listen",
-		"--status-socket",
+		testStatusSocketFlag,
 		"--status-socket-group",
 		"--health-addr",
 		"--allow-cidr",
@@ -82,7 +82,7 @@ func TestRootHelpListsEveryFlag(t *testing.T) {
 
 	cmd.SetOut(&buf)
 	cmd.SetErr(&buf)
-	cmd.SetArgs([]string{"serve", "--help"})
+	cmd.SetArgs([]string{testServeCommand, testHelpFlag})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -98,7 +98,7 @@ func TestRootHelpListsEveryFlag(t *testing.T) {
 func TestUnknownFlagReturnsExit2(t *testing.T) {
 	t.Parallel()
 
-	code, err := runCtx(t.Context(), []string{"serve", "--no-such-flag"})
+	code, err := runCtx(t.Context(), []string{testServeCommand, "--no-such-flag"})
 	require.Error(t, err)
 	require.Equal(t, ExitUsage, code)
 }
@@ -110,7 +110,7 @@ func TestUnknownFlagReturnsExit2(t *testing.T) {
 func TestConfigFlagRemoved(t *testing.T) {
 	t.Parallel()
 
-	code, err := runCtx(t.Context(), []string{"--config", "/tmp/does-not-exist.yaml", "version"})
+	code, err := runCtx(t.Context(), []string{"--config", "/tmp/does-not-exist.yaml", testVersionToken})
 	require.Error(t, err)
 	require.Equal(t, ExitUsage, code)
 	require.Contains(t, err.Error(), "unknown flag",
@@ -128,7 +128,7 @@ func TestVersionSubcommand(t *testing.T) {
 
 	cmd.SetOut(&buf)
 	cmd.SetErr(&buf)
-	cmd.SetArgs([]string{"version"})
+	cmd.SetArgs([]string{testVersionToken})
 
 	err := cmd.Execute()
 	require.NoError(t, err)

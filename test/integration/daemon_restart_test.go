@@ -339,6 +339,10 @@ func splitHostPortLog(s string) (string, string, error) {
 func buildDaemonBinary(t *testing.T) string {
 	t.Helper()
 
+	if bin, ok := integration.BazelRunfilePath(filepath.Join("cmd", "usbip-go", "usbip-go_", "usbip-go")); ok {
+		return bin
+	}
+
 	out := filepath.Join(t.TempDir(), "usbip-go")
 	repoRoot := findModuleRoot(t)
 

@@ -11,9 +11,9 @@
 // the Transport interface signature lives here — a leaf package both
 // callers can import without cycling.
 //
-// Field semantics are documented on the type itself; PR 1a wires the
-// type through the interface, PR 1b adds the adapter-side tuning logic
-// that consumes non-zero values.
+// Field semantics are documented on the type itself. The app layer passes
+// values through its transport interface, and the transport adapter applies
+// each non-zero setting to outbound and accepted TCP connections.
 package netopts
 
 import (

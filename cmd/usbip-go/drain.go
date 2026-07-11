@@ -44,6 +44,7 @@ func newDrainCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "drain",
 		Short:         "Request the running usbip-go serve daemon to refuse new accepts and exit",
+		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {

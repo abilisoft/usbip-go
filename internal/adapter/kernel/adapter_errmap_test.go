@@ -38,14 +38,14 @@ func TestErrMapMatrix(t *testing.T) {
 		},
 		{
 			name:           "ENOENT on driver path → ErrKernelModuleMissing",
-			path:           "/sys/bus/usb/drivers/usbip-host/bind",
+			path:           testUSBIPHostBindPath,
 			errno:          unix.ENOENT,
 			want:           domain.ErrKernelModuleMissing,
 			rejectedDomain: []error{domain.ErrDeviceNotFound},
 		},
 		{
 			name:  "ENOENT on controller path → ErrKernelModuleMissing",
-			path:  "/sys/devices/platform/vhci_hcd.0/attach",
+			path:  testVHCIAttachPath,
 			errno: unix.ENOENT,
 			want:  domain.ErrKernelModuleMissing,
 		},
@@ -57,25 +57,25 @@ func TestErrMapMatrix(t *testing.T) {
 		},
 		{
 			name:  "EACCES → ErrPermission",
-			path:  "/sys/bus/usb/devices/1-1/idVendor",
+			path:  testUSBDeviceVendorPath,
 			errno: unix.EACCES,
 			want:  domain.ErrPermission,
 		},
 		{
 			name:  "EPERM → ErrPermission",
-			path:  "/sys/bus/usb/drivers/usbip-host/bind",
+			path:  testUSBIPHostBindPath,
 			errno: unix.EPERM,
 			want:  domain.ErrPermission,
 		},
 		{
 			name:  "EBUSY on bind → ErrDeviceAlreadyBound",
-			path:  "/sys/bus/usb/drivers/usbip-host/bind",
+			path:  testUSBIPHostBindPath,
 			errno: unix.EBUSY,
 			want:  domain.ErrDeviceAlreadyBound,
 		},
 		{
 			name:  "ENODEV → ErrDeviceNotFound",
-			path:  "/sys/devices/platform/vhci_hcd.0/attach",
+			path:  testVHCIAttachPath,
 			errno: unix.ENODEV,
 			want:  domain.ErrDeviceNotFound,
 		},
@@ -103,7 +103,7 @@ func TestErrMapMatrix_UnknownPassThrough(t *testing.T) {
 
 	cases := []unix.Errno{unix.EIO, unix.EINTR, unix.ETIMEDOUT, unix.ENOSYS}
 	for _, e := range cases {
-		err := kernel.ClassifyErrno("/sys/bus/usb/devices/1-1/idVendor", e)
+		err := kernel.ClassifyErrno(testUSBDeviceVendorPath, e)
 		require.ErrorIs(t, err, e, "raw errno must still be matchable")
 	}
 }

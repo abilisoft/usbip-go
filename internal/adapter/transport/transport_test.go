@@ -374,9 +374,12 @@ func TestListen_CloseDoesNotDeadlockAfterCtxCancel(t *testing.T) {
 	require.NoError(t, err)
 
 	cancel()
-	// Give the watcher a moment to run so the race path exercises
-	// "watcher closed first, caller calls Close second".
-	time.Sleep(50 * time.Millisecond)
+
+	// Accept blocks until the cancellation watcher closes the underlying
+	// listener. Its error is the deterministic handoff proving the watcher
+	// won before the explicit Close below.
+	_, acceptErr := ln.Accept()
+	require.Error(t, acceptErr)
 
 	done := make(chan struct{})
 

@@ -25,7 +25,7 @@ import (
 func TestUnbind_PreDisconnectSocketfdWriteFails_Continues(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	rec := &writeRecord{}
 
 	a, err := kernel.NewExporterAdapter(
@@ -60,7 +60,7 @@ func TestUnbind_PreDisconnectSocketfdWriteFails_Continues(t *testing.T) {
 func TestUnbind_UnbindAndMatchBothFail_WarnLog(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	rec := &writeRecord{}
 
 	failAt1and2 := func(p, d string) error {
@@ -116,7 +116,7 @@ func TestUnbind_UnbindAndMatchBothFail_WarnLog(t *testing.T) {
 func TestUnbind_MatchAndRebindBothFail_WarnLog(t *testing.T) {
 	t.Parallel()
 
-	busID := domain.BusID("1-1")
+	busID := domain.BusID(testRootBusID)
 	rec := &writeRecord{}
 
 	failAt2and3 := func(p, d string) error {

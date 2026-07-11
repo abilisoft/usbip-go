@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abilisoft/usbip-go/internal/adapter/transport"
 	"github.com/abilisoft/usbip-go/internal/adapter/wire"
 	"github.com/abilisoft/usbip-go/internal/app"
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -192,7 +191,6 @@ func buildDaemonWithStubbedKernelAndCodec(
 	exp, err := app.NewExporterWithError(
 		app.WithExporterKernel(kernel),
 		app.WithExporterEvents(events),
-		app.WithExporterTransport(transport.New()),
 		app.WithExporterCodec(codec),
 	)
 	require.NoError(t, err)

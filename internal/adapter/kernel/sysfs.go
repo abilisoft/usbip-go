@@ -242,8 +242,7 @@ func classifySyscallErr(op, path string, err error) error {
 // equivalent if the underlying cause is an errno or fs.ErrNotExist.
 // Unrecognised errors pass through unchanged.
 func classifyErrAny(path string, err error) error {
-	var errno unix.Errno
-	if errors.As(err, &errno) {
+	if errno, ok := errors.AsType[unix.Errno](err); ok {
 		return classifyErrnoKind(classifyPath(path), errno)
 	}
 

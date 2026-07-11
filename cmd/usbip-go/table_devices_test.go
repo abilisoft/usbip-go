@@ -29,7 +29,7 @@ func TestTableRendererDevices(t *testing.T) {
 
 	devs := []usbip.Device{
 		{
-			BusID:     domain.BusID("1-1"),
+			BusID:     domain.BusID(testRootBusID),
 			Speed:     domain.SpeedHigh,
 			VendorID:  0x0951,
 			ProductID: 0x1666,
@@ -44,7 +44,7 @@ func TestTableRendererDevices(t *testing.T) {
 	got := out.String()
 	require.NotEmpty(t, got)
 
-	for _, want := range []string{"1-1", "BUSID", "SPEED"} {
+	for _, want := range []string{testRootBusID, testBusIDHeader, "SPEED"} {
 		require.Contains(t, got, want)
 	}
 }
@@ -55,7 +55,7 @@ func TestTableRendererDevices(t *testing.T) {
 func TestTableRendererDevices_WriteError(t *testing.T) {
 	t.Parallel()
 
-	err := tableRenderer{}.Devices(failWriter{}, []usbip.Device{{BusID: "1-1"}})
+	err := tableRenderer{}.Devices(failWriter{}, []usbip.Device{{BusID: testRootBusID}})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "render device table")
 }
@@ -64,7 +64,7 @@ func TestTableRendererDevices_WriteError(t *testing.T) {
 func TestTableRendererPorts_WriteError(t *testing.T) {
 	t.Parallel()
 
-	err := tableRenderer{}.Ports(failWriter{}, []usbip.Port{{ID: 1, BusID: "1-1"}})
+	err := tableRenderer{}.Ports(failWriter{}, []usbip.Port{{ID: 1, BusID: testRootBusID}})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "render port table")
 }
@@ -76,7 +76,7 @@ func TestTableRendererSessions_WriteError(t *testing.T) {
 	sid, err := domain.NewSessionID()
 	require.NoError(t, err)
 
-	err = tableRenderer{}.Sessions(failWriter{}, []usbip.Session{{ID: sid, BusID: "1-1"}})
+	err = tableRenderer{}.Sessions(failWriter{}, []usbip.Session{{ID: sid, BusID: testRootBusID}})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "render session table")
 }
@@ -88,7 +88,7 @@ func TestTableRendererSessions_WriteError(t *testing.T) {
 func TestTableRendererEvent_WriteError_KnownType(t *testing.T) {
 	t.Parallel()
 
-	ev := domain.DeviceBoundEvent{Device: domain.Device{BusID: domain.BusID("1-1")}}
+	ev := domain.DeviceBoundEvent{Device: domain.Device{BusID: domain.BusID(testRootBusID)}}
 
 	err := tableRenderer{}.Event(failWriter{}, ev)
 	require.Error(t, err)
@@ -120,9 +120,9 @@ func TestDeviceLabel_AllBranches(t *testing.T) {
 		want         string
 	}{
 		{"both empty -> placeholder", "", "", "—"},
-		{"manufacturer empty -> product only", "", "DataTraveler", "DataTraveler"},
-		{"product empty -> manufacturer only", "Kingston", "", "Kingston"},
-		{"both populated -> joined with space", "Kingston", "DataTraveler", "Kingston DataTraveler"},
+		{"manufacturer empty -> product only", "", testProduct, testProduct},
+		{"product empty -> manufacturer only", testManufacturer, "", testManufacturer},
+		{"both populated -> joined with space", testManufacturer, testProduct, "Kingston DataTraveler"},
 	}
 
 	for _, tc := range cases {
