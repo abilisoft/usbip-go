@@ -22,7 +22,7 @@ NUL padding on encode and trims at the first NUL on decode.
 
 ## Protocol version
 
-```
+```text
 const ProtocolVersion uint16 = 0x0111   // 1.1.1
 ```
 
@@ -34,7 +34,7 @@ the `oops` context.
 
 Every request and reply begins with the same fixed-width header.
 
-```
+```text
 offset  size  field             notes
 ------  ----  ----------------  -----
    0      2   version           big-endian u16; must equal 0x0111
@@ -66,7 +66,7 @@ Body: none. Header alone, 8 bytes. The server replies with
 
 ## `OP_REP_DEVLIST` (server -> client)
 
-```
+```text
 offset  size   field
 ------  -----  ----------------------------------------------------
    0      4    nDevices                 (u32, device count)
@@ -88,7 +88,7 @@ level and silently ignored (permissive on read).
 
 ## `OP_REQ_IMPORT` (client -> server)
 
-```
+```text
 offset  size  field
 ------  ----  ----------------------
    0     32   busid[32]     NUL-padded ASCII BusID
@@ -98,7 +98,7 @@ Total request size: 8 (header) + 32 (busid) = 40 bytes.
 
 ## `OP_REP_IMPORT` (server -> client)
 
-```
+```text
 offset  size  field
 ------  ----  ----------------------------------
    0    312   device descriptor   (see below)
@@ -111,7 +111,7 @@ device the kernel now owns.
 
 ## Device descriptor (312 bytes)
 
-```
+```text
 offset  size  field                    wire type
 ------  ----  -----------------------  ---------
    0    256   path                     char[256]  NUL-padded ASCII
@@ -158,7 +158,7 @@ It is validated on decode against the pattern
 Every device in `OP_REP_DEVLIST` is followed by `bNumInterfaces`
 4-byte interface descriptors:
 
-```
+```text
 offset  size  field                  wire type
 ------  ----  ---------------------  ---------
    0      1   bInterfaceClass        u8

@@ -54,7 +54,7 @@ One or more entries switches the daemon into fail-closed ACL mode.
 
 Example:
 
-```
+```text
 usbip-go serve --allow-cidr 10.0.0.0/8 --allow-cidr 192.168.0.0/16
 ```
 
@@ -114,7 +114,7 @@ Four deployment patterns, in order of decreasing privilege:
 2. **Run under a dedicated `usbip-go` user with `setcap`.** Grant only
    what the binary needs:
 
-   ```
+   ```text
    sudo setcap 'cap_sys_admin,cap_dac_override=+ep' /usr/bin/usbip-go
    ```
 

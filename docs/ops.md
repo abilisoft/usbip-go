@@ -11,7 +11,7 @@ Use the OS package for production/systemd installs. The `.deb` and
 `.rpm` release assets install the binary, systemd units, modules-load
 config, and runtime-directory wiring used by the default status socket:
 
-```
+```text
 sudo dpkg -i usbip-go_X.Y.Z_amd64.deb
 # or
 sudo rpm -i usbip-go-X.Y.Z.x86_64.rpm
@@ -20,7 +20,7 @@ sudo rpm -i usbip-go-X.Y.Z.x86_64.rpm
 Archive and `go install` builds are best for manual foreground use or
 development:
 
-```
+```text
 curl -LO https://github.com/abilisoft/usbip-go/releases/download/vX.Y.Z/usbip-go_X.Y.Z_linux_amd64.tar.gz
 tar xzf usbip-go_X.Y.Z_linux_amd64.tar.gz
 sudo install -m 0755 usbip-go /usr/local/bin/
@@ -33,7 +33,7 @@ Kernel modules must be loadable on the target host. Packages install
 persistent module-loading config; archive and source installs should
 load the role-specific modules before starting commands:
 
-```
+```text
 sudo modprobe usbip_core usbip_host      # exporter/server
 sudo modprobe usbip_core vhci_hcd        # importer/client
 ```
@@ -109,7 +109,7 @@ If you intentionally copy the reference unit by hand, keep
 
 Enable:
 
-```
+```text
 sudo systemctl daemon-reload
 sudo systemctl enable --now usbip-go.socket
 ```
@@ -147,7 +147,7 @@ Run `usbip-go serve --help` for the up-to-date set.
 For manual foreground runs from an archive or `go install`, either
 disable the status UDS:
 
-```
+```text
 sudo usbip-go serve --status-socket=
 ```
 
@@ -183,7 +183,7 @@ supervisors can grep on these values:
 When `--status-socket` is non-empty, the daemon serves a Unix-domain
 socket HTTP endpoint with the live status document.
 
-```
+```text
 sudo curl --unix-socket /run/usbip-go/status.sock http://unused/ | jq .
 ```
 
@@ -202,7 +202,7 @@ Output includes:
 
 The status socket is also the channel for the drain command:
 
-```
+```text
 sudo usbip-go drain --status-socket /run/usbip-go/status.sock
 ```
 
@@ -239,7 +239,7 @@ immediately without re-triggering shutdown.
 
 Enable with `--health-addr`:
 
-```
+```text
 usbip-go serve --health-addr 127.0.0.1:9240
 ```
 
@@ -263,7 +263,7 @@ classification, so journald queries cover the same dashboards.
 
 Recommended journald signal queries:
 
-```
+```text
 # Bind / unbind failures by outcome
 journalctl -u usbip-go --output=json \
   | jq 'select(.MESSAGE | startswith("exporter bind failed"))
@@ -286,7 +286,7 @@ not ship that adapter.
 
 For seamless upgrades:
 
-```
+```text
 sudo usbip-go drain --status-socket /run/usbip-go/status.sock
 sudo install -m 0755 /tmp/new-usbip-go /usr/bin/usbip-go
 sudo systemctl start usbip-go
@@ -311,7 +311,7 @@ need accounting continuity should drain before upgrading.
   [`wire-trace.md`](wire-trace.md).
 - **Something else** — include the output of:
 
-  ```
+  ```text
   usbip-go version
   sudo usbip-go serve --log-level=trace --status-socket=/run/usbip-go/status.sock
   sudo curl --unix-socket /run/usbip-go/status.sock http://unused/ | jq .

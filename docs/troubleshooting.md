@@ -6,7 +6,7 @@ for anything the tree doesn't cover.
 
 ## Decision tree: "my device won't attach"
 
-```
+```text
 START: usbip-go attach HOST BUSID fails.
   |
   +-- Error text contains "kernel module missing"?
@@ -101,7 +101,7 @@ in log output so you can grep directly.
 
 ## Recovering from missing kernel modules
 
-```
+```text
 $ lsmod | grep -E 'usbip|vhci'
 # No output — modules are not loaded.
 
@@ -129,14 +129,14 @@ role modules before running commands.
 still owns the port but the daemon lost track. Check the kernel
 view:
 
-```
+```text
 $ cat /sys/devices/platform/vhci_hcd.0/status
 ```
 
 Ports in `SDEV_ST_ERROR` or `SDEV_ST_USED` that are not in
 `usbip-go port` output can be force-detached via sysfs:
 
-```
+```text
 $ echo <port_id> | sudo tee /sys/devices/platform/vhci_hcd.0/detach
 ```
 
@@ -144,7 +144,7 @@ This is the last-resort path; prefer `usbip-go detach` when it works.
 
 ## Daemon not accepting connections
 
-```
+```text
 $ sudo systemctl status usbip-go usbip-go.socket
 $ sudo journalctl -u usbip -f
 ```
@@ -155,7 +155,7 @@ accepts inbound TCP and wakes the daemon on demand.
 
 Verify the listener is bound:
 
-```
+```text
 $ sudo ss -tnlp | grep 3240
 LISTEN 0  128  0.0.0.0:3240  0.0.0.0:*  users:(("systemd",pid=1,fd=NN))
 ```
@@ -163,7 +163,7 @@ LISTEN 0  128  0.0.0.0:3240  0.0.0.0:*  users:(("systemd",pid=1,fd=NN))
 If the listener is absent, the socket unit failed. Check its
 logs:
 
-```
+```text
 $ sudo journalctl -u usbip-go.socket -f
 ```
 

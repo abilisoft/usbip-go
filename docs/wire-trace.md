@@ -38,7 +38,7 @@ final reply bytes even if the client process exits immediately.
 
 ## Live capture recipe
 
-```
+```text
 # 1. On the client host, start tcpdump BEFORE running the client.
 sudo tcpdump -i any -s 0 -w /tmp/usbip-trace.pcap 'tcp port 3240' &
 TCPDUMP_PID=$!
@@ -61,7 +61,7 @@ limit".
 
 ## Inspecting with tshark
 
-```
+```text
 tshark -r /tmp/usbip-trace.pcap -Y 'tcp.port == 3240 && tcp.len > 0' \
   -T fields -e frame.number -e tcp.stream \
   -e ip.src -e tcp.srcport -e ip.dst -e tcp.dstport -e tcp.len
@@ -78,7 +78,7 @@ byte fixture check.
 `tshark -T fields -e tcp.payload` prints every matching packet's
 payload as a hex string. To split by stream and direction:
 
-```
+```text
 for dir in req rep; do
   case "$dir" in
     req) f='tcp.port == 3240 && tcp.dstport == 3240 && tcp.len > 0' ;;
@@ -155,14 +155,14 @@ For a protocol-path bug report, attach:
 1. The pcap (`/tmp/usbip-trace.pcap` or equivalent).
 2. Trace-level daemon log from the exporter:
 
-   ```
+   ```text
    sudo usbip-go serve --log-level=trace 2>&1 | tee /tmp/usbip-serve.log
    ```
 
 3. Output of `usbip-go version` (or `cat /proc/version`).
 4. The status-socket snapshot:
 
-   ```
+   ```text
    sudo curl --unix-socket /run/usbip-go/status.sock \
      http://unused/ | tee /tmp/status.json
    ```

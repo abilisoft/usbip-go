@@ -5,7 +5,7 @@ contributors.
 
 ## Layers
 
-```
+```text
 +-------------------------+  cmd/usbip-go, examples/*
 |   Command entrypoints   |
 +-----------+-------------+
@@ -42,9 +42,8 @@ Dependencies flow top-down only:
   dependency.
 - No adapter package imports `internal/app`.
 
-These rules are enforced mechanically by the `domain-boundary` job in
-the [`_arch-checks.yml`](../.github/workflows/_arch-checks.yml)
-reusable workflow (called from `ci.yml`'s `arch:` job).
+These rules are enforced mechanically by the Bazel-backed lint suite
+run from [`ci.yml`](../.github/workflows/ci.yml) via `make lint`.
 
 ## Package responsibilities
 
@@ -97,8 +96,7 @@ are composed in via `pkg/usbip`'s constructors. The app layer
 imports `internal/adapter/wire` because the codec value types appear
 on those interface signatures, but it does NOT import
 `internal/adapter/kernel` or `internal/adapter/transport` —
-the `domain-boundary` CI job (in `_arch-checks.yml`) verifies that
-latter rule.
+the Bazel-backed `make lint` CI gate verifies that latter rule.
 
 ### `internal/adapter/kernel`
 
@@ -142,7 +140,7 @@ version,completion}` cover the client and operator commands.
 
 Four minimal library-embed programs that each demonstrate one public
 API pattern. Every example builds with `go build ./examples/...` and
-is covered by the `Linux cross-compilation` CI job (in `_arch-checks.yml`).
+is covered by the Bazel build in `make build`.
 
 ## Concurrency model
 
@@ -178,8 +176,7 @@ map is covered by `openspec/specs/domain-model/spec.md` and the package tests.
 1. **Go `internal/` rule** — packages outside the module cannot
    import anything under `internal/`. This is a compiler-level
    check.
-2. **`pkg/domain` must not import `internal/`** — enforced by the
-   `domain-boundary` CI job (in `_arch-checks.yml`). The domain
+2. **`pkg/domain` must not import `internal/`** — enforced by the Bazel-backed lint suite run by `make lint`. The domain
    package stays a pure-stdlib value-object surface — the same
    job also rejects any third-party import (anything whose path
    contains a dot in the host segment) so consumers of the library
@@ -195,6 +192,5 @@ map is covered by `openspec/specs/domain-model/spec.md` and the package tests.
    through the interfaces it declares. It DOES import
    `internal/adapter/wire` because codec value types appear on
    those interface signatures.
-5. **No cgo anywhere** — enforced by the `pure-go` CI job (in
-   `_arch-checks.yml`) via both `go list -f '{{.CgoFiles}}'` and
-   source grep for `import "C"`.
+5. **No cgo anywhere** — enforced by the Bazel-backed lint suite via both package metadata
+   checks and source grep for `import "C"`.

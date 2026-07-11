@@ -1,149 +1,155 @@
 ## Purpose
 
-Specify the repository's contributor workflow, hermetic toolchain, local task dispatch, and CI-equivalent verification surfaces.
+Specify the repository's contributor workflow, hermetic Bazel toolchain, local Make entrypoints, and CI-equivalent verification surfaces.
 
 ## Requirements
 
-### Requirement: Host tasks dispatch into the smallest hermetic Nix shell
-Top-level Taskfile targets SHALL dispatch through Docker-backed Nix shells for local users unless the process is already inside the expected shell. Routine build and test tasks SHALL use the fast `dev` shell; formatting tasks SHALL use the `fmt` shell; lint, spelling, analyzer, Compose/OpenSpec, and release-configuration validation tasks SHALL use the `lint` shell; vulnerability scanning SHALL use the `vuln` shell; mutation testing SHALL use the `mutation` shell; full local QA checks MAY use the `qa` superset shell; release tasks SHALL use the `release` shell; microVM tasks SHALL use the `vm` shell.
+### Requirement: Host tasks dispatch through hermetic Bazel targets
 
-#### Scenario: Tooling uses cached Nixpkgs packages
-- **WHEN** formatter, linter, vulnerability, or release CLI tools are evaluated
-- **THEN** those tools are sourced from a separate locked `tooling-nixpkgs` input
-- **AND** the Go toolchain and microVM closure remain sourced from the primary security-patched `nixpkgs` input
+Top-level Make targets SHALL be the local and CI entrypoint for build, test, lint, formatting, vulnerability, mutation, integration, conformance, and release workflows. Make targets SHALL bootstrap repo-local Bazelisk and Go when needed, then delegate work to Bazel targets or Bazel test suites. Bazel SHALL resolve the Go SDK and Go module graph from repository manifests so routine workflows do not depend on host Go, Nix, or Task installs.
 
-#### Scenario: Host runs a daily workflow task
-- **WHEN** a contributor runs `task test`, `task build`, `task tidy`, or another build/test workflow task from the host
-- **THEN** the task seeds `.#dev` if needed and invokes the matching `ci:*` task inside `docker compose run --rm dev`
+#### Scenario: Tooling is provisioned under repo-local state
+
+- **WHEN** a contributor runs `make bootstrap` or another Make target that depends on bootstrap
+- **THEN** Bazelisk and the bootstrap Go binary are installed under `.local/tools`
+- **AND** Bazelisk home, Bazel output user root, and Bazel disk cache stay under `.local/`
+- **AND** no global package manager state is required for normal repository workflows
+
+#### Scenario: Host runs a build workflow task
+
+- **WHEN** a contributor runs `make build`
+- **THEN** Make invokes Bazel over `BAZEL_BUILD_TARGETS`, defaulting to `//...`
+- **AND** repository binaries and libraries build with the Bazel-resolved Go toolchain
+
+#### Scenario: Host runs the pull-request CI pipeline locally
+
+- **WHEN** a contributor runs `make ci-local`
+- **THEN** Make builds Bazel target `//:ci-local`
+- **AND** the runner invokes the repository-owned build, unit-test, conformance, lint, vulnerability, coverage-threshold, and GoReleaser-check commands used by the GitHub pull-request workflow
+- **AND** the runner executes host-native against the current worktree because Bazel already provisions the repository toolchain hermetically
+
+#### Scenario: Host runs a unit test workflow task
+
+- **WHEN** a contributor runs `make test`
+- **THEN** Make invokes Bazel over `BAZEL_TEST_TARGETS`, defaulting to `//...`
+- **AND** the default unit-test tag filter excludes integration, conformance, mutation, lint, manual, and external tests
 
 #### Scenario: Host runs a formatting workflow task
-- **WHEN** a contributor runs `task fmt` or a formatter-specific workflow task from the host
-- **THEN** the task seeds `.#fmt` if needed and invokes the matching `ci:*` task inside `docker compose run --rm fmt`
+
+- **WHEN** a contributor runs `make format`
+- **THEN** Make invokes Bazel target `//:format`
+- **AND** configured Go, YAML, Markdown, shell, and TOML formatters run through Bazel-provisioned tools
 
 #### Scenario: Host runs a lint workflow task
-- **WHEN** a contributor runs `task lint` or a linter-specific workflow task from the host
-- **THEN** the task seeds `.#lint` if needed and invokes the matching `ci:*` task inside `docker compose run --rm lint`
+
+- **WHEN** a contributor runs `make lint`
+- **THEN** Make invokes Bazel test suite `//:lint`
+- **AND** configured linters, format checks, Gazelle/buildifier checks, file-coverage checks, secret scanning, and release-configuration validation run through Bazel targets without disabling strictness
 
 #### Scenario: Host runs a vulnerability workflow task
-- **WHEN** a contributor runs `task vuln` from the host
-- **THEN** the task seeds `.#vuln` if needed and invokes the matching `ci:*` task inside `docker compose run --rm vuln`
 
-#### Scenario: Host runs the combined QA workflow
-- **WHEN** a contributor runs `task check` from the host
-- **THEN** the task seeds `.#qa` if needed and invokes the combined `ci:check` task inside `docker compose run --rm qa`
+- **WHEN** a contributor runs `make govulncheck`
+- **THEN** Make invokes Bazel target `//:govulncheck`
+- **AND** vulnerability scanning uses the repository's Bazel-provisioned Go vulnerability checker
 
-#### Scenario: Host runs a mutation workflow task
-- **WHEN** a contributor runs `task test:mutation` from the host
-- **THEN** the task seeds `.#mutation` if needed and invokes `ci:test:mutation` inside `docker compose run --rm mutation`
+#### Scenario: Host runs release workflow tasks
 
-#### Scenario: Host runs a release workflow task
-- **WHEN** a contributor runs `task release:notes`, `task release:snapshot`, or `task release` from the host
-- **THEN** the task seeds `.#release` if needed and invokes the matching `ci:*` task inside `docker compose run --rm release`
+- **WHEN** a contributor runs `make release-check`, `make release-snapshot`, or `make release`
+- **THEN** Make invokes the matching Bazel target for GoReleaser validation, snapshot release, or tagged release publication
+- **AND** GoReleaser runs with Bazel-provisioned Go and release companion tools on `PATH`
 
-#### Scenario: Host runs a microVM workflow task
-- **WHEN** a contributor runs `task vm:build`, `task vm:smoke`, or `task vm:test:integration` from the host
-- **THEN** the task seeds `.#vm` if needed and invokes the matching `ci:*` task inside `docker compose run --rm vm`
+### Requirement: Generated artifacts and caches are scoped to repository-owned directories
 
-#### Scenario: Task already runs inside the expected Nix shell
-- **WHEN** `USBIP_GO_NIX_SHELL` matches the dispatcher shell for the requested top-level task
-- **THEN** the dispatcher invokes the inner `ci:*` task directly without nesting another container
+The development workflow SHALL keep repo-local tool state, Bazel caches, and Bazel convenience symlinks under `.local/`, and release output under `build/dist/` unless a caller explicitly overrides the documented Make variables.
 
-#### Scenario: Tooling version drifts
-- **WHEN** `go.mod` or `toolchain` declares a different Go version than the active Nix shell provides
-- **THEN** `_check:tooling` fails before build, test, lint, release, or VM commands run
+#### Scenario: Bootstrap cache preamble runs
 
-### Requirement: Build artifacts and caches stay under build
-The development workflow SHALL keep generated artifacts, identities, Go caches, lint caches, coverage output, VM closures, and release output under `build/`.
-
-#### Scenario: Cache preamble runs
-- **WHEN** any inner `ci:*` target depends on `_check:tooling`
-- **THEN** `build/cache/go-build`, `build/cache/go-mod`, `build/cache/go-bin`, and `build/cache/golangci-lint` are created as needed
-
-#### Scenario: Identity files are prepared
-- **WHEN** `_prep:identity` runs
-- **THEN** minimal passwd and group files are written under `build/cache`
-- **AND** stale directory placeholders at those paths are removed first
+- **WHEN** a Make target requires the tool environment
+- **THEN** `make bootstrap` prepares `.local/tools`, `.local/bazelisk`, `.local/bazel`, and `.local/bazel-disk-cache` as needed
 
 #### Scenario: Clean is requested
-- **WHEN** `task clean` runs
-- **THEN** only first-level contents under `build/` are removed
+
+- **WHEN** `make clean` runs
+- **THEN** Bazel clean removes build outputs without deleting repo-local downloaded tools
+
+#### Scenario: Full clean is requested
+
+- **WHEN** `make clean-all` runs
+- **THEN** Bazel clean runs first
+- **AND** `.local/` is removed so the next workflow bootstraps fresh tool state
 
 ### Requirement: Formatting and linting are scoped to owned repository surfaces
-Formatting and linting tasks SHALL operate on repository-owned Go, YAML, Markdown, shell, workflow, spelling, Nix, TOML, Docker Compose, OpenSpec, module-tidy, and release-configuration surfaces while avoiding generated caches or third-party module sources under `build/`. CI SHALL run formatting under the `fmt` shell, module tidy under the `dev` shell, linting under the `lint` shell, and vulnerability scanning under the `vuln` shell.
+
+Formatting and linting tasks SHALL operate on repository-owned Go, YAML, Markdown, shell, Starlark, TOML, workflow, spelling, module, and release-configuration surfaces while avoiding generated caches, Bazel outputs, release output, and third-party module sources. CI SHALL call the same Make targets that contributors run locally.
 
 #### Scenario: Formatting runs
-- **WHEN** `task fmt` dispatches to `ci:fmt`
-- **THEN** Go formatters (`gofmt -s`, `gofumpt`, and `goimports`) run over `cmd`, `examples`, `internal`, `pkg`, and `test`
-- **AND** config/doc/script formatters (`yamlfmt`, `rumdl fmt`, `shfmt`, `nixpkgs-fmt`, and `taplo fmt`) run over the configured YAML, Markdown, shell-script, Nix, and TOML surfaces
+
+- **WHEN** `make format` runs
+- **THEN** Go formatters, YAML formatter, Markdown formatter, shell formatter, and TOML formatter operate on their configured source filegroups
+- **AND** generated cache and output directories are excluded
 
 #### Scenario: Format check runs in CI
-- **WHEN** `ci:fmt:check` runs
-- **THEN** Go, YAML, Markdown, shell, Nix, and TOML formatter check modes fail if any owned file would change
+
+- **WHEN** `make lint` runs in CI
+- **THEN** formatter check targets fail if any owned file would change
+- **AND** no lint target is disabled to hide formatting drift
 
 #### Scenario: Lint runs
-- **WHEN** `task lint` dispatches to `ci:lint`
-- **THEN** `golangci-lint` runs over `cmd/...`, `pkg/...`, `internal/...`, `test/...`, and `examples/...`
-- **AND** `yamllint`, `actionlint`, `rumdl check`, `shellcheck`, `typos`, `goreleaser check`, `statix`, `deadnix`, `taplo lint`, `docker-compose config --quiet`, and `openspec validate --specs --strict` run over their configured repository surfaces
-- **AND** linters and formatters do not recurse through generated caches under `build/`
 
-#### Scenario: Module tidy drift check runs in CI
-- **WHEN** `ci:tidy:check` runs in the security workflow or as part of `task check`
-- **THEN** module tidy drift is detected by running `go mod tidy` on a staged copy of owned source roots
-- **AND** `go.mod` and `go.sum` differences fail the gate without recursing through generated caches under `build/`
+- **WHEN** `make lint` runs
+- **THEN** `golangci-lint`, `yamllint`, `rumdl`, `shellcheck`, `typos`, `gitleaks`, `checkmake`, `goreleaser check`, `buildifier`, `gazelle`, Starlark checks, TOML checks, and file-coverage checks run through Bazel
+- **AND** source file-coverage checks fail when a repository-owned Go, Markdown, Makefile, shell, Starlark, TOML, YAML, or workflow file is not included in the matching Bazel filegroup
 
 ### Requirement: Test workflows are tiered by cost and environment
-The repository SHALL separate race-enabled unit tests, conformance tests, integration tests, coverage, mutation testing, and microVM-backed Linux integration.
+
+The repository SHALL separate unit tests, conformance tests, integration tests, mutation testing, vulnerability scanning, and release validation behind distinct Make targets backed by Bazel suites or Bazel targets.
 
 #### Scenario: Unit tests run
-- **WHEN** `task test` dispatches to `ci:test`
-- **THEN** `go test -race -timeout=180s` runs over `cmd/...`, `pkg/...`, `internal/...`, and `test/...`
+
+- **WHEN** `make test` runs
+- **THEN** Bazel executes unit tests while excluding integration, conformance, mutation, lint, manual, and external tags by default
 
 #### Scenario: Conformance tests run
-- **WHEN** `task test:conformance` dispatches to `ci:test:conformance`
-- **THEN** Go tests run with the `conformance_linux` build tag over `test/conformance/...`
+
+- **WHEN** `make test-conformance` runs
+- **THEN** Bazel executes `//:conformance` with the conformance configuration
+
+#### Scenario: Coverage thresholds run
+
+- **WHEN** `make test-coverage` runs
+- **THEN** Bazel executes unit-test coverage and writes `build/coverage/coverage.lcov`
+- **AND** the configured total and per-package thresholds in `.testcoverage.yaml` are enforced before the target succeeds
 
 #### Scenario: Integration tests run directly
-- **WHEN** `task test:integration` dispatches to `ci:test:integration`
-- **THEN** Go tests run with race detector and `integration_linux` build tag over `test/integration/...`
 
-#### Scenario: Coverage report is requested
-- **WHEN** `task test:cover` dispatches to `ci:test:cover`
-- **THEN** race-enabled tests write `build/coverage/coverage.out`
-- **AND** an HTML coverage report is written to `build/coverage/coverage.html`
+- **WHEN** `make test-integration` runs
+- **THEN** Bazel executes `//:integration` with the integration configuration
 
 #### Scenario: Mutation tests run
-- **WHEN** `task test:mutation` dispatches to `ci:test:mutation`
-- **THEN** gremlins is provided by the dedicated `mutation` Nix shell
-- **AND** no runtime `go install` is required to provision mutation tooling
-- **AND** mutation runs against protocol-critical packages from a staged copy that excludes the repository's build cache
 
-### Requirement: microVM workflow provides kernel-module integration coverage
-The repository SHALL provide microVM tasks that materialize a pinned VM runner and execute USB/IP module smoke and integration tests in that VM.
+- **WHEN** `make test-mutation` runs
+- **THEN** Bazel executes `//:mutations`
+- **AND** the mutation tool is provided by the Bazel harness rather than a runtime `go install`
 
-#### Scenario: microVM closure is built
-- **WHEN** `task vm:build` dispatches to `ci:vm:build`
-- **THEN** the Nix `microvm-run` closure is materialized under `build/vm/run`
+### Requirement: GitHub Actions use the Make/Bazel contract
 
-#### Scenario: microVM smoke runs
-- **WHEN** `task vm:smoke` dispatches to `ci:vm:smoke`
-- **THEN** the VM asserts that `usbip_core`, `vhci_hcd`, `usbip_host`, `usbip_vudc`, and `libcomposite` are loaded
+GitHub Actions workflows SHALL invoke Make targets for repository build, test, lint, vulnerability, integration, mutation, and release operations so CI behavior matches local contributor behavior.
 
-#### Scenario: microVM integration runs
-- **WHEN** `task vm:test:integration` dispatches to `ci:vm:test:integration`
-- **THEN** host-side dependency resolution is prewarmed
-- **AND** `go test -race -v -count=1 -buildvcs=false -tags=integration_linux` runs inside the VM over `test/integration/...`
+#### Scenario: Pull request CI runs
 
-### Requirement: Local GitHub Actions rehearsal is available
-The Taskfile SHALL expose `act` targets for local workflow rehearsal outside the dev container.
+- **WHEN** the CI workflow runs for a push or pull request
+- **THEN** reusable GitHub Actions jobs invoke Make/Bazel targets for security/lint/vulnerability, unit, conformance, coverage, architecture/API, and TDD discipline contexts required by the repository ruleset
+- **AND** local contributors can exercise the repository-owned command sequence with `make ci-local`
 
-#### Scenario: Contributor lists actions
-- **WHEN** `task act:list` runs
-- **THEN** `act -l push` lists jobs for the push event
+#### Scenario: Nightly verification runs
 
-#### Scenario: Contributor runs one action job
-- **WHEN** `task act:job JOB=name` runs with a non-empty JOB
-- **THEN** `act push -j name` runs that job locally
+- **WHEN** the nightly workflow runs
+- **THEN** it invokes the reusable Make/Bazel security, unit, conformance, and coverage jobs
+- **AND** it invokes `make release-snapshot`
 
-#### Scenario: Contributor omits job name
-- **WHEN** `task act:job` runs without JOB
-- **THEN** Taskfile preconditions fail with guidance to set `JOB=<name>`
+#### Scenario: Tagged release runs
+
+- **WHEN** the release workflow runs for a stable SemVer tag
+- **THEN** prereq jobs invoke the reusable Make/Bazel security, unit, conformance, coverage, and architecture/API gates
+- **AND** the publish job invokes `make ci-local`, `make changelog`, and `make release`
+- **AND** release publication uses the workflow `GITHUB_TOKEN` and GoReleaser environment expected by the Bazel release target
