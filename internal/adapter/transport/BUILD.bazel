@@ -40,6 +40,12 @@ filegroup(
 )
 
 filegroup(
+    name = "repo_bazel_files",
+    srcs = ["BUILD.bazel"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
     name = "testdata_files",
     srcs = glob(
         ["testdata/**"],

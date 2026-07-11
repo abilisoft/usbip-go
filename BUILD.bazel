@@ -281,19 +281,30 @@ filegroup(
 
 filegroup(
     name = "all_bazel_files",
-    srcs = glob(
-        [
-            "**/*.bazel",
-            "**/*.bzl",
-        ],
-        allow_empty = True,
-        exclude = [
-            ".local/**",
-            "build/**",
-            "dist/**",
-        ],
-        exclude_directories = 1,
-    ),
+    srcs = [
+        ":repo_bazel_files",
+        "//cmd/usbip-go:repo_bazel_files",
+        "//examples/client:repo_bazel_files",
+        "//examples/events:repo_bazel_files",
+        "//examples/reconnect:repo_bazel_files",
+        "//examples/server:repo_bazel_files",
+        "//internal/adapter/kernel:repo_bazel_files",
+        "//internal/adapter/transport:repo_bazel_files",
+        "//internal/adapter/wire:repo_bazel_files",
+        "//internal/app:repo_bazel_files",
+        "//internal/netopts:repo_bazel_files",
+        "//internal/protocol:repo_bazel_files",
+        "//internal/testutil:repo_bazel_files",
+        "//pkg/domain:repo_bazel_files",
+        "//pkg/usbip:repo_bazel_files",
+        "//test/conformance:repo_bazel_files",
+        "//test/integration:repo_bazel_files",
+        "//test/integration/killable:repo_bazel_files",
+        "//tools:repo_bazel_files",
+        "//tools/bazel:repo_bazel_files",
+        "//tools/scripts:repo_bazel_files",
+        "//tools/yamllint:repo_bazel_files",
+    ],
     visibility = ["//visibility:public"],
 )
 
