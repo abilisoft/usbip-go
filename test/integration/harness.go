@@ -37,6 +37,8 @@ import (
 // the no-shortcuts rule.
 func harnessModuleNames() []string {
 	return []string{
+		kernelModuleLibcomposite,
+		kernelModuleUSBFMassStorage,
 		usbip.KernelModuleUSBIPCore,
 		usbip.KernelModuleVHCIHCD,
 		usbip.KernelModuleUSBIPHost,
@@ -47,7 +49,10 @@ func harnessModuleNames() []string {
 // kernelModuleUSBIPVUDC is integration-only: unlike the three modules exposed
 // by usbip.ProbeKernelModules, usbip_vudc is required only by the virtual UDC
 // harness and is not part of the public runtime-readiness contract.
-const kernelModuleUSBIPVUDC = "usbip_vudc"
+const (
+	kernelModuleUSBFMassStorage = "usb_f_mass_storage"
+	kernelModuleUSBIPVUDC       = "usbip_vudc"
+)
 
 // vudcVendorID / vudcProductID / vudcBcdDevice mirror the upstream
 // capture script (scripts/capture-wire-fixtures.sh) so the harness
@@ -269,17 +274,17 @@ func uniqueGadgetName(t *testing.T) string {
 func registerGadgetCleanup(t *testing.T, root string) func() {
 	t.Helper()
 
+	var once sync.Once
+
 	fn := func() {
-		err := runGadgetCleanup(root)
-		if err != nil {
-			// t.Logf because cleanup fires AFTER the test body returned
-			// (t.Errorf from here would not mark the in-progress test as
-			// failed anyway, and marking the already-finished test as
-			// failed would hide whether the scenario itself succeeded).
-			// A log line is sufficient to flag stuck configfs state that
-			// operators must investigate.
-			t.Logf("integration harness: gadget cleanup errors at %s: %v", root, err)
-		}
+		once.Do(func() {
+			err := runGadgetCleanup(root)
+			if err != nil {
+				// Teardown failures should remain visible without replacing the
+				// scenario's primary result with a secondary kernel-cleanup error.
+				t.Logf("integration harness: gadget cleanup errors at %s: %v", root, err)
+			}
+		})
 	}
 
 	t.Cleanup(fn)
@@ -297,6 +302,14 @@ func registerGadgetCleanup(t *testing.T, root string) func() {
 // often succeed: e.g. an UDC write failure (gadget never bound) should
 // not skip the symlink+rmdir cleanup.
 func runGadgetCleanup(root string) error {
+	_, err := os.Lstat(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect gadget root: %w", err)
+	}
+
 	var errs []error
 
 	// Unbind UDC first: kernel configfs rejects a zero-byte write
@@ -312,8 +325,12 @@ func runGadgetCleanup(root string) error {
 	// Function symlinks must go before their parent configs dir.
 	configsDir := filepath.Join(root, "configs")
 
-	err := filepath.WalkDir(configsDir, func(path string, d fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(configsDir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if errors.Is(walkErr, fs.ErrNotExist) {
+				return nil
+			}
+
 			errs = append(errs, fmt.Errorf("walk %s: %w", path, walkErr))
 
 			return nil //nolint:nilerr // continue walking; the joined-error accumulates the skipped branch

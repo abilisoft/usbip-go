@@ -106,9 +106,13 @@ dependency resolver. After changing `go.mod` or `go.sum`, run
 hygiene gate checks that the vendored module graph loads without network access
 and that regenerating it produces no byte-level diff.
 
-Integration tests interact with kernel USB/IP surfaces and may require a Linux
-host with suitable kernel modules and privileges. They are exposed as
-`make test-integration` and are not part of the default unit-test target.
+Integration tests interact with kernel USB/IP surfaces and require root, a
+writable configfs gadget tree, and loaded `dummy_hcd`, `libcomposite`,
+`usb_f_acm`, `usb_f_mass_storage`, `usbip_core`, `usbip_host`, `usbip_vudc`, and
+`vhci_hcd` modules for the complete suite. The kernel must enable
+`CONFIG_USB_DUMMY_HCD`; otherwise the full bind/list/attach CLI scenario skips.
+The tests are exposed as `make test-integration` and are not part of the default
+unit-test target.
 
 ## Release process
 

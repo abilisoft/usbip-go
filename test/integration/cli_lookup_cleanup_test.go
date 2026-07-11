@@ -8,9 +8,6 @@ package integration_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -24,7 +21,12 @@ import (
 func TestLookupPortIDByBusIDForCleanup_HandlesMissingBinary(t *testing.T) {
 	t.Parallel()
 
-	id, err := lookupPortIDByBusIDForCleanup(context.Background(), "/path/that/does/not/exist", "1-1")
+	id, err := lookupPortIDByBusIDForCleanup(
+		context.Background(),
+		commandOutput,
+		"/path/that/does/not/exist",
+		"1-1",
+	)
 	require.Empty(t, id)
 	require.Error(t, err,
 		"missing binary must surface an error so the caller skips the detach attempt")
@@ -38,9 +40,12 @@ func TestLookupPortIDByBusIDForCleanup_HandlesMissingBinary(t *testing.T) {
 func TestLookupPortIDByBusIDForCleanup_HandlesNonJSONOutput(t *testing.T) {
 	t.Parallel()
 
-	bin := makeStubBinary(t, "echo not-json")
-
-	id, err := lookupPortIDByBusIDForCleanup(context.Background(), bin, "1-1")
+	id, err := lookupPortIDByBusIDForCleanup(
+		context.Background(),
+		staticCommandOutput([]byte("not-json")),
+		"usbip-go",
+		"1-1",
+	)
 	require.Empty(t, id)
 	require.Error(t, err,
 		"non-JSON output from port must surface as an unmarshal error so the cleanup short-circuits")
@@ -63,9 +68,12 @@ func TestLookupPortIDByBusIDForCleanup_ReturnsEmptyOnNoMatch(t *testing.T) {
 	out, err := json.Marshal(envelope)
 	require.NoError(t, err)
 
-	bin := makeStubBinary(t, fmt.Sprintf("cat <<'JSON'\n%s\nJSON", out))
-
-	id, lookupErr := lookupPortIDByBusIDForCleanup(context.Background(), bin, "1-1")
+	id, lookupErr := lookupPortIDByBusIDForCleanup(
+		context.Background(),
+		staticCommandOutput(out),
+		"usbip-go",
+		"1-1",
+	)
 	require.NoError(t, lookupErr,
 		"a clean envelope with no matching busid is not an error")
 	require.Empty(t, id,
@@ -89,25 +97,19 @@ func TestLookupPortIDByBusIDForCleanup_FindsByBusID(t *testing.T) {
 	out, err := json.Marshal(envelope)
 	require.NoError(t, err)
 
-	bin := makeStubBinary(t, fmt.Sprintf("cat <<'JSON'\n%s\nJSON", out))
-
-	id, lookupErr := lookupPortIDByBusIDForCleanup(context.Background(), bin, "1-1")
+	id, lookupErr := lookupPortIDByBusIDForCleanup(
+		context.Background(),
+		staticCommandOutput(out),
+		"usbip-go",
+		"1-1",
+	)
 	require.NoError(t, lookupErr)
 	require.Equal(t, "2", id,
 		"port row matching the requested busid must be returned (not ports[0])")
 }
 
-// makeStubBinary writes a minimal /bin/sh script that echoes the
-// supplied body to stdout. Used to fake the `usbip-go port`
-// output without standing up the real binary or kernel modules.
-func makeStubBinary(t *testing.T, body string) string {
-	t.Helper()
-
-	tmp, err := filepath.Abs(t.TempDir())
-	require.NoError(t, err)
-
-	bin := filepath.Join(tmp, "stub-port")
-	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\n"+body+"\n"), 0o755))
-
-	return bin
+func staticCommandOutput(out []byte) commandOutputFunc {
+	return func(context.Context, string, ...string) ([]byte, error) {
+		return out, nil
+	}
 }

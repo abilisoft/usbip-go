@@ -17,6 +17,14 @@ go_library(
 )
 
 go_test(
+    name = "harness_internal_test",
+    srcs = ["harness_cleanup_test.go"],
+    embed = [":integration"],
+    tags = ["integration"],
+    deps = ["@com_github_stretchr_testify//require"],
+)
+
+go_test(
     name = "integration_test",
     srcs = [
         "cli_full_flow_test.go",
