@@ -21,7 +21,7 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 |---|---:|---|---|
 | Requirement | 7 | Dependency direction is top-down only | `docs/architecture.md:1-200`; `openspec/specs/architecture-layering/spec.md:1-105` |
 | Scenario | 11 | Dependency direction is top-down only / Command code invokes behavior | `cmd/usbip-go/root.go:73-208`; `pkg/usbip/usbip.go:188-360`; `internal/app/interfaces.go:1-99` |
-| Scenario | 17 | Dependency direction is top-down only / Adapter code is compiled | `internal/adapter/kernel/attach.go:1-310`; `internal/adapter/transport/transport.go:1-428`; `internal/adapter/wire/codec.go:1-167`; `Makefile:1-201`; `BUILD.bazel:1-934` |
+| Scenario | 17 | Dependency direction is top-down only / Adapter code is compiled | `internal/adapter/kernel/attach.go:1-310`; `internal/adapter/transport/transport.go:1-428`; `internal/adapter/wire/codec.go:1-167`; `Makefile:1-201`; `BUILD.bazel:1-940` |
 | Requirement | 22 | pkg/domain is pure stdlib domain data | `pkg/domain/busid.go:1-118`; `pkg/domain/remote.go:1-282`; `pkg/domain/device.go:1-72`; `go.mod:1-56`; `openspec/specs/architecture-layering/spec.md:1-105` |
 | Scenario | 26 | pkg/domain is pure stdlib domain data / Value-object package gains a dependency | `pkg/domain/busid.go:1-118`; `pkg/domain/remote.go:1-282`; `pkg/domain/device.go:1-72`; `go.mod:1-56`; `openspec/specs/architecture-layering/spec.md:1-105` |
 | Requirement | 31 | pkg/usbip is the sole public service facade | `pkg/usbip/usbip.go:1-370`; `pkg/usbip/options.go:1-267`; `openspec/specs/public-library-api/spec.md:1-136` |
@@ -34,8 +34,8 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 66 | Adapter packages own external-system details / TCP tuning changes | `internal/adapter/transport/transport.go:1-428`; `internal/netopts/options.go:1-103` |
 | Requirement | 71 | Non-Linux builds compile with explicit unsupported behavior | `pkg/usbip/defaults_other.go:1-22`; `pkg/usbip/modules_other.go:1-26`; `pkg/usbip/defaults_test.go:1-124` |
 | Scenario | 75 | Non-Linux builds compile with explicit unsupported behavior / Non-Linux caller constructs defaults | `pkg/usbip/defaults_other.go:1-22`; `pkg/usbip/modules_other.go:1-26`; `pkg/usbip/defaults_test.go:1-124` |
-| Requirement | 80 | No cgo is allowed | `openspec/specs/architecture-layering/spec.md:61-69`; `Makefile:1-201`; `BUILD.bazel:1-934`; `.goreleaser.yml:1-176` |
-| Scenario | 84 | No cgo is allowed / cgo is introduced | `openspec/specs/architecture-layering/spec.md:61-69`; `Makefile:1-201`; `BUILD.bazel:1-934`; `.goreleaser.yml:1-176` |
+| Requirement | 80 | No cgo is allowed | `openspec/specs/architecture-layering/spec.md:61-69`; `Makefile:1-201`; `BUILD.bazel:1-940`; `.goreleaser.yml:1-176` |
+| Scenario | 84 | No cgo is allowed / cgo is introduced | `openspec/specs/architecture-layering/spec.md:61-69`; `Makefile:1-201`; `BUILD.bazel:1-940`; `.goreleaser.yml:1-176` |
 | Requirement | 89 | OpenSpec is the source of truth for current behavior | `docs/architecture.md:1-200`; `openspec/specs/architecture-layering/spec.md:1-105` |
 | Scenario | 93 | OpenSpec is the source of truth for current behavior / CLI shape changes | `openspec/specs/cli-interface/spec.md:1-244`; `cmd/usbip-go/root.go:1-217` |
 | Requirement | 98 | Main specs describe current behavior | `openspec/config.yaml:1-33`; `openspec/specs/architecture-layering/spec.md:1-105` |
@@ -102,7 +102,7 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 
 | Type | Spec line | Item | Evidence |
 |---|---:|---|---|
-| Requirement | 7 | Host tasks dispatch through hermetic Bazel targets | `Makefile:1-201`; `BUILD.bazel:1-937`; `MODULE.bazel:1-68`; `.bazelrc:1-70`; `tools/bazel/toolwrap.bzl:1-87`; `tools/scripts/bootstrap.sh:1-203`; `CONTRIBUTING.md:76-116` |
+| Requirement | 7 | Host tasks dispatch through hermetic Bazel targets | `Makefile:1-201`; `BUILD.bazel:1-940`; `MODULE.bazel:1-68`; `.bazelrc:1-70`; `tools/bazel/toolwrap.bzl:1-87`; `tools/scripts/bootstrap.sh:1-203`; `CONTRIBUTING.md:76-116` |
 | Scenario | 11 | Host tasks dispatch through hermetic Bazel targets / Tooling is provisioned under repo-local state | `Makefile:47-50`; `tools/scripts/bootstrap.sh:1-203`; `.gitignore:1-103` |
 | Scenario | 18 | Host tasks dispatch through hermetic Bazel targets / Host runs a build workflow task | `Makefile:52-55`; `BUILD.bazel:687-691`; `cmd/usbip-go/BUILD.bazel:52-56`; `.github/workflows/ci.yml:1-143` |
 | Scenario | 24 | Host tasks dispatch through hermetic Bazel targets / Host runs the pull-request CI pipeline locally | `Makefile:95-99`; `BUILD.bazel:729-733`; `tools/scripts/ci_local_runner.sh:1-86`; `tools/scripts/ci_local_runner_test.sh:1-60` |
@@ -123,7 +123,7 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 107 | Test workflows are tiered by cost and environment / Unit tests run | `Makefile:156-159`; `BUILD.bazel:735-758`; `.github/workflows/ci.yml:1-143` |
 | Scenario | 112 | Test workflows are tiered by cost and environment / Conformance tests run | `Makefile:165-168`; `BUILD.bazel:760-764`; `.github/workflows/_conformance.yml:1-25` |
 | Scenario | 117 | Test workflows are tiered by cost and environment / Coverage thresholds run | `Makefile:170-175`; `tools/scripts/coverage_check.sh:1-160`; `.github/workflows/_coverage.yml:1-37` |
-| Scenario | 123 | Test workflows are tiered by cost and environment / Integration tests run directly | `Makefile:177-180`; `BUILD.bazel:766-773`; `.github/workflows/vm-integration.yml:1-50` |
+| Scenario | 123 | Test workflows are tiered by cost and environment / Integration tests run directly | `Makefile:177-180`; `BUILD.bazel:769-776`; `.github/workflows/vm-integration.yml:1-50` |
 | Scenario | 128 | Test workflows are tiered by cost and environment / Mutation tests run | `Makefile:182-185`; `BUILD.bazel:803-811`; `.github/workflows/mutation.yml:1-35` |
 | Requirement | 134 | GitHub Actions use the Make/Bazel contract | `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/release.yml:1-168`; `.github/workflows/mutation.yml:1-35`; `.github/workflows/vm-integration.yml:1-50` |
 | Scenario | 138 | GitHub Actions use the Make/Bazel contract / CodeQL traces the production binary | `.github/workflows/codeql.yml:34-46`; `Makefile:57-61`; `docs/security-posture.md:1-140` |
@@ -373,12 +373,12 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Requirement | 113 | Public sentinel errors classify stable runtime failures | `pkg/usbip/errors.go:1-128`; `pkg/usbip/errors_boundary_test.go:1-175`; `internal/app/errors.go:1-97` |
 | Scenario | 117 | Public sentinel errors classify stable runtime failures / Internal lifecycle error occurs | `pkg/usbip/errors.go:1-128`; `pkg/usbip/errors_boundary_test.go:1-175`; `internal/app/errors.go:1-97` |
 | Scenario | 123 | Public sentinel errors classify stable runtime failures / Transport option validation fails | `pkg/usbip/errors.go:1-128`; `pkg/usbip/errors_boundary_test.go:1-175`; `internal/app/errors.go:1-97` |
-| Requirement | 129 | Public API compatibility is gated | `.github/workflows/ci.yml:1-143`; `BUILD.bazel:606-760`; `docs/security-posture.md:1-140`; `pkg/usbip/options_compile_test.go:1-24` |
-| Scenario | 133 | Public API compatibility is gated / Incompatible public API change is proposed | `.github/workflows/ci.yml:1-143`; `BUILD.bazel:606-760`; `docs/security-posture.md:1-140`; `pkg/usbip/options_compile_test.go:1-24` |
+| Requirement | 129 | Public API compatibility is gated | `.github/workflows/ci.yml:1-143`; `BUILD.bazel:600-761`; `docs/security-posture.md:1-140`; `pkg/usbip/options_compile_test.go:1-24` |
+| Scenario | 133 | Public API compatibility is gated / Incompatible public API change is proposed | `.github/workflows/ci.yml:1-143`; `BUILD.bazel:600-761`; `docs/security-posture.md:1-140`; `pkg/usbip/options_compile_test.go:1-24` |
 
 ## `release-packaging`
 
-- Spec source: `openspec/specs/release-packaging/spec.md:1-131`
+- Spec source: `openspec/specs/release-packaging/spec.md:1-140`
 
 | Type | Spec line | Item | Evidence |
 |---|---:|---|---|
@@ -386,31 +386,32 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 11 | Release workflow only publishes canonical stable SemVer tags / Stable tag is pushed | `.github/workflows/release.yml:1-168`; `cliff.toml:1-126` |
 | Scenario | 16 | Release workflow only publishes canonical stable SemVer tags / Prerelease tag is pushed | `.github/workflows/release.yml:1-168`; `cliff.toml:1-126` |
 | Scenario | 21 | Release workflow only publishes canonical stable SemVer tags / Non-canonical tag reaches validation | `.github/workflows/release.yml:1-168`; `cliff.toml:1-126` |
-| Requirement | 26 | Release publication waits for prereq gates | `.github/workflows/release.yml:1-168`; `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/ci.yml:1-143`; `BUILD.bazel:606-760`; `.github/workflows/ci.yml:1-143` |
-| Scenario | 30 | Release publication waits for prereq gates / Prereq gate fails | `.github/workflows/release.yml:1-168`; `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/ci.yml:1-143`; `BUILD.bazel:606-760`; `.github/workflows/ci.yml:1-143` |
-| Scenario | 35 | Release publication waits for prereq gates / Prereq gates pass | `.github/workflows/release.yml:1-168`; `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/ci.yml:1-143`; `BUILD.bazel:606-760`; `.github/workflows/ci.yml:1-143` |
-| Requirement | 40 | Release notes come from git-cliff | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176` |
-| Scenario | 44 | Release notes come from git-cliff / Release notes render | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176` |
-| Scenario | 50 | Release notes come from git-cliff / Release notes are empty | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176` |
-| Requirement | 55 | GoReleaser builds a single pure-Go Linux binary matrix | `.goreleaser.yml:1-176`; `cmd/usbip-go/release_metadata_test.go:1-57`; `Makefile:1-201`; `BUILD.bazel:1-934` |
-| Scenario | 59 | GoReleaser builds a single pure-Go Linux binary matrix / Release binary is built | `.goreleaser.yml:1-176`; `cmd/usbip-go/release_metadata_test.go:1-57`; `Makefile:1-201`; `BUILD.bazel:1-934` |
-| Scenario | 66 | GoReleaser builds a single pure-Go Linux binary matrix / Snapshot release runs locally | `.goreleaser.yml:1-176`; `cmd/usbip-go/release_metadata_test.go:1-57`; `Makefile:1-201`; `BUILD.bazel:1-934` |
-| Requirement | 71 | Release archives include operator documentation and deployment files | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
-| Scenario | 75 | Release archives include operator documentation and deployment files / Archive is produced | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
-| Requirement | 81 | OS packages install binary, docs, systemd units, and modules-load config | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
-| Scenario | 85 | OS packages install binary, docs, systemd units, and modules-load config / Package is produced | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
-| Requirement | 93 | Checksums and SBOMs are generated | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-168` |
-| Scenario | 97 | Checksums and SBOMs are generated / Checksums are generated | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-168` |
-| Scenario | 102 | Checksums and SBOMs are generated / SBOMs are generated | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-168` |
-| Requirement | 107 | Checksums are keylessly signed with Sigstore | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-168` |
-| Scenario | 111 | Checksums are keylessly signed with Sigstore / Signing runs | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-168` |
-| Requirement | 117 | SLSA provenance covers user-downloadable binary artifacts | `.github/workflows/release.yml:1-168` |
-| Scenario | 121 | SLSA provenance covers user-downloadable binary artifacts / Artifact hashes are collected | `.github/workflows/release.yml:1-168` |
-| Scenario | 127 | SLSA provenance covers user-downloadable binary artifacts / Provenance is generated | `.github/workflows/release.yml:1-168` |
+| Requirement | 26 | Release publication waits for prereq gates | `.github/workflows/release.yml:1-168`; `.github/workflows/vm-integration.yml:1-39`; `tools/scripts/run_kernel_integration_vm.sh:1-176`; `tools/scripts/prepare_kernel_integration_host.sh:1-59` |
+| Scenario | 33 | Release publication waits for prereq gates / Prereq gate fails | `.github/workflows/release.yml:1-168`; `.github/workflows/vm-integration.yml:1-39` |
+| Scenario | 38 | Release publication waits for prereq gates / Prereq gates pass | `.github/workflows/release.yml:1-168`; `.github/workflows/vm-integration.yml:1-39` |
+| Scenario | 43 | Release publication waits for prereq gates / Only standard hosted runners are available | `.github/workflows/vm-integration.yml:19-39`; `tools/scripts/run_kernel_integration_vm.sh:1-176`; `tools/scripts/run_kernel_integration_vm_test.sh:1-54` |
+| Requirement | 49 | Release notes come from git-cliff | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176` |
+| Scenario | 53 | Release notes come from git-cliff / Release notes render | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176` |
+| Scenario | 59 | Release notes come from git-cliff / Release notes are empty | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176` |
+| Requirement | 64 | GoReleaser builds a single pure-Go Linux binary matrix | `.goreleaser.yml:1-176`; `cmd/usbip-go/release_metadata_test.go:1-57`; `Makefile:1-201`; `BUILD.bazel:1-940` |
+| Scenario | 68 | GoReleaser builds a single pure-Go Linux binary matrix / Release binary is built | `.goreleaser.yml:1-176`; `cmd/usbip-go/release_metadata_test.go:1-57`; `Makefile:1-201`; `BUILD.bazel:1-940` |
+| Scenario | 75 | GoReleaser builds a single pure-Go Linux binary matrix / Snapshot release runs locally | `.goreleaser.yml:1-176`; `cmd/usbip-go/release_metadata_test.go:1-57`; `Makefile:1-201`; `BUILD.bazel:1-940` |
+| Requirement | 80 | Release archives include operator documentation and deployment files | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
+| Scenario | 84 | Release archives include operator documentation and deployment files / Archive is produced | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
+| Requirement | 90 | OS packages install binary, docs, systemd units, and modules-load config | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
+| Scenario | 94 | OS packages install binary, docs, systemd units, and modules-load config / Package is produced | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
+| Requirement | 102 | Checksums and SBOMs are generated | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-168` |
+| Scenario | 106 | Checksums and SBOMs are generated / Checksums are generated | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-168` |
+| Scenario | 111 | Checksums and SBOMs are generated / SBOMs are generated | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-168` |
+| Requirement | 116 | Checksums are keylessly signed with Sigstore | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-168` |
+| Scenario | 120 | Checksums are keylessly signed with Sigstore / Signing runs | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-168` |
+| Requirement | 126 | SLSA provenance covers user-downloadable binary artifacts | `.github/workflows/release.yml:1-168` |
+| Scenario | 130 | SLSA provenance covers user-downloadable binary artifacts / Artifact hashes are collected | `.github/workflows/release.yml:1-168` |
+| Scenario | 136 | SLSA provenance covers user-downloadable binary artifacts / Provenance is generated | `.github/workflows/release.yml:1-168` |
 
 ## `security-release-quality`
 
-- Spec source: `openspec/specs/security-release-quality/spec.md:1-166`
+- Spec source: `openspec/specs/security-release-quality/spec.md:1-179`
 
 | Type | Spec line | Item | Evidence |
 |---|---:|---|---|
@@ -428,25 +429,26 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 59 | Missing kernel modules are classified / Exporter module is missing | `pkg/usbip/modules_linux.go:1-93`; `internal/adapter/kernel/modules.go:1-54`; `cmd/usbip-go/format_module_specific_test.go:1-65` |
 | Requirement | 64 | Releases are reproducible and signed | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-168`; `docs/security-posture.md:1-140` |
 | Scenario | 68 | Releases are reproducible and signed / User verifies a release | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:1-168`; `docs/security-posture.md:1-140` |
-| Requirement | 73 | CI enforces security scanning and pinned workflow posture | `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/codeql.yml:1-50`; `.github/workflows/trivy.yml:1-47`; `Makefile:1-201`; `BUILD.bazel:1-934` |
-| Scenario | 77 | CI enforces security scanning and pinned workflow posture / Vulnerability scan runs | `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/codeql.yml:1-50`; `.github/workflows/trivy.yml:1-47`; `Makefile:1-201`; `BUILD.bazel:1-934` |
-| Scenario | 83 | CI enforces security scanning and pinned workflow posture / Workflow dependency is added | `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/codeql.yml:1-50`; `.github/workflows/trivy.yml:1-47`; `Makefile:1-201`; `BUILD.bazel:1-934` |
+| Requirement | 73 | CI enforces security scanning and pinned workflow posture | `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/codeql.yml:1-50`; `.github/workflows/trivy.yml:1-47`; `Makefile:1-201`; `BUILD.bazel:1-940` |
+| Scenario | 77 | CI enforces security scanning and pinned workflow posture / Vulnerability scan runs | `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/codeql.yml:1-50`; `.github/workflows/trivy.yml:1-47`; `Makefile:1-201`; `BUILD.bazel:1-940` |
+| Scenario | 83 | CI enforces security scanning and pinned workflow posture / Workflow dependency is added | `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/codeql.yml:1-50`; `.github/workflows/trivy.yml:1-47`; `Makefile:1-201`; `BUILD.bazel:1-940` |
 | Scenario | 88 | CI enforces security scanning and pinned workflow posture / Required status check context changes | `docs/security-posture.md:33-75`; `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `openspec/specs/security-release-quality/spec.md:59-72` |
 | Scenario | 93 | CI enforces security scanning and pinned workflow posture / Pull request requires standalone security contexts | `.github/workflows/codeql.yml:1-50`; `.github/workflows/trivy.yml:1-47`; `.github/workflows/scorecard.yml:1-97` |
-| Requirement | 99 | CI enforces architecture and pure-Go constraints | `docs/architecture.md:1-200`; `.github/workflows/ci.yml:1-143`; `BUILD.bazel:606-760`; `Makefile:1-201`; `BUILD.bazel:1-934` |
-| Scenario | 103 | CI enforces architecture and pure-Go constraints / Adapter import crosses a forbidden boundary | `docs/architecture.md:1-200`; `.github/workflows/ci.yml:1-143`; `BUILD.bazel:606-760`; `Makefile:1-201`; `BUILD.bazel:1-934` |
-| Scenario | 108 | CI enforces architecture and pure-Go constraints / cgo is introduced | `docs/architecture.md:1-200`; `.github/workflows/ci.yml:1-143`; `BUILD.bazel:606-760`; `Makefile:1-201`; `BUILD.bazel:1-934` |
-| Scenario | 113 | CI enforces architecture and pure-Go constraints / Public API changes incompatibly | `docs/architecture.md:1-200`; `.github/workflows/ci.yml:1-143`; `BUILD.bazel:606-760`; `Makefile:1-201`; `BUILD.bazel:1-934` |
-| Requirement | 118 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns | `Makefile:1-201`; `BUILD.bazel:1-934`; `.github/workflows/ci.yml:1-143` |
-| Scenario | 122 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Pull request changes executable lines | `.github/codecov.yml:11-78`; `.testcoverage.yaml:1-90`; `AGENTS.md:20-45` |
-| Scenario | 128 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Unit tests run | `Makefile:1-201`; `BUILD.bazel:1-934`; `.github/workflows/ci.yml:1-143` |
-| Scenario | 133 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Integration tests run | `Makefile:177-180`; `BUILD.bazel:766-773`; `.github/workflows/vm-integration.yml:1-50`; `test/integration/harness.go:30-73`; `test/integration/dummy_hcd_helpers.go:24-75`; `CONTRIBUTING.md:109-116` |
-| Scenario | 140 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Wire conformance tests run | `Makefile:1-201`; `BUILD.bazel:1-937`; `.github/workflows/ci.yml:1-143` |
-| Requirement | 145 | TDD and review discipline are codified | `AGENTS.md:1-117`; `CONTRIBUTING.md:38-59`; `.github/workflows/ci.yml:56-128` |
-| Scenario | 149 | TDD and review discipline are codified / Pull request contains a policy-invalid commit | `AGENTS.md:91-107`; `CONTRIBUTING.md:49-74`; `.github/workflows/ci.yml:56-99` |
-| Scenario | 154 | TDD and review discipline are codified / Feature commit adds only tests | `.github/pull_request_template.md:12-32`; `.github/workflows/ci.yml:101-126` |
-| Requirement | 159 | License and metadata are consistent | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176`; `LICENSE:1-202` |
-| Scenario | 163 | License and metadata are consistent / Stable release tag is pushed | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176`; `LICENSE:1-202` |
+| Requirement | 99 | CI enforces architecture and pure-Go constraints | `docs/architecture.md:1-200`; `.github/workflows/ci.yml:1-143`; `BUILD.bazel:600-761`; `Makefile:1-201`; `BUILD.bazel:1-940` |
+| Scenario | 103 | CI enforces architecture and pure-Go constraints / Adapter import crosses a forbidden boundary | `docs/architecture.md:1-200`; `.github/workflows/ci.yml:1-143`; `BUILD.bazel:600-761`; `Makefile:1-201`; `BUILD.bazel:1-940` |
+| Scenario | 108 | CI enforces architecture and pure-Go constraints / cgo is introduced | `docs/architecture.md:1-200`; `.github/workflows/ci.yml:1-143`; `BUILD.bazel:600-761`; `Makefile:1-201`; `BUILD.bazel:1-940` |
+| Scenario | 113 | CI enforces architecture and pure-Go constraints / Public API changes incompatibly | `docs/architecture.md:1-200`; `.github/workflows/ci.yml:1-143`; `BUILD.bazel:600-761`; `Makefile:1-201`; `BUILD.bazel:1-940` |
+| Requirement | 118 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns | `Makefile:1-201`; `BUILD.bazel:1-940`; `.github/workflows/ci.yml:1-143`; `.github/workflows/vm-integration.yml:1-39` |
+| Scenario | 127 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Pull request changes executable lines | `.github/codecov.yml:11-78`; `.testcoverage.yaml:1-90`; `AGENTS.md:20-45` |
+| Scenario | 133 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Unit tests run | `Makefile:1-201`; `BUILD.bazel:1-940`; `.github/workflows/ci.yml:1-143` |
+| Scenario | 138 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Integration tests run | `Makefile:177-180`; `BUILD.bazel:769-776`; `.github/workflows/vm-integration.yml:1-39`; `test/integration/harness.go:30-73`; `test/integration/dummy_hcd_helpers.go:24-75`; `CONTRIBUTING.md:109-121` |
+| Scenario | 145 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Hosted kernel prerequisites are provisioned | `.github/workflows/vm-integration.yml:19-39`; `tools/scripts/run_kernel_integration_vm.sh:1-176`; `tools/scripts/run_kernel_integration_vm_test.sh:1-54`; `tools/scripts/prepare_kernel_integration_host.sh:1-59`; `tools/scripts/prepare_kernel_integration_host_test.sh:1-135`; `docs/security-posture.md:12-29` |
+| Scenario | 153 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Wire conformance tests run | `Makefile:1-201`; `BUILD.bazel:1-940`; `.github/workflows/ci.yml:1-143` |
+| Requirement | 158 | TDD and review discipline are codified | `AGENTS.md:1-117`; `CONTRIBUTING.md:38-59`; `.github/workflows/ci.yml:56-128` |
+| Scenario | 162 | TDD and review discipline are codified / Pull request contains a policy-invalid commit | `AGENTS.md:91-107`; `CONTRIBUTING.md:49-74`; `.github/workflows/ci.yml:56-99` |
+| Scenario | 167 | TDD and review discipline are codified / Feature commit adds only tests | `.github/pull_request_template.md:12-32`; `.github/workflows/ci.yml:101-126` |
+| Requirement | 172 | License and metadata are consistent | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176`; `LICENSE:1-202` |
+| Scenario | 176 | License and metadata are consistent / Stable release tag is pushed | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176`; `LICENSE:1-202` |
 
 ## `transport-networking`
 

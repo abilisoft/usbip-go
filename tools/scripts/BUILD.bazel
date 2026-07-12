@@ -86,6 +86,12 @@ script_binary(
     visibility = PUBLIC_VISIBILITY,
 )
 
+script_binary(
+    name = "prepare_kernel_integration_host",
+    src = "prepare_kernel_integration_host.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
 script_test(
     name = "ci_local_runner_test",
     size = "small",
@@ -98,6 +104,13 @@ script_test(
     size = "small",
     src = "govulncheck_sarif_test.sh",
     data = ["govulncheck_sarif.sh"],
+)
+
+script_test(
+    name = "prepare_kernel_integration_host_test",
+    size = "small",
+    src = "prepare_kernel_integration_host_test.sh",
+    data = ["prepare_kernel_integration_host.sh"],
 )
 
 script_test(
@@ -119,11 +132,24 @@ script_binary(
     visibility = PUBLIC_VISIBILITY,
 )
 
+script_binary(
+    name = "run_kernel_integration_vm",
+    src = "run_kernel_integration_vm.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
 script_test(
     name = "repo_coverage_test_runner_test",
     size = "small",
     src = "repo_coverage_test_runner_test.sh",
     data = ["repo_coverage_test_runner.sh"],
+)
+
+script_test(
+    name = "run_kernel_integration_vm_test",
+    size = "small",
+    src = "run_kernel_integration_vm_test.sh",
+    data = ["run_kernel_integration_vm.sh"],
 )
 
 script_binary(

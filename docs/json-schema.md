@@ -4,9 +4,8 @@ Stable contract for every JSON object emitted by usbip-go. This
 document fixes field names, types, and semantics at schema v1 per
 `openspec/specs/operations-observability/spec.md` and `openspec/specs/cli-interface/spec.md`.
 
-Schema v1 is the repository's current stable machine-readable contract even
-though every published module tag is presently retracted. Any breaking change
-requires a documented schema bump and a release note; published-version
+Schema v1 is the repository's stable machine-readable contract. Any breaking
+change requires a documented schema bump and a release note; published-version
 support is tracked separately in [`../SECURITY.md`](../SECURITY.md).
 
 The CLI's `--output=table` (default) human-readable format is NOT

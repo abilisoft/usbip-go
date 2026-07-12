@@ -112,7 +112,13 @@ writable configfs gadget tree, and loaded `dummy_hcd`, `libcomposite`,
 `vhci_hcd` modules for the complete suite. The kernel must enable
 `CONFIG_USB_DUMMY_HCD`; otherwise the full bind/list/attach CLI scenario skips.
 The tests are exposed as `make test-integration` and are not part of the default
-unit-test target.
+unit-test target. Because GitHub's Azure kernel omits the exporter, VUDC,
+gadget, and dummy HCD modules, the dedicated hosted workflow boots a
+SHA-512-pinned Debian full-kernel image under QEMU. It loads the modules, mounts
+configfs, and fails before Bazel starts if the guest or any prerequisite is
+unavailable. Host VM tooling, the guest image, and guest bootstrap downloads
+are narrow non-hermetic exceptions; the integration target remains
+Bazel-backed.
 
 ## Release process
 

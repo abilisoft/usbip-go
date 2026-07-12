@@ -11,9 +11,11 @@ Use the OS package for production/systemd installs. The `.deb` and
 `.rpm` release assets install the binary, systemd units, modules-load
 config, and runtime-directory wiring used by the default status socket:
 
-Choose a tag listed as supported in [`../SECURITY.md`](../SECURITY.md). Every
-currently published tag is retracted, so the commands below are templates for
-the next supported release rather than an immediately installable version.
+Choose the latest non-retracted stable tag listed in
+[`../SECURITY.md`](../SECURITY.md) and on the
+[GitHub Releases page](https://github.com/abilisoft/usbip-go/releases). If no
+such tag is present, the commands below are templates rather than an
+immediately installable version.
 
 ```text
 sudo dpkg -i usbip-go_X.Y.Z_linux_amd64.deb

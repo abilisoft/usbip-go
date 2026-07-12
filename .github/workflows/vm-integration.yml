@@ -19,32 +19,21 @@ concurrency:
 jobs:
   integration:
     name: Kernel integration tests
-    runs-on: [self-hosted, linux, x64, usbip-kernel]
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: ./.github/actions/setup-bazel
-      - name: Verify kernel integration environment
+      - name: Restore kernel VM image
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .local/kernel-vm/images
+          key: kernel-vm-debian-trixie-20260706-2531
+      - name: Install VM tooling
         run: |
           set -euo pipefail
-          test "$(id -u)" -eq 0
-          modules=(
-            dummy_hcd
-            libcomposite
-            usb_f_acm
-            usb_f_mass_storage
-            usbip_core
-            usbip_host
-            usbip_vudc
-            vhci_hcd
-          )
-          for module in "${modules[@]}"; do
-            test -d "/sys/module/${module}" || {
-              echo "::error::required kernel module is not loaded: ${module}"
-              exit 1
-            }
-          done
-          test -d /sys/kernel/config/usb_gadget
-          test -w /sys/kernel/config/usb_gadget
-      - name: Run integration target
-        run: make test-integration
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes \
+            cloud-image-utils \
+            qemu-system-x86
+      - name: Run integration target in kernel VM
+        run: ./tools/scripts/run_kernel_integration_vm.sh

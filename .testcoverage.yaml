@@ -19,7 +19,7 @@
 #     Bazel unit-test environment cannot synthesise (EFAULT from
 #     configfs, ENOMEM mid-bind, vhci_hcd module gone mid-attach).
 #     The integration suite (test/integration) provokes those on the
-#     dedicated kernel runner; raising the unit-test threshold beyond ~85%
+#     dedicated hosted-kernel workflow; raising the unit-test threshold beyond ~85%
 #     would force test-only error injectors through every syscall.
 #   * cmd/usbip-go is Cobra Action functions that wire pkg/usbip
 #     Importer/Exporter through I/O. The package-level

@@ -6,6 +6,7 @@
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/abilisoft/usbip-go/badge)](https://scorecard.dev/viewer/?uri=github.com/abilisoft/usbip-go)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12654/badge)](https://www.bestpractices.dev/projects/12654)
 [![codecov](https://codecov.io/gh/abilisoft/usbip-go/branch/main/graph/badge.svg)](https://codecov.io/gh/abilisoft/usbip-go)
+[![Go Reference](https://pkg.go.dev/badge/github.com/abilisoft/usbip-go.svg)](https://pkg.go.dev/github.com/abilisoft/usbip-go)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 
 ## What it is
@@ -60,9 +61,10 @@ Legend: ✅ built in · ⚠️ varies by distro/package · ❌ not provided
 
 ### Release archive
 
-Choose a tag listed as supported in [`SECURITY.md`](SECURITY.md). The
-currently published tags are retracted, so there is no supported archive to
-install until a replacement release is published.
+Choose the latest non-retracted stable tag listed in
+[`SECURITY.md`](SECURITY.md) and on the
+[GitHub Releases page](https://github.com/abilisoft/usbip-go/releases). If no
+such tag is present, there is no supported archive to install.
 
 ```sh
 VERSION=X.Y.Z # replace with a supported release version
@@ -84,8 +86,9 @@ VERSION=vX.Y.Z # replace with a supported release tag
 go install "github.com/abilisoft/usbip-go/cmd/usbip-go@${VERSION}"
 ```
 
-Do not use `@latest` while every published tag is retracted. Building the
-current development branch requires Go 1.26.5 or newer.
+Use an explicit supported tag rather than `@latest` so installation follows
+the support policy. Building the current development branch requires Go 1.26.5
+or newer.
 
 ### Kernel modules
 

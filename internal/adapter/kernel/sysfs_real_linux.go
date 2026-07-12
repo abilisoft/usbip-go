@@ -27,8 +27,8 @@ import (
 // dispatches real syscalls against /sys whose error branches
 // (EFAULT, ENOMEM, EBADF mid-write, EBUSY-style classifications)
 // cannot be synthesised hermetically. The integration suite
-// exercises them on the dedicated kernel runner. See `.testcoverage.yaml` exclude
-// list for the matched path.
+// exercises them in the dedicated hosted-kernel workflow. See
+// `.testcoverage.yaml` exclude list for the matched path.
 func writeSysfsFile(path, data string) error {
 	cleaned := filepath.Clean(path)
 
