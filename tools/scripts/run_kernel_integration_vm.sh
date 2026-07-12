@@ -96,9 +96,9 @@ users:
       - ${ssh_public_key}
 package_update: true
 packages:
+  - build-essential
   - ca-certificates
   - curl
-  - make
 EOF
 
 cat >"${run_root}/meta-data" <<'EOF'

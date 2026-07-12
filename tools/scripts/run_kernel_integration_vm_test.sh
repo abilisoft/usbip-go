@@ -17,6 +17,12 @@ script_path() {
 readonly tmp=${TEST_TMPDIR:-$(mktemp -d)}
 readonly source_image="${tmp}/source.qcow2"
 readonly cache_root="${tmp}/cache"
+
+if ! grep --fixed-strings --line-regexp '  - build-essential' "$(script_path)" >/dev/null; then
+	printf 'guest build toolchain package is absent\n' >&2
+	exit 1
+fi
+
 printf 'pinned image fixture\n' >"${source_image}"
 checksum=$(sha512sum "${source_image}")
 readonly checksum=${checksum%% *}
