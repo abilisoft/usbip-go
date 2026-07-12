@@ -10,7 +10,9 @@ The GitHub release workflow SHALL publish only tags matching
 `vMAJOR.MINOR.PATCH`. It SHALL accept either a direct matching tag push or a
 manual GitHub Actions request from the current default-branch head. A manual
 request SHALL create the tag and redispatch the release workflow at that tag so
-both entry points use the same tag-context release jobs.
+both entry points use the same tag-context release jobs. The manual path SHALL
+re-confirm the default-branch head immediately after tag creation and roll back
+the new tag without dispatching if that confirmation fails or the branch moved.
 
 #### Scenario: Stable tag is pushed
 
@@ -24,10 +26,16 @@ both entry points use the same tag-context release jobs.
 - **AND** it redispatches the same workflow with the new tag as its ref
 - **AND** the tag-context run executes the same validation and release jobs as a direct tag push
 
-#### Scenario: Manual release uses a non-default or stale ref
+#### Scenario: Manual release uses a non-default or already-stale ref
 
 - **WHEN** a manual release request selects a non-default branch or a commit that is no longer the default-branch head
 - **THEN** the workflow rejects the request before creating a tag
+
+#### Scenario: Default branch advances during manual tag creation
+
+- **WHEN** the default branch moves after the initial freshness check but before tag creation completes
+- **THEN** the start script re-reads the default-branch head immediately after creating the tag
+- **AND** it deletes the newly created tag, fails, and does not dispatch the tag-context workflow
 
 #### Scenario: Manual release tag already exists
 

@@ -3,6 +3,7 @@
 - [x] 1.1 Add a fail-closed release-start script for canonical tag validation, default-branch freshness, atomic tag creation, tag-context redispatch, and handoff rollback
 - [x] 1.2 Add hermetic regression tests covering successful handoff and every validation/API/rollback failure path
 - [x] 1.3 Register the script and tests in Bazel and the normal unit-test suite
+- [x] 1.4 Re-confirm the default-branch head after tag creation and roll back on movement or lookup ambiguity before dispatch
 
 ## 2. Dual-Entry Workflow
 

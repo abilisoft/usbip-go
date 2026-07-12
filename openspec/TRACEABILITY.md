@@ -125,12 +125,12 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 117 | Test workflows are tiered by cost and environment / Coverage thresholds run | `Makefile:175-180`; `tools/scripts/coverage_check.sh:1-160`; `.github/workflows/_coverage.yml:1-37` |
 | Scenario | 123 | Test workflows are tiered by cost and environment / Integration tests run directly | `Makefile:182-185`; `BUILD.bazel:768-775`; `CONTRIBUTING.md:109-120` |
 | Scenario | 128 | Test workflows are tiered by cost and environment / Mutation tests run | `Makefile:187-190`; `BUILD.bazel:808-815`; `.github/workflows/mutation.yml:1-35` |
-| Requirement | 134 | GitHub Actions use the Make/Bazel contract | `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/release.yml:1-209`; `.github/workflows/mutation.yml:1-35`; `CONTRIBUTING.md:122-146`; `Makefile:141-159`; `tools/scripts/start_release.sh:1-59` |
+| Requirement | 134 | GitHub Actions use the Make/Bazel contract | `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/release.yml:1-209`; `.github/workflows/mutation.yml:1-35`; `CONTRIBUTING.md:122-146`; `Makefile:141-159`; `tools/scripts/start_release.sh:1-78` |
 | Scenario | 143 | GitHub Actions use the Make/Bazel contract / CodeQL traces the production binary | `.github/workflows/codeql.yml:34-46`; `Makefile:57-61`; `docs/security-posture.md:1-142` |
 | Scenario | 150 | GitHub Actions use the Make/Bazel contract / Pull request CI runs | `.github/workflows/ci.yml:1-143`; `.github/workflows/_security.yml:1-57`; `.github/workflows/_arch-checks.yml:1-65`; `Makefile:43-190`; `tools/scripts/ci_local_runner.sh:1-86` |
 | Scenario | 156 | GitHub Actions use the Make/Bazel contract / Nightly verification runs | `.github/workflows/nightly.yml:1-57`; `.github/workflows/_security.yml:1-57`; `.github/workflows/_coverage.yml:1-37`; `Makefile:126-180` |
 | Scenario | 162 | GitHub Actions use the Make/Bazel contract / Tagged release runs | `.github/workflows/release.yml:65-209`; `Makefile:43-154`; `tools/bazel/goreleaser.bzl:1-56` |
-| Scenario | 169 | GitHub Actions use the Make/Bazel contract / Manual release start runs | `.github/workflows/release.yml:11-63`; `Makefile:156-159`; `tools/scripts/start_release.sh:1-59`; `tools/scripts/start_release_test.sh:1-154` |
+| Scenario | 169 | GitHub Actions use the Make/Bazel contract / Manual release start runs | `.github/workflows/release.yml:11-63`; `Makefile:156-159`; `tools/scripts/start_release.sh:1-78`; `tools/scripts/start_release_test.sh:1-190` |
 
 ## `domain-model`
 
@@ -380,40 +380,41 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 
 ## `release-packaging`
 
-- Spec source: `openspec/specs/release-packaging/spec.md:1-172`
+- Spec source: `openspec/specs/release-packaging/spec.md:1-180`
 
 | Type | Spec line | Item | Evidence |
 |---|---:|---|---|
-| Requirement | 7 | Release workflow only publishes canonical stable SemVer tags | `.github/workflows/release.yml:6-85`; `tools/scripts/start_release.sh:1-59`; `tools/scripts/start_release_test.sh:1-154`; `cliff.toml:1-126` |
-| Scenario | 15 | Release workflow only publishes canonical stable SemVer tags / Stable tag is pushed | `.github/workflows/release.yml:6-10`; `.github/workflows/release.yml:65-85` |
-| Scenario | 20 | Release workflow only publishes canonical stable SemVer tags / Stable release is started from GitHub Actions | `.github/workflows/release.yml:11-63`; `Makefile:156-159`; `tools/scripts/start_release.sh:1-59`; `tools/scripts/start_release_test.sh:1-154`; `CONTRIBUTING.md:122-146` |
-| Scenario | 27 | Release workflow only publishes canonical stable SemVer tags / Manual release uses a non-default or stale ref | `.github/workflows/release.yml:30-63`; `tools/scripts/start_release.sh:18-35`; `tools/scripts/start_release_test.sh:83-129` |
-| Scenario | 32 | Release workflow only publishes canonical stable SemVer tags / Manual release tag already exists | `tools/scripts/start_release.sh:37-40`; `tools/scripts/start_release_test.sh:131-136` |
-| Scenario | 37 | Release workflow only publishes canonical stable SemVer tags / Manual handoff fails | `tools/scripts/start_release.sh:42-59`; `tools/scripts/start_release_test.sh:138-154` |
-| Scenario | 43 | Release workflow only publishes canonical stable SemVer tags / Prerelease tag is pushed | `.github/workflows/release.yml:6-10`; `cliff.toml:1-126` |
-| Scenario | 48 | Release workflow only publishes canonical stable SemVer tags / Non-canonical tag reaches validation | `.github/workflows/release.yml:65-85`; `tools/scripts/start_release.sh:23-24`; `tools/scripts/start_release_test.sh:83-88` |
-| Requirement | 53 | Release publication waits for prereq gates | `.github/workflows/release.yml:65-209`; `.github/workflows/_security.yml:1-57`; `.github/workflows/_unit-tests.yml:1-25`; `.github/workflows/_conformance.yml:1-25`; `.github/workflows/_arch-checks.yml:1-65`; `.github/workflows/_coverage.yml:1-37`; `CONTRIBUTING.md:122-146` |
-| Scenario | 63 | Release publication waits for prereq gates / Prereq gate fails | `.github/workflows/release.yml:87-138` |
-| Scenario | 68 | Release publication waits for prereq gates / Prereq gates pass | `.github/workflows/release.yml:87-146` |
-| Scenario | 73 | Release publication waits for prereq gates / Kernel integration requires privileged capabilities | `.github/workflows/release.yml:65-209`; `Makefile:182-185`; `CONTRIBUTING.md:109-146` |
-| Requirement | 79 | Release notes come from git-cliff | `.github/workflows/release.yml:124-209`; `.goreleaser.yml:1-176` |
-| Scenario | 85 | Release notes come from git-cliff / Release notes render | `.github/workflows/release.yml:140-154`; `.goreleaser.yml:1-176` |
-| Scenario | 91 | Release notes come from git-cliff / Release notes are empty | `.github/workflows/release.yml:147-154`; `.goreleaser.yml:1-176` |
-| Requirement | 96 | GoReleaser builds a single pure-Go Linux binary matrix | `.goreleaser.yml:1-176`; `cmd/usbip-go/release_metadata_test.go:1-57`; `Makefile:1-206`; `BUILD.bazel:1-939` |
-| Scenario | 100 | GoReleaser builds a single pure-Go Linux binary matrix / Release binary is built | `.goreleaser.yml:1-176`; `cmd/usbip-go/release_metadata_test.go:1-57`; `Makefile:1-206`; `BUILD.bazel:1-939` |
-| Scenario | 107 | GoReleaser builds a single pure-Go Linux binary matrix / Snapshot release runs locally | `.goreleaser.yml:1-176`; `cmd/usbip-go/release_metadata_test.go:1-57`; `Makefile:151-154`; `BUILD.bazel:823-831` |
-| Requirement | 112 | Release archives include operator documentation and deployment files | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
-| Scenario | 116 | Release archives include operator documentation and deployment files / Archive is produced | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
-| Requirement | 122 | OS packages install binary, docs, systemd units, and modules-load config | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
-| Scenario | 126 | OS packages install binary, docs, systemd units, and modules-load config / Package is produced | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
-| Requirement | 134 | Checksums and SBOMs are generated | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:124-209` |
-| Scenario | 138 | Checksums and SBOMs are generated / Checksums are generated | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:124-209` |
-| Scenario | 143 | Checksums and SBOMs are generated / SBOMs are generated | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:124-209` |
-| Requirement | 148 | Checksums are keylessly signed with Sigstore | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:124-209` |
-| Scenario | 152 | Checksums are keylessly signed with Sigstore / Signing runs | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:124-209` |
-| Requirement | 158 | SLSA provenance covers user-downloadable binary artifacts | `.github/workflows/release.yml:124-209` |
-| Scenario | 162 | SLSA provenance covers user-downloadable binary artifacts / Artifact hashes are collected | `.github/workflows/release.yml:124-174` |
-| Scenario | 168 | SLSA provenance covers user-downloadable binary artifacts / Provenance is generated | `.github/workflows/release.yml:176-209` |
+| Requirement | 7 | Release workflow only publishes canonical stable SemVer tags | `.github/workflows/release.yml:6-85`; `tools/scripts/start_release.sh:1-78`; `tools/scripts/start_release_test.sh:1-190`; `cliff.toml:1-126` |
+| Scenario | 17 | Release workflow only publishes canonical stable SemVer tags / Stable tag is pushed | `.github/workflows/release.yml:6-10`; `.github/workflows/release.yml:65-85` |
+| Scenario | 22 | Release workflow only publishes canonical stable SemVer tags / Stable release is started from GitHub Actions | `.github/workflows/release.yml:11-63`; `Makefile:156-159`; `tools/scripts/start_release.sh:38-75`; `tools/scripts/start_release_test.sh:101-108`; `CONTRIBUTING.md:122-146` |
+| Scenario | 29 | Release workflow only publishes canonical stable SemVer tags / Manual release uses a non-default or already-stale ref | `.github/workflows/release.yml:30-63`; `tools/scripts/start_release.sh:38-54`; `tools/scripts/start_release_test.sh:110-156` |
+| Scenario | 34 | Release workflow only publishes canonical stable SemVer tags / Default branch advances during manual tag creation | `tools/scripts/start_release.sh:56-67`; `tools/scripts/start_release_test.sh:164-180` |
+| Scenario | 40 | Release workflow only publishes canonical stable SemVer tags / Manual release tag already exists | `tools/scripts/start_release.sh:56-59`; `tools/scripts/start_release_test.sh:158-162` |
+| Scenario | 45 | Release workflow only publishes canonical stable SemVer tags / Manual handoff fails | `tools/scripts/start_release.sh:24-36`; `tools/scripts/start_release.sh:69-78`; `tools/scripts/start_release_test.sh:182-190` |
+| Scenario | 51 | Release workflow only publishes canonical stable SemVer tags / Prerelease tag is pushed | `.github/workflows/release.yml:6-10`; `cliff.toml:1-126` |
+| Scenario | 56 | Release workflow only publishes canonical stable SemVer tags / Non-canonical tag reaches validation | `.github/workflows/release.yml:65-85`; `tools/scripts/start_release.sh:45-46`; `tools/scripts/start_release_test.sh:110-114` |
+| Requirement | 61 | Release publication waits for prereq gates | `.github/workflows/release.yml:65-209`; `.github/workflows/_security.yml:1-57`; `.github/workflows/_unit-tests.yml:1-25`; `.github/workflows/_conformance.yml:1-25`; `.github/workflows/_arch-checks.yml:1-65`; `.github/workflows/_coverage.yml:1-37`; `CONTRIBUTING.md:122-146` |
+| Scenario | 71 | Release publication waits for prereq gates / Prereq gate fails | `.github/workflows/release.yml:87-138` |
+| Scenario | 76 | Release publication waits for prereq gates / Prereq gates pass | `.github/workflows/release.yml:87-146` |
+| Scenario | 81 | Release publication waits for prereq gates / Kernel integration requires privileged capabilities | `.github/workflows/release.yml:65-209`; `Makefile:182-185`; `CONTRIBUTING.md:109-146` |
+| Requirement | 87 | Release notes come from git-cliff | `.github/workflows/release.yml:124-209`; `.goreleaser.yml:1-176` |
+| Scenario | 93 | Release notes come from git-cliff / Release notes render | `.github/workflows/release.yml:140-154`; `.goreleaser.yml:1-176` |
+| Scenario | 99 | Release notes come from git-cliff / Release notes are empty | `.github/workflows/release.yml:147-154`; `.goreleaser.yml:1-176` |
+| Requirement | 104 | GoReleaser builds a single pure-Go Linux binary matrix | `.goreleaser.yml:1-176`; `cmd/usbip-go/release_metadata_test.go:1-57`; `Makefile:1-206`; `BUILD.bazel:1-939` |
+| Scenario | 108 | GoReleaser builds a single pure-Go Linux binary matrix / Release binary is built | `.goreleaser.yml:1-176`; `cmd/usbip-go/release_metadata_test.go:1-57`; `Makefile:1-206`; `BUILD.bazel:1-939` |
+| Scenario | 115 | GoReleaser builds a single pure-Go Linux binary matrix / Snapshot release runs locally | `.goreleaser.yml:1-176`; `cmd/usbip-go/release_metadata_test.go:1-57`; `Makefile:151-154`; `BUILD.bazel:823-831` |
+| Requirement | 120 | Release archives include operator documentation and deployment files | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
+| Scenario | 124 | Release archives include operator documentation and deployment files / Archive is produced | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
+| Requirement | 130 | OS packages install binary, docs, systemd units, and modules-load config | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
+| Scenario | 134 | OS packages install binary, docs, systemd units, and modules-load config / Package is produced | `.goreleaser.yml:1-176`; `contrib/systemd/usbip-go.service:1-29`; `contrib/systemd/usbip-go.socket:1-13`; `contrib/modules-load.d/usbip-go.conf:1-13` |
+| Requirement | 142 | Checksums and SBOMs are generated | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:124-209` |
+| Scenario | 146 | Checksums and SBOMs are generated / Checksums are generated | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:124-209` |
+| Scenario | 151 | Checksums and SBOMs are generated / SBOMs are generated | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:124-209` |
+| Requirement | 156 | Checksums are keylessly signed with Sigstore | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:124-209` |
+| Scenario | 160 | Checksums are keylessly signed with Sigstore / Signing runs | `.goreleaser.yml:1-176`; `.github/workflows/release.yml:124-209` |
+| Requirement | 166 | SLSA provenance covers user-downloadable binary artifacts | `.github/workflows/release.yml:124-209` |
+| Scenario | 170 | SLSA provenance covers user-downloadable binary artifacts / Artifact hashes are collected | `.github/workflows/release.yml:124-174` |
+| Scenario | 176 | SLSA provenance covers user-downloadable binary artifacts / Provenance is generated | `.github/workflows/release.yml:176-209` |
 
 ## `security-release-quality`
 

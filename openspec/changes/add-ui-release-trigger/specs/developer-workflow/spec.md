@@ -38,5 +38,5 @@ both SHALL converge on the same tag-context Make/Bazel release jobs.
 #### Scenario: Manual release start runs
 
 - **WHEN** a maintainer starts a stable release from the GitHub Actions UI
-- **THEN** the repository-owned start script validates and creates the tag before redispatching the tag-context workflow
-- **AND** hermetic script tests cover success, validation failures, API failures, and handoff rollback
+- **THEN** the repository-owned start script validates and creates the tag, confirms the default-branch head did not move during creation, and only then redispatches the tag-context workflow
+- **AND** hermetic script tests cover success, validation failures, API failures, concurrent default-branch movement, and handoff rollback

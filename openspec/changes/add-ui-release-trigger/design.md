@@ -20,7 +20,8 @@ cannot perform release work directly.
 - Make both paths converge on the exact same tag-context validation and release
   jobs.
 - Reject non-default-branch manual starts, stale default-branch commits,
-  malformed tags, and existing tags before release work.
+  default-branch movement during tag creation, malformed tags, and existing
+  tags before release work.
 - Preserve least privilege, fail-closed behavior, draft publication ordering,
   SLSA attachment, and existing release artifact contracts.
 
@@ -76,7 +77,11 @@ The start script accepts all GitHub context through environment variables,
 requires exact `vMAJOR.MINOR.PATCH`, confirms the selected ref is the default
 branch, fetches the current default-branch SHA through the API, and rejects a
 stale dispatch before creating a ref. Ref creation is atomic and fails if the
-tag already exists.
+tag already exists. Immediately after creation, the script fetches the
+default-branch SHA again. If that confirmation fails, is empty, or no longer
+matches the dispatch SHA, the script deletes the newly created tag and fails
+without dispatching the release workflow. The post-create confirmation closes
+the otherwise-unavoidable race between the initial head read and ref creation.
 
 If the explicit redispatch fails after ref creation, the script deletes only
 the tag it just created and returns failure. Once redispatch succeeds, later
@@ -88,16 +93,19 @@ allowing diagnosis rather than silently moving or deleting a published ref.
 The workflow delegates the stateful manual-start operation to a narrow shell
 script. Hermetic tests provide a fake `gh`, assert every validation failure,
 verify the create/dispatch sequence, and verify rollback after dispatch failure.
-The tag-context release validation remains in the workflow and is exercised by
-actionlint plus repository coverage checks.
+They also model the default branch advancing between the initial head read and
+tag creation, plus confirmation lookup failures, and verify rollback occurs
+before any dispatch. The tag-context release validation remains in the workflow
+and is exercised by actionlint plus repository coverage checks.
 
 ## Risks / Trade-offs
 
 - **[The start run succeeds but the tag-context run later fails]** → The tag is
   retained exactly as with a direct tag push; rerun/diagnose without mutating it.
 - **[Default branch advances during manual start]** → Compare the dispatch SHA
-  with the live default-branch ref immediately before tag creation and fail stale
-  requests.
+  with the live default-branch ref before tag creation, re-read it immediately
+  after creation, and roll back the new tag without dispatching if the ref moved
+  or cannot be confirmed.
 - **[Two release runs look confusing]** → Name the first job “Start release” and
   document that it hands off to a second tag-context run.
 - **[Dispatch fails after tag creation]** → Delete only the newly created tag and

@@ -30,9 +30,24 @@ printf '%s\n' "$*" >>"${START_RELEASE_TEST_LOG}"
 
 case "$*" in
 *"git/ref/heads/"*)
-	[[ ${START_RELEASE_TEST_SCENARIO} != head-failure ]] || exit 1
-	[[ ${START_RELEASE_TEST_SCENARIO} == empty-head ]] ||
-		printf '%s\n' "${START_RELEASE_TEST_HEAD_SHA}"
+	head_read_count=$(grep -Fc "git/ref/heads/" "${START_RELEASE_TEST_LOG}")
+	case "${START_RELEASE_TEST_SCENARIO}" in
+		head-failure) exit 1 ;;
+		head-failure-after-create)
+			((head_read_count == 1)) || exit 1
+			;;
+		empty-head) exit 0 ;;
+		empty-head-after-create)
+			((head_read_count == 1)) || exit 0
+			;;
+		head-advanced-after-create)
+			if ((head_read_count > 1)); then
+				printf '%s\n' "${START_RELEASE_TEST_HEAD_SHA_AFTER_CREATE}"
+				exit 0
+			fi
+			;;
+	esac
+	printf '%s\n' "${START_RELEASE_TEST_HEAD_SHA}"
 	;;
 "api --method POST "*)
 	[[ ${START_RELEASE_TEST_SCENARIO} != create-failure ]] || exit 1
@@ -59,6 +74,7 @@ run_start() {
 	local branch=${3:-${test_branch}}
 	local sha=${4:-${test_sha}}
 	local head_sha=${5:-${test_sha}}
+	local head_sha_after_create=${6:-${head_sha}}
 
 	: >"${log}"
 	DEFAULT_BRANCH="${test_branch}" \
@@ -69,6 +85,7 @@ run_start() {
 		PATH="${fake_bin}:${PATH}" \
 		RELEASE_TAG="${tag}" \
 		START_RELEASE_TEST_HEAD_SHA="${head_sha}" \
+		START_RELEASE_TEST_HEAD_SHA_AFTER_CREATE="${head_sha_after_create}" \
 		START_RELEASE_TEST_LOG="${log}" \
 		START_RELEASE_TEST_SCENARIO="${scenario}" \
 		"$(script_path)" >/dev/null 2>&1
@@ -85,6 +102,7 @@ run_start success
 cat >"${tmp}/want-success" <<WANT
 api repos/${test_repository}/git/ref/heads/${test_branch} --jq .object.sha
 api --method POST repos/${test_repository}/git/refs -f ref=refs/tags/${test_tag} -f sha=${test_sha}
+api repos/${test_repository}/git/ref/heads/${test_branch} --jq .object.sha
 workflow run release.yml --repo ${test_repository} --ref ${test_tag} -f tag=${test_tag}
 WANT
 diff -u "${tmp}/want-success" "${log}"
@@ -142,6 +160,24 @@ expect_failure create-failure
 	printf 'tag creation failure must not dispatch or delete a pre-existing tag\n' >&2
 	exit 1
 }
+
+expect_post_create_rollback() {
+	local scenario=$1
+
+	expect_failure "${scenario}" "${test_tag}" "${test_branch}" \
+		"${test_sha}" "${test_sha}" "${test_stale_sha}"
+	cat >"${tmp}/want-post-create-rollback" <<WANT
+api repos/${test_repository}/git/ref/heads/${test_branch} --jq .object.sha
+api --method POST repos/${test_repository}/git/refs -f ref=refs/tags/${test_tag} -f sha=${test_sha}
+api repos/${test_repository}/git/ref/heads/${test_branch} --jq .object.sha
+api --method DELETE repos/${test_repository}/git/refs/tags/${test_tag}
+WANT
+	diff -u "${tmp}/want-post-create-rollback" "${log}"
+}
+
+expect_post_create_rollback head-advanced-after-create
+expect_post_create_rollback head-failure-after-create
+expect_post_create_rollback empty-head-after-create
 
 expect_failure dispatch-failure
 grep -Fqx \
