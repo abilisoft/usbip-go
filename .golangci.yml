@@ -9,7 +9,7 @@ formatters:
   # golangci-lint v2 splits formatters out of the linters list. Enable
   # the same trio that `make format` runs locally (gofmt -s -w, gofumpt -w,
   # goimports -w) so `make lint` enforces zero drift between developer
-  # machines and Go Report Card's gofmt check. Without this block,
+  # machines and CI. Without this block,
   # formatting violations only surface in the dedicated Bazel format-check
   # gate; routing them through golangci-lint as well keeps the IDE
   # integration honest (golangci-lint-langserver flags drift as you
