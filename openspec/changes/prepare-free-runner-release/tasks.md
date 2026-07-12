@@ -16,4 +16,4 @@
 - [x] 3.1 Run fresh workflow, Markdown/YAML, Go, and strict OpenSpec validation
 - [x] 3.2 Run fresh repository CI, release-snapshot, cross-compilation, and mutation gates
 - [x] 3.3 Record the existing manual local kernel-integration validation without claiming it ran in GitHub Actions
-- [ ] 3.4 Create signed Conventional Commits, audit live attribution/signature metadata, push the branch, and open a pull request
+- [x] 3.4 Create signed Conventional Commits, audit live attribution/signature metadata, push the branch, and open a pull request
