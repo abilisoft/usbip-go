@@ -102,7 +102,7 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 
 | Type | Spec line | Item | Evidence |
 |---|---:|---|---|
-| Requirement | 7 | Host tasks dispatch through hermetic Bazel targets | `Makefile:1-201`; `BUILD.bazel:1-934`; `MODULE.bazel:1-68`; `.bazelrc:1-70`; `tools/bazel/toolwrap.bzl:1-87`; `tools/scripts/bootstrap.sh:1-203`; `CONTRIBUTING.md:76-111` |
+| Requirement | 7 | Host tasks dispatch through hermetic Bazel targets | `Makefile:1-201`; `BUILD.bazel:1-937`; `MODULE.bazel:1-68`; `.bazelrc:1-70`; `tools/bazel/toolwrap.bzl:1-87`; `tools/scripts/bootstrap.sh:1-203`; `CONTRIBUTING.md:76-116` |
 | Scenario | 11 | Host tasks dispatch through hermetic Bazel targets / Tooling is provisioned under repo-local state | `Makefile:47-50`; `tools/scripts/bootstrap.sh:1-203`; `.gitignore:1-103` |
 | Scenario | 18 | Host tasks dispatch through hermetic Bazel targets / Host runs a build workflow task | `Makefile:52-55`; `BUILD.bazel:687-691`; `cmd/usbip-go/BUILD.bazel:52-56`; `.github/workflows/ci.yml:1-143` |
 | Scenario | 24 | Host tasks dispatch through hermetic Bazel targets / Host runs the pull-request CI pipeline locally | `Makefile:95-99`; `BUILD.bazel:729-733`; `tools/scripts/ci_local_runner.sh:1-86`; `tools/scripts/ci_local_runner_test.sh:1-60` |
@@ -119,13 +119,13 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 85 | Formatting and linting are scoped to owned repository surfaces / Formatting runs | `Makefile:116-119`; `BUILD.bazel:693-727`; `tools/BUILD.bazel:1-101`; `tools/bazel/toolwrap.bzl:1-87` |
 | Scenario | 91 | Formatting and linting are scoped to owned repository surfaces / Format check runs in CI | `Makefile:136-139`; `BUILD.bazel:772-801`; `.github/workflows/ci.yml:1-143` |
 | Scenario | 97 | Formatting and linting are scoped to owned repository surfaces / Lint runs | `Makefile:136-139`; `BUILD.bazel:350-685`; `BUILD.bazel:772-801`; `tools/scripts/format_tool.sh:1-150`; `tools/scripts/go_mod_check.sh:1-27`; `tools/scripts/toolwrap_test_runner.sh:1-156`; `vendor/modules.txt:1-130`; `tools/scripts/repo_coverage_test_runner.sh:1-208`; `tools/scripts/repo_coverage_test_runner_test.sh:1-43`; `.golangci.yml:1-346`; `.goreleaser.yml:1-176` |
-| Requirement | 103 | Test workflows are tiered by cost and environment | `Makefile:126-190`; `BUILD.bazel:735-811`; `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/mutation.yml:1-35`; `.github/workflows/vm-integration.yml:1-40` |
+| Requirement | 103 | Test workflows are tiered by cost and environment | `Makefile:126-190`; `BUILD.bazel:735-811`; `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/mutation.yml:1-35`; `.github/workflows/vm-integration.yml:1-50` |
 | Scenario | 107 | Test workflows are tiered by cost and environment / Unit tests run | `Makefile:156-159`; `BUILD.bazel:735-758`; `.github/workflows/ci.yml:1-143` |
 | Scenario | 112 | Test workflows are tiered by cost and environment / Conformance tests run | `Makefile:165-168`; `BUILD.bazel:760-764`; `.github/workflows/_conformance.yml:1-25` |
 | Scenario | 117 | Test workflows are tiered by cost and environment / Coverage thresholds run | `Makefile:170-175`; `tools/scripts/coverage_check.sh:1-160`; `.github/workflows/_coverage.yml:1-37` |
-| Scenario | 123 | Test workflows are tiered by cost and environment / Integration tests run directly | `Makefile:177-180`; `BUILD.bazel:766-770`; `.github/workflows/vm-integration.yml:1-40` |
+| Scenario | 123 | Test workflows are tiered by cost and environment / Integration tests run directly | `Makefile:177-180`; `BUILD.bazel:766-773`; `.github/workflows/vm-integration.yml:1-50` |
 | Scenario | 128 | Test workflows are tiered by cost and environment / Mutation tests run | `Makefile:182-185`; `BUILD.bazel:803-811`; `.github/workflows/mutation.yml:1-35` |
-| Requirement | 134 | GitHub Actions use the Make/Bazel contract | `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/release.yml:1-168`; `.github/workflows/mutation.yml:1-35`; `.github/workflows/vm-integration.yml:1-40` |
+| Requirement | 134 | GitHub Actions use the Make/Bazel contract | `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/release.yml:1-168`; `.github/workflows/mutation.yml:1-35`; `.github/workflows/vm-integration.yml:1-50` |
 | Scenario | 138 | GitHub Actions use the Make/Bazel contract / CodeQL traces the production binary | `.github/workflows/codeql.yml:34-46`; `Makefile:57-61`; `docs/security-posture.md:1-140` |
 | Scenario | 145 | GitHub Actions use the Make/Bazel contract / Pull request CI runs | `.github/workflows/ci.yml:1-143`; `.github/workflows/_security.yml:1-57`; `.github/workflows/_arch-checks.yml:1-65`; `Makefile:43-185`; `tools/scripts/ci_local_runner.sh:1-86` |
 | Scenario | 151 | GitHub Actions use the Make/Bazel contract / Nightly verification runs | `.github/workflows/nightly.yml:1-57`; `.github/workflows/_security.yml:1-57`; `.github/workflows/_coverage.yml:1-37`; `Makefile:126-175` |
@@ -410,7 +410,7 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 
 ## `security-release-quality`
 
-- Spec source: `openspec/specs/security-release-quality/spec.md:1-164`
+- Spec source: `openspec/specs/security-release-quality/spec.md:1-166`
 
 | Type | Spec line | Item | Evidence |
 |---|---:|---|---|
@@ -440,13 +440,13 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Requirement | 118 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns | `Makefile:1-201`; `BUILD.bazel:1-934`; `.github/workflows/ci.yml:1-143` |
 | Scenario | 122 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Pull request changes executable lines | `.github/codecov.yml:11-78`; `.testcoverage.yaml:1-90`; `AGENTS.md:20-45` |
 | Scenario | 128 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Unit tests run | `Makefile:1-201`; `BUILD.bazel:1-934`; `.github/workflows/ci.yml:1-143` |
-| Scenario | 133 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Integration tests run | `Makefile:1-201`; `BUILD.bazel:1-934`; `.github/workflows/ci.yml:1-143` |
-| Scenario | 138 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Wire conformance tests run | `Makefile:1-201`; `BUILD.bazel:1-934`; `.github/workflows/ci.yml:1-143` |
-| Requirement | 143 | TDD and review discipline are codified | `AGENTS.md:1-117`; `CONTRIBUTING.md:38-59`; `.github/workflows/ci.yml:56-128` |
-| Scenario | 147 | TDD and review discipline are codified / Pull request contains a policy-invalid commit | `AGENTS.md:91-107`; `CONTRIBUTING.md:49-74`; `.github/workflows/ci.yml:56-99` |
-| Scenario | 152 | TDD and review discipline are codified / Feature commit adds only tests | `.github/pull_request_template.md:12-32`; `.github/workflows/ci.yml:101-126` |
-| Requirement | 157 | License and metadata are consistent | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176`; `LICENSE:1-202` |
-| Scenario | 161 | License and metadata are consistent / Stable release tag is pushed | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176`; `LICENSE:1-202` |
+| Scenario | 133 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Integration tests run | `Makefile:177-180`; `BUILD.bazel:766-773`; `.github/workflows/vm-integration.yml:1-50`; `test/integration/harness.go:30-73`; `test/integration/dummy_hcd_helpers.go:24-75`; `CONTRIBUTING.md:109-116` |
+| Scenario | 140 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Wire conformance tests run | `Makefile:1-201`; `BUILD.bazel:1-937`; `.github/workflows/ci.yml:1-143` |
+| Requirement | 145 | TDD and review discipline are codified | `AGENTS.md:1-117`; `CONTRIBUTING.md:38-59`; `.github/workflows/ci.yml:56-128` |
+| Scenario | 149 | TDD and review discipline are codified / Pull request contains a policy-invalid commit | `AGENTS.md:91-107`; `CONTRIBUTING.md:49-74`; `.github/workflows/ci.yml:56-99` |
+| Scenario | 154 | TDD and review discipline are codified / Feature commit adds only tests | `.github/pull_request_template.md:12-32`; `.github/workflows/ci.yml:101-126` |
+| Requirement | 159 | License and metadata are consistent | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176`; `LICENSE:1-202` |
+| Scenario | 163 | License and metadata are consistent / Stable release tag is pushed | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176`; `LICENSE:1-202` |
 
 ## `transport-networking`
 

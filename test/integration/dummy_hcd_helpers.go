@@ -46,6 +46,7 @@ const gadgetConfigfsRoot = "/sys/kernel/config/usb_gadget"
 func dummyHCDRequiredModules() []string {
 	return []string{
 		kernelModuleLibcomposite,
+		kernelModuleUSBFACM,
 		dummyHCDModule,
 		usbip.KernelModuleUSBIPCore,
 		usbip.KernelModuleUSBIPHost,
@@ -57,6 +58,10 @@ func dummyHCDRequiredModules() []string {
 // dummy_hcd harness. It is not a USB/IP runtime module and therefore does not
 // belong in pkg/usbip's public readiness-module set.
 const kernelModuleLibcomposite = "libcomposite"
+
+// kernelModuleUSBFACM provides the configfs ACM function used to make a
+// dummy_hcd gadget enumerate as a bindable USB device.
+const kernelModuleUSBFACM = "usb_f_acm"
 
 // SetupDummyHCDGadget creates a real-USB-shaped gadget on dummy_udc.0
 // and returns its busid. The gadget is torn down via t.Cleanup.

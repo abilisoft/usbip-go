@@ -765,7 +765,10 @@ test_suite(
 
 test_suite(
     name = "integration",
-    tests = ["//test/integration:integration_test"],
+    tests = [
+        "//test/integration:harness_internal_test",
+        "//test/integration:integration_test",
+    ],
     visibility = ["//visibility:public"],
 )
 

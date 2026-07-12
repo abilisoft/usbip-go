@@ -37,6 +37,8 @@ import (
 // the no-shortcuts rule.
 func harnessModuleNames() []string {
 	return []string{
+		kernelModuleLibcomposite,
+		kernelModuleUSBFMassStorage,
 		usbip.KernelModuleUSBIPCore,
 		usbip.KernelModuleVHCIHCD,
 		usbip.KernelModuleUSBIPHost,
@@ -47,7 +49,10 @@ func harnessModuleNames() []string {
 // kernelModuleUSBIPVUDC is integration-only: unlike the three modules exposed
 // by usbip.ProbeKernelModules, usbip_vudc is required only by the virtual UDC
 // harness and is not part of the public runtime-readiness contract.
-const kernelModuleUSBIPVUDC = "usbip_vudc"
+const (
+	kernelModuleUSBFMassStorage = "usb_f_mass_storage"
+	kernelModuleUSBIPVUDC       = "usbip_vudc"
+)
 
 // vudcVendorID / vudcProductID / vudcBcdDevice mirror the upstream
 // capture script (scripts/capture-wire-fixtures.sh) so the harness
@@ -80,6 +85,20 @@ type VUDCDevice struct {
 	// Name is the configfs subdirectory name holding the gadget
 	// structure; t.TempDir-style cleanup removes the tree on test exit.
 	Name string
+
+	cleanup func()
+}
+
+// Release tears down the configfs gadget before the test ends. SetupVUDC
+// also registers the same cleanup with testing.T, so Release is optional and
+// idempotent; callers use it when a subsequent scenario must reuse a finite
+// usbip_vudc instance during the same test.
+func (d *VUDCDevice) Release() {
+	if d == nil || d.cleanup == nil {
+		return
+	}
+
+	d.cleanup()
 }
 
 // SetupVUDC creates a single usbip-vudc gadget in configfs and binds it
@@ -146,7 +165,7 @@ func setupVUDCWithBacking(t *testing.T, backing []byte) *VUDCDevice {
 		t.Skipf("integration harness: UDC bind failed: %v", err)
 	}
 
-	return &VUDCDevice{BusID: udc, Name: name}
+	return &VUDCDevice{BusID: udc, Name: name, cleanup: cleanup}
 }
 
 // RealBusIDEnv names the environment variable operators set to a real
@@ -269,17 +288,17 @@ func uniqueGadgetName(t *testing.T) string {
 func registerGadgetCleanup(t *testing.T, root string) func() {
 	t.Helper()
 
+	var once sync.Once
+
 	fn := func() {
-		err := runGadgetCleanup(root)
-		if err != nil {
-			// t.Logf because cleanup fires AFTER the test body returned
-			// (t.Errorf from here would not mark the in-progress test as
-			// failed anyway, and marking the already-finished test as
-			// failed would hide whether the scenario itself succeeded).
-			// A log line is sufficient to flag stuck configfs state that
-			// operators must investigate.
-			t.Logf("integration harness: gadget cleanup errors at %s: %v", root, err)
-		}
+		once.Do(func() {
+			err := runGadgetCleanup(root)
+			if err != nil {
+				// Teardown failures should remain visible without replacing the
+				// scenario's primary result with a secondary kernel-cleanup error.
+				t.Logf("integration harness: gadget cleanup errors at %s: %v", root, err)
+			}
+		})
 	}
 
 	t.Cleanup(fn)
@@ -297,6 +316,14 @@ func registerGadgetCleanup(t *testing.T, root string) func() {
 // often succeed: e.g. an UDC write failure (gadget never bound) should
 // not skip the symlink+rmdir cleanup.
 func runGadgetCleanup(root string) error {
+	_, err := os.Lstat(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect gadget root: %w", err)
+	}
+
 	var errs []error
 
 	// Unbind UDC first: kernel configfs rejects a zero-byte write
@@ -312,8 +339,12 @@ func runGadgetCleanup(root string) error {
 	// Function symlinks must go before their parent configs dir.
 	configsDir := filepath.Join(root, "configs")
 
-	err := filepath.WalkDir(configsDir, func(path string, d fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(configsDir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if errors.Is(walkErr, fs.ErrNotExist) {
+				return nil
+			}
+
 			errs = append(errs, fmt.Errorf("walk %s: %w", path, walkErr))
 
 			return nil //nolint:nilerr // continue walking; the joined-error accumulates the skipped branch
@@ -551,7 +582,8 @@ func writeGadgetFunctionWithBacking(t *testing.T, root string, backing []byte) e
 // Tracking used instances in-process and always picking a fresh one
 // eliminates the race — the vudc kernel module's `num=` param
 // must provision enough instances for every test case the integration
-// suite runs in one invocation.
+// suite runs concurrently in one invocation. When the pool is exhausted,
+// idle instances may be recycled after their prior configfs gadget is released.
 var vudcUsageTracker = struct {
 	mu   sync.Mutex
 	used map[string]bool
@@ -562,9 +594,10 @@ var vudcUsageTracker = struct {
 //  1. has not yet been handed out in this test-binary process, AND
 //  2. is not currently in SDEV_ST_USED state (an active session)
 //
-// and records the selection so the next caller gets a different
-// instance. Exhausting the pool returns an error so the harness
-// skips cleanly instead of hanging on a racy UDC write.
+// and records the selection so the next caller first prefers a different
+// instance. If every instance has been used, the tracker is cleared and an
+// idle instance may be recycled; callers reusing a finite pool must Release
+// the previous gadget before asking for another one.
 func firstAvailableVUDC() (string, error) {
 	entries, err := os.ReadDir("/sys/class/udc")
 	if err != nil {

@@ -9,6 +9,8 @@ import (
 	"context"
 	"iter"
 	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,23 +24,26 @@ import (
 // wait for a matching uevent to arrive via the netlink subscription.
 // Kernel uevent emission is typically sub-millisecond; five seconds
 // covers slow-VM runners without inviting hangs on a broken setup.
-const eventCollectDeadline = 5 * time.Second
+const (
+	eventCollectDeadline = 5 * time.Second
+	// eventScenarioDeadline covers VUDC enumeration, detach convergence,
+	// and both event-observation windows on a cold kernel runner.
+	eventScenarioDeadline = 45 * time.Second
+	eventRetryInterval    = 50 * time.Millisecond
+	eventGadgetName       = "usbip_go_integration_events"
+	eventUDCClassRoot     = "/sys/class/udc"
+	eventUeventAttribute  = "uevent"
+	eventUeventChange     = "change\n"
+	eventSysfsWriteMode   = 0o200
+)
 
-// TestEventsDeviceBoundUnbound proves security-release-quality OpenSpec's "Watch emits
-// EventDeviceBound on configfs add" contract. The harness's SetupVUDC
-// creates a gadget and writes the UDC attribute, which the kernel
-// translates into a DEVTYPE=usbip-vudc-device uevent. A subscribed
-// Importer/Watch iterator observes the matching DeviceBoundEvent.
-//
-// Tear-down by writing "" to UDC during t.Cleanup produces the
-// corresponding DeviceUnboundEvent. Both events carry the busid the
-// harness chose so the assertion is specific to THIS gadget — other
-// parallel tests' gadgets do not pollute the observation.
-//
-// Skips cleanly if SetupVUDC itself skipped (missing modules or
-// exhausted vudc UDCs per security-release-quality OpenSpec).
+// TestEventsDeviceBoundUnbound exercises the production usbip-host event
+// path against a dummy_hcd-backed USB device. Configfs UDC membership does
+// not itself mean that a device became exportable; binding and unbinding the
+// enumerated USB topology bus ID through Exporter is the real lifecycle that
+// DeviceBoundEvent and DeviceUnboundEvent describe.
 func TestEventsDeviceBoundUnbound(t *testing.T) {
-	dev := integration.SetupVUDC(t)
+	busID := domain.BusID(integration.SetupDummyHCDGadget(t, eventGadgetName))
 
 	imp, err := usbip.NewImporter()
 	require.NoError(t, err)
@@ -48,29 +53,63 @@ func TestEventsDeviceBoundUnbound(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), eventCollectDeadline)
 	defer cancel()
 
-	busID := domain.BusID(dev.BusID)
+	exp, err := usbip.NewExporter()
+	require.NoError(t, err)
 
-	// Setup already happened; the first subscriber may have missed
-	// the bind event. Synthesise a deterministic second event by
-	// writing a no-op to /sys and re-reading: the kernel emits a
-	// fresh uevent on the attribute write. We cannot re-bind without
-	// a matching unbind, so instead we rely on the uevent the UDC
-	// write has already emitted — if the subscription races past it,
-	// the scenario continues with the unbind event after Close.
-	ch := imp.Watch(ctx)
+	t.Cleanup(func() {
+		sctx, scancel := context.WithTimeout(context.Background(), eventCollectDeadline)
+		defer scancel()
 
-	// Unbind to synthesise the second event. This both exercises
-	// the unbound path AND re-emits the bound event at re-bind.
-	// configfs rejects a zero-byte write with -EFAULT; writing a lone
-	// newline is the canonical way to unbind a UDC — the kernel's
-	// gadget_dev_desc_UDC_store strips the trailing \n and the empty
-	// result triggers unregister_gadget. Same pattern as the harness
-	// cleanup path in harness.go's runGadgetCleanup.
-	err = os.WriteFile("/sys/kernel/config/usb_gadget/"+dev.Name+"/UDC", []byte("\n"), 0o644)
-	require.NoError(t, err, "unbind UDC must succeed")
+		_ = exp.Unbind(sctx, busID)
+		_ = exp.Shutdown(sctx)
+	})
 
-	got, ok := awaitDeviceEvent(ctx, ch, busID)
-	require.True(t, ok, "must observe a DeviceBound or DeviceUnbound event for %s", busID)
+	type eventResult struct {
+		event usbip.Event
+		ok    bool
+	}
+
+	result := make(chan eventResult, 1)
+
+	go func() {
+		event, ok := awaitDeviceEvent(ctx, imp.Watch(ctx), busID)
+		result <- eventResult{event: event, ok: ok}
+	}()
+
+	var got usbip.Event
+	var operationErr error
+
+	require.Eventually(t, func() bool {
+		select {
+		case observed := <-result:
+			got = observed.event
+
+			return observed.ok
+		default:
+		}
+
+		operationErr = exp.Bind(ctx, busID)
+		if operationErr != nil {
+			return false
+		}
+
+		operationErr = exp.Unbind(ctx, busID)
+		if operationErr != nil {
+			return false
+		}
+
+		select {
+		case observed := <-result:
+			got = observed.event
+
+			return observed.ok
+		default:
+			return false
+		}
+	}, eventCollectDeadline, eventRetryInterval,
+		"must observe a DeviceBound or DeviceUnbound event for %s (last operation error: %v)",
+		busID, operationErr)
+	require.NoError(t, operationErr)
 
 	// Either ordering is valid: bind-then-unbind (subscription caught
 	// the original UDC bind) OR unbind only (subscription arrived
@@ -90,70 +129,141 @@ func TestEventsDeviceBoundUnbound(t *testing.T) {
 }
 
 // TestEventsPortAttachedDetached exercises the uevent fan-out's
-// PortAttachedEvent / PortDetachedEvent production on a real loopback
-// attach+detach. Requires USBIPGO_INTEGRATION_BUSID to name a real
-// (non-vudc) USB busid bind-able via usbip-host; otherwise skips per
-// the security-release-quality OpenSpec env-gated skip exception — vudc devices don't traverse the
-// usbip-host bind path.
+// PortAttachedEvent / PortDetachedEvent production on the VUDC
+// mass-storage loopback. Unlike an arbitrary physical device, this fixture
+// is known to enumerate successfully through vhci_hcd, so its USB add/remove
+// uevents are deterministic evidence for the public Watch contract.
 func TestEventsPortAttachedDetached(t *testing.T) {
-	integration.SetupVUDC(t)
+	vudc := integration.SetupVUDCWithData(t, deterministicPayload(e2ePayloadSize))
+	skipIfVUDCExportUnavailable(t, vudc.BusID)
+	waitVUDCAvailable(t, vudc.BusID)
 
-	busID := integration.RequireRealBusID(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), eventCollectDeadline)
+	ctx, cancel := context.WithTimeout(context.Background(), eventScenarioDeadline)
 	defer cancel()
-
-	exp, err := usbip.NewExporter()
-	require.NoError(t, err)
-
-	integration.RequireBindable(t, ctx, exp, busID)
-
-	t.Cleanup(func() {
-		uctx, ucancel := context.WithTimeout(context.Background(), 2*time.Second)
-
-		defer ucancel()
-
-		_ = exp.Shutdown(uctx)
-	})
 
 	lis, addr, err := integration.TCPListen(loopbackExporterAddr)
 	require.NoError(t, err)
 
 	serveDone := make(chan error, 1)
 
-	go func() { serveDone <- exp.Serve(context.Background(), lis) }()
+	go func() {
+		serveDone <- serveVUDCSocket(lis, vudcRemoteBusID, vudc.BusID)
+	}()
 
-	t.Cleanup(func() {
-		_ = lis.Close()
-
-		select {
-		case <-serveDone:
-		case <-time.After(2 * time.Second):
-		}
-	})
+	t.Cleanup(func() { _ = lis.Close() })
 
 	imp, err := usbip.NewImporter()
 	require.NoError(t, err)
 
 	t.Cleanup(func() { require.NoError(t, imp.Close()) })
 
-	// Subscribe BEFORE attach so the PortAttached event cannot race
-	// past the test's observation window.
-	ch := imp.Watch(ctx)
+	// Watch is intentionally lazy: its netlink subscription starts when the
+	// iterator is consumed, not when Watch returns. Keep one consumer alive
+	// for the complete attach/detach lifecycle. Do not retry Attach while the
+	// exporter still owns the first session; doing so tests the busy-device
+	// rejection path and can obscure the detach event this scenario needs to
+	// observe.
+	var eventsMu sync.Mutex
 
-	port, err := imp.Attach(ctx, domain.RemoteEndpoint{Host: addr.Host, Port: addr.Port}, busID, usbip.AttachOptions{})
+	attachedIDs := make(map[domain.PortID]bool)
+	detachedIDs := make(map[domain.PortID]bool)
+	watchReady := make(chan struct{})
+
+	var watchReadyOnce sync.Once
+
+	go imp.Watch(ctx)(func(event usbip.Event) bool {
+		eventsMu.Lock()
+		defer eventsMu.Unlock()
+
+		switch typed := event.(type) {
+		case domain.DeviceBoundEvent:
+			if typed.Device.BusID == domain.BusID(vudc.BusID) {
+				watchReadyOnce.Do(func() { close(watchReady) })
+			}
+		case domain.PortAttachedEvent:
+			attachedIDs[typed.Port.ID] = true
+		case domain.PortDetachedEvent:
+			detachedIDs[typed.Port.ID] = true
+		}
+
+		return ctx.Err() == nil
+	})
+
+	observedEvent := func(events map[domain.PortID]bool, id domain.PortID) bool {
+		eventsMu.Lock()
+		defer eventsMu.Unlock()
+
+		return events[id]
+	}
+
+	// Establish a deterministic subscription barrier before Attach. Watch is
+	// lazy, so merely starting its goroutine does not prove the netlink socket
+	// has subscribed. Trigger a harmless change uevent on the already-bound
+	// VUDC until the same Watch consumer observes it; only then can the real
+	// VHCI attach event be generated without racing subscription startup.
+	ueventPath := filepath.Join(eventUDCClassRoot, vudc.BusID, eventUeventAttribute)
+
+	var triggerErr error
+
+	require.Eventually(t, func() bool {
+		select {
+		case <-watchReady:
+			return true
+		default:
+		}
+
+		triggerErr = os.WriteFile(
+			ueventPath,
+			[]byte(eventUeventChange),
+			eventSysfsWriteMode,
+		)
+
+		return false
+	}, eventCollectDeadline, eventRetryInterval,
+		"Watch subscription must observe the VUDC readiness uevent (last trigger error: %v)",
+		triggerErr)
+	require.NoError(t, triggerErr)
+
+	attachStarted := time.Now()
+
+	port, err := imp.Attach(
+		ctx,
+		domain.RemoteEndpoint{Host: addr.Host, Port: addr.Port},
+		vudcRemoteBusID,
+		usbip.AttachOptions{},
+	)
 	require.NoError(t, err)
 
-	got, ok := awaitPortAttachedEvent(ctx, ch, port.ID)
-	require.True(t, ok, "must observe PortAttachedEvent for port %d", port.ID)
-	require.Equal(t, port.ID, got.Port.ID, "event must carry the attached port id")
+	select {
+	case serveErr := <-serveDone:
+		require.NoError(t, serveErr, "server-side VUDC fd handoff")
+	case <-ctx.Done():
+		t.Fatalf("server-side VUDC fd handoff: %v", ctx.Err())
+	}
 
-	err = imp.Detach(ctx, port.ID)
-	require.NoError(t, err)
+	// PortAttached is emitted by USB-core enumeration, not by the VHCI
+	// attach sysfs write itself. Wait until the mass-storage fixture is
+	// fully usable before detaching so the test cannot tear enumeration
+	// down midway and intermittently lose the corresponding remove event.
+	blockDev := waitForVHCIBlockDevice(
+		t,
+		eventScenarioDeadline,
+		attachStarted,
+		e2ePayloadSize,
+	)
 
-	gotDetached, ok := awaitPortDetachedEvent(ctx, ch, port.ID)
-	require.True(t, ok, "must observe PortDetachedEvent for port %d", port.ID)
-	require.Equal(t, port.ID, gotDetached.Port.ID)
+	require.Eventually(t, func() bool {
+		return observedEvent(attachedIDs, port.ID)
+	}, eventCollectDeadline, eventRetryInterval,
+		"must observe PortAttachedEvent for port %d", port.ID)
+
+	require.NoError(t, imp.Detach(ctx, port.ID))
+	settleAfterDetach(t, vudc.BusID, blockDev)
+
+	require.Eventually(t, func() bool {
+		return observedEvent(detachedIDs, port.ID)
+	}, eventCollectDeadline, eventRetryInterval,
+		"must observe PortDetachedEvent for port %d", port.ID)
 }
 
 // awaitDeviceEvent consumes ch until a DeviceBoundEvent or
@@ -186,62 +296,6 @@ func awaitDeviceEvent(ctx context.Context, ch iter.Seq[usbip.Event], busID domai
 
 				return false
 			}
-		}
-
-		return true
-	})
-
-	return out, found
-}
-
-// awaitPortAttachedEvent consumes ch until PortAttachedEvent for id
-// lands. ctx cancellation aborts the iteration.
-func awaitPortAttachedEvent(ctx context.Context, ch iter.Seq[usbip.Event], id domain.PortID) (domain.PortAttachedEvent, bool) {
-	var out domain.PortAttachedEvent
-
-	found := false
-
-	ch(func(ev usbip.Event) bool {
-		select {
-		case <-ctx.Done():
-			return false
-		default:
-		}
-
-		e, ok := ev.(domain.PortAttachedEvent)
-		if ok && e.Port.ID == id {
-			out = e
-			found = true
-
-			return false
-		}
-
-		return true
-	})
-
-	return out, found
-}
-
-// awaitPortDetachedEvent is the Detached-side counterpart to
-// awaitPortAttachedEvent.
-func awaitPortDetachedEvent(ctx context.Context, ch iter.Seq[usbip.Event], id domain.PortID) (domain.PortDetachedEvent, bool) {
-	var out domain.PortDetachedEvent
-
-	found := false
-
-	ch(func(ev usbip.Event) bool {
-		select {
-		case <-ctx.Done():
-			return false
-		default:
-		}
-
-		e, ok := ev.(domain.PortDetachedEvent)
-		if ok && e.Port.ID == id {
-			out = e
-			found = true
-
-			return false
 		}
 
 		return true

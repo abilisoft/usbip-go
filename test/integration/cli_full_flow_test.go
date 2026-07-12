@@ -159,7 +159,7 @@ func TestCLIFullFlow_DummyHCD(t *testing.T) {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		id, err := lookupPortIDByBusIDForCleanup(cleanupCtx, usbipBin, busID)
+		id, err := lookupPortIDByBusIDForCleanup(cleanupCtx, commandOutput, usbipBin, busID)
 		if err != nil || id == "" {
 			return
 		}
@@ -368,10 +368,19 @@ func parsePortsEnvelope(t *testing.T, raw []byte) []map[string]any {
 //	              the caller treats this as "nothing to detach"
 //	("",   error) when the binary cannot exec or the output is not
 //	              valid JSON — the caller logs and skips
-func lookupPortIDByBusIDForCleanup(ctx context.Context, usbipBin, busID string) (string, error) {
-	cmd := exec.CommandContext(ctx, usbipBin, "port", "--output=json")
+type commandOutputFunc func(context.Context, string, ...string) ([]byte, error)
 
-	out, err := cmd.Output()
+func commandOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, args...).Output()
+}
+
+func lookupPortIDByBusIDForCleanup(
+	ctx context.Context,
+	output commandOutputFunc,
+	usbipBin string,
+	busID string,
+) (string, error) {
+	out, err := output(ctx, usbipBin, "port", "--output=json")
 	if err != nil {
 		return "", err
 	}

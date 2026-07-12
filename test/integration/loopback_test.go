@@ -86,7 +86,8 @@ func TestLoopbackAttachDetach(t *testing.T) {
 
 	port, err := imp.Attach(ctx, domain.RemoteEndpoint{Host: addr.Host, Port: addr.Port}, busID, usbip.AttachOptions{})
 	require.NoError(t, err, "Importer.Attach must succeed over real loopback")
-	require.NotZero(t, port.ID, "attached port must carry a non-zero id")
+	require.Equal(t, busID, port.BusID, "attached port must carry the requested bus id")
+	require.Equal(t, domain.StatusUsed, port.Status, "attached port must be in use")
 
 	ports, err := imp.ListPorts(ctx)
 	require.NoError(t, err)

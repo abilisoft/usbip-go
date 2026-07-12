@@ -133,7 +133,9 @@ The repository SHALL organize tests across fast unit tests, wire conformance tes
 #### Scenario: Integration tests run
 
 - **WHEN** `make test-integration` runs on a capable Linux host
-- **THEN** the integration test environment provides required USB/IP kernel modules for integration scenarios
+- **THEN** the integration test environment runs as root with writable configfs
+- **AND** it provides the USB/IP, gadget-function, and `dummy_hcd` kernel modules required by every integration scenario
+- **AND** the dedicated kernel workflow fails preflight instead of silently skipping a scenario when a required module is absent
 
 #### Scenario: Wire conformance tests run
 
