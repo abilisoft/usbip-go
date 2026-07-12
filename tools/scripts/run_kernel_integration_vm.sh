@@ -111,7 +111,7 @@ qemu-img create -q -f qcow2 -F qcow2 -b "${image_path}" "${overlay_path}"
 qemu-img resize -q "${overlay_path}" "${vm_disk_size}"
 
 acceleration='tcg,thread=multi'
-cpu_model='max'
+cpu_model='qemu64'
 if [[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]]; then
 	acceleration='kvm'
 	cpu_model='host'

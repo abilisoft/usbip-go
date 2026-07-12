@@ -62,8 +62,11 @@ functions. The repository checkout is streamed into the disposable guest,
 which loads modules, mounts configfs, verifies both dummy and VUDC UDCs, and
 runs `make test-integration` as root.
 
-KVM is used when the standard runner exposes it; QEMU TCG is the deterministic
-fallback because nested virtualization is not guaranteed. The pinned guest
+KVM is used when the standard runner exposes it; QEMU TCG with the stable,
+conservative `qemu64` CPU model is the deterministic fallback because nested
+virtualization is not guaranteed. Avoiding TCG's broad `max` feature set keeps
+the guest JDK away from the emulated CPU feature combination under which the
+Bazel server reproducibly terminated with a JIT `SIGSEGV`. The pinned guest
 image is cached by content identity, and every cache hit is rehashed before
 use. TCG runs advertise their execution mode to the integration harness so
 kernel convergence waits remain fail-closed but allow for software-emulation

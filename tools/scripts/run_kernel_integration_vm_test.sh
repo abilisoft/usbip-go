@@ -22,6 +22,10 @@ if ! grep --fixed-strings --line-regexp '  - build-essential' "$(script_path)" >
 	printf 'guest build toolchain package is absent\n' >&2
 	exit 1
 fi
+if ! grep --fixed-strings --line-regexp "cpu_model='qemu64'" "$(script_path)" >/dev/null; then
+	printf 'stable TCG CPU model is absent\n' >&2
+	exit 1
+fi
 
 printf 'pinned image fixture\n' >"${source_image}"
 checksum=$(sha512sum "${source_image}")
