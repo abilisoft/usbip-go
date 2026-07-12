@@ -133,7 +133,7 @@ The repository SHALL separate unit tests, conformance tests, integration tests, 
 
 ### Requirement: GitHub Actions use the Make/Bazel contract
 
-GitHub Actions workflows SHALL invoke Make targets for repository build, test, lint, vulnerability, integration, mutation, and release operations so CI behavior matches local contributor behavior.
+GitHub Actions workflows SHALL invoke Make targets for repository build, test, lint, vulnerability, mutation, and release operations so CI behavior matches local contributor behavior. Kernel integration SHALL remain a manual Make target for capable Linux hosts rather than a GitHub Actions job.
 
 #### Scenario: CodeQL traces the production binary
 
@@ -157,6 +157,6 @@ GitHub Actions workflows SHALL invoke Make targets for repository build, test, l
 #### Scenario: Tagged release runs
 
 - **WHEN** the release workflow runs for a stable SemVer tag
-- **THEN** prereq jobs invoke the reusable Make/Bazel security, unit, conformance, coverage, architecture/API, and dedicated kernel-integration gates
+- **THEN** prereq jobs invoke the reusable Make/Bazel security, unit, conformance, coverage, and architecture/API gates
 - **AND** the publish job invokes `make ci-local`, `make changelog`, and `make release`
 - **AND** release publication uses the workflow `GITHUB_TOKEN` and GoReleaser environment expected by the Bazel release target

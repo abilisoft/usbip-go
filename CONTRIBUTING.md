@@ -112,16 +112,22 @@ writable configfs gadget tree, and loaded `dummy_hcd`, `libcomposite`,
 `vhci_hcd` modules for the complete suite. The kernel must enable
 `CONFIG_USB_DUMMY_HCD`; otherwise the full bind/list/attach CLI scenario skips.
 The tests are exposed as `make test-integration` and are not part of the default
-unit-test target.
+unit-test or GitHub Actions targets. Run them manually on a capable Linux host
+when changing kernel-facing behavior. Standard GitHub-hosted runners do not
+provide the required kernel modules or privileged configfs surface, so the
+automated pipeline deliberately limits itself to unprivileged, Bazel-backed
+validation rather than treating an unavailable kernel environment as a test
+failure or skip.
 
 ## Release process
 
 Pushing a stable tag `vMAJOR.MINOR.PATCH` runs `.github/workflows/release.yml`.
 The workflow validates the tag, runs the reusable security, unit, conformance,
-architecture, coverage, and dedicated kernel-integration gates, re-runs the
-local CI sequence, generates release notes through the Bazel-provisioned
-changelog target, and then publishes with `make release`. GoReleaser, Go, syft,
-and cosign are all resolved through Bazel runfiles.
+architecture, and coverage gates, re-runs the local CI sequence, generates
+release notes through the Bazel-provisioned changelog target, and then
+publishes with `make release`. GoReleaser, Go, syft, and cosign are all resolved
+through Bazel runfiles. Kernel integration is a separate manual maintainer
+check because it requires a specially provisioned Linux host.
 
 ## Pull requests
 

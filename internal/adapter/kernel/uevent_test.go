@@ -337,55 +337,30 @@ func TestSubscribe_FirstSubscriberCancelDoesNotStopOthers(t *testing.T) {
 	}
 }
 
-// TestSubscribe_UsbipHostEmitsDeviceBindEvents drives the usbip_host
-// bind/unbind notification shape. mapUeventToDomain must produce
-// DeviceBoundEvent / DeviceUnboundEvent in addition to the
-// vhci_hcd-shaped Port* events so downstream consumers
-// (cmd/usbip-go/events.go, session.go, importer.go) that branch on those
-// event types are live. SUBSYSTEM=usbip_host ACTION=add →
-// DeviceBoundEvent; ACTION=remove → DeviceUnboundEvent; the bus ID is
-// the trailing path segment matching the domain BusID shape.
+// TestSubscribe_UsbipHostEmitsDeviceBindEvents drives the actual Linux
+// driver-core notification shape. SUBSYSTEM=usb ACTION=bind with
+// DRIVER=usbip-host emits DeviceBoundEvent. The matching ACTION=unbind omits
+// DRIVER because the driver core clears dev->driver before sending it, so the
+// mapper must remember the observed bind and emit DeviceUnboundEvent only for
+// that tracked bus ID.
 func TestSubscribe_UsbipHostEmitsDeviceBindEvents(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name      string
-		action    string
 		devpath   string
-		wantKind  domain.EventKind
 		wantBusID domain.BusID
 	}{
 		{
-			name:      "bind_simple",
-			action:    testUeventActionAdd,
 			devpath:   testPhysicalUSBDeviceDevPath,
-			wantKind:  domain.EventDeviceBound,
 			wantBusID: domain.BusID(testRootBusID),
 		},
 		{
-			name:      "unbind_simple",
-			action:    testUeventActionRemove,
-			devpath:   testPhysicalUSBDeviceDevPath,
-			wantKind:  domain.EventDeviceUnbound,
-			wantBusID: domain.BusID(testRootBusID),
-		},
-		{
-			name:      "bind_dotted",
-			action:    testUeventActionAdd,
 			devpath:   "/devices/pci0000:00/0000:00:14.0/usb1/1-1.2",
-			wantKind:  domain.EventDeviceBound,
 			wantBusID: domain.BusID("1-1.2"),
-		},
-		{
-			name:      "unbind_dotted",
-			action:    testUeventActionRemove,
-			devpath:   "/devices/pci0000:00/0000:00:14.0/usb2/2-3.4.5",
-			wantKind:  domain.EventDeviceUnbound,
-			wantBusID: domain.BusID("2-3.4.5"),
 		},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(string(tc.wantBusID), func(t *testing.T) {
 			t.Parallel()
 
 			a, sock := newAdapterWithFakeSocket(t)
@@ -401,27 +376,34 @@ func TestSubscribe_UsbipHostEmitsDeviceBindEvents(t *testing.T) {
 			defer unsub()
 
 			sock.feed(uevent(map[string]string{
-				testUeventActionField:    tc.action,
-				testUeventSubsystemField: testUeventSubsystemUSBIPHost,
+				testUeventActionField:    testUeventActionBind,
+				testUeventDriverField:    testUSBIPHostDriver,
+				testUeventSubsystemField: testUeventSubsystemUSB,
 				testUeventDevPathField:   tc.devpath,
 			}))
 
 			select {
 			case ev := <-ch:
-				require.NotNil(t, ev)
-				require.Equal(t, tc.wantKind, ev.EventKind(),
-					"usbip_host %s devpath %q must produce %s", tc.action, tc.devpath, tc.wantKind)
-
-				switch e := ev.(type) {
-				case domain.DeviceBoundEvent:
-					require.Equal(t, tc.wantBusID, e.Device.BusID)
-				case domain.DeviceUnboundEvent:
-					require.Equal(t, tc.wantBusID, e.Device.BusID)
-				default:
-					t.Fatalf("unexpected event type %T", ev)
-				}
+				bound, ok := ev.(domain.DeviceBoundEvent)
+				require.True(t, ok, "expected DeviceBoundEvent, got %T", ev)
+				require.Equal(t, tc.wantBusID, bound.Device.BusID)
 			case <-time.After(2 * time.Second):
-				t.Fatalf("timed out waiting for usbip_host event (action=%s devpath=%q)", tc.action, tc.devpath)
+				t.Fatalf("timed out waiting for usbip-host bind event for %q", tc.devpath)
+			}
+
+			sock.feed(uevent(map[string]string{
+				testUeventActionField:    testUeventActionUnbind,
+				testUeventSubsystemField: testUeventSubsystemUSB,
+				testUeventDevPathField:   tc.devpath,
+			}))
+
+			select {
+			case ev := <-ch:
+				unbound, ok := ev.(domain.DeviceUnboundEvent)
+				require.True(t, ok, "expected DeviceUnboundEvent, got %T", ev)
+				require.Equal(t, tc.wantBusID, unbound.Device.BusID)
+			case <-time.After(2 * time.Second):
+				t.Fatalf("timed out waiting for usbip-host unbind event for %q", tc.devpath)
 			}
 		})
 	}
@@ -513,13 +495,13 @@ func TestSubscribe_DottedBusIDProducesEvent(t *testing.T) {
 // TestEventsAdapter_SubscribeSucceedsWithoutVHCI pins the
 // exporter-only-deployment contract: hosts running usbip_host with no
 // vhci_hcd module loaded MUST be able to open a Subscribe and receive
-// DeviceBoundEvent / DeviceUnboundEvent from the usbip_host subsystem.
+// DeviceBoundEvent / DeviceUnboundEvent from USB driver-core events.
 // VHCI is an importer concern — forcing Subscribe to fail when the
 // VHCI topology is absent would strand every exporter-only server.
 //
 // Fixture: an fs.FS with ONLY the usbip_host sysfs skeleton and no
 // vhci_hcd.0/nports attribute. Subscribe must succeed. A synthesised
-// SUBSYSTEM=usbip_host ACTION=add uevent must surface as a
+// SUBSYSTEM=usb ACTION=bind DRIVER=usbip-host uevent must surface as a
 // DeviceBoundEvent. A synthesised SUBSYSTEM=usb ACTION=remove uevent
 // on a VHCI-shaped devpath must be dropped silently (no event on the
 // channel) — the topology loader fires and fails, the VHCI branch
@@ -552,12 +534,13 @@ func TestEventsAdapter_SubscribeSucceedsWithoutVHCI(t *testing.T) {
 
 	defer unsub()
 
-	// Inject a usbip_host event: it must reach the consumer unchanged
-	// as a DeviceBoundEvent, because the usbip_host classifier is
+	// Inject a usbip-host driver bind event: it must reach the consumer
+	// as a DeviceBoundEvent, because the exporter classifier is
 	// orthogonal to the VHCI topology.
 	sock.feed(uevent(map[string]string{
-		testUeventActionField:    testUeventActionAdd,
-		testUeventSubsystemField: testUeventSubsystemUSBIPHost,
+		testUeventActionField:    testUeventActionBind,
+		testUeventDriverField:    testUSBIPHostDriver,
+		testUeventSubsystemField: testUeventSubsystemUSB,
 		testUeventDevPathField:   testPhysicalUSBDeviceDevPath,
 	}))
 
@@ -569,7 +552,7 @@ func TestEventsAdapter_SubscribeSucceedsWithoutVHCI(t *testing.T) {
 		require.True(t, isBound, "expected DeviceBoundEvent, got %T", ev)
 		require.Equal(t, domain.BusID(testRootBusID), bound.Device.BusID)
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for usbip_host event without VHCI")
+		t.Fatal("timed out waiting for usbip-host event without VHCI")
 	}
 
 	// Inject a VHCI-shaped event: the topology loader will fire, fail

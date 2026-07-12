@@ -73,13 +73,6 @@ jobs:
       id-token: write
     uses: ./.github/workflows/_coverage.yml
 
-  kernel-integration:
-    name: Kernel integration
-    needs: validate-tag
-    permissions:
-      contents: read
-    uses: ./.github/workflows/vm-integration.yml
-
   release:
     name: Build draft release
     runs-on: ubuntu-24.04
@@ -88,7 +81,6 @@ jobs:
       - arch
       - conformance
       - coverage
-      - kernel-integration
       - security
       - unit-tests
     outputs:

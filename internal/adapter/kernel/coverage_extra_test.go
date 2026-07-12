@@ -19,6 +19,8 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
+const testUeventActionKey = "ACTION"
+
 // errFake is a sentinel injected by fake netlink/socket mocks.
 var errFakeReceive = errors.New("fake netlink receive error")
 
@@ -376,7 +378,7 @@ func TestMapEvent_MissingDEVPATH(t *testing.T) {
 
 	m := newVHCIEventMapperWithLoader(func() (Topology, error) { return Topology{}, nil })
 	// SUBSYSTEM=usb passes isInterestingUevent; DEVPATH is absent.
-	ev, ok := m.mapEvent(map[string]string{"SUBSYSTEM": "usb", "ACTION": "add"})
+	ev, ok := m.mapEvent(map[string]string{"SUBSYSTEM": "usb", testUeventActionKey: "add"})
 	require.False(t, ok)
 	require.Nil(t, ev)
 }
@@ -392,13 +394,34 @@ func TestVhciActionToEvent_UnknownAction(t *testing.T) {
 	require.Nil(t, ev)
 }
 
-// TestMapUsbipHostEvent_UnknownAction pins the default branch in
-// mapUsbipHostEvent: actions other than add/remove must return (nil, false).
-func TestMapUsbipHostEvent_UnknownAction(t *testing.T) {
+// TestMapUSBDriverEvent_UntrackedUnbind pins the fail-closed branch: an
+// unrelated USB unbind without a preceding usbip-host bind must not emit a
+// DeviceUnboundEvent.
+func TestMapUSBDriverEvent_UntrackedUnbind(t *testing.T) {
 	t.Parallel()
 
-	// devpath matches the regex (/1-1 ends with digit-dash-digit)
-	ev, ok := mapUsbipHostEvent("online", "/devices/1-1")
+	mapper := newVHCIEventMapper(Topology{})
+	ev, ok := mapper.mapUSBDriverEvent(map[string]string{
+		testUeventActionKey: ueventActionUnbind,
+		"SUBSYSTEM":         ueventSubsystemUSB,
+	}, "/devices/1-1")
+	require.False(t, ok)
+	require.Nil(t, ev)
+}
+
+// TestMapUSBDriverEvent_OtherDriverBind pins the fail-closed driver filter:
+// ordinary USB driver bind notifications must not become usbip-host lifecycle
+// events.
+func TestMapUSBDriverEvent_OtherDriverBind(t *testing.T) {
+	t.Parallel()
+
+	const otherUSBDriver = "usbhid"
+
+	mapper := newVHCIEventMapper(Topology{})
+	ev, ok := mapper.mapUSBDriverEvent(map[string]string{
+		testUeventActionKey: ueventActionBind,
+		"DRIVER":            otherUSBDriver,
+	}, "/devices/1-1")
 	require.False(t, ok)
 	require.Nil(t, ev)
 }

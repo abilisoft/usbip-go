@@ -5,9 +5,11 @@
 | Version | Supported | Notes |
 | ------- | --------- | ----- |
 | `main` | Development only | Receives current fixes but is not a published release. |
-| Published tags | No | Every currently published tag is retracted in `go.mod`; do not deploy it. |
+| Latest non-retracted stable release | Yes | Use the newest stable tag listed on the GitHub Releases page that is not retracted in `go.mod`. |
+| Retracted releases | No | Do not deploy any tag listed in the `go.mod` `retract` block. |
 
-This table must be updated when the next supported release is published.
+Release support is derived from these rules rather than a hardcoded tag so the
+policy remains current when a new stable release is published.
 
 ## Reporting a Vulnerability
 
