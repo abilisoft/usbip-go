@@ -26,6 +26,10 @@ if ! grep --fixed-strings --line-regexp "cpu_model='qemu64'" "$(script_path)" >/
 	printf 'stable TCG CPU model is absent\n' >&2
 	exit 1
 fi
+if ! grep --fixed-strings -- '--host_jvm_args=-Xint' "$(script_path)" >/dev/null; then
+	printf 'TCG-safe Bazel JVM mode is absent\n' >&2
+	exit 1
+fi
 
 printf 'pinned image fixture\n' >"${source_image}"
 checksum=$(sha512sum "${source_image}")

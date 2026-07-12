@@ -176,7 +176,7 @@ ssh "${ssh_options[@]}" runner@127.0.0.1 \
 if [[ ${status} -eq 0 ]]; then
 	if [[ "${acceleration}" == tcg,* ]]; then
 		ssh "${ssh_options[@]}" runner@127.0.0.1 \
-			'sudo env NO_COLOR=1 USBIP_GO_VM_TCG=1 make -C /home/runner/usbip-go test-integration' ||
+			'sudo env NO_COLOR=1 USBIP_GO_VM_TCG=1 make -C /home/runner/usbip-go BAZEL="/home/runner/usbip-go/.local/tools/bin/bazelisk --output_user_root=/home/runner/usbip-go/.local/bazel --host_jvm_args=-Xint" test-integration' ||
 			status=$?
 	else
 		ssh "${ssh_options[@]}" runner@127.0.0.1 \

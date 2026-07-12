@@ -65,13 +65,15 @@ runs `make test-integration` as root.
 KVM is used when the standard runner exposes it; QEMU TCG with the stable,
 conservative `qemu64` CPU model is the deterministic fallback because nested
 virtualization is not guaranteed. Avoiding TCG's broad `max` feature set keeps
-the guest JDK away from the emulated CPU feature combination under which the
-Bazel server reproducibly terminated with a JIT `SIGSEGV`. The pinned guest
-image is cached by content identity, and every cache hit is rehashed before
-use. TCG runs advertise their execution mode to the integration harness so
-kernel convergence waits remain fail-closed but allow for software-emulation
-latency. Guest preflight loads both gadget/export modules and the host-side
-CDC/storage drivers exercised by the scenarios.
+the emulated CPU surface stable. Because Bazel's bundled OpenJDK 25 JIT
+reproducibly terminated under TCG with both the `max` and `qemu64` models,
+the TCG path passes `--host_jvm_args=-Xint` to Bazel; KVM retains normal JIT
+execution. The pinned guest image is cached by content identity, and every
+cache hit is rehashed before use. TCG runs advertise their execution mode to
+the integration harness so kernel convergence waits remain fail-closed but
+allow for software-emulation latency. Guest preflight loads both
+gadget/export modules and the host-side CDC/storage drivers exercised by the
+scenarios.
 
 Host `apt`, the guest image fetch, and the guest's verified bootstrap downloads
 are declared non-hermetic exceptions. They are necessary because kernel state
