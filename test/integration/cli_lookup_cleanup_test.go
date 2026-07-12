@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -106,6 +107,49 @@ func TestLookupPortIDByBusIDForCleanup_FindsByBusID(t *testing.T) {
 	require.NoError(t, lookupErr)
 	require.Equal(t, "2", id,
 		"port row matching the requested busid must be returned (not ports[0])")
+}
+
+// TestWaitForPortIDByBusID_RetriesUntilKernelConverges reproduces the hosted
+// TCG ordering where Attach returns before vhci_hcd publishes the assigned
+// bus ID. The first status snapshot is unassigned; the second contains the
+// imported device and must succeed without treating the first snapshot as a
+// terminal failure.
+func TestWaitForPortIDByBusID_RetriesUntilKernelConverges(t *testing.T) {
+	t.Parallel()
+
+	unassigned, err := json.Marshal(map[string]any{
+		"schema": "v1",
+		"ports":  []map[string]any{{"id": float64(0), "local_busid": "0-0"}},
+	})
+	require.NoError(t, err)
+
+	assigned, err := json.Marshal(map[string]any{
+		"schema": "v1",
+		"ports":  []map[string]any{{"id": float64(0), "local_busid": "1-1"}},
+	})
+	require.NoError(t, err)
+
+	calls := 0
+	output := func(context.Context, string, ...string) ([]byte, error) {
+		calls++
+		if calls == 1 {
+			return unassigned, nil
+		}
+
+		return assigned, nil
+	}
+
+	id, waitErr := waitForPortIDByBusID(
+		context.Background(),
+		output,
+		"usbip-go",
+		"1-1",
+		100*time.Millisecond,
+		time.Millisecond,
+	)
+	require.NoError(t, waitErr)
+	require.Equal(t, "0", id)
+	require.Equal(t, 2, calls)
 }
 
 func staticCommandOutput(out []byte) commandOutputFunc {

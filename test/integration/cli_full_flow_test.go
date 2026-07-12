@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -342,24 +343,6 @@ func parseDevicesEnvelope(t *testing.T, raw []byte) []map[string]any {
 	return env.Devices
 }
 
-// parsePortsEnvelope parses the {schema, ports} envelope from
-// `usbip-go port --output=json`.
-func parsePortsEnvelope(t *testing.T, raw []byte) []map[string]any {
-	t.Helper()
-
-	var env struct {
-		Schema string           `json:"schema"`
-		Ports  []map[string]any `json:"ports"`
-	}
-
-	require.NoError(t, json.Unmarshal(raw, &env),
-		"port --output=json must emit a valid envelope; got: %s", raw)
-	require.Equal(t, "v1", env.Schema,
-		"envelope.schema must be the v1 stable identifier; got: %s", raw)
-
-	return env.Ports
-}
-
 // lookupPortIDByBusIDForCleanup mirrors findPortIDByBusID but is
 // fatal-free so it can run from a t.Cleanup. Returns:
 //
@@ -422,63 +405,65 @@ func lookupPortIDByBusIDForCleanup(
 	return "", nil
 }
 
-// findPortIDByBusID lists vhci ports via the CLI and returns the id of
-// the row whose local-busid matches busID. Fatal-fails the test if
-// no such row exists. Filtering by busid (rather than ports[0])
-// makes the test resilient to peer attaches and stale leftovers.
+const (
+	portAttachDeadline = 5 * time.Second
+	portAttachPoll     = 50 * time.Millisecond
+)
+
+// waitForPortIDByBusID polls the CLI until the kernel's asynchronous VHCI
+// attach becomes visible. Importer.Attach hands the socket to the kernel but
+// does not promise that the port status file has converged before it returns.
+func waitForPortIDByBusID(
+	ctx context.Context,
+	output commandOutputFunc,
+	usbipBin string,
+	busID string,
+	timeout time.Duration,
+	interval time.Duration,
+) (string, error) {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	var lastErr error
+
+	for {
+		id, err := lookupPortIDByBusIDForCleanup(ctx, output, usbipBin, busID)
+		if err == nil && id != "" {
+			return id, nil
+		}
+		if err != nil {
+			lastErr = err
+		}
+
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("wait for VHCI port %s: %w", busID, ctx.Err())
+		case <-deadline.C:
+			return "", fmt.Errorf("VHCI port %s did not converge within %s (last error: %v)",
+				busID, timeout, lastErr)
+		case <-ticker.C:
+		}
+	}
+}
+
+// findPortIDByBusID waits for the row whose local-busid matches busID.
+// Filtering by busid (rather than ports[0]) makes the test resilient to peer
+// attaches and stale leftovers.
 func findPortIDByBusID(t *testing.T, ctx context.Context, usbipBin, busID string) string {
 	t.Helper()
 
-	out := mustRunOK(t, ctx, usbipBin, "port", "--output=json")
+	id, err := waitForPortIDByBusID(
+		ctx,
+		commandOutput,
+		usbipBin,
+		busID,
+		portAttachDeadline,
+		portAttachPoll,
+	)
+	require.NoError(t, err)
 
-	ports := parsePortsEnvelope(t, out)
-	require.NotEmpty(t, ports,
-		"after attach, port must report the new port; got: %s", out)
-
-	for _, p := range ports {
-		// Schema names the local busid as "local_busid" (under
-		// docs/json-schema.md §ports). Fall back to "busid" since
-		// historical fixtures used that key.
-		for _, key := range []string{"local_busid", "localBusID", "busid"} {
-			v, ok := p[key]
-			if !ok {
-				continue
-			}
-
-			s, ok := v.(string)
-			if !ok {
-				continue
-			}
-
-			if strings.TrimSpace(s) == busID {
-				idVal, ok := p["id"]
-				require.True(t, ok, "port row must carry an id field; got: %s", out)
-
-				return jsonNumber(t, idVal)
-			}
-		}
-	}
-
-	t.Fatalf("no vhci port row matched busid %q in port output: %s", busID, out)
-
-	return ""
-}
-
-// jsonNumber stringifies a JSON value that can come back as float64
-// (encoding/json default) or string. The detach CLI takes a decimal
-// port id so we want a plain "0", "1", … here.
-func jsonNumber(t *testing.T, v any) string {
-	t.Helper()
-
-	switch n := v.(type) {
-	case string:
-		return n
-	case float64:
-		return tcpPortString(int(n))
-	case json.Number:
-		return n.String()
-	default:
-		t.Fatalf("unexpected JSON id type %T: %v", v, v)
-		return ""
-	}
+	return id
 }

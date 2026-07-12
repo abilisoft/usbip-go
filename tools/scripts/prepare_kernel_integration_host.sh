@@ -8,10 +8,13 @@ readonly gadget_root="${GADGET_ROOT:-${configfs_root}/usb_gadget}"
 readonly udc_root="${UDC_ROOT:-/sys/class/udc}"
 
 readonly -a required_modules=(
+	cdc_acm
 	dummy_hcd
 	libcomposite
+	sd_mod
 	usb_f_acm
 	usb_f_mass_storage
+	usb_storage
 	usbip_core
 	usbip_host
 	usbip_vudc

@@ -3,6 +3,7 @@
 - [x] 1.1 Add fail-closed VM and guest-preparation scripts for a checksum-pinned full kernel, required modules, configfs, and UDC surfaces
 - [x] 1.2 Add hermetic shell regression tests for successful provisioning and every critical failure path
 - [ ] 1.3 Run the dedicated kernel workflow on pinned free GitHub-hosted Ubuntu and execute the Bazel integration target as root
+- [x] 1.4 Correct Linux driver-core exporter event mapping and add deterministic TCG convergence waits with focused regressions
 
 ## 2. Release Documentation
 

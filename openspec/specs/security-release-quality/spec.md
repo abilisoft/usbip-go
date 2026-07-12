@@ -147,6 +147,7 @@ Bazel-backed Make target inside that guest.
 - **WHEN** the dedicated kernel workflow starts on its pinned GitHub-hosted Ubuntu image
 - **THEN** it verifies and boots the checksum-pinned full-kernel guest image under QEMU
 - **AND** it loads every required USB/IP, gadget-function, VUDC, VHCI, and dummy-host-controller module inside the guest
+- **AND** it loads the host-side CDC ACM and USB mass-storage modules exercised by the imported gadgets
 - **AND** it mounts configfs when needed
 - **AND** it fails before tests if the gadget tree is absent or not writable
 

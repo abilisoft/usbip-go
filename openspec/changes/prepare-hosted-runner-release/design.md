@@ -65,7 +65,10 @@ runs `make test-integration` as root.
 KVM is used when the standard runner exposes it; QEMU TCG is the deterministic
 fallback because nested virtualization is not guaranteed. The pinned guest
 image is cached by content identity, and every cache hit is rehashed before
-use.
+use. TCG runs advertise their execution mode to the integration harness so
+kernel convergence waits remain fail-closed but allow for software-emulation
+latency. Guest preflight loads both gadget/export modules and the host-side
+CDC/storage drivers exercised by the scenarios.
 
 Host `apt`, the guest image fetch, and the guest's verified bootstrap downloads
 are declared non-hermetic exceptions. They are necessary because kernel state
@@ -90,6 +93,16 @@ configfs mounting, module presence, UDC presence, and configfs writeability are
 hard failures. The workflow does not translate infrastructure failures into
 skips. Existing test-level skip guards remain defensive for developer machines,
 while CI preflight guarantees their prerequisites before the suite starts.
+
+### Classify Linux driver-core events
+
+The Linux driver core emits usbip-host attachment as
+`SUBSYSTEM=usb ACTION=bind DRIVER=usbip-host`, not as a synthetic
+`SUBSYSTEM=usbip_host ACTION=add` event. It clears the driver pointer before
+the matching `ACTION=unbind`, so the unbind payload omits `DRIVER`. The event
+mapper records bus IDs observed binding to usbip-host and maps only their
+matching unbind notifications, preventing unrelated USB driver changes from
+becoming exporter lifecycle events.
 
 ### Describe support symbolically
 

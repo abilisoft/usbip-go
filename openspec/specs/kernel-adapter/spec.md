@@ -148,6 +148,13 @@ The events adapter SHALL deliver usbip-host bind/unbind events even on exporter-
 - **WHEN** `vhci_hcd` is absent but usbip-host events are available
 - **THEN** Subscribe still succeeds and can deliver device bound/unbound events
 
+#### Scenario: Driver core reports usbip-host lifecycle
+
+- **WHEN** Linux emits `SUBSYSTEM=usb ACTION=bind DRIVER=usbip-host` for a device
+- **THEN** the adapter emits a device-bound event and remembers that bus ID
+- **AND** a matching `ACTION=unbind` without a `DRIVER` field emits a device-unbound event
+- **AND** unrelated USB driver unbinds do not emit usbip-host lifecycle events
+
 ### Requirement: Kernel errors map to public sentinels
 
 Kernel adapter errors SHALL classify common sysfs and errno failures into domain sentinels such as permission, not found, already bound, not bound, no free port, unsupported device, and missing module.

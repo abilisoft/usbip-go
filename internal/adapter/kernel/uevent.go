@@ -162,10 +162,10 @@ func (a *EventsAdapter) Subscribe(ctx context.Context) (<-chan domain.Event, fun
 // that fires lazily on the first VHCI-shaped event. Exporter-only
 // deployments (hosts running usbip_host without vhci_hcd) therefore
 // succeed at Subscribe and continue delivering DeviceBoundEvent /
-// DeviceUnboundEvent from the usbip_host subsystem; only VHCI-shaped
+// DeviceUnboundEvent from USB driver-core events; only VHCI-shaped
 // events would fail to map, and those never arrive on exporter-only
 // hosts. A sysfs error at first VHCI-event time degrades only the
-// VHCI branch — the usbip_host stream is unaffected, and the adapter-
+// VHCI branch — the usbip-host driver stream is unaffected, and the adapter-
 // level topology cache (see topology.go: loadTopology) retries on
 // every call so the mapper can pick up a successful load once the
 // vhci_hcd module is (re)loaded.
@@ -397,21 +397,21 @@ func (d *eventDispatcher) broadcast(ev domain.Event) {
 // The mapper invokes it lazily on the first VHCI-shaped event so
 // exporter-only deployments (no vhci_hcd module loaded) never pay the
 // topology read and never surface a load error on Subscribe; the
-// usbip_host path bypasses the loader entirely.
+// usbip-host driver-core path bypasses the loader entirely.
 type topologyLoader func() (Topology, error)
 
 // vhciEventMapper is the stateful translator that the dispatcher uses
 // to turn each parsed uevent fields map into a domain.Event.
 //
 // It is constructed with a topology loader rather than a pre-resolved
-// Topology so exporter-only deployments — which only need usbip_host
+// Topology so exporter-only deployments — which only need usbip-host
 // events and never touch vhci_hcd — can still start the dispatcher
 // without hard-failing on a missing VHCI module. The loader fires
 // lazily on the first VHCI-shaped event. A loader failure is NOT
 // memoised — the next VHCI event retries, allowing recovery after a
 // transient sysfs error or vhci_hcd module reload. A failure degrades
 // only the VHCI branch: the event is dropped with ok=false, while
-// usbip_host events continue unaffected.
+// usbip-host driver events continue unaffected.
 //
 // mu is held through a pointer so copies of vhciEventMapper share the
 // same lock and vet's copylocks check never trips — the dispatcher
@@ -419,10 +419,12 @@ type topologyLoader func() (Topology, error)
 // guard self-synchronising costs nothing and future-proofs fan-in of
 // the mapper if mapEvent is ever invoked from multiple readers.
 type vhciEventMapper struct {
-	load   topologyLoader
-	mu     *sync.Mutex
-	topo   Topology
-	loaded bool
+	load      topologyLoader
+	mu        *sync.Mutex
+	topo      Topology
+	loaded    bool
+	hostMu    *sync.Mutex
+	hostBound map[domain.BusID]struct{}
 }
 
 // newVHCIEventMapper returns a mapper pinned to a fully-resolved
@@ -442,8 +444,10 @@ func newVHCIEventMapper(topo Topology) vhciEventMapper {
 // never trigger a vhci_hcd sysfs read just to start the dispatcher.
 func newVHCIEventMapperWithLoader(load topologyLoader) vhciEventMapper {
 	return vhciEventMapper{
-		load: load,
-		mu:   &sync.Mutex{},
+		load:      load,
+		mu:        &sync.Mutex{},
+		hostMu:    &sync.Mutex{},
+		hostBound: make(map[domain.BusID]struct{}),
 	}
 }
 
@@ -473,10 +477,10 @@ func (m *vhciEventMapper) resolveTopology() (Topology, bool) {
 
 // mapEvent is the topology-aware entry point used by the dispatcher.
 // It classifies a parsed uevent field map into a domain.Event using
-// the cached Topology for the vhci devpath branch; non-vhci subsystems
-// (usbip_host) bypass the topology entirely and produce device-level
+// the cached Topology for the vhci devpath branch; usbip-host driver-core
+// events bypass the topology entirely and produce device-level
 // bind/unbind events — the VHCI topology loader is NOT consulted on
-// the usbip_host path, so exporter-only deployments never fetch the
+// the usbip-host path, so exporter-only deployments never fetch the
 // vhci_hcd sysfs tree for their bind/unbind stream.
 //
 // Pointer receiver because mapVhciEvent may mutate the mapper's cached
@@ -493,8 +497,9 @@ func (m *vhciEventMapper) mapEvent(fields map[string]string) (domain.Event, bool
 		return nil, false
 	}
 
-	if fields["SUBSYSTEM"] == ueventSubsystemUSBIPHost {
-		return mapUsbipHostEvent(action, devpath)
+	if fields["SUBSYSTEM"] == ueventSubsystemUSB &&
+		(action == ueventActionBind || action == ueventActionUnbind) {
+		return m.mapUSBDriverEvent(fields, devpath)
 	}
 
 	if fields["SUBSYSTEM"] == ueventSubsystemUDC {
@@ -560,7 +565,7 @@ func mapUDCEvent(action, devpath string) (domain.Event, bool) {
 // receive a VHCI-shaped devpath, so the loader is never called; if a
 // VHCI-shaped devpath does arrive and the loader fails (e.g.
 // vhci_hcd sysfs group is absent), the event drops cleanly with
-// ok=false — the Subscribe caller is not impacted, and usbip_host
+// ok=false — the Subscribe caller is not impacted, and usbip-host
 // events continue to flow.
 func (m *vhciEventMapper) mapVhciEvent(action, devpath string) (domain.Event, bool) {
 	match := vhciDevpathPattern.FindStringSubmatch(devpath)
@@ -670,9 +675,8 @@ func splitNULBytes(payload []byte) []string {
 // Uevent SUBSYSTEM tokens the dispatcher cares about. Matched verbatim
 // against the SUBSYSTEM= field of each parsed payload.
 const (
-	ueventSubsystemUSB       = "usb"
-	ueventSubsystemUSBIPHost = "usbip_host"
-	ueventSubsystemUSBHC     = "usb-hc"
+	ueventSubsystemUSB   = "usb"
+	ueventSubsystemUSBHC = "usb-hc"
 )
 
 // Uevent ACTION tokens emitted by the kernel for vhci_hcd-attached
@@ -680,7 +684,9 @@ const (
 // mapper.
 const (
 	ueventActionAdd    = "add"
+	ueventActionBind   = "bind"
 	ueventActionRemove = "remove"
+	ueventActionUnbind = "unbind"
 	ueventActionChange = "change"
 )
 
@@ -692,13 +698,12 @@ const (
 const ueventSubsystemUDC = "udc"
 
 // isInterestingUevent filters for subsystems we care about:
-// SUBSYSTEM=usb, SUBSYSTEM=usbip_host, SUBSYSTEM=usb-hc, SUBSYSTEM=udc.
+// SUBSYSTEM=usb, SUBSYSTEM=usb-hc, SUBSYSTEM=udc.
 // Everything else is ignored.
 func isInterestingUevent(fields map[string]string) bool {
 	sub := fields["SUBSYSTEM"]
 
 	return sub == ueventSubsystemUSB ||
-		sub == ueventSubsystemUSBIPHost ||
 		sub == ueventSubsystemUSBHC ||
 		sub == ueventSubsystemUDC
 }
@@ -740,22 +745,18 @@ const (
 	vhciDevpathGroupRootPort  = 3
 )
 
-// usbipHostBusIDPattern captures the trailing bus-id segment of a
-// usbip_host DEVPATH. The upstream kernel emits add/remove uevents on
-// the bound device's sysfs node when the usbip_host driver binds or
-// releases it; the bus id is the final path segment and follows the
-// domain busid grammar (pkg/domain/busid.go:18). Unlike the vhci
-// devpath, there is no vhci_hcd prefix — the device sits at its
-// native sysfs location.
+// usbipHostBusIDPattern captures the trailing bus-id segment of a USB
+// driver-core DEVPATH. The bus id is the final path segment and follows the
+// domain busid grammar (pkg/domain/busid.go:18). Unlike the vhci devpath,
+// there is no vhci_hcd prefix — the device sits at its native sysfs location.
 var usbipHostBusIDPattern = regexp.MustCompile(`/(\d+-\d+(?:\.\d+)*)$`)
 
-// mapUsbipHostEvent handles the usbip_host-shaped devpath (local
-// exporter side bind/unbind). add → DeviceBoundEvent (device became
-// exportable); remove → DeviceUnboundEvent (device returned to its
-// original driver). Without this classifier every session.go /
-// importer.go / cmd/usbip-go branch that acts on these event types
-// would be unreachable.
-func mapUsbipHostEvent(action, devpath string) (domain.Event, bool) {
+// mapUSBDriverEvent handles Linux driver-core KOBJ_BIND / KOBJ_UNBIND
+// notifications for a USB device claimed by usbip-host. Bind payloads carry
+// DRIVER=usbip-host. The driver core clears dev->driver before emitting
+// KOBJ_UNBIND, so unbind payloads have no DRIVER field; remember only bus IDs
+// whose matching bind was observed and ignore unrelated USB unbinds.
+func (m *vhciEventMapper) mapUSBDriverEvent(fields map[string]string, devpath string) (domain.Event, bool) {
 	match := usbipHostBusIDPattern.FindStringSubmatch(devpath)
 	if match == nil {
 		return nil, false
@@ -763,13 +764,28 @@ func mapUsbipHostEvent(action, devpath string) (domain.Event, bool) {
 
 	busID := domain.BusID(match[1])
 
-	switch action {
-	case ueventActionAdd:
+	m.hostMu.Lock()
+	defer m.hostMu.Unlock()
+
+	switch fields["ACTION"] {
+	case ueventActionBind:
+		if fields["DRIVER"] != usbipHostDriverName {
+			return nil, false
+		}
+
+		m.hostBound[busID] = struct{}{}
+
 		return domain.DeviceBoundEvent{
 			At:     time.Now(),
 			Device: domain.Device{BusID: busID, Path: devpath},
 		}, true
-	case ueventActionRemove:
+	case ueventActionUnbind:
+		if _, tracked := m.hostBound[busID]; !tracked {
+			return nil, false
+		}
+
+		delete(m.hostBound, busID)
+
 		return domain.DeviceUnboundEvent{
 			At:     time.Now(),
 			Device: domain.Device{BusID: busID, Path: devpath},

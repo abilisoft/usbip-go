@@ -119,13 +119,13 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 85 | Formatting and linting are scoped to owned repository surfaces / Formatting runs | `Makefile:116-119`; `BUILD.bazel:693-727`; `tools/BUILD.bazel:1-101`; `tools/bazel/toolwrap.bzl:1-87` |
 | Scenario | 91 | Formatting and linting are scoped to owned repository surfaces / Format check runs in CI | `Makefile:136-139`; `BUILD.bazel:772-801`; `.github/workflows/ci.yml:1-143` |
 | Scenario | 97 | Formatting and linting are scoped to owned repository surfaces / Lint runs | `Makefile:136-139`; `BUILD.bazel:350-685`; `BUILD.bazel:772-801`; `tools/scripts/format_tool.sh:1-150`; `tools/scripts/go_mod_check.sh:1-27`; `tools/scripts/toolwrap_test_runner.sh:1-156`; `vendor/modules.txt:1-130`; `tools/scripts/repo_coverage_test_runner.sh:1-208`; `tools/scripts/repo_coverage_test_runner_test.sh:1-43`; `.golangci.yml:1-346`; `.goreleaser.yml:1-176` |
-| Requirement | 103 | Test workflows are tiered by cost and environment | `Makefile:126-190`; `BUILD.bazel:735-811`; `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/mutation.yml:1-35`; `.github/workflows/vm-integration.yml:1-50` |
+| Requirement | 103 | Test workflows are tiered by cost and environment | `Makefile:126-190`; `BUILD.bazel:735-811`; `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/mutation.yml:1-35`; `.github/workflows/vm-integration.yml:1-46` |
 | Scenario | 107 | Test workflows are tiered by cost and environment / Unit tests run | `Makefile:156-159`; `BUILD.bazel:735-758`; `.github/workflows/ci.yml:1-143` |
 | Scenario | 112 | Test workflows are tiered by cost and environment / Conformance tests run | `Makefile:165-168`; `BUILD.bazel:760-764`; `.github/workflows/_conformance.yml:1-25` |
 | Scenario | 117 | Test workflows are tiered by cost and environment / Coverage thresholds run | `Makefile:170-175`; `tools/scripts/coverage_check.sh:1-160`; `.github/workflows/_coverage.yml:1-37` |
-| Scenario | 123 | Test workflows are tiered by cost and environment / Integration tests run directly | `Makefile:177-180`; `BUILD.bazel:769-776`; `.github/workflows/vm-integration.yml:1-50` |
+| Scenario | 123 | Test workflows are tiered by cost and environment / Integration tests run directly | `Makefile:177-180`; `BUILD.bazel:769-776`; `.github/workflows/vm-integration.yml:1-46` |
 | Scenario | 128 | Test workflows are tiered by cost and environment / Mutation tests run | `Makefile:182-185`; `BUILD.bazel:803-811`; `.github/workflows/mutation.yml:1-35` |
-| Requirement | 134 | GitHub Actions use the Make/Bazel contract | `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/release.yml:1-168`; `.github/workflows/mutation.yml:1-35`; `.github/workflows/vm-integration.yml:1-50` |
+| Requirement | 134 | GitHub Actions use the Make/Bazel contract | `.github/workflows/ci.yml:1-143`; `.github/workflows/nightly.yml:1-57`; `.github/workflows/release.yml:1-168`; `.github/workflows/mutation.yml:1-35`; `.github/workflows/vm-integration.yml:1-46` |
 | Scenario | 138 | GitHub Actions use the Make/Bazel contract / CodeQL traces the production binary | `.github/workflows/codeql.yml:34-46`; `Makefile:57-61`; `docs/security-posture.md:1-140` |
 | Scenario | 145 | GitHub Actions use the Make/Bazel contract / Pull request CI runs | `.github/workflows/ci.yml:1-143`; `.github/workflows/_security.yml:1-57`; `.github/workflows/_arch-checks.yml:1-65`; `Makefile:43-185`; `tools/scripts/ci_local_runner.sh:1-86` |
 | Scenario | 151 | GitHub Actions use the Make/Bazel contract / Nightly verification runs | `.github/workflows/nightly.yml:1-57`; `.github/workflows/_security.yml:1-57`; `.github/workflows/_coverage.yml:1-37`; `Makefile:126-175` |
@@ -261,7 +261,7 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 
 ## `kernel-adapter`
 
-- Spec source: `openspec/specs/kernel-adapter/spec.md:1-163`
+- Spec source: `openspec/specs/kernel-adapter/spec.md:1-170`
 
 | Type | Spec line | Item | Evidence |
 |---|---:|---|---|
@@ -290,14 +290,15 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Requirement | 114 | ExportOnConn and Disconnect own exporter-side fd handoff | `internal/adapter/kernel/attach.go:1-310`; `internal/adapter/kernel/attach_test.go:1-1009` |
 | Scenario | 118 | ExportOnConn and Disconnect own exporter-side fd handoff / Export handoff succeeds | `internal/adapter/kernel/attach.go:1-310`; `internal/adapter/kernel/attach_test.go:1-1009` |
 | Scenario | 123 | ExportOnConn and Disconnect own exporter-side fd handoff / Shutdown disconnects a session | `internal/adapter/kernel/attach.go:1-310`; `internal/adapter/kernel/attach_test.go:1-1009` |
-| Requirement | 128 | Netlink event fan-out is shared and non-blocking | `internal/adapter/kernel/uevent.go:1-780`; `internal/adapter/kernel/uevent_test.go:1-724` |
-| Scenario | 132 | Netlink event fan-out is shared and non-blocking / First subscriber starts | `internal/adapter/kernel/uevent.go:1-780`; `internal/adapter/kernel/uevent_test.go:1-724` |
-| Scenario | 137 | Netlink event fan-out is shared and non-blocking / Subscriber is slow | `internal/adapter/kernel/uevent.go:1-780`; `internal/adapter/kernel/uevent_test.go:1-724` |
-| Requirement | 142 | Event mapping separates exporter and importer concerns | `internal/adapter/kernel/uevent.go:1-780`; `internal/adapter/kernel/vhci_event_mapper_test.go:1-511` |
-| Scenario | 146 | Event mapping separates exporter and importer concerns / Exporter-only host subscribes | `internal/adapter/kernel/uevent.go:1-780`; `internal/adapter/kernel/vhci_event_mapper_test.go:1-511` |
-| Requirement | 151 | Kernel errors map to public sentinels | `internal/adapter/kernel/errors.go:1-60`; `internal/adapter/kernel/adapter_errmap_test.go:1-110` |
-| Scenario | 155 | Kernel errors map to public sentinels / Permission errno occurs | `internal/adapter/kernel/errors.go:1-60`; `internal/adapter/kernel/adapter_errmap_test.go:1-110` |
-| Scenario | 160 | Kernel errors map to public sentinels / Module disappears at runtime | `internal/adapter/kernel/errors.go:1-60`; `internal/adapter/kernel/adapter_errmap_test.go:1-110` |
+| Requirement | 128 | Netlink event fan-out is shared and non-blocking | `internal/adapter/kernel/uevent.go:1-796`; `internal/adapter/kernel/uevent_test.go:1-707` |
+| Scenario | 132 | Netlink event fan-out is shared and non-blocking / First subscriber starts | `internal/adapter/kernel/uevent.go:1-796`; `internal/adapter/kernel/uevent_test.go:1-707` |
+| Scenario | 137 | Netlink event fan-out is shared and non-blocking / Subscriber is slow | `internal/adapter/kernel/uevent.go:1-796`; `internal/adapter/kernel/uevent_test.go:1-707` |
+| Requirement | 142 | Event mapping separates exporter and importer concerns | `internal/adapter/kernel/uevent.go:1-796`; `internal/adapter/kernel/vhci_event_mapper_test.go:1-512` |
+| Scenario | 146 | Event mapping separates exporter and importer concerns / Exporter-only host subscribes | `internal/adapter/kernel/uevent.go:1-796`; `internal/adapter/kernel/vhci_event_mapper_test.go:1-512` |
+| Scenario | 151 | Event mapping separates exporter and importer concerns / Driver core reports usbip-host lifecycle | `internal/adapter/kernel/uevent.go:421-796`; `internal/adapter/kernel/uevent_test.go:342-425`; `test/integration/events_test.go:40-101` |
+| Requirement | 158 | Kernel errors map to public sentinels | `internal/adapter/kernel/errors.go:1-60`; `internal/adapter/kernel/adapter_errmap_test.go:1-110` |
+| Scenario | 162 | Kernel errors map to public sentinels / Permission errno occurs | `internal/adapter/kernel/errors.go:1-60`; `internal/adapter/kernel/adapter_errmap_test.go:1-110` |
+| Scenario | 167 | Kernel errors map to public sentinels / Module disappears at runtime | `internal/adapter/kernel/errors.go:1-60`; `internal/adapter/kernel/adapter_errmap_test.go:1-110` |
 
 ## `operations-observability`
 
@@ -386,10 +387,10 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 11 | Release workflow only publishes canonical stable SemVer tags / Stable tag is pushed | `.github/workflows/release.yml:1-168`; `cliff.toml:1-126` |
 | Scenario | 16 | Release workflow only publishes canonical stable SemVer tags / Prerelease tag is pushed | `.github/workflows/release.yml:1-168`; `cliff.toml:1-126` |
 | Scenario | 21 | Release workflow only publishes canonical stable SemVer tags / Non-canonical tag reaches validation | `.github/workflows/release.yml:1-168`; `cliff.toml:1-126` |
-| Requirement | 26 | Release publication waits for prereq gates | `.github/workflows/release.yml:1-168`; `.github/workflows/vm-integration.yml:1-39`; `tools/scripts/run_kernel_integration_vm.sh:1-176`; `tools/scripts/prepare_kernel_integration_host.sh:1-59` |
-| Scenario | 33 | Release publication waits for prereq gates / Prereq gate fails | `.github/workflows/release.yml:1-168`; `.github/workflows/vm-integration.yml:1-39` |
-| Scenario | 38 | Release publication waits for prereq gates / Prereq gates pass | `.github/workflows/release.yml:1-168`; `.github/workflows/vm-integration.yml:1-39` |
-| Scenario | 43 | Release publication waits for prereq gates / Only standard hosted runners are available | `.github/workflows/vm-integration.yml:19-39`; `tools/scripts/run_kernel_integration_vm.sh:1-176`; `tools/scripts/run_kernel_integration_vm_test.sh:1-60` |
+| Requirement | 26 | Release publication waits for prereq gates | `.github/workflows/release.yml:1-168`; `.github/workflows/vm-integration.yml:1-46`; `tools/scripts/run_kernel_integration_vm.sh:1-195`; `tools/scripts/prepare_kernel_integration_host.sh:1-62` |
+| Scenario | 33 | Release publication waits for prereq gates / Prereq gate fails | `.github/workflows/release.yml:1-168`; `.github/workflows/vm-integration.yml:1-46` |
+| Scenario | 38 | Release publication waits for prereq gates / Prereq gates pass | `.github/workflows/release.yml:1-168`; `.github/workflows/vm-integration.yml:1-46` |
+| Scenario | 43 | Release publication waits for prereq gates / Only standard hosted runners are available | `.github/workflows/vm-integration.yml:19-46`; `tools/scripts/run_kernel_integration_vm.sh:1-195`; `tools/scripts/run_kernel_integration_vm_test.sh:1-60` |
 | Requirement | 49 | Release notes come from git-cliff | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176` |
 | Scenario | 53 | Release notes come from git-cliff / Release notes render | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176` |
 | Scenario | 59 | Release notes come from git-cliff / Release notes are empty | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176` |
@@ -411,7 +412,7 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 
 ## `security-release-quality`
 
-- Spec source: `openspec/specs/security-release-quality/spec.md:1-179`
+- Spec source: `openspec/specs/security-release-quality/spec.md:1-180`
 
 | Type | Spec line | Item | Evidence |
 |---|---:|---|---|
@@ -438,17 +439,17 @@ Evidence references use exact `path:start-end` line ranges. Scenario rows are ro
 | Scenario | 103 | CI enforces architecture and pure-Go constraints / Adapter import crosses a forbidden boundary | `docs/architecture.md:1-200`; `.github/workflows/ci.yml:1-143`; `BUILD.bazel:600-761`; `Makefile:1-201`; `BUILD.bazel:1-940` |
 | Scenario | 108 | CI enforces architecture and pure-Go constraints / cgo is introduced | `docs/architecture.md:1-200`; `.github/workflows/ci.yml:1-143`; `BUILD.bazel:600-761`; `Makefile:1-201`; `BUILD.bazel:1-940` |
 | Scenario | 113 | CI enforces architecture and pure-Go constraints / Public API changes incompatibly | `docs/architecture.md:1-200`; `.github/workflows/ci.yml:1-143`; `BUILD.bazel:600-761`; `Makefile:1-201`; `BUILD.bazel:1-940` |
-| Requirement | 118 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns | `Makefile:1-201`; `BUILD.bazel:1-940`; `.github/workflows/ci.yml:1-143`; `.github/workflows/vm-integration.yml:1-39` |
+| Requirement | 118 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns | `Makefile:1-201`; `BUILD.bazel:1-940`; `.github/workflows/ci.yml:1-143`; `.github/workflows/vm-integration.yml:1-46` |
 | Scenario | 127 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Pull request changes executable lines | `.github/codecov.yml:11-78`; `.testcoverage.yaml:1-90`; `AGENTS.md:20-45` |
 | Scenario | 133 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Unit tests run | `Makefile:1-201`; `BUILD.bazel:1-940`; `.github/workflows/ci.yml:1-143` |
-| Scenario | 138 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Integration tests run | `Makefile:177-180`; `BUILD.bazel:769-776`; `.github/workflows/vm-integration.yml:1-39`; `test/integration/harness.go:30-73`; `test/integration/dummy_hcd_helpers.go:24-75`; `CONTRIBUTING.md:109-121` |
-| Scenario | 145 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Hosted kernel prerequisites are provisioned | `.github/workflows/vm-integration.yml:19-39`; `tools/scripts/run_kernel_integration_vm.sh:1-176`; `tools/scripts/run_kernel_integration_vm_test.sh:1-60`; `tools/scripts/prepare_kernel_integration_host.sh:1-59`; `tools/scripts/prepare_kernel_integration_host_test.sh:1-135`; `docs/security-posture.md:12-29` |
-| Scenario | 153 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Wire conformance tests run | `Makefile:1-201`; `BUILD.bazel:1-940`; `.github/workflows/ci.yml:1-143` |
-| Requirement | 158 | TDD and review discipline are codified | `AGENTS.md:1-117`; `CONTRIBUTING.md:38-59`; `.github/workflows/ci.yml:56-128` |
-| Scenario | 162 | TDD and review discipline are codified / Pull request contains a policy-invalid commit | `AGENTS.md:91-107`; `CONTRIBUTING.md:49-74`; `.github/workflows/ci.yml:56-99` |
-| Scenario | 167 | TDD and review discipline are codified / Feature commit adds only tests | `.github/pull_request_template.md:12-32`; `.github/workflows/ci.yml:101-126` |
-| Requirement | 172 | License and metadata are consistent | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176`; `LICENSE:1-202` |
-| Scenario | 176 | License and metadata are consistent / Stable release tag is pushed | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176`; `LICENSE:1-202` |
+| Scenario | 138 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Integration tests run | `Makefile:177-180`; `BUILD.bazel:769-776`; `.github/workflows/vm-integration.yml:1-46`; `test/integration/harness.go:30-73`; `test/integration/dummy_hcd_helpers.go:24-75`; `CONTRIBUTING.md:109-121` |
+| Scenario | 145 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Hosted kernel prerequisites are provisioned | `.github/workflows/vm-integration.yml:19-46`; `tools/scripts/run_kernel_integration_vm.sh:1-195`; `tools/scripts/run_kernel_integration_vm_test.sh:1-60`; `tools/scripts/prepare_kernel_integration_host.sh:1-62`; `tools/scripts/prepare_kernel_integration_host_test.sh:1-135`; `docs/security-posture.md:12-29` |
+| Scenario | 154 | Tests cover unit, conformance, integration, race, coverage, and mutation concerns / Wire conformance tests run | `Makefile:1-201`; `BUILD.bazel:1-940`; `.github/workflows/ci.yml:1-143` |
+| Requirement | 159 | TDD and review discipline are codified | `AGENTS.md:1-117`; `CONTRIBUTING.md:38-59`; `.github/workflows/ci.yml:56-128` |
+| Scenario | 163 | TDD and review discipline are codified / Pull request contains a policy-invalid commit | `AGENTS.md:91-107`; `CONTRIBUTING.md:49-74`; `.github/workflows/ci.yml:56-99` |
+| Scenario | 168 | TDD and review discipline are codified / Feature commit adds only tests | `.github/pull_request_template.md:12-32`; `.github/workflows/ci.yml:101-126` |
+| Requirement | 173 | License and metadata are consistent | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176`; `LICENSE:1-202` |
+| Scenario | 177 | License and metadata are consistent / Stable release tag is pushed | `.github/workflows/release.yml:1-168`; `.goreleaser.yml:1-176`; `LICENSE:1-202` |
 
 ## `transport-networking`
 

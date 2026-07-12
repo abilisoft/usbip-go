@@ -24,7 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Restore kernel VM image
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: kernel-vm-image
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .local/kernel-vm/images
           key: kernel-vm-debian-trixie-20260706-2531
@@ -37,3 +38,9 @@ jobs:
             qemu-system-x86
       - name: Run integration target in kernel VM
         run: ./tools/scripts/run_kernel_integration_vm.sh
+      - name: Save kernel VM image
+        if: always() && steps.kernel-vm-image.outputs.cache-hit != 'true' && hashFiles('.local/kernel-vm/images/*.qcow2') != ''
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .local/kernel-vm/images
+          key: ${{ steps.kernel-vm-image.outputs.cache-primary-key }}

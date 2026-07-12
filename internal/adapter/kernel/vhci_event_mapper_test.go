@@ -406,22 +406,23 @@ func TestVhciEventMapper_LazyLoaderDegradesVHCIButPassesUsbipHost(t *testing.T) 
 		"mapper construction must not call the topology loader — lazy init "+
 			"keeps exporter-only deployments (no vhci_hcd) unaffected")
 
-	// usbip_host event must NOT trigger the VHCI topology loader.
+	// usbip-host driver event must NOT trigger the VHCI topology loader.
 	hostFields := map[string]string{
-		testUeventActionField:    testUeventActionAdd,
-		testUeventSubsystemField: testUeventSubsystemUSBIPHost,
+		testUeventActionField:    testUeventActionBind,
+		testUeventDriverField:    testUSBIPHostDriver,
+		testUeventSubsystemField: testUeventSubsystemUSB,
 		testUeventDevPathField:   testPhysicalUSBDeviceDevPath,
 	}
 
 	hostEvent, hostOK := mapper.MapEventForTest(hostFields)
 	require.True(t, hostOK,
-		"usbip_host event must map even when the VHCI topology is absent")
+		"usbip-host event must map even when the VHCI topology is absent")
 
 	bound, isBound := hostEvent.(domain.DeviceBoundEvent)
 	require.True(t, isBound, "expected DeviceBoundEvent, got %T", hostEvent)
 	require.Equal(t, domain.BusID(testRootBusID), bound.Device.BusID)
 	require.Zero(t, calls,
-		"usbip_host events must bypass the VHCI topology entirely — "+
+		"usbip-host events must bypass the VHCI topology entirely — "+
 			"the loader must still not have been called")
 
 	// First VHCI-shaped event triggers the loader exactly once; since
@@ -486,10 +487,9 @@ func TestVhciEventMapper_LazyLoaderSuccessCachedAcrossVHCIEvents(t *testing.T) {
 	require.Equal(t, 1, calls, "loader success must be memoised")
 }
 
-// TestVhciEventMapper_UsbipHostPassThrough confirms the mapper does not
-// interfere with SUBSYSTEM=usbip_host events — those are classified by
-// the trailing busid segment and do not require topology. The mapper's
-// MapEvent must route them through the non-vhci path unchanged.
+// TestVhciEventMapper_UsbipHostPassThrough confirms the mapper routes
+// SUBSYSTEM=usb ACTION=bind DRIVER=usbip-host through the exporter path
+// without requiring VHCI topology.
 func TestVhciEventMapper_UsbipHostPassThrough(t *testing.T) {
 	t.Parallel()
 
@@ -497,13 +497,14 @@ func TestVhciEventMapper_UsbipHostPassThrough(t *testing.T) {
 	mapper := kernel.NewVHCIEventMapperForTest(topo)
 
 	fields := map[string]string{
-		testUeventActionField:    testUeventActionAdd,
-		testUeventSubsystemField: testUeventSubsystemUSBIPHost,
+		testUeventActionField:    testUeventActionBind,
+		testUeventDriverField:    testUSBIPHostDriver,
+		testUeventSubsystemField: testUeventSubsystemUSB,
 		testUeventDevPathField:   testPhysicalUSBDeviceDevPath,
 	}
 
 	ev, ok := mapper.MapEventForTest(fields)
-	require.True(t, ok, "usbip_host bind events must still map")
+	require.True(t, ok, "usbip-host bind events must still map")
 
 	bound, isBound := ev.(domain.DeviceBoundEvent)
 	require.True(t, isBound, "expected DeviceBoundEvent, got %T", ev)

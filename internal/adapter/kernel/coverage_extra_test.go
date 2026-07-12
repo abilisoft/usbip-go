@@ -392,13 +392,17 @@ func TestVhciActionToEvent_UnknownAction(t *testing.T) {
 	require.Nil(t, ev)
 }
 
-// TestMapUsbipHostEvent_UnknownAction pins the default branch in
-// mapUsbipHostEvent: actions other than add/remove must return (nil, false).
-func TestMapUsbipHostEvent_UnknownAction(t *testing.T) {
+// TestMapUSBDriverEvent_UntrackedUnbind pins the fail-closed branch: an
+// unrelated USB unbind without a preceding usbip-host bind must not emit a
+// DeviceUnboundEvent.
+func TestMapUSBDriverEvent_UntrackedUnbind(t *testing.T) {
 	t.Parallel()
 
-	// devpath matches the regex (/1-1 ends with digit-dash-digit)
-	ev, ok := mapUsbipHostEvent("online", "/devices/1-1")
+	mapper := newVHCIEventMapper(Topology{})
+	ev, ok := mapper.mapUSBDriverEvent(map[string]string{
+		"ACTION":    ueventActionUnbind,
+		"SUBSYSTEM": ueventSubsystemUSB,
+	}, "/devices/1-1")
 	require.False(t, ok)
 	require.Nil(t, ev)
 }

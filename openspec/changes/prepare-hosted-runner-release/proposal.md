@@ -21,7 +21,8 @@ free runner must host a full Linux kernel in an isolated guest VM.
   supported release without embedding a concrete release number in prose or
   commands.
 - Preserve the existing plaintext USB/IP security model and all public v1 API
-  behavior; this change does not alter protocol, runtime, or API semantics.
+  behavior; correct Linux driver-core bind/unbind event classification without
+  changing protocol, CLI, or public API semantics.
 
 ## Capabilities
 
@@ -35,12 +36,16 @@ None.
   for the mandatory live-kernel gate and publish only after it passes.
 - `security-release-quality`: Kernel integration provisions and verifies its
   required host capabilities without silently skipping coverage.
+- `kernel-adapter`: Exporter lifecycle mapping consumes the real Linux
+  `SUBSYSTEM=usb` driver-core bind/unbind event shape.
 
 ## Impact
 
 - Affects `.github/workflows/vm-integration.yml`, release/operator
   documentation, OpenSpec traceability, and workflow regression coverage.
 - Adds no Go dependency and changes no public Go or CLI API.
+- Corrects an existing Linux event-classification defect exposed by the live
+  hosted kernel gate.
 - Uses Ubuntu's package repositories for QEMU/cloud-image tooling and a
   checksum-pinned Debian guest image because the hosted Azure kernel lacks the
   required modules; the guest test remains Bazel-backed.

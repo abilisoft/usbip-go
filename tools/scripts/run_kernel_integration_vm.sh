@@ -169,8 +169,27 @@ git -C "${repo_root}" archive --format=tar HEAD |
 	ssh "${ssh_options[@]}" runner@127.0.0.1 \
 		'mkdir -p /home/runner/usbip-go && tar -C /home/runner/usbip-go -xf -'
 
+status=0
 ssh "${ssh_options[@]}" runner@127.0.0.1 \
-	'sudo /home/runner/usbip-go/tools/scripts/prepare_kernel_integration_host.sh && sudo env NO_COLOR=1 make -C /home/runner/usbip-go test-integration'
+	'sudo /home/runner/usbip-go/tools/scripts/prepare_kernel_integration_host.sh' ||
+	status=$?
+if [[ ${status} -eq 0 ]]; then
+	if [[ "${acceleration}" == tcg,* ]]; then
+		ssh "${ssh_options[@]}" runner@127.0.0.1 \
+			'sudo env NO_COLOR=1 USBIP_GO_VM_TCG=1 make -C /home/runner/usbip-go test-integration' ||
+			status=$?
+	else
+		ssh "${ssh_options[@]}" runner@127.0.0.1 \
+			'sudo env NO_COLOR=1 make -C /home/runner/usbip-go test-integration' ||
+			status=$?
+	fi
+fi
+
+if [[ ${status} -ne 0 ]]; then
+	ssh "${ssh_options[@]}" runner@127.0.0.1 \
+		'sudo sh -c '\''printf "=== loaded modules ===\\n"; lsmod; printf "=== vhci status ===\\n"; cat /sys/devices/platform/vhci_hcd.*/status 2>/dev/null || true; printf "=== block devices ===\\n"; find /sys/class/block -maxdepth 1 -mindepth 1 -printf "%f -> %l\\n"; printf "=== kernel log ===\\n"; dmesg --color=never | tail -400'\'' >&2' || true
+	exit "${status}"
+fi
 
 ssh "${ssh_options[@]}" runner@127.0.0.1 'sudo poweroff' >/dev/null 2>&1 || true
 printf 'kernel integration VM completed successfully\n'

@@ -107,8 +107,8 @@ run_case() {
 root=$(run_case loads_modules_and_mounts_configfs "${exit_success}" \
 	FAKE_CONFIGFS_MOUNTED='no')
 grep -Fxq 'mount -t configfs configfs '"${root}"'/sys/kernel/config' "${log_file}"
-for module in dummy_hcd libcomposite usb_f_acm usb_f_mass_storage \
-	usbip_core usbip_host usbip_vudc vhci_hcd; do
+for module in cdc_acm dummy_hcd libcomposite sd_mod usb_f_acm \
+	usb_f_mass_storage usb_storage usbip_core usbip_host usbip_vudc vhci_hcd; do
 	grep -Fxq "modprobe ${module}" "${log_file}"
 done
 
