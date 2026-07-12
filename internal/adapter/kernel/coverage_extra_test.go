@@ -19,6 +19,8 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
+const testUeventActionKey = "ACTION"
+
 // errFake is a sentinel injected by fake netlink/socket mocks.
 var errFakeReceive = errors.New("fake netlink receive error")
 
@@ -376,7 +378,7 @@ func TestMapEvent_MissingDEVPATH(t *testing.T) {
 
 	m := newVHCIEventMapperWithLoader(func() (Topology, error) { return Topology{}, nil })
 	// SUBSYSTEM=usb passes isInterestingUevent; DEVPATH is absent.
-	ev, ok := m.mapEvent(map[string]string{"SUBSYSTEM": "usb", "ACTION": "add"})
+	ev, ok := m.mapEvent(map[string]string{"SUBSYSTEM": "usb", testUeventActionKey: "add"})
 	require.False(t, ok)
 	require.Nil(t, ev)
 }
@@ -400,8 +402,25 @@ func TestMapUSBDriverEvent_UntrackedUnbind(t *testing.T) {
 
 	mapper := newVHCIEventMapper(Topology{})
 	ev, ok := mapper.mapUSBDriverEvent(map[string]string{
-		"ACTION":    ueventActionUnbind,
-		"SUBSYSTEM": ueventSubsystemUSB,
+		testUeventActionKey: ueventActionUnbind,
+		"SUBSYSTEM":         ueventSubsystemUSB,
+	}, "/devices/1-1")
+	require.False(t, ok)
+	require.Nil(t, ev)
+}
+
+// TestMapUSBDriverEvent_OtherDriverBind pins the fail-closed driver filter:
+// ordinary USB driver bind notifications must not become usbip-host lifecycle
+// events.
+func TestMapUSBDriverEvent_OtherDriverBind(t *testing.T) {
+	t.Parallel()
+
+	const otherUSBDriver = "usbhid"
+
+	mapper := newVHCIEventMapper(Topology{})
+	ev, ok := mapper.mapUSBDriverEvent(map[string]string{
+		testUeventActionKey: ueventActionBind,
+		"DRIVER":            otherUSBDriver,
 	}, "/devices/1-1")
 	require.False(t, ok)
 	require.Nil(t, ev)
