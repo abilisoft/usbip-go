@@ -37,7 +37,6 @@ go_test(
         "main_test.go",
         "process_death_test.go",
         "reconnect_test.go",
-        "urb_deadline_test.go",
         "urb_transfer_test.go",
     ],
     data = [

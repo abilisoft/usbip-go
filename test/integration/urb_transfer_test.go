@@ -66,30 +66,14 @@ import (
 // covers several bulk-transfer boundaries on USB 2.0 high-speed.
 const e2ePayloadSize = 64 * 1024
 
-// blockDevPollInterval / block-device deadlines bound how long we wait for
-// /dev/sdN to surface after imp.Attach succeeds. USB enumeration,
-// usb-storage probing, and sd_mod registration are typically sub-second on
-// KVM. Software-emulated TCG guests need a larger fail-closed bound because
-// kernel worker progress competes with every emulated vCPU.
+// blockDevPollInterval / blockDevDeadline bound how long we wait for
+// /dev/sdN to surface after imp.Attach succeeds. USB enumeration +
+// usb-storage probe + sd_mod registration is typically sub-second on
+// KVM but can stretch into seconds on a cold microVM cache.
 const (
-	blockDevPollInterval  = 100 * time.Millisecond
-	blockDevDeadlineKVM   = 20 * time.Second
-	blockDevDeadlineTCG   = 90 * time.Second
-	kernelVMTGCEnv        = "USBIP_GO_VM_TCG"
-	kernelVMTGCEnvEnabled = "1"
+	blockDevPollInterval = 100 * time.Millisecond
+	blockDevDeadline     = 20 * time.Second
 )
-
-func blockDeviceDeadlineForMode(mode string) time.Duration {
-	if mode == kernelVMTGCEnvEnabled {
-		return blockDevDeadlineTCG
-	}
-
-	return blockDevDeadlineKVM
-}
-
-func blockDeviceDeadline() time.Duration {
-	return blockDeviceDeadlineForMode(os.Getenv(kernelVMTGCEnv))
-}
 
 // vudcSockfdPathFmt is the sysfs node the in-kernel vudc exporter
 // consumes to receive an already-accepted TCP socket. Writing the
@@ -352,7 +336,6 @@ type urbHarness struct {
 func attachVUDCWithPayload(t *testing.T, payload []byte) urbHarness {
 	t.Helper()
 
-	deadline := blockDeviceDeadline()
 	dev := integration.SetupVUDCWithData(t, payload)
 
 	skipIfVUDCExportUnavailable(t, dev.BusID)
@@ -384,7 +367,7 @@ func attachVUDCWithPayload(t *testing.T, payload []byte) urbHarness {
 	addr, ok := lis.Addr().(*net.TCPAddr)
 	require.True(t, ok, "listener addr must be TCP")
 
-	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	ctx, cancel := context.WithTimeout(context.Background(), blockDevDeadline)
 	defer cancel()
 
 	attachStart := time.Now()
@@ -398,11 +381,11 @@ func attachVUDCWithPayload(t *testing.T, payload []byte) urbHarness {
 	select {
 	case serveErr := <-serverDone:
 		require.NoError(t, serveErr, "server-side fd handoff")
-	case <-time.After(deadline):
+	case <-time.After(blockDevDeadline):
 		t.Fatal("server fd-handoff goroutine never completed")
 	}
 
-	blockDev := waitForVHCIBlockDevice(t, deadline, attachStart, len(payload))
+	blockDev := waitForVHCIBlockDevice(t, blockDevDeadline, attachStart, len(payload))
 
 	detached := &sync.Once{}
 
@@ -669,7 +652,7 @@ func TestURBDataTransferAfterDetach(t *testing.T) {
 	require.Eventually(t, func() bool {
 		_, serr := os.Stat(sysBlock)
 		return serr != nil
-	}, blockDeviceDeadline(), blockDevPollInterval,
+	}, blockDevDeadline, blockDevPollInterval,
 		"%s must disappear after Detach", sysBlock)
 
 	// Post-detach: the port must flip out of StatusUsed. Either it
@@ -735,7 +718,6 @@ func TestURBReattachCycle(t *testing.T) {
 func reattachFreshVUDC(t *testing.T, imp *usbip.Importer, payload []byte) string {
 	t.Helper()
 
-	deadline := blockDeviceDeadline()
 	dev := integration.SetupVUDCWithData(t, payload)
 
 	skipIfVUDCExportUnavailable(t, dev.BusID)
@@ -754,7 +736,7 @@ func reattachFreshVUDC(t *testing.T, imp *usbip.Importer, payload []byte) string
 	addr, ok := lis.Addr().(*net.TCPAddr)
 	require.True(t, ok)
 
-	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	ctx, cancel := context.WithTimeout(context.Background(), blockDevDeadline)
 	defer cancel()
 
 	attachStart := time.Now()
@@ -768,11 +750,11 @@ func reattachFreshVUDC(t *testing.T, imp *usbip.Importer, payload []byte) string
 	select {
 	case serveErr := <-serverDone:
 		require.NoError(t, serveErr, "reattach: server fd handoff")
-	case <-time.After(deadline):
+	case <-time.After(blockDevDeadline):
 		t.Fatal("reattach: server goroutine never completed")
 	}
 
-	blockDev := waitForVHCIBlockDevice(t, deadline, attachStart, len(payload))
+	blockDev := waitForVHCIBlockDevice(t, blockDevDeadline, attachStart, len(payload))
 
 	// Detach + drain kernel state in t.Cleanup so the caller cannot
 	// forget; otherwise residual vhci / vudc state from this second

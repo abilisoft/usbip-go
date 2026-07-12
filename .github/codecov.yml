@@ -42,7 +42,8 @@ ignore:
   # Real syscall paths in the kernel adapter — sysfs writes and
   # AF_NETLINK socket operations whose error branches cannot be
   # synthesised hermetically. Exercised by the integration suite on
-  # the dedicated hosted-kernel workflow. Mirrors the .testcoverage.yaml carve-out.
+  # a capable manual kernel-integration host. Mirrors the .testcoverage.yaml
+  # carve-out.
   - "internal/adapter/kernel/sysfs_real_linux.go"
   - "internal/adapter/kernel/netlink_real_linux.go"
 

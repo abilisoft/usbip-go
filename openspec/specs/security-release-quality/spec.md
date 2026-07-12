@@ -119,10 +119,10 @@ The repository SHALL mechanically enforce DDD layering, no cgo, public API compa
 
 The repository SHALL organize tests across fast unit tests, wire conformance
 tests, optional Linux integration tests, coverage gates, and mutation targets
-for protocol-critical packages. The dedicated kernel workflow SHALL boot a
-checksum-pinned full Linux kernel in a disposable guest VM as a narrow declared
-non-hermetic prerequisite, then run the integration suite through the
-Bazel-backed Make target inside that guest.
+for protocol-critical packages. Kernel integration SHALL remain available
+through the Bazel-backed Make target for manual execution on a capable Linux
+host, but SHALL NOT run in GitHub Actions because standard hosted runners lack
+the required privileged kernel surface.
 
 #### Scenario: Pull request changes executable lines
 
@@ -140,16 +140,12 @@ Bazel-backed Make target inside that guest.
 - **WHEN** `make test-integration` runs on a capable Linux host
 - **THEN** the integration test environment runs as root with writable configfs
 - **AND** it provides the USB/IP, gadget-function, and `dummy_hcd` kernel modules required by every integration scenario
-- **AND** the dedicated kernel workflow fails preflight instead of silently skipping a scenario when a required module is absent
 
-#### Scenario: Hosted kernel prerequisites are provisioned
+#### Scenario: GitHub Actions run on standard hosted runners
 
-- **WHEN** the dedicated kernel workflow starts on its pinned GitHub-hosted Ubuntu image
-- **THEN** it verifies and boots the checksum-pinned full-kernel guest image under QEMU
-- **AND** it loads every required USB/IP, gadget-function, VUDC, VHCI, and dummy-host-controller module inside the guest
-- **AND** it loads the host-side CDC ACM and USB mass-storage modules exercised by the imported gadgets
-- **AND** it mounts configfs when needed
-- **AND** it fails before tests if the gadget tree is absent or not writable
+- **WHEN** pull-request, nightly, or release automation runs
+- **THEN** it executes the unprivileged unit, conformance, architecture, security, coverage, mutation, and release checks applicable to that workflow
+- **AND** it does not schedule kernel integration that requires root, writable configfs, or unavailable kernel modules
 
 #### Scenario: Wire conformance tests run
 

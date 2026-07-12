@@ -25,7 +25,6 @@ on:
     # distinct UTC minute so scheduled workflows do not compete for runners:
     #   03:30  nightly (daily)
     #   04:30  trivy   (daily)
-    #   04:45  vm-integration (daily)
     #   05:15  mutation (Mon only)
     #   04:10  codeql (Wed only)
     - cron: '10 6 * * 2'

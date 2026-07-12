@@ -8,7 +8,7 @@
 // vhci_hcd, usbip_host, and usbip_vudc modules loaded. Build tag
 // integration_linux gates compilation; the tests skip cleanly via
 // harness preflight when the required modules are missing at runtime.
-// See security-release-quality OpenSpec for the hosted-kernel CI contract that
+// See security-release-quality OpenSpec for the self-hosted CI contract that
 // drives this tag.
 package integration
 
@@ -66,8 +66,8 @@ const (
 
 // configfsUSBGadgetRoot is the configfs directory where usb_gadget
 // structures live once libcomposite is loaded. The harness does not
-// modprobe — that is a host-preparation responsibility per the hosted-runner
-// contract; a missing root is therefore a skip, not a fail.
+// modprobe — that is an operator responsibility per the self-hosted
+// runner contract; a missing root is therefore a skip, not a fail.
 const configfsUSBGadgetRoot = "/sys/kernel/config/usb_gadget"
 
 // moduleSysfsRoot mirrors pkg/usbip.moduleSysfsRoot — duplicated here
@@ -230,7 +230,7 @@ const (
 	unbindCleanupTimeout = 2 * time.Second
 
 	missingModulesFormat = "integration harness: required kernel modules not loaded: %s " +
-		"(security-release-quality OpenSpec hosted-kernel test)"
+		"(security-release-quality OpenSpec self-hosted-only test)"
 )
 
 // requireModulesLoaded scans /sys/module for each harnessModuleNames

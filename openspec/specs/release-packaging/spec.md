@@ -26,9 +26,10 @@ The GitHub release workflow SHALL publish only tags matching `vMAJOR.MINOR.PATCH
 ### Requirement: Release publication waits for prereq gates
 
 The release job SHALL depend on reusable security, unit-test, conformance,
-architecture, coverage, and dedicated kernel-integration workflows. The
-kernel-integration prerequisite SHALL be schedulable on the standard
-GitHub-hosted runner pool available to the project.
+architecture, and coverage workflows that run on the standard GitHub-hosted
+runner pool available to the project. Kernel integration SHALL remain a
+separate manual maintainer check because it requires privileged Linux kernel
+capabilities unavailable on those runners.
 
 #### Scenario: Prereq gate fails
 
@@ -37,14 +38,14 @@ GitHub-hosted runner pool available to the project.
 
 #### Scenario: Prereq gates pass
 
-- **WHEN** security, unit tests, conformance, architecture checks, coverage, and dedicated kernel integration complete successfully
+- **WHEN** security, unit tests, conformance, architecture checks, and coverage complete successfully
 - **THEN** the release job may build and publish artifacts
 
-#### Scenario: Only standard hosted runners are available
+#### Scenario: Kernel integration requires privileged capabilities
 
-- **WHEN** the repository has no self-hosted runner
-- **THEN** the dedicated kernel-integration prerequisite runs on the pinned standard GitHub-hosted Ubuntu image
-- **AND** release publication remains gated on its success
+- **WHEN** the project has only standard GitHub-hosted runners
+- **THEN** the release workflow does not schedule kernel-module or writable-configfs integration tests
+- **AND** maintainers can run `make test-integration` separately on a capable Linux host
 
 ### Requirement: Release notes come from git-cliff
 

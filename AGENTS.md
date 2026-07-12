@@ -111,7 +111,7 @@ policy, not suggestions.
 - Run fresh, relevant validation after the final edit; do not rely solely on an
   earlier green run.
 - Report exactly what passed, what could not run, and any external prerequisite
-  (for example, hosted-runner kernel-VM provisioning).
+  (for example, the manual USB/IP kernel-integration environment).
 - Do not declare the work complete while known correctness, API, security,
   attribution, signature, or release-integrity findings remain unresolved or
   undisclosed.
