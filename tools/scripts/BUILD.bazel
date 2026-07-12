@@ -119,6 +119,19 @@ script_binary(
     visibility = PUBLIC_VISIBILITY,
 )
 
+script_binary(
+    name = "start_release",
+    src = "start_release.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_test(
+    name = "start_release_test",
+    size = "small",
+    src = "start_release_test.sh",
+    data = ["start_release.sh"],
+)
+
 script_test(
     name = "repo_coverage_test_runner_test",
     size = "small",

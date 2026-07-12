@@ -132,10 +132,11 @@ GoReleaser invocation as a literal `goreleaser/goreleaser-action` step. We prefe
 the honest hermetic path over adding an install-only marker action that is never
 used for the actual release.
 
-The trigger filter in `release.yml` and the `tag_pattern` in `cliff.toml` are
-anchored to stable SemVer tags (`vMAJOR.MINOR.PATCH`, no pre-release or
-build-metadata suffix) so prerelease/metadata tags do not fire the publishing
-pipeline.
+The direct trigger filter in `release.yml`, its manual release-start form, and
+the `tag_pattern` in `cliff.toml` are anchored to stable SemVer tags
+(`vMAJOR.MINOR.PATCH`, no pre-release or build-metadata suffix). The manual path
+creates the tag from the current default-branch head and redispatches at that
+tag, so both entry points use the same gated tag-context publishing pipeline.
 
 [scorecard]: https://github.com/ossf/scorecard
 [bp]: https://www.bestpractices.coreinfrastructure.org/

@@ -153,6 +153,11 @@ release-check: bootstrap
 release-snapshot: bootstrap
 	$(BAZEL) run $(BAZEL_BUILD_FLAGS) //:release-snapshot
 
+## Validate, create, and hand off a manual GitHub release tag
+.PHONY: start-release
+start-release:
+	@tools/scripts/start_release.sh
+
 ## Run tests; override BAZEL_TEST_TARGETS to narrow the set
 .PHONY: test
 test: bootstrap

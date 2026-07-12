@@ -753,6 +753,7 @@ test_suite(
         "//tools/scripts:ci_local_runner_test",
         "//tools/scripts:govulncheck_sarif_test",
         "//tools/scripts:repo_coverage_test_runner_test",
+        "//tools/scripts:start_release_test",
         "//tools/scripts:systemd_unit_test",
     ],
     visibility = ["//visibility:public"],

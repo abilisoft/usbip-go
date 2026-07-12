@@ -121,13 +121,29 @@ failure or skip.
 
 ## Release process
 
-Pushing a stable tag `vMAJOR.MINOR.PATCH` runs `.github/workflows/release.yml`.
-The workflow validates the tag, runs the reusable security, unit, conformance,
-architecture, and coverage gates, re-runs the local CI sequence, generates
-release notes through the Bazel-provisioned changelog target, and then
-publishes with `make release`. GoReleaser, Go, syft, and cosign are all resolved
-through Bazel runfiles. Kernel integration is a separate manual maintainer
-check because it requires a specially provisioned Linux host.
+The release workflow supports two equivalent entry points:
+
+1. In GitHub, open **Actions**, select **Release**, click **Run workflow**, keep
+   the branch set to the default branch, enter `vX.Y.Z`, and run it. The first
+   run validates and creates the tag, then hands off to a second run at that tag.
+2. From an up-to-date local default branch, create and push a tag directly:
+
+   ```sh
+   git tag -s vX.Y.Z -m 'Release vX.Y.Z'
+   git push origin vX.Y.Z
+   ```
+
+Do not use GitHub's **Draft a new release** / **Publish release** form to create
+the tag. That form couples tag creation to a GitHub Release, but this pipeline
+must build and attest artifacts before publishing the draft.
+
+Both supported entry points run `.github/workflows/release.yml` at the stable
+tag. The workflow validates the tag, runs the reusable security, unit,
+conformance, architecture, and coverage gates, re-runs the local CI sequence,
+generates release notes through the Bazel-provisioned changelog target, and
+then publishes with `make release`. GoReleaser, Go, syft, and cosign are all
+resolved through Bazel runfiles. Kernel integration is a separate manual
+maintainer check because it requires a specially provisioned Linux host.
 
 ## Pull requests
 

@@ -8,12 +8,18 @@ on:
     tags:
       - 'v*.*.*'
       - '!v*.*.*-*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Stable release tag (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref_type }}-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 defaults:
@@ -21,18 +27,60 @@ defaults:
     shell: bash
 
 jobs:
+  reject-manual-source:
+    name: Reject non-default manual source
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.ref_type == 'branch' && github.ref_name != github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Reject non-default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SELECTED_BRANCH: ${{ github.ref_name }}
+        run: |
+          echo "::error::manual releases must start from ${DEFAULT_BRANCH}, not ${SELECTED_BRANCH}"
+          exit 1
+
+  start-release:
+    name: Start release from GitHub UI
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Create tag and dispatch tag-context release
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: make start-release
+
   validate-tag:
     name: Validate tag shape
+    if: github.event_name == 'push' || github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Validate stable SemVer tag
         env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           if ! printf '%s' "${TAG}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error::tag '${TAG}' is not a canonical stable release (vMAJOR.MINOR.PATCH)"
+            exit 1
+          fi
+          if [ "${EVENT_NAME}" = 'workflow_dispatch' ] && [ "${DISPATCH_TAG}" != "${TAG}" ]; then
+            echo "::error::dispatch tag '${DISPATCH_TAG}' does not match workflow ref '${TAG}'"
             exit 1
           fi
 
@@ -92,6 +140,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          ref: ${{ github.ref }}
       - uses: ./.github/actions/setup-bazel
       - name: Local CI gate
         run: make ci-local

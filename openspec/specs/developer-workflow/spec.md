@@ -133,7 +133,12 @@ The repository SHALL separate unit tests, conformance tests, integration tests, 
 
 ### Requirement: GitHub Actions use the Make/Bazel contract
 
-GitHub Actions workflows SHALL invoke Make targets for repository build, test, lint, vulnerability, mutation, and release operations so CI behavior matches local contributor behavior. Kernel integration SHALL remain a manual Make target for capable Linux hosts rather than a GitHub Actions job.
+GitHub Actions workflows SHALL invoke Make targets for repository build, test,
+lint, vulnerability, mutation, and release operations so CI behavior matches
+local contributor behavior. Kernel integration SHALL remain a manual Make target
+for capable Linux hosts rather than a GitHub Actions job. The release workflow
+SHALL expose both direct tag-push and GitHub Actions manual entry points, and
+both SHALL converge on the same tag-context Make/Bazel release jobs.
 
 #### Scenario: CodeQL traces the production binary
 
@@ -156,7 +161,13 @@ GitHub Actions workflows SHALL invoke Make targets for repository build, test, l
 
 #### Scenario: Tagged release runs
 
-- **WHEN** the release workflow runs for a stable SemVer tag
+- **WHEN** the release workflow runs at a stable SemVer tag created by either supported entry point
 - **THEN** prereq jobs invoke the reusable Make/Bazel security, unit, conformance, coverage, and architecture/API gates
 - **AND** the publish job invokes `make ci-local`, `make changelog`, and `make release`
 - **AND** release publication uses the workflow `GITHUB_TOKEN` and GoReleaser environment expected by the Bazel release target
+
+#### Scenario: Manual release start runs
+
+- **WHEN** a maintainer starts a stable release from the GitHub Actions UI
+- **THEN** the repository-owned start script validates and creates the tag before redispatching the tag-context workflow
+- **AND** hermetic script tests cover success, validation failures, API failures, and handoff rollback
