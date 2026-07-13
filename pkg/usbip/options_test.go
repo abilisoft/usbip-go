@@ -5,6 +5,8 @@ package usbip_test
 
 import (
 	"log/slog"
+	"math"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -60,6 +62,137 @@ func TestWithImporterBackoffStores(t *testing.T) {
 	require.Equal(t, usbip.BackoffStrategy(b), cfg.BackoffForTest())
 }
 
+func TestWithImporterBackoffFactoryStoresAndWins(t *testing.T) {
+	t.Parallel()
+
+	factory := usbip.BackoffFactory(func() usbip.BackoffStrategy {
+		return usbip.FixedBackoff{Delay: time.Second}
+	})
+
+	cfg := usbip.NewImporterConfigForTest(
+		usbip.WithImporterBackoff(usbip.FixedBackoff{Delay: time.Millisecond}),
+		usbip.WithImporterBackoffFactory(factory),
+	)
+
+	require.Nil(t, cfg.BackoffForTest())
+	require.NotNil(t, cfg.BackoffFactoryForTest())
+	require.Equal(t, time.Second, cfg.BackoffFactoryForTest()().Next(0))
+}
+
+func TestWithImporterBackoffWinsAfterFactory(t *testing.T) {
+	t.Parallel()
+
+	want := usbip.FixedBackoff{Delay: 2 * time.Second}
+	cfg := usbip.NewImporterConfigForTest(
+		usbip.WithImporterBackoffFactory(func() usbip.BackoffStrategy {
+			return usbip.FixedBackoff{Delay: time.Second}
+		}),
+		usbip.WithImporterBackoff(want),
+	)
+
+	require.Equal(t, usbip.BackoffStrategy(want), cfg.BackoffForTest())
+	require.Nil(t, cfg.BackoffFactoryForTest())
+}
+
+func TestWithImporterBackoffFactoryNilRestoresDefaults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		prior usbip.ImporterOption
+	}{
+		{
+			name:  "clears legacy strategy",
+			prior: usbip.WithImporterBackoff(usbip.FixedBackoff{Delay: time.Second}),
+		},
+		{
+			name: "clears configured factory",
+			prior: usbip.WithImporterBackoffFactory(func() usbip.BackoffStrategy {
+				return usbip.FixedBackoff{Delay: time.Second}
+			}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := usbip.NewImporterConfigForTest(
+				tt.prior,
+				usbip.WithImporterBackoffFactory(nil),
+			)
+			require.Nil(t, cfg.BackoffForTest())
+			require.Nil(t, cfg.BackoffFactoryForTest())
+
+			translated := usbip.ImporterAttachOptionsForTest(
+				usbip.AttachOptions{AutoReconnect: true},
+				tt.prior,
+				usbip.WithImporterBackoffFactory(nil),
+			)
+			require.Nil(t, translated.Backoff)
+			require.Nil(t, translated.BackoffFactory)
+		})
+	}
+}
+
+func TestAttachBackoffOverridesConfiguredFactoryWithoutInvokingIt(t *testing.T) {
+	t.Parallel()
+
+	var factoryCalls atomic.Int32
+
+	want := usbip.FixedBackoff{Delay: 3 * time.Second}
+
+	translated := usbip.ImporterAttachOptionsForTest(
+		usbip.AttachOptions{AutoReconnect: true, Backoff: want},
+		usbip.WithImporterBackoffFactory(func() usbip.BackoffStrategy {
+			factoryCalls.Add(1)
+
+			return usbip.FixedBackoff{Delay: time.Second}
+		}),
+	)
+
+	require.Nil(t, translated.BackoffFactory)
+	require.Equal(t, want.Delay, translated.Backoff.Next(0))
+	require.Zero(t, factoryCalls.Load())
+}
+
+func TestConfiguredBackoffFactoryTranslationIsLazy(t *testing.T) {
+	t.Parallel()
+
+	var factoryCalls atomic.Int32
+
+	translated := usbip.ImporterAttachOptionsForTest(
+		usbip.AttachOptions{AutoReconnect: true},
+		usbip.WithImporterBackoffFactory(func() usbip.BackoffStrategy {
+			factoryCalls.Add(1)
+
+			return usbip.FixedBackoff{Delay: time.Second}
+		}),
+	)
+
+	require.Nil(t, translated.Backoff)
+	require.NotNil(t, translated.BackoffFactory)
+	require.Zero(t, factoryCalls.Load(), "translation must not construct state")
+	require.Equal(t, time.Second, translated.BackoffFactory().Next(0))
+	require.EqualValues(t, 1, factoryCalls.Load())
+}
+
+func TestConfiguredLegacyBackoffTranslatesWithoutFactory(t *testing.T) {
+	t.Parallel()
+
+	strategy := &customBackoff{}
+	translated := usbip.ImporterAttachOptionsForTest(
+		usbip.AttachOptions{AutoReconnect: true},
+		usbip.WithImporterBackoff(strategy),
+	)
+
+	require.NotNil(t, translated.Backoff)
+	require.Nil(t, translated.BackoffFactory)
+	require.Equal(t, 42*time.Millisecond, translated.Backoff.Next(0))
+	translated.Backoff.Reset()
+	require.Equal(t, 1, strategy.resetCount)
+}
+
 // TestWithImporterStatusPollIntervalStores proves the option stores
 // the supplied poll interval.
 func TestWithImporterStatusPollIntervalStores(t *testing.T) {
@@ -106,6 +239,43 @@ func TestWithExporterAcceptRateLimitStores(t *testing.T) {
 	cfg := usbip.NewExporterConfigForTest(usbip.WithExporterAcceptRateLimit(10.0))
 
 	require.InDelta(t, 10.0, cfg.AcceptRateLimitForTest(), 0.001)
+	require.True(t, cfg.AcceptRateLimitSetForTest())
+}
+
+func TestWithExporterAcceptRateLimitTracksExplicitZero(t *testing.T) {
+	t.Parallel()
+
+	omitted := usbip.NewExporterConfigForTest()
+	explicit := usbip.NewExporterConfigForTest(usbip.WithExporterAcceptRateLimit(0))
+
+	require.False(t, omitted.AcceptRateLimitSetForTest())
+	require.True(t, explicit.AcceptRateLimitSetForTest())
+	require.Zero(t, explicit.AcceptRateLimitForTest())
+}
+
+func TestWithExporterAcceptRateLimitLastOptionWins(t *testing.T) {
+	t.Parallel()
+
+	finalFinite := usbip.NewExporterConfigForTest(
+		usbip.WithExporterAcceptRateLimit(math.NaN()),
+		usbip.WithExporterAcceptRateLimit(7.5),
+	)
+	require.True(t, finalFinite.AcceptRateLimitSetForTest())
+	require.InDelta(t, 7.5, finalFinite.AcceptRateLimitForTest(), 0)
+
+	finalDisabled := usbip.NewExporterConfigForTest(
+		usbip.WithExporterAcceptRateLimit(7.5),
+		usbip.WithExporterAcceptRateLimit(0),
+	)
+	require.True(t, finalDisabled.AcceptRateLimitSetForTest())
+	require.Zero(t, finalDisabled.AcceptRateLimitForTest())
+
+	finalInvalid := usbip.NewExporterConfigForTest(
+		usbip.WithExporterAcceptRateLimit(7.5),
+		usbip.WithExporterAcceptRateLimit(math.Inf(1)),
+	)
+	require.True(t, finalInvalid.AcceptRateLimitSetForTest())
+	require.True(t, math.IsInf(finalInvalid.AcceptRateLimitForTest(), 1))
 }
 
 // TestWithExporterAllowCIDRAppends proves multiple calls accumulate.

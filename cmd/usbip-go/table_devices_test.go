@@ -137,3 +137,61 @@ func TestDeviceLabel_AllBranches(t *testing.T) {
 		})
 	}
 }
+
+func TestEscapeTerminalControls(t *testing.T) {
+	t.Parallel()
+
+	const (
+		input            = "Café\x00\t\n\r\x1b\x7f\u0085\u009b\u009d"
+		want             = `Café\x00\x09\x0a\x0d\x1b\x7f\x85\x9b\x9d`
+		printableUnicode = "\u5b89\u5168\u306a\u6a5f\u5668"
+	)
+
+	require.Equal(t, want, escapeTerminalControls(input))
+	require.Equal(t, printableUnicode, escapeTerminalControls(printableUnicode))
+}
+
+func TestTableRendererDevicesEscapesUntrustedControls(t *testing.T) {
+	t.Parallel()
+
+	device := usbip.Device{
+		BusID:        domain.BusID(testRootBusID),
+		Manufacturer: "Acme\x1b]52;c;payload\x07",
+		Product:      "\x1b[31m\u5371\u967a\u009b31m\u009dtitle",
+	}
+
+	var out bytes.Buffer
+	require.NoError(t, tableRenderer{}.Devices(&out, []usbip.Device{device}))
+
+	got := out.String()
+	require.NotContains(t, got, "\x1b")
+	require.NotContains(t, got, "\x07")
+	require.NotContains(t, got, "\u009b")
+	require.NotContains(t, got, "\u009d")
+	require.Contains(t, got, `Acme\x1b]52;c;payload\x07`)
+	require.Contains(t, got, "\\x1b[31m\u5371\u967a\\x9b31m\\x9dtitle")
+}
+
+func TestJSONRendererDevicesRemainsUnchangedByDisplayEscaping(t *testing.T) {
+	t.Parallel()
+
+	device := usbip.Device{
+		BusID:        domain.BusID(testRootBusID),
+		Manufacturer: "Acme\x1b]52;c;payload\x07",
+		Product:      "Café\u009btitle",
+	}
+
+	var withDescriptors bytes.Buffer
+	require.NoError(t, jsonRenderer{}.Devices(&withDescriptors, []usbip.Device{device}))
+
+	device.Manufacturer = ""
+	device.Product = ""
+
+	var withoutDescriptors bytes.Buffer
+	require.NoError(t, jsonRenderer{}.Devices(&withoutDescriptors, []usbip.Device{device}))
+
+	require.Equal(t, withoutDescriptors.String(), withDescriptors.String())
+	require.NotContains(t, withDescriptors.String(), `\x1b`)
+	require.NotContains(t, withDescriptors.String(), `"manufacturer":`)
+	require.NotContains(t, withDescriptors.String(), `"product":`)
+}

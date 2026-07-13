@@ -88,12 +88,22 @@ TransportOptions SHALL expose enough TCP controls for library callers to tune US
 
 ### Requirement: Static read and write deadlines are handshake-scoped
 
-ReadDeadline and WriteDeadline SHALL set absolute deadlines on userspace handshake connections and allow callers to clear or replace them later.
+ReadDeadline and WriteDeadline SHALL set absolute deadlines on userspace handshake connections; the transport-configured read deadline SHALL remain authoritative unless a transport consumer explicitly clears or replaces it, and importer application logic SHALL NOT extend it from a later caller context deadline.
 
 #### Scenario: Read deadline is configured
 
 - **WHEN** a dialed or accepted connection is tuned
 - **THEN** the read deadline is set to now plus the configured duration
+
+#### Scenario: Caller context has a later deadline
+
+- **WHEN** the transport has installed an earlier read deadline and an importer caller supplies a later context deadline
+- **THEN** listing and import handshakes retain the earlier transport deadline
+
+#### Scenario: Caller context is cancelled
+
+- **WHEN** an importer handshake is blocked and its caller context is cancelled
+- **THEN** application logic closes the connection to interrupt I/O without replacing the transport deadline
 
 ### Requirement: Listen returns a context-bound listener
 
@@ -136,3 +146,33 @@ When Listen receives non-zero TransportOptions, each accepted TCP connection SHA
 
 - **WHEN** ListenAndServe's Serve call returns before context cancellation
 - **THEN** ListenAndServe closes the listener it created
+
+### Requirement: ListenAndServe reserves lifecycle before transport bind
+
+The public `Exporter.ListenAndServe` path SHALL acquire the authoritative
+internal Serve reservation before invoking `Transport.Listen`, and the listener
+setup SHALL receive a context that Exporter Shutdown can cancel.
+
+#### Scenario: Exporter is already shut down
+
+- **WHEN** ListenAndServe is invoked after Shutdown
+- **THEN** it returns the terminal Exporter sentinel
+- **AND** `Transport.Listen` is not called
+
+#### Scenario: Another Serve call is active
+
+- **WHEN** ListenAndServe is invoked while another Serve call owns the reservation
+- **THEN** it returns the overlapping-Serve sentinel
+- **AND** `Transport.Listen` is not called
+
+#### Scenario: Shutdown begins during transport bind
+
+- **WHEN** `Transport.Listen` is waiting on the supplied context and Shutdown begins
+- **THEN** that context is cancelled
+- **AND** no listener remains installed after the Serve call exits
+
+#### Scenario: Transport bind succeeds
+
+- **WHEN** the lifecycle reservation succeeds and `Transport.Listen` returns a listener
+- **THEN** the listener is installed for Shutdown and accept-loop ownership
+- **AND** it is closed before ListenAndServe returns

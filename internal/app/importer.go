@@ -112,6 +112,11 @@ type Importer struct {
 	closed    bool
 	closeOnce sync.Once
 	handles   map[domain.PortID]*portHandle
+	// reservations bridge the adapter's selected-port callback to handle
+	// publication. A reservation exists before kernel mutation begins and
+	// is replaced atomically by the matching handle after AttachRemote
+	// succeeds. Guarded by mu.
+	reservations map[domain.PortID]*attachReservation
 	// inFlight dedupes concurrent Attach calls for the same
 	// (remote, busid) pair. Without this guard two callers would race
 	// the dial + handshake + AttachRemote sequence and import the same
@@ -133,6 +138,28 @@ type Importer struct {
 type attachKey struct {
 	remote domain.RemoteEndpoint
 	busID  domain.BusID
+}
+
+// attachReservation is the bounded publication state between adapter port
+// selection and importer handle registration. Detach marks teardownRequested
+// when no handle exists yet, waits on done without holding Importer.mu, and
+// leaves that intent behind if its own wait expires so finishAttach can start
+// compensating teardown after publishing the handle.
+type attachReservation struct {
+	id                domain.PortID
+	done              chan struct{}
+	finishOnce        sync.Once
+	shutdownTimeout   time.Duration
+	teardownRequested bool // guarded by Importer.mu
+	// detachAttempt is published before done closes when a successful
+	// handoff must compensate a pre-publication Detach. It is immutable
+	// after publication, so every waiter can observe the exact shared result
+	// even if the fast compensation removes the handle before it runs again.
+	detachAttempt *detachAttempt
+}
+
+func (r *attachReservation) finish() {
+	r.finishOnce.Do(func() { close(r.done) })
 }
 
 // portHandle is the per-port bookkeeping entry for an active import.
@@ -175,6 +202,8 @@ type portHandle struct {
 	watcherDone     chan struct{}
 	shutdownTimeout time.Duration
 	detaching       atomic.Bool
+	detachMu        sync.Mutex
+	detachAttempt   *detachAttempt
 	// lastKnownPort is the Port snapshot taken at the most recent
 	// successful Attach (initial or reconnect). The reconnect watcher
 	// emits this value inside PortReconnectExhaustedEvent when
@@ -184,10 +213,76 @@ type portHandle struct {
 	lastKnownPort domain.Port
 }
 
+// detachAttempt is the immutable result future shared by callers that
+// overlap while detaching one exact portHandle generation.
+type detachAttempt struct {
+	done chan struct{}
+	err  error
+}
+
+type detachTarget struct {
+	handle      *portHandle
+	attempt     *detachAttempt
+	reservation *attachReservation
+	owner       bool
+}
+
 // cancel closes the done channel exactly once, signalling any watcher
 // to exit. Safe to call repeatedly from different goroutines.
 func (h *portHandle) cancel() {
 	h.cancelOnce.Do(func() { close(h.done) })
+}
+
+func (h *portHandle) acquireDetachAttempt() (*detachAttempt, bool) {
+	h.detachMu.Lock()
+	defer h.detachMu.Unlock()
+
+	if h.detachAttempt != nil {
+		return h.detachAttempt, false
+	}
+
+	attempt := &detachAttempt{done: make(chan struct{})}
+
+	h.detachAttempt = attempt
+
+	return attempt, true
+}
+
+func (h *portHandle) finishDetachAttempt(attempt *detachAttempt, err error) {
+	h.detachMu.Lock()
+	defer h.detachMu.Unlock()
+
+	attempt.err = err
+	close(attempt.done)
+
+	// A failed attempt is complete for current followers, while a
+	// later caller must be able to own a fresh retry.
+	if err != nil && h.detachAttempt == attempt {
+		h.detachAttempt = nil
+	}
+}
+
+func waitDetachAttempt(ctx context.Context, id domain.PortID, attempt *detachAttempt) error {
+	select {
+	case <-attempt.done:
+		return attempt.err
+	default:
+	}
+
+	select {
+	case <-attempt.done:
+		return attempt.err
+	case <-ctx.Done():
+	}
+
+	// Completion wins a cancellation tie so every caller that can
+	// already observe the shared result receives that result.
+	select {
+	case <-attempt.done:
+		return attempt.err
+	default:
+		return fmt.Errorf("detach port %d: %w", id, ctx.Err())
+	}
 }
 
 // NewImporter constructs an Importer from functional options. The
@@ -241,6 +336,7 @@ func NewImporter(opts ...ImporterOption) *Importer {
 		logger:           cfg.logger,
 		transportOptions: cfg.transportOptions,
 		handles:          make(map[domain.PortID]*portHandle),
+		reservations:     make(map[domain.PortID]*attachReservation),
 		inFlight:         make(map[attachKey]struct{}),
 	}
 }
@@ -358,13 +454,6 @@ func (i *Importer) ListRemote(ctx context.Context, endpoint domain.RemoteEndpoin
 		return nil, fmt.Errorf("write OP_REQ_DEVLIST to %s: %w", endpoint.String(), err)
 	}
 
-	if deadline, ok := ctx.Deadline(); ok {
-		err = conn.SetReadDeadline(deadline)
-		if err != nil {
-			return nil, fmt.Errorf("set read deadline: %w", err)
-		}
-	}
-
 	devs, err := i.codec.DecodeOpRepDevlist(conn)
 	if err != nil {
 		return nil, fmt.Errorf("decode OP_REP_DEVLIST from %s: %w", endpoint.String(), err)
@@ -413,49 +502,9 @@ func (i *Importer) Attach(
 	busID domain.BusID,
 	opts AttachOptions,
 ) (domain.Port, error) {
-	err := endpoint.Validate()
-	if err != nil {
-		return domain.Port{}, fmt.Errorf("attach: %w", err)
-	}
+	port, _, err := i.attach(ctx, endpoint, busID, opts)
 
-	if !busID.IsValid() {
-		// Mirror the boundary guard on the exporter side
-		// (Exporter.Bind/Unbind): library callers that bypass
-		// ParseBusID by raw string conversion must not be allowed
-		// to drive a malformed busid into the OP_REQ_IMPORT body
-		// or the kernel attach sysfs writes that follow.
-		return domain.Port{}, fmt.Errorf("attach %q: %w", busID, domain.ErrBusIDInvalid)
-	}
-
-	if opts.MaxAttempts < 0 {
-		return domain.Port{}, fmt.Errorf("%w: MaxAttempts %d must be non-negative (0 means infinite)",
-			ErrAttachOptionsInvalid, opts.MaxAttempts)
-	}
-
-	endpoint = endpoint.NormalizePort()
-
-	release, err := i.acquireAttachSlot(endpoint, busID)
-	if err != nil {
-		return domain.Port{}, err
-	}
-
-	defer release()
-
-	err = i.kernel.ModulesAvailable(ctx)
-	if err != nil {
-		i.logger.Warn("attach kernel modules unavailable",
-			slog.Any("busid", busID),
-			slog.String("remote", endpoint.String()),
-			slog.String("outcome", string(AttachOutcomeKernelError)),
-			slog.Any("err", err))
-
-		return domain.Port{}, fmt.Errorf("vhci modules unavailable: %w", err)
-	}
-
-	// attachOverDialed logs the outcome at each failure branch
-	// (dial / kernel / decode) so the classification lives with the
-	// error origin. On success, finishAttach logs the OK outcome.
-	return i.attachOverDialed(ctx, endpoint, busID, opts)
+	return port, err
 }
 
 // Detach tears down a previously-imported port by id. It cancels the
@@ -473,76 +522,31 @@ func (i *Importer) Attach(
 // observes the flag on its post-Attach check and rolls back the kernel
 // handoff instead of taking ownership of the replacement port.
 func (i *Importer) Detach(ctx context.Context, id domain.PortID) error {
-	i.mu.Lock()
+	for {
+		target, err := i.acquireDetachTarget(id)
+		if err != nil {
+			return i.detachTargetError(id, err)
+		}
 
-	if i.closed {
-		i.mu.Unlock()
+		if target.reservation == nil {
+			return i.detachPublishedTarget(ctx, id, target)
+		}
 
-		return ErrImporterClosed
+		attempt, waitErr := i.waitAttachPublication(ctx, id, target.reservation)
+		if waitErr != nil {
+			return waitErr
+		}
+
+		if attempt != nil {
+			return waitDetachAttempt(ctx, id, attempt)
+		}
+
+		// Reservation completion atomically leaves either a published
+		// handle without teardown intent or no attachment. Re-run the
+		// lookup to own the former or report the latter truthfully. A
+		// teardown-requested publication returns its immutable attempt
+		// above, avoiding a successful-fast-compensation/not-found race.
 	}
-
-	h, ok := i.handles[id]
-	if !ok {
-		i.mu.Unlock()
-
-		i.logger.Warn("importer detach unknown port",
-			slog.Any("port_id", id),
-			slog.String("outcome", string(DetachOutcomeNotFound)))
-
-		return fmt.Errorf("detach port %d: %w", id, domain.ErrDeviceNotBound)
-	}
-
-	// Enrol the kernel-side detach in the waitgroup BEFORE releasing
-	// the lock. Close acquires the lock, flips closed=true, then waits
-	// on i.wg — so incrementing here guarantees Close observes the
-	// in-flight detach and blocks until it drains, closing the window
-	// where Close could return while sysfs writes are still in-flight.
-	i.wg.Add(1)
-	defer i.wg.Done()
-
-	// Mark the handle as detaching BEFORE releasing the lock so a
-	// concurrent watcher reading the flag cannot observe it unset after
-	// the post-Attach check. Pairing the store with the mu-protected
-	// lookup makes the happens-before explicit: any watcher holding
-	// the RLock later will see the flag set.
-	h.detaching.Store(true)
-
-	i.mu.Unlock()
-
-	// Cancel first (importer-lifecycle OpenSpec) so any reconnect watcher observes
-	// termination and exits. Waiting on watcherDone guarantees the
-	// watcher has drained before DetachPort runs; a nil watcherDone
-	// means this handle was attached with AutoReconnect=false. The
-	// wait is bounded by the handle's shutdownTimeout: a wedged watcher
-	// (e.g. a kernel call ignoring ctx) cannot hang Detach indefinitely.
-	h.cancel()
-
-	if h.watcherDone != nil {
-		i.waitWatcherBounded(h, id)
-	}
-
-	err := i.kernel.DetachPort(ctx, id)
-	if err != nil {
-		// Preserve the handle so callers can retry; the cancelled
-		// context is harmless — any future watcher starts fresh from
-		// the next successful Attach which regenerates the handle.
-		i.logger.Warn("importer detach kernel error",
-			slog.Any("port_id", id),
-			slog.String("outcome", string(DetachOutcomeError)),
-			slog.Any("err", err))
-
-		return fmt.Errorf("detach port %d: %w", id, err)
-	}
-
-	i.mu.Lock()
-	delete(i.handles, id)
-	i.mu.Unlock()
-
-	i.logger.Info("importer detached",
-		slog.Any("port_id", id),
-		slog.String("outcome", string(DetachOutcomeOK)))
-
-	return nil
 }
 
 // ListPorts forwards to the kernel's view of attached vhci ports. The
@@ -569,13 +573,27 @@ func (i *Importer) ListPorts(ctx context.Context) ([]domain.Port, error) {
 	return ports, nil
 }
 
-// Watch returns an iter.Seq that yields domain events from the shared
-// KernelEvents source. Iteration terminates when any of the following
-// happens: the source channel closes, ctx is cancelled, the caller's
-// yield returns false (normal `break`), or Subscribe fails (in which
-// case the iter yields nothing and terminates immediately).
+// Watch returns the v1 event-only iterator. It is a compatibility wrapper
+// around WatchWithErrors: ordinary events are forwarded, while the first
+// terminal stream error ends iteration without changing the historical
+// method signature.
+func (i *Importer) Watch(ctx context.Context) iter.Seq[domain.Event] {
+	return func(yield func(domain.Event) bool) {
+		for event, watchErr := range i.WatchWithErrors(ctx) {
+			if watchErr != nil || !yield(event) {
+				return
+			}
+		}
+	}
+}
+
+// WatchWithErrors returns an iter.Seq2 that yields domain events from the
+// shared KernelEvents source together with a terminal error channel.
+// Subscription failures retain their wrapped cause. An established source
+// closing while both ctx and the Importer remain live yields
+// ErrEventStreamClosed. Caller cancellation and Importer.Close end cleanly.
 //
-// Post-Close Watch returns an iter that yields nothing and terminates
+// Post-Close WatchWithErrors returns an iter that yields nothing and terminates
 // immediately — the handle map is already torn down and there is no
 // upstream to bind to.
 //
@@ -585,7 +603,7 @@ func (i *Importer) ListPorts(ctx context.Context) ([]domain.Port, error) {
 // kernel subscription handle or a fanout slot. The closed-Importer
 // fast path stays eager because there is no resource to defer in that
 // case.
-func (i *Importer) Watch(ctx context.Context) iter.Seq[domain.Event] {
+func (i *Importer) WatchWithErrors(ctx context.Context) iter.Seq2[domain.Event, error] {
 	i.mu.RLock()
 
 	closed := i.closed
@@ -593,10 +611,10 @@ func (i *Importer) Watch(ctx context.Context) iter.Seq[domain.Event] {
 	i.mu.RUnlock()
 
 	if closed {
-		return emptyEventSeq
+		return emptyEventErrorSeq
 	}
 
-	return func(yield func(domain.Event) bool) {
+	return func(yield func(domain.Event, error) bool) {
 		i.mu.Lock()
 		if i.closed {
 			i.mu.Unlock()
@@ -615,13 +633,298 @@ func (i *Importer) Watch(ctx context.Context) iter.Seq[domain.Event] {
 		ch, cancel, err := i.events.Subscribe(ctx)
 		if err != nil {
 			i.logger.Warn("watch subscribe failed", slog.Any("err", err))
+
+			stopped := i.watchStopped(ctx, sub)
 			i.removeImporterSubscriber(sub)
+
+			if stopped {
+				return
+			}
+
+			_ = yield(nil, fmt.Errorf("subscribe importer events: %w", err))
 
 			return
 		}
 
 		i.runImporterMergedSeq(ctx, ch, cancel, sub, yield)
 	}
+}
+
+// attach runs Attach and returns the exact handle published for a successful
+// kernel handoff. Public callers do not need the ownership token, while the
+// reconnect path must retain it so rollback cannot rediscover a newer handle
+// through a PortID that the kernel has already reused.
+func (i *Importer) attach(
+	ctx context.Context,
+	endpoint domain.RemoteEndpoint,
+	busID domain.BusID,
+	opts AttachOptions,
+) (domain.Port, *portHandle, error) {
+	// A terminal lifecycle state takes precedence over argument validation.
+	// acquireAttachSlot repeats this check under the write lock so Close racing
+	// this read still prevents the operation from entering the attach body.
+	i.mu.RLock()
+
+	closed := i.closed
+
+	i.mu.RUnlock()
+
+	if closed {
+		return domain.Port{}, nil, ErrImporterClosed
+	}
+
+	err := endpoint.Validate()
+	if err != nil {
+		return domain.Port{}, nil, fmt.Errorf("attach: %w", err)
+	}
+
+	if !busID.IsValid() {
+		// Mirror the boundary guard on the exporter side
+		// (Exporter.Bind/Unbind): library callers that bypass
+		// ParseBusID by raw string conversion must not be allowed
+		// to drive a malformed busid into the OP_REQ_IMPORT body
+		// or the kernel attach sysfs writes that follow.
+		return domain.Port{}, nil, fmt.Errorf("attach %q: %w", busID, domain.ErrBusIDInvalid)
+	}
+
+	if opts.MaxAttempts < 0 {
+		return domain.Port{}, nil, fmt.Errorf("%w: MaxAttempts %d must be non-negative (0 means infinite)",
+			ErrAttachOptionsInvalid, opts.MaxAttempts)
+	}
+
+	endpoint = endpoint.NormalizePort()
+
+	release, err := i.acquireAttachSlot(endpoint, busID)
+	if err != nil {
+		return domain.Port{}, nil, err
+	}
+
+	defer release()
+
+	// Construct importer-level custom state only after lifecycle, argument,
+	// and deduplication checks have succeeded, but before kernel/network side
+	// effects begin. Clearing the factory ensures recursive reconnect Attach
+	// calls retain this exact instance instead of creating a new generation.
+	if opts.AutoReconnect && opts.Backoff == nil && opts.BackoffFactory != nil {
+		opts.Backoff = opts.BackoffFactory()
+		opts.BackoffFactory = nil
+	}
+
+	err = i.kernel.ModulesAvailable(ctx)
+	if err != nil {
+		i.logger.Warn("attach kernel modules unavailable",
+			slog.Any("busid", busID),
+			slog.String("remote", endpoint.String()),
+			slog.String("outcome", string(AttachOutcomeKernelError)),
+			slog.Any("err", err))
+
+		return domain.Port{}, nil, fmt.Errorf("vhci modules unavailable: %w", err)
+	}
+
+	// attachOverDialed logs the outcome at each failure branch
+	// (dial / kernel / decode) so the classification lives with the
+	// error origin. On success, finishAttach logs the OK outcome.
+	return i.attachOverDialed(ctx, endpoint, busID, opts)
+}
+
+func (i *Importer) detachTargetError(id domain.PortID, err error) error {
+	if errors.Is(err, domain.ErrDeviceNotBound) {
+		i.logger.Warn("importer detach unknown port",
+			slog.Any("port_id", id),
+			slog.String("outcome", string(DetachOutcomeNotFound)))
+	}
+
+	return err
+}
+
+func (i *Importer) detachPublishedTarget(
+	ctx context.Context, id domain.PortID, target detachTarget,
+) error {
+	if !target.owner {
+		return waitDetachAttempt(ctx, id, target.attempt)
+	}
+
+	err := i.detachHandle(ctx, id, target.handle)
+	target.handle.finishDetachAttempt(target.attempt, err)
+	i.wg.Done()
+
+	return err
+}
+
+// acquireDetachTarget performs the handle/reservation lookup and any
+// ownership transition under Importer.mu. Initial handoff reservations are
+// visible before kernel mutation, so the no-handle case can wait for a
+// publication instead of incorrectly returning ErrDeviceNotBound.
+func (i *Importer) acquireDetachTarget(id domain.PortID) (detachTarget, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	if i.closed {
+		return detachTarget{}, ErrImporterClosed
+	}
+
+	// A selected-port reservation wins over an older handle that still uses
+	// the same PortID. The reconnecting Attach already owns the adapter's
+	// mutation boundary, so detaching the old pointer would wait behind that
+	// attach and then mutate the newly-live generation. Record compensation
+	// against the reservation instead and cancel the predecessor watcher.
+	if reservation, ok := i.reservations[id]; ok {
+		if predecessor, exists := i.handles[id]; exists {
+			predecessor.detaching.Store(true)
+			predecessor.cancel()
+		}
+
+		// Preserve teardown intent even when this caller's bounded wait
+		// later expires. Successful publication will schedule an exact-
+		// handle compensating detach; failed handoff simply clears done.
+		reservation.teardownRequested = true
+
+		return detachTarget{reservation: reservation}, nil
+	}
+
+	if h, ok := i.handles[id]; ok {
+		attempt, owner := h.acquireDetachAttempt()
+		if owner {
+			// Enrol before releasing Importer.mu so Close cannot miss the
+			// kernel-side detach during its waitgroup snapshot.
+			i.wg.Add(1)
+			h.detaching.Store(true)
+		}
+
+		return detachTarget{handle: h, attempt: attempt, owner: owner}, nil
+	}
+
+	return detachTarget{}, fmt.Errorf("detach port %d: %w", id, domain.ErrDeviceNotBound)
+}
+
+// waitAttachPublication waits for a selected port to become either a tracked
+// handle or an aborted handoff. It never holds Importer.mu, and the effective
+// Attach ShutdownTimeout bounds a wedged handoff unless the caller explicitly
+// selected a negative (unbounded) timeout. Completion wins cancellation or
+// timeout ties so a newly published handle is never mistaken for a timeout.
+// A non-nil returned attempt is the immutable compensation future published
+// with the handle; the caller must wait it directly rather than re-read the map.
+func (i *Importer) waitAttachPublication(
+	ctx context.Context, id domain.PortID, reservation *attachReservation,
+) (*detachAttempt, error) {
+	select {
+	case <-reservation.done:
+		return reservation.detachAttempt, nil
+	default:
+	}
+
+	var timeout <-chan time.Time
+	if reservation.shutdownTimeout >= 0 {
+		timeout = i.clock.After(reservation.shutdownTimeout)
+	}
+
+	var waitErr error
+
+	select {
+	case <-reservation.done:
+		return reservation.detachAttempt, nil
+	case <-ctx.Done():
+		waitErr = ctx.Err()
+	case <-timeout:
+		waitErr = context.DeadlineExceeded
+	}
+
+	select {
+	case <-reservation.done:
+		return reservation.detachAttempt, nil
+	default:
+		return nil, fmt.Errorf("detach port %d waiting for attach publication: %w", id, waitErr)
+	}
+}
+
+// detachHandle is the owner-only body of a shared detach attempt. It
+// waits for the reconnect watcher, then rechecks exact handle identity
+// immediately before asking the kernel adapter to mutate the port. A
+// superseded handle is already gone from this caller's generation and
+// therefore completes without mutating the new owner.
+func (i *Importer) detachHandle(ctx context.Context, id domain.PortID, h *portHandle) error {
+	// Cancel first (importer-lifecycle OpenSpec) so any reconnect watcher observes
+	// termination and exits. Waiting on watcherDone guarantees the
+	// watcher has drained before DetachPort runs; a nil watcherDone
+	// means this handle was attached with AutoReconnect=false. The
+	// wait is bounded by the handle's shutdownTimeout: a wedged watcher
+	// (e.g. a kernel call ignoring ctx) cannot hang Detach indefinitely.
+	h.cancel()
+
+	if h.watcherDone != nil {
+		i.waitWatcherBounded(h, id)
+	}
+
+	i.mu.RLock()
+
+	current, stillOurs := i.handles[id]
+	i.mu.RUnlock()
+
+	if !stillOurs || current != h {
+		return nil
+	}
+
+	err := i.kernel.DetachPort(ctx, id)
+	if err != nil {
+		// Preserve the handle so callers can retry; the cancelled
+		// context is harmless — any future watcher starts fresh from
+		// the next successful Attach which regenerates the handle.
+		i.logger.Warn("importer detach kernel error",
+			slog.Any("port_id", id),
+			slog.String("outcome", string(DetachOutcomeError)),
+			slog.Any("err", err))
+
+		return fmt.Errorf("detach port %d: %w", id, err)
+	}
+
+	i.mu.Lock()
+	if current, ok := i.handles[id]; ok && current == h {
+		delete(i.handles, id)
+	}
+	i.mu.Unlock()
+
+	i.logger.Info("importer detached",
+		slog.Any("port_id", id),
+		slog.String("outcome", string(DetachOutcomeOK)))
+
+	return nil
+}
+
+// detachExactHandle owns or joins teardown for one already-published handle.
+// Unlike acquireDetachTarget it deliberately remains usable after Importer
+// closure: internal rollback is part of draining a reconnect watcher that may
+// have crossed Close while its kernel handoff was in progress. The exact
+// pointer check and detach-attempt acquisition happen under Importer.mu so a
+// concurrent public Detach cannot create a second kernel mutation.
+func (i *Importer) detachExactHandle(
+	ctx context.Context, id domain.PortID, h *portHandle,
+) error {
+	i.mu.Lock()
+
+	current, ok := i.handles[id]
+	if !ok || current != h {
+		i.mu.Unlock()
+
+		return nil
+	}
+
+	attempt, owner := h.acquireDetachAttempt()
+	if owner {
+		i.wg.Add(1)
+		h.detaching.Store(true)
+	}
+
+	i.mu.Unlock()
+
+	if !owner {
+		return waitDetachAttempt(ctx, id, attempt)
+	}
+
+	err := i.detachHandle(ctx, id, h)
+	h.finishDetachAttempt(attempt, err)
+	i.wg.Done()
+
+	return err
 }
 
 // waitWatcherBounded blocks on h.watcherDone up to h.shutdownTimeout,
@@ -787,14 +1090,14 @@ func (i *Importer) attachOverDialed(
 	endpoint domain.RemoteEndpoint,
 	busID domain.BusID,
 	opts AttachOptions,
-) (domain.Port, error) {
+) (domain.Port, *portHandle, error) {
 	i.logger.Debug("attach: dialing", "endpoint", endpoint.String(), "busid", busID)
 
 	conn, err := i.transport.Dial(ctx, endpoint, i.transportOptions)
 	if err != nil {
 		i.logAttachFailure("attach dial failed", busID, endpoint, AttachOutcomeDialFailed, err)
 
-		return domain.Port{}, fmt.Errorf("dial %s: %w", endpoint.String(), err)
+		return domain.Port{}, nil, fmt.Errorf("dial %s: %w", endpoint.String(), err)
 	}
 
 	i.logger.Debug("attach: dialed", "endpoint", endpoint.String(), "local", conn.LocalAddr().String())
@@ -824,9 +1127,9 @@ func (i *Importer) attachOverDialed(
 		}
 	}()
 
-	dev, err := i.performImportHandshake(ctx, conn, endpoint, busID)
+	dev, err := i.performImportHandshake(conn, endpoint, busID)
 	if err != nil {
-		return domain.Port{}, err
+		return domain.Port{}, nil, err
 	}
 
 	i.logger.Debug("attach: got OP_REP_IMPORT",
@@ -841,26 +1144,91 @@ func (i *Importer) attachOverDialed(
 		Remote: endpoint,
 	}
 
+	var reservation *attachReservation
+
+	spec.ReserveLocalPort = func(id domain.PortID) error {
+		var reserveErr error
+
+		reservation, reserveErr = i.reserveAttachPort(
+			id, resolveShutdownTimeout(opts.ShutdownTimeout),
+		)
+
+		return reserveErr
+	}
+
 	portID, err := i.kernel.AttachRemote(ctx, conn, spec)
 	if err != nil {
+		i.abortAttachReservation(reservation)
 		i.logAttachFailure("attach kernel handoff failed", busID, endpoint, classifyKernelAttachErr(err), err)
 
-		return domain.Port{}, fmt.Errorf("attach %s on %s: %w", busID, endpoint.String(), err)
+		return domain.Port{}, nil, fmt.Errorf("attach %s on %s: %w", busID, endpoint.String(), err)
 	}
 
 	handedOff = true
 
-	return i.finishAttach(ctx, portID, busID, endpoint, dev, devID, opts)
+	return i.finishAttach(ctx, portID, busID, endpoint, dev, devID, opts, reservation)
+}
+
+// reserveAttachPort publishes the adapter-selected port before the kernel
+// mutation starts. It intentionally holds Importer.mu only while installing a
+// small state object; the potentially wedged sysfs handoff runs after unlock.
+func (i *Importer) reserveAttachPort(
+	id domain.PortID, shutdownTimeout time.Duration,
+) (*attachReservation, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	if i.closed {
+		return nil, ErrImporterClosed
+	}
+
+	if _, exists := i.reservations[id]; exists {
+		return nil, fmt.Errorf("%w: local port %d publication already reserved", ErrAttachInProgress, id)
+	}
+
+	// Detach won the per-Port transition before this reservation callback.
+	// Reject before the adapter's sysfs mutation rather than allowing the
+	// replacement to become live behind the already-claimed old generation.
+	if current, exists := i.handles[id]; exists && current.detaching.Load() {
+		return nil, fmt.Errorf("%w: local port %d is detaching", ErrAttachInProgress, id)
+	}
+
+	reservation := &attachReservation{
+		id:              id,
+		done:            make(chan struct{}),
+		shutdownTimeout: shutdownTimeout,
+	}
+
+	i.reservations[id] = reservation
+
+	return reservation, nil
+}
+
+// abortAttachReservation resolves a reservation after a pre-handoff failure.
+// Exact-pointer removal prevents an obsolete failure from clearing a newer
+// reservation if a broken ImporterKernel implementation reuses callbacks.
+func (i *Importer) abortAttachReservation(reservation *attachReservation) {
+	if reservation == nil {
+		return
+	}
+
+	i.mu.Lock()
+	if current, ok := i.reservations[reservation.id]; ok && current == reservation {
+		delete(i.reservations, reservation.id)
+	}
+	i.mu.Unlock()
+
+	reservation.finish()
 }
 
 // performImportHandshake runs the OP_REQ_IMPORT / OP_REP_IMPORT
-// exchange on conn: send the request, install a read deadline if ctx
-// carries one, decode the reply, and validate both the wire-side
-// BusID encoding and the requested-vs-replied BusID match. Extracted
-// from attachOverDialed to keep that function under the cognitive-
-// complexity cap.
+// exchange on conn: send the request, decode the reply, and validate both the
+// wire-side BusID encoding and the requested-vs-replied BusID match. Read
+// deadlines belong to the transport adapter; the caller's cancellation watcher
+// closes conn to interrupt blocked I/O without replacing a tighter configured
+// deadline. Extracted from attachOverDialed to keep that function under the
+// cognitive-complexity cap.
 func (i *Importer) performImportHandshake(
-	ctx context.Context,
 	conn net.Conn,
 	endpoint domain.RemoteEndpoint,
 	busID domain.BusID,
@@ -875,15 +1243,6 @@ func (i *Importer) performImportHandshake(
 	}
 
 	i.logger.Debug("attach: awaiting OP_REP_IMPORT")
-
-	if deadline, ok := ctx.Deadline(); ok {
-		err = conn.SetReadDeadline(deadline)
-		if err != nil {
-			i.logAttachFailure("attach set read deadline failed", busID, endpoint, AttachOutcomeProtocolMismatch, err)
-
-			return domain.Device{}, fmt.Errorf("set read deadline: %w", err)
-		}
-	}
 
 	dev, err := i.codec.DecodeOpRepImport(conn)
 	if err != nil {
@@ -957,16 +1316,19 @@ func (i *Importer) finishAttach(
 	dev domain.Device,
 	devID domain.DeviceID,
 	opts AttachOptions,
-) (domain.Port, error) {
-	h, err := i.registerHandle(portID, busID, endpoint,
-		resolveShutdownTimeout(opts.ShutdownTimeout), opts.AutoReconnect)
+	reservation *attachReservation,
+) (domain.Port, *portHandle, error) {
+	h, compensation, err := i.registerHandle(portID, busID, endpoint,
+		resolveShutdownTimeout(opts.ShutdownTimeout), opts.AutoReconnect, reservation)
 	if err != nil {
+		i.abortAttachReservation(reservation)
+
 		// Importer closed between AttachRemote and registerHandle.
 		// We hold a live kernel port that no handle tracks, so
 		// Close's sweep cannot reach it. Best-effort release; log
 		// any secondary error so it is not silent, but surface the
 		// original ErrImporterClosed to the caller.
-		detachErr := i.kernel.DetachPort(ctx, portID)
+		detachErr := i.kernel.DetachPort(context.WithoutCancel(ctx), portID)
 		if detachErr != nil {
 			i.logger.Warn(
 				"release port after close race",
@@ -981,7 +1343,7 @@ func (i *Importer) finishAttach(
 			slog.String("outcome", string(AttachOutcomeKernelError)),
 			slog.Any("err", err))
 
-		return domain.Port{}, err
+		return domain.Port{}, nil, err
 	}
 
 	port := domain.Port{
@@ -997,8 +1359,20 @@ func (i *Importer) finishAttach(
 	h.lastKnownPort = port
 	i.mu.Unlock()
 
-	if opts.AutoReconnect {
+	// A reconnect-path Attach shares its strategy with the predecessor and
+	// replacement watchers. Reset on this completing watcher goroutine before
+	// the replacement watcher becomes observable, otherwise an immediate
+	// second detach can race the new watcher's Next against this Reset.
+	if compensation == nil && opts.resetBackoffOnSuccess && opts.Backoff != nil {
+		opts.Backoff.Reset()
+	}
+
+	if opts.AutoReconnect && compensation == nil {
 		i.spawnReconnectWatcher(ctx, h, portID, endpoint, busID, opts)
+	}
+
+	if compensation != nil {
+		i.startCompensatingDetach(ctx, portID, h, compensation)
 	}
 
 	i.logger.Info("importer attached",
@@ -1007,7 +1381,7 @@ func (i *Importer) finishAttach(
 		slog.String("remote", endpoint.String()),
 		slog.String("outcome", string(AttachOutcomeOK)))
 
-	return port, nil
+	return port, h, nil
 }
 
 // registerHandle records a successful attach in the handle map. If an
@@ -1028,14 +1402,74 @@ func (i *Importer) registerHandle(
 	endpoint domain.RemoteEndpoint,
 	shutdownTimeout time.Duration,
 	autoReconnect bool,
-) (*portHandle, error) {
+	reservation *attachReservation,
+) (*portHandle, *detachAttempt, error) {
 	i.mu.Lock()
-	defer i.mu.Unlock()
 
-	if i.closed {
-		return nil, ErrImporterClosed
+	reservationErr := i.validateAttachReservationLocked(id, reservation)
+	if reservationErr != nil {
+		i.mu.Unlock()
+
+		return nil, nil, reservationErr
 	}
 
+	if i.closed {
+		i.removeAttachReservationLocked(id, reservation)
+		i.mu.Unlock()
+		completeAttachReservation(reservation)
+
+		return nil, nil, ErrImporterClosed
+	}
+
+	compensate := reservation != nil && reservation.teardownRequested
+	h := i.newPortHandleLocked(id, busID, endpoint, shutdownTimeout, autoReconnect && !compensate)
+
+	i.handles[id] = h
+
+	compensation := i.prepareAttachCompensationLocked(h, reservation)
+	i.removeAttachReservationLocked(id, reservation)
+	i.mu.Unlock()
+	completeAttachReservation(reservation)
+
+	return h, compensation, nil
+}
+
+func (i *Importer) validateAttachReservationLocked(
+	id domain.PortID, reservation *attachReservation,
+) error {
+	if reservation == nil {
+		return nil
+	}
+
+	current, ok := i.reservations[id]
+	if !ok || current != reservation {
+		return fmt.Errorf("%w: port %d", errAttachPublicationReservationLost, id)
+	}
+
+	return nil
+}
+
+func (i *Importer) removeAttachReservationLocked(
+	id domain.PortID, reservation *attachReservation,
+) {
+	if reservation != nil {
+		delete(i.reservations, id)
+	}
+}
+
+func completeAttachReservation(reservation *attachReservation) {
+	if reservation != nil {
+		reservation.finish()
+	}
+}
+
+func (i *Importer) newPortHandleLocked(
+	id domain.PortID,
+	busID domain.BusID,
+	endpoint domain.RemoteEndpoint,
+	shutdownTimeout time.Duration,
+	autoReconnect bool,
+) *portHandle {
 	if old, ok := i.handles[id]; ok {
 		old.cancel()
 	}
@@ -1059,9 +1493,40 @@ func (i *Importer) registerHandle(
 		h.watcherDone = make(chan struct{})
 	}
 
-	i.handles[id] = h
+	return h
+}
 
-	return h, nil
+func (i *Importer) prepareAttachCompensationLocked(
+	h *portHandle, reservation *attachReservation,
+) *detachAttempt {
+	if reservation == nil || !reservation.teardownRequested {
+		return nil
+	}
+
+	compensation, _ := h.acquireDetachAttempt()
+	h.detaching.Store(true)
+	i.wg.Add(1)
+
+	reservation.detachAttempt = compensation
+
+	return compensation
+}
+
+// startCompensatingDetach guarantees that a Detach whose bounded publication
+// wait expired is not forgotten. The exact published handle stays in the map,
+// concurrent callers share its detachAttempt, and a kernel failure preserves
+// the handle for a later retry. The caller's cancellation is deliberately
+// detached because teardown intent outlives the timed-out caller.
+func (i *Importer) startCompensatingDetach(
+	ctx context.Context, id domain.PortID, h *portHandle, attempt *detachAttempt,
+) {
+	detached := context.WithoutCancel(ctx)
+
+	go func() {
+		err := i.detachHandle(detached, id, h)
+		h.finishDetachAttempt(attempt, err)
+		i.wg.Done()
+	}()
 }
 
 // resolveShutdownTimeout maps the user-supplied AttachOptions.ShutdownTimeout
@@ -1076,7 +1541,10 @@ func resolveShutdownTimeout(t time.Duration) time.Duration {
 	return t
 }
 
-// emptyEventSeq is the iter.Seq returned by Watch when there is nothing
-// to iterate (Importer closed, Subscribe failed). It terminates
-// immediately without invoking yield.
+// emptyEventSeq is the event-only iter used when there is nothing to iterate.
+// Exporter.WatchSessions also uses it for its post-shutdown fast path.
 func emptyEventSeq(_ func(domain.Event) bool) {}
+
+// emptyEventErrorSeq is returned by WatchWithErrors after Importer.Close. It
+// terminates immediately without fabricating either an event or an error.
+func emptyEventErrorSeq(_ func(domain.Event, error) bool) {}

@@ -98,6 +98,7 @@ type exporterConfig struct {
 	maxSessions        int
 	maxSessionsPerPeer int
 	acceptRateLimit    float64
+	acceptRateLimitSet bool
 	acceptBurst        int
 	maxHandshakeBytes  int
 	handshakeTimeout   time.Duration
@@ -105,6 +106,10 @@ type exporterConfig struct {
 	// when the caller's ctx carries no deadline. Zero means "no backstop"
 	// — Shutdown respects only the caller's ctx.
 	shutdownTimeout time.Duration
+	// statusPollInterval is the internal exporter-session activity
+	// backstop cadence. Zero selects the semantic default; a negative
+	// value disables polling for focused event-path tests.
+	statusPollInterval time.Duration
 
 	aclCIDRs []string
 }
@@ -155,11 +160,12 @@ func WithExporterMaxSessionsPerPeer(n int) ExporterOption {
 
 // WithExporterAcceptRateLimit caps new accepts at rps tokens per
 // second via a token bucket with the given burst size (security-release-quality OpenSpec).
-// rps <= 0 disables rate limiting entirely; burst <= 0 picks up a
-// sane default.
+// Finite rps <= 0 disables rate limiting entirely; burst <= 0 picks up a
+// sane default. Non-finite rps is rejected by NewExporterWithError.
 func WithExporterAcceptRateLimit(rps float64, burst int) ExporterOption {
 	return func(c *exporterConfig) {
 		c.acceptRateLimit = rps
+		c.acceptRateLimitSet = true
 		c.acceptBurst = burst
 	}
 }
@@ -186,6 +192,13 @@ func WithExporterShutdownTimeout(d time.Duration) ExporterOption {
 	return func(c *exporterConfig) { c.shutdownTimeout = d }
 }
 
+// WithExporterStatusPollInterval overrides the internal usbip_status
+// backstop cadence. It is an internal-app test/integration seam, not a
+// public pkg/usbip option. Zero selects the default; negative disables.
+func WithExporterStatusPollInterval(d time.Duration) ExporterOption {
+	return func(c *exporterConfig) { c.statusPollInterval = d }
+}
+
 // WithExporterACL appends CIDR strings to the accept-path allow-list
 // (security-release-quality OpenSpec). Multiple calls accumulate. An empty list means
 // "allow every peer" to match upstream usbip-utils behaviour; at
@@ -201,6 +214,11 @@ func WithExporterACL(cidrs ...string) ExporterOption {
 // AttachOptions configures a single Importer.Attach call. All fields
 // are optional; zero values produce the documented defaults.
 type AttachOptions struct {
+	// resetBackoffOnSuccess marks an internal reconnect-path Attach. Its
+	// successful replacement must reset the shared strategy before the new
+	// watcher can call Next. Public callers cannot set this field.
+	resetBackoffOnSuccess bool
+
 	// AutoReconnect enables the reconnect watcher. When true, Attach
 	// spawns a watcher goroutine that re-establishes the attach after
 	// uevent- or poll-detected detach.
@@ -210,6 +228,13 @@ type AttachOptions struct {
 	// and AutoReconnect is true, the watcher defaults to
 	// ExponentialBackoff{Min:1s, Max:60s, Jitter:0.2}.
 	Backoff BackoffStrategy
+
+	// BackoffFactory is the facade-owned construction seam for custom
+	// importer defaults. Attach invokes it at most once for a top-level logical
+	// reconnect lineage, then threads the returned strategy through every
+	// replacement generation. Callers outside the parent module cannot import
+	// internal/app, so this does not expand the public v1 API.
+	BackoffFactory func() BackoffStrategy
 
 	// MaxAttempts caps the number of reconnect retries. Zero means
 	// infinite.

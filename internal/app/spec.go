@@ -7,8 +7,11 @@ import "github.com/abilisoft/usbip-go/pkg/domain"
 
 // RemoteDeviceSpec is what OP_REP_IMPORT decodes into. Passed to
 // ImporterKernel.AttachRemote by the importer service so the kernel
-// adapter can synthesise the usbip_vhci attach payload. Pure data;
-// no I/O, no behaviour.
+// adapter can synthesise the usbip_vhci attach payload. The importer
+// also supplies ReserveLocalPort as a narrow transaction hook: the
+// production adapter invokes it after selecting a free port and before
+// starting the kernel handoff, closing the interval in which a
+// concurrent Detach could otherwise miss a live-but-unpublished port.
 //
 // The type lives in internal/app rather than pkg/domain because it is
 // an adapter-interface contract, not consumer data. Public callers
@@ -31,4 +34,11 @@ type RemoteDeviceSpec struct {
 	// Remote is the peer that surfaced the spec. Carried through for
 	// structured logging and telemetry only.
 	Remote domain.RemoteEndpoint
+
+	// ReserveLocalPort publishes the selected local port to the importer
+	// before the kernel mutation starts. ImporterKernel implementations
+	// MUST invoke a non-nil hook synchronously after port selection and
+	// before making the attachment live. Specs constructed outside the
+	// importer may leave it nil.
+	ReserveLocalPort func(domain.PortID) error
 }

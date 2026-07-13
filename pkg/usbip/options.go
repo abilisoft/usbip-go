@@ -5,6 +5,7 @@ package usbip
 
 import (
 	"log/slog"
+	"sync"
 	"time"
 
 	internalapp "github.com/abilisoft/usbip-go/internal/app"
@@ -17,12 +18,25 @@ import (
 type importerConfig struct {
 	logger             *slog.Logger
 	backoff            BackoffStrategy
+	backoffFactory     *configuredBackoffFactory
+	backoffMu          *sync.Mutex
 	statusPollInterval time.Duration
 	// transportOptions is the snapshot wired into internal/app via
 	// WithImporterTransportOptions during config translation. Zero
 	// preserves v1.0.0 behavior; non-zero values reach the dialed
 	// connection through the transport adapter.
 	transportOptions TransportOptions
+}
+
+// configuredBackoffFactory keeps importerConfig (and therefore the exported
+// Importer wrapper that contains it) comparable. A function field directly on
+// importerConfig would silently remove Importer's public comparability.
+type configuredBackoffFactory struct {
+	newStrategy BackoffFactory
+}
+
+func newImporterConfig() importerConfig {
+	return importerConfig{backoffMu: &sync.Mutex{}}
 }
 
 // ImporterOption configures an Importer at construction time. Apply
@@ -43,7 +57,32 @@ func WithImporterLogger(l *slog.Logger) ImporterOption {
 // strategy falls back to the library default (exponential, min 1s, max
 // 60s, 20% jitter).
 func WithImporterBackoff(b BackoffStrategy) ImporterOption {
-	return func(c *importerConfig) { c.backoff = b }
+	return func(c *importerConfig) {
+		c.backoff = b
+		c.backoffFactory = nil
+	}
+}
+
+// WithImporterBackoffFactory installs a constructor for importer-level
+// reconnect defaults. The factory is invoked once for each top-level
+// auto-reconnecting Attach, and MUST return an independently owned strategy.
+// A nil factory restores the library default exponential strategy.
+//
+// Prefer this option over WithImporterBackoff for stateful custom strategies.
+// The legacy option remains supported and mutex-safe, but necessarily shares
+// one strategy instance because the v1 BackoffStrategy contract has no Clone
+// method.
+func WithImporterBackoffFactory(factory BackoffFactory) ImporterOption {
+	return func(c *importerConfig) {
+		c.backoff = nil
+		if factory == nil {
+			c.backoffFactory = nil
+
+			return
+		}
+
+		c.backoffFactory = &configuredBackoffFactory{newStrategy: factory}
+	}
 }
 
 // WithImporterStatusPollInterval sets the reconnect watcher's backstop
@@ -101,6 +140,7 @@ type exporterConfig struct {
 	maxSessions        int
 	maxSessionsPerPeer int
 	acceptRateLimit    float64
+	acceptRateLimitSet bool
 	allowCIDRs         []string
 	maxHandshakeBytes  int
 	handshakeTimeout   time.Duration
@@ -144,9 +184,13 @@ func WithExporterMaxSessionsPerPeer(n int) ExporterOption {
 
 // WithExporterAcceptRateLimit caps new accepts at rps tokens per
 // second via an internal token bucket with a library-default burst
-// size (security-release-quality OpenSpec). rps <= 0 disables rate limiting entirely.
+// size (security-release-quality OpenSpec). Finite rps <= 0 disables rate limiting entirely;
+// NaN or infinity makes NewExporter return ErrAcceptRateLimitInvalid.
 func WithExporterAcceptRateLimit(rps float64) ExporterOption {
-	return func(c *exporterConfig) { c.acceptRateLimit = rps }
+	return func(c *exporterConfig) {
+		c.acceptRateLimit = rps
+		c.acceptRateLimitSet = true
+	}
 }
 
 // WithExporterAllowCIDR appends CIDR strings to the accept-path allow-
@@ -227,7 +271,7 @@ func appendExporterLoggerAndLimits(
 		out = append(out, internalapp.WithExporterMaxSessionsPerPeer(cfg.maxSessionsPerPeer))
 	}
 
-	if cfg.acceptRateLimit != 0 {
+	if cfg.acceptRateLimitSet {
 		// Zero burst picks up the internal default; exposing only rps
 		// on the public API matches public-library-api OpenSpec verbatim.
 		out = append(out, internalapp.WithExporterAcceptRateLimit(cfg.acceptRateLimit, 0))

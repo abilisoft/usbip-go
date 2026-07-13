@@ -93,6 +93,10 @@ var (
 	// closed Importer surface this sentinel via errors.Is.
 	ErrImporterClosed = errors.New("importer closed")
 
+	// ErrEventStreamClosed indicates an established importer event source
+	// ended unexpectedly while its caller and Importer remained live.
+	ErrEventStreamClosed = errors.New("event stream closed unexpectedly")
+
 	// ErrExporterShutdown indicates Serve (or a Serve-adjacent method)
 	// was called after Shutdown completed. Shutdown is terminal: the
 	// caller must construct a new Exporter to serve again. Aliased to
@@ -125,4 +129,9 @@ var (
 	// ErrExponentialBackoffConfigInvalid indicates an exponential
 	// backoff configuration failed validation.
 	ErrExponentialBackoffConfigInvalid = errors.New("exponential backoff config invalid")
+
+	// ErrAcceptRateLimitInvalid indicates WithExporterAcceptRateLimit was
+	// supplied a non-finite value. Finite zero and negative values disable the
+	// limiter and are valid.
+	ErrAcceptRateLimitInvalid = errors.New("accept rate limit invalid")
 )

@@ -21,17 +21,17 @@ import (
 
 // TestExporterSession_SubscribesBeforeHandoff pins the subscribe-
 // before-handoff invariant. The real kernel adapter's ExportOnConn
-// returns immediately once the sysfs handoff lands; the matching
-// detach uevent may then fire before the session handler gets a chance
+// returns immediately once the sysfs handoff lands; a matching local
+// unbind uevent may then fire before the session handler gets a chance
 // to Subscribe to KernelEvents. If the handler subscribes AFTER
-// ExportOnConn, a fast kernel that publishes the detach event in the
+// ExportOnConn, a fast kernel that publishes the unbind event in the
 // gap between ExportOnConn-returns and Subscribe loses the event,
 // parking the handler forever.
 //
 // The preHandoffKernelEvents mock models that race deterministically:
 // the set of subscribers is snapshotted AT THE MOMENT ExportOnConn is
 // invoked. Subscribers registered after that moment receive a fresh
-// channel (the API contract is preserved) but the pending detach
+// channel (the API contract is preserved) but the pending unbind
 // event is broadcast ONLY to the pre-ExportOnConn set.
 //
 // The handler must Subscribe BEFORE ExportOnConn, see the pre-sent
@@ -58,12 +58,12 @@ func TestExporterSession_SubscribesBeforeHandoff(t *testing.T) {
 			// event published below.
 			kev.closeSubscriptionWindow()
 
-			// Publish the detach "uevent" immediately — the real kernel
+			// Publish the unbind "uevent" immediately — the real kernel
 			// can fire this the moment sysfs writes the usbip_sockfd
 			// release. Handlers that subscribed after ExportOnConn
 			// returned miss it; handlers that subscribed first receive
 			// it on their buffered channel.
-			kev.publishDetach()
+			kev.publishUnbind()
 
 			return nil
 		},
@@ -95,13 +95,13 @@ func TestExporterSession_SubscribesBeforeHandoff(t *testing.T) {
 	require.NoError(t, err)
 
 	// The handler subscribed BEFORE ExportOnConn, received the
-	// pre-ExportOnConn-published detach event on its buffered channel,
+	// pre-ExportOnConn-published unbind event on its buffered channel,
 	// and unwound. Sessions() must empty within the settle budget.
 	require.Eventually(t, func() bool {
 		return len(exp.Sessions(context.Background())) == 0
 	}, 2*time.Second, 10*time.Millisecond,
 		"Sessions() must empty — handler subscribed before handoff so "+
-			"the detach event published during ExportOnConn was delivered")
+			"the unbind event published during ExportOnConn was delivered")
 
 	cancel()
 
@@ -111,12 +111,12 @@ func TestExporterSession_SubscribesBeforeHandoff(t *testing.T) {
 // preHandoffKernelEvents is a KernelEvents mock whose delivery policy
 // distinguishes subscribers registered BEFORE ExportOnConn from those
 // registered after. Subscribers in the pre-handoff set receive the
-// next publishDetach event verbatim; subscribers arriving after
+// next publishUnbind event verbatim; subscribers arriving after
 // closeSubscriptionWindow has fired get a channel that will never
 // receive that event (the publish slot for post-window subscribers is
 // dropped on the floor, modelling the lost-event race).
 //
-// Buffered channels (capacity 1) ensure publishDetach is non-blocking
+// Buffered channels (capacity 1) ensure publishUnbind is non-blocking
 // even if the consumer has not yet selected on the channel — the real
 // kernel events buffer path is similarly non-blocking.
 type preHandoffKernelEvents struct {
@@ -127,8 +127,8 @@ type preHandoffKernelEvents struct {
 }
 
 // newPreHandoffKernelEvents returns a mock configured to deliver one
-// detach event keyed to busID. The subscription window starts open and
-// closes when closeSubscriptionWindow fires; publishDetach then
+// unbind event keyed to busID. The subscription window starts open and
+// closes when closeSubscriptionWindow fires; publishUnbind then
 // broadcasts to every subscriber captured while the window was open.
 func newPreHandoffKernelEvents(busID domain.BusID) *preHandoffKernelEvents {
 	return &preHandoffKernelEvents{
@@ -157,7 +157,7 @@ func (k *preHandoffKernelEvents) Subscribe(_ context.Context) (<-chan domain.Eve
 }
 
 // closeSubscriptionWindow snapshots the subscriber set. Any Subscribe
-// call after this runs is excluded from the pending publishDetach
+// call after this runs is excluded from the pending publishUnbind
 // delivery. Called by the ExporterKernelMock.ExportOnConnFunc exactly
 // once when the kernel takes the fd.
 func (k *preHandoffKernelEvents) closeSubscriptionWindow() {
@@ -167,17 +167,16 @@ func (k *preHandoffKernelEvents) closeSubscriptionWindow() {
 	k.windowOpen = false
 }
 
-// publishDetach pushes a PortDetachedEvent for k.busID to every
+// publishUnbind pushes a DeviceUnboundEvent for k.busID to every
 // subscriber captured before the window closed. Uses a non-blocking
 // send so the test never deadlocks on a slow consumer.
-func (k *preHandoffKernelEvents) publishDetach() {
+func (k *preHandoffKernelEvents) publishUnbind() {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	ev := domain.PortDetachedEvent{
+	ev := domain.DeviceUnboundEvent{
 		At:     time.Now(),
-		Port:   domain.Port{BusID: k.busID},
-		Reason: testKernelSessionEndReason,
+		Device: domain.Device{BusID: k.busID},
 	}
 
 	for _, ch := range k.subs {
@@ -266,17 +265,16 @@ func TestExporterSession_ClosesAcceptedConnAfterSessionEnd(t *testing.T) {
 		t.Fatal("ExportOnConn was not invoked")
 	}
 
-	// Trigger session end: the kernel-detach-uevent analogue.
-	events <- domain.PortDetachedEvent{
+	// Trigger session end with a role-correct local-device unbind.
+	events <- domain.DeviceUnboundEvent{
 		At:     time.Now(),
-		Port:   domain.Port{BusID: sessionBusID},
-		Reason: testKernelSessionEndReason,
+		Device: domain.Device{BusID: sessionBusID},
 	}
 
 	require.Eventually(t, func() bool {
 		return len(exp.Sessions(context.Background())) == 0
 	}, 2*time.Second, 10*time.Millisecond,
-		"Sessions() must empty after detach event")
+		"Sessions() must empty after local unbind event")
 
 	// The handler closes the accepted conn exactly once after
 	// waitForSessionEnd returns. A handedOff guard that suppresses the
@@ -363,12 +361,11 @@ func TestExporterSession_ClosesAcceptedConnOnSubscribeFailure(t *testing.T) {
 	<-serveDone
 }
 
-// TestExporterSession_ClosesAcceptedConnOnEventsChannelClosed covers
-// the events-channel-closed branch: the KernelEvents source channel
-// closes before any matching event arrives. The handler interprets
-// that as a kernel-side teardown and exits; the accepted conn must
-// still close exactly once.
-func TestExporterSession_ClosesAcceptedConnOnEventsChannelClosed(t *testing.T) {
+// TestExporterSession_EventsChannelClosureIsAdvisory covers the
+// events-channel-closed branch. Losing the advisory uevent source does not
+// prove that usbip_host released the connection; the Session stays owned
+// until an authoritative status result or Shutdown ends it.
+func TestExporterSession_EventsChannelClosureIsAdvisory(t *testing.T) {
 	t.Parallel()
 
 	const sessionBusID = domain.BusID("5-4")
@@ -382,21 +379,32 @@ func TestExporterSession_ClosesAcceptedConnOnEventsChannelClosed(t *testing.T) {
 	}
 
 	exportEntered := make(chan struct{}, 1)
+	probeEntered := make(chan struct{})
+	releaseProbe := make(chan struct{})
 
-	kernel := &ExporterKernelMock{
-		// serveImport now looks the requested device up in the
-		// exported set BEFORE sending OP_REP_IMPORT and handing the
-		// fd to the kernel — return the busid so the lookup succeeds.
-		ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
-			return []domain.Device{{BusID: sessionBusID}}, nil
+	kernel := &exporterKernelActivityStub{
+		ExporterKernelMock: &ExporterKernelMock{
+			// serveImport now looks the requested device up in the
+			// exported set BEFORE sending OP_REP_IMPORT and handing the
+			// fd to the kernel — return the busid so the lookup succeeds.
+			ListExportedDevicesFunc: func(_ context.Context) ([]domain.Device, error) {
+				return []domain.Device{{BusID: sessionBusID}}, nil
+			},
+			ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
+				select {
+				case exportEntered <- struct{}{}:
+				default:
+				}
+
+				return nil
+			},
+			DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
 		},
-		ExportOnConnFunc: func(_ context.Context, _ net.Conn, _ domain.BusID) error {
-			select {
-			case exportEntered <- struct{}{}:
-			default:
-			}
+		activeFunc: func(_ context.Context, _ domain.BusID) (bool, error) {
+			close(probeEntered)
+			<-releaseProbe
 
-			return nil
+			return true, nil
 		},
 	}
 
@@ -409,6 +417,7 @@ func TestExporterSession_ClosesAcceptedConnOnEventsChannelClosed(t *testing.T) {
 		app.WithExporterKernel(kernel),
 		app.WithExporterEvents(kev),
 		app.WithExporterCodec(codec),
+		app.WithExporterStatusPollInterval(-1),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -431,20 +440,40 @@ func TestExporterSession_ClosesAcceptedConnOnEventsChannelClosed(t *testing.T) {
 		t.Fatal("ExportOnConn was not invoked")
 	}
 
-	// Source teardown before any event arrives: handler exits via
-	// the "chan closed" branch.
+	serverConns := lis.snapshot()
+	require.Len(t, serverConns, 1)
+
+	serverConn := serverConns[0]
+
+	// The immediate authoritative probe proves the handler consumed the
+	// source closure. Block it while checking that source loss alone did not
+	// close the userspace reference or unregister the Session.
 	close(events)
 
-	require.Eventually(t, func() bool {
-		snap := lis.snapshot()
+	select {
+	case <-probeEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("events-channel closure did not trigger an authoritative probe")
+	}
 
-		return len(snap) == 1 && snap[0].closeCount() == 1
-	}, 2*time.Second, 10*time.Millisecond,
-		"accepted conn must close on events-channel-closed path")
+	require.Zero(t, serverConn.closeCount())
+	require.Len(t, exp.Sessions(context.Background()), 1)
 
 	cancel()
+	require.NoError(t, <-serveDone)
+	require.Zero(t, serverConn.closeCount(),
+		"Serve cancellation must not release a kernel-owned Session")
 
-	<-serveDone
+	close(releaseProbe)
+	require.NoError(t, exp.Shutdown(context.Background()))
+
+	select {
+	case <-serverConn.closedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Shutdown did not close the accepted connection")
+	}
+
+	require.Equal(t, 1, serverConn.closeCount())
 }
 
 // TestExporterShutdown_DisconnectsActiveSessions pins the graceful-
@@ -495,17 +524,6 @@ func TestExporterShutdown_DisconnectsActiveSessions(t *testing.T) {
 			require.Equal(t, sessionBusID, id)
 
 			disconnected.Add(1)
-
-			// Model the real kernel: Disconnect writes -1 to
-			// usbip_sockfd; sysfs emits a remove uevent which the
-			// KernelEvents netlink reader turns into a
-			// PortDetachedEvent. The handler's waitForSessionEnd
-			// matches on busid and unwinds.
-			events <- domain.PortDetachedEvent{
-				At:     time.Now(),
-				Port:   domain.Port{BusID: sessionBusID},
-				Reason: "kernel disconnect",
-			}
 
 			return nil
 		},

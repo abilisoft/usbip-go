@@ -25,8 +25,9 @@ func newWatchCmd() *cobra.Command {
 	}
 }
 
-// runWatch streams events from Importer.Watch through the selected
-// renderer until the iterator closes or the signal context cancels.
+// runWatch streams events from Importer.WatchWithErrors through the selected
+// renderer. Caller cancellation is a clean iterator stop; subscription or
+// established-source failure is returned so the CLI exits non-zero.
 func runWatch(cmd *cobra.Command, _ []string) error {
 	parent := cmd.Context()
 	if parent == nil {
@@ -46,7 +47,11 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 	r := pickRenderer(outputFromCtx(ctx))
 	out := cmd.OutOrStdout()
 
-	for ev := range imp.Watch(ctx) {
+	for ev, watchErr := range imp.WatchWithErrors(ctx) {
+		if watchErr != nil {
+			return fmt.Errorf("watch events: %w", watchErr)
+		}
+
 		err = r.Event(out, ev)
 		if err != nil {
 			return fmt.Errorf("render event: %w", err)

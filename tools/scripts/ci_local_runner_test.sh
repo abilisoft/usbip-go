@@ -51,6 +51,7 @@ test --test_output=errors //:lint
 test --test_output=errors //:govulncheck
 coverage --combined_report=lcov --test_tag_filters=-integration --test_output=errors //:test
 run --config=ci //tools/scripts:coverage_check -- build/coverage/coverage.lcov .testcoverage.yaml
+test --config=release --workspace_status_command=tools/scripts/release_workspace_status_fixture.sh --test_output=errors //test/release:release_stamping_test
 run --config=ci //:release-check
 WANT
 

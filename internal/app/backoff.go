@@ -38,16 +38,14 @@ func (b FixedBackoff) Next(_ int) time.Duration { return b.Delay }
 // Reset is a no-op for FixedBackoff.
 func (FixedBackoff) Reset() {}
 
-// ExponentialBackoffConfig configures an ExponentialBackoff at
-// construction time. Zero-value fields take the defaults documented
-// per field.
+// ExponentialBackoffConfig configures an ExponentialBackoff at construction
+// time. Public validation permits non-negative bounds for v1 compatibility.
 type ExponentialBackoffConfig struct {
-	// Min is the delay for the first attempt (attempt 0). Required —
-	// a zero Min would collapse every delay to zero.
+	// Min is the delay for the first attempt (attempt 0). Zero intentionally
+	// collapses every delay to zero.
 	Min time.Duration
 
-	// Max caps every returned delay. Values larger than Max are
-	// clamped down. Required.
+	// Max caps every returned delay. Zero is coherent with a zero Min.
 	Max time.Duration
 
 	// Jitter is the fractional range applied multiplicatively to the
@@ -137,7 +135,9 @@ func (b *ExponentialBackoff) baseDelay(attempt int) time.Duration {
 }
 
 // applyJitter samples a uniform multiplier in [1-jitter, 1+jitter] and
-// returns the scaled delay.
+// caps the final scaled delay at Max before converting it to time.Duration.
+// Comparing in float space first both enforces the public final-value bound and
+// avoids an out-of-range float-to-integer conversion near MaxInt64.
 func (b *ExponentialBackoff) applyJitter(base time.Duration) time.Duration {
 	b.rngMu.Lock()
 	defer b.rngMu.Unlock()
@@ -145,5 +145,10 @@ func (b *ExponentialBackoff) applyJitter(base time.Duration) time.Duration {
 	// Float64() is [0, 1); map to [-1, 1) then scale by jitter.
 	mult := 1 + b.jitter*(2*b.rng.Float64()-1)
 
-	return time.Duration(float64(base) * mult)
+	jittered := float64(base) * mult
+	if jittered >= float64(b.max) {
+		return b.max
+	}
+
+	return time.Duration(jittered)
 }

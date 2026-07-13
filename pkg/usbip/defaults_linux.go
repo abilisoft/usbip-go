@@ -20,31 +20,9 @@ import (
 // surface does not leak internal types to non-Linux consumers when
 // defaults_other.go is the compiled unit.
 func newDefaultImporter(opts []ImporterOption) (*Importer, error) {
-	cfg := importerConfig{}
-
-	// Skip nil option funcs so callers can compose With* helpers
-	// conditionally (e.g. `opt := cond ? With... : nil`) without a
-	// runtime panic. Go convention tolerates nil in variadic slots; see
-	// http.Handler composition for a standard-library precedent.
-	for _, opt := range opts {
-		if opt == nil {
-			continue
-		}
-
-		opt(&cfg)
-	}
-
-	// Validate transport options on the public side so a misconfigured
-	// caller surfaces ErrTransportOptionsInvalid as a returned error
-	// (NewImporter is fallible) instead of the internal panic the
-	// internalapp.NewImporter contract emits on the same input.
-	transportErr := internalapp.ValidateTransportOptions(cfg.transportOptions)
-	if transportErr != nil {
-		return nil, fmt.Errorf(
-			"usbip.NewImporter: %w: %s",
-			ErrTransportOptionsInvalid,
-			transportErr.Error(),
-		)
+	cfg, err := resolveImporterConfig(opts)
+	if err != nil {
+		return nil, err
 	}
 
 	k, err := kernel.NewImporterAdapter()
@@ -85,28 +63,9 @@ const importerBaseOptCount = 4
 
 // newDefaultExporter mirrors newDefaultImporter for the Exporter role.
 func newDefaultExporter(opts []ExporterOption) (*Exporter, error) {
-	cfg := exporterConfig{}
-
-	// Skip nil option funcs per the rationale on newDefaultImporter.
-	for _, opt := range opts {
-		if opt == nil {
-			continue
-		}
-
-		opt(&cfg)
-	}
-
-	// Validate transport options on the public side so a misconfigured
-	// caller sees ErrTransportOptionsInvalid as a returned error,
-	// alongside the existing ACL-validation path that
-	// NewExporterWithError already handles.
-	transportErr := internalapp.ValidateTransportOptions(cfg.transportOptions)
-	if transportErr != nil {
-		return nil, fmt.Errorf(
-			"usbip.NewExporter: %w: %s",
-			ErrTransportOptionsInvalid,
-			transportErr.Error(),
-		)
+	cfg, err := resolveExporterConfig(opts)
+	if err != nil {
+		return nil, err
 	}
 
 	k, err := kernel.NewExporterAdapter()

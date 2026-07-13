@@ -29,6 +29,14 @@ const kernelModuleProbeTTL = 5 * time.Second
 // TTL deterministically without touching /sys.
 type kernelModuleProbeFunc func(context.Context) (map[string]usbip.ModuleState, error)
 
+// statusExporterBackend is the narrow exporter surface needed by status JSON.
+// The interface is owned by this consumer; production uses *usbip.Exporter and
+// runDaemon integration tests use a deterministic lifecycle fake.
+type statusExporterBackend interface {
+	ListExported(ctx context.Context) ([]usbip.Device, error)
+	Sessions(ctx context.Context) []usbip.Session
+}
+
 // statusExporter adapts *usbip.Exporter to the statusSource interface
 // consumed by serveStatus. It owns the listeningState bookkeeping so
 // the status handler can report accepting=true from the moment Serve
@@ -44,7 +52,7 @@ type kernelModuleProbeFunc func(context.Context) (map[string]usbip.ModuleState, 
 // entirely — the state is scoped to whichever statusExporter the test
 // constructed.
 type statusExporter struct {
-	exp        *usbip.Exporter
+	exp        statusExporterBackend
 	listenAddr string
 	activation bool
 	accepting  atomic.Bool
@@ -92,7 +100,7 @@ type statusExporter struct {
 // listenerBound flips true immediately when lis has a non-nil Addr so
 // /readyz can distinguish "bind succeeded" from "accept loop actually
 // running".
-func newStatusExporter(exp *usbip.Exporter, lis net.Listener, activation bool) *statusExporter {
+func newStatusExporter(exp statusExporterBackend, lis net.Listener, activation bool) *statusExporter {
 	s := &statusExporter{
 		exp:               exp,
 		listenAddr:        listenerAddr(lis),

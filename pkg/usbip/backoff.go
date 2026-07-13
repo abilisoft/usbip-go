@@ -6,6 +6,7 @@ package usbip
 import (
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	internalapp "github.com/abilisoft/usbip-go/internal/app"
@@ -26,6 +27,11 @@ type BackoffStrategy interface {
 	// delay again.
 	Reset()
 }
+
+// BackoffFactory constructs one independent strategy for each top-level
+// auto-reconnecting Attach. The created strategy remains owned by that logical
+// attachment across all of its reconnect generations.
+type BackoffFactory func() BackoffStrategy
 
 // FixedBackoff returns the same Delay for every attempt. A zero Delay
 // makes every retry fire immediately — correct for deterministic tests
@@ -48,16 +54,14 @@ type ExponentialBackoff struct {
 	inner *internalapp.ExponentialBackoff
 }
 
-// ExponentialBackoffConfig mirrors the internal config verbatim. Zero-
-// value fields take the internal defaults documented per field on the
-// internal type.
+// ExponentialBackoffConfig mirrors the internal config. Zero Min retains the
+// v1 immediate-retry schedule; zero Max is valid when Min is also zero.
 type ExponentialBackoffConfig struct {
-	// Min is the delay for the first attempt (attempt 0). A zero Min
-	// collapses every delay to zero, so callers should set this
-	// explicitly.
+	// Min is the non-negative delay for the first attempt (attempt 0). A zero
+	// Min keeps every exponential delay at zero for v1 compatibility.
 	Min time.Duration
 
-	// Max caps every returned delay. Values larger than Max are clamped.
+	// Max is the non-negative cap for every returned delay.
 	Max time.Duration
 
 	// Jitter is the fractional range applied multiplicatively to the
@@ -125,18 +129,29 @@ func (b *ExponentialBackoff) Next(attempt int) time.Duration {
 // since its Next is a pure function of attempt.
 func (b *ExponentialBackoff) Reset() { b.inner.Reset() }
 
-// internalBackoffAdapter wraps any public BackoffStrategy so it
-// satisfies the internal interface. The adapter is transparent: calls
-// forward 1:1 without added state.
+// internalBackoffAdapter wraps any public BackoffStrategy so it satisfies the
+// internal interface. Calls are serialized because the v1 public contract did
+// not require third-party implementations to be concurrency-safe.
 type internalBackoffAdapter struct {
 	pub BackoffStrategy
+	mu  *sync.Mutex
 }
 
 // Next forwards to the wrapped strategy.
-func (a internalBackoffAdapter) Next(attempt int) time.Duration { return a.pub.Next(attempt) }
+func (a internalBackoffAdapter) Next(attempt int) time.Duration {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return a.pub.Next(attempt)
+}
 
 // Reset forwards to the wrapped strategy.
-func (a internalBackoffAdapter) Reset() { a.pub.Reset() }
+func (a internalBackoffAdapter) Reset() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.pub.Reset()
+}
 
 // backoffToInternal translates a public BackoffStrategy to the internal
 // interface. A nil input maps to nil so AttachOptions.Backoff can stay
@@ -151,7 +166,7 @@ func (a internalBackoffAdapter) Reset() { a.pub.Reset() }
 // re-checks for nil before dereferencing so the caller receives nil
 // and the internal layer falls back to its default backoff instead of
 // panicking.
-func backoffToInternal(b BackoffStrategy) internalapp.BackoffStrategy {
+func backoffToInternal(b BackoffStrategy, mu *sync.Mutex) internalapp.BackoffStrategy {
 	if b == nil {
 		return nil
 	}
@@ -173,5 +188,5 @@ func backoffToInternal(b BackoffStrategy) internalapp.BackoffStrategy {
 		return v.inner
 	}
 
-	return internalBackoffAdapter{pub: b}
+	return internalBackoffAdapter{pub: b, mu: mu}
 }

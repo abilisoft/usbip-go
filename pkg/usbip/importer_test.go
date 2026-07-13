@@ -27,6 +27,16 @@ type importerStubs struct {
 	codec  *stubCodec
 }
 
+// facadeLineageBackoff exposes mutable state so a facade-level factory test can
+// prove two logical Attachments do not share the strategy returned to either.
+type facadeLineageBackoff struct {
+	resetCount int
+}
+
+func (*facadeLineageBackoff) Next(_ int) time.Duration { return 0 }
+
+func (b *facadeLineageBackoff) Reset() { b.resetCount++ }
+
 // newInternalImporterForTest assembles an internal Importer with
 // stubbed adapters. The returned bundle exposes each stub so per-case
 // setup can rewire a single behaviour.
@@ -123,6 +133,73 @@ func TestImporterAttachForwards(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, usbip.PortID(7), port.ID)
 	require.Equal(t, usbip.BusID(testRootBusID), port.BusID)
+}
+
+func TestImporterBackoffFactoryCreatesOneIsolatedStrategyPerTopLevelAttach(t *testing.T) {
+	t.Parallel()
+
+	s := newInternalImporterForTest(t)
+	devices := []domain.Device{
+		{BusID: testRootBusID, Speed: domain.SpeedHigh, BusNum: 1, DevNum: 2},
+		{BusID: "1-2", Speed: domain.SpeedHigh, BusNum: 1, DevNum: 3},
+	}
+	portIDs := []domain.PortID{7, 8}
+	decodeCall := 0
+	attachCall := 0
+
+	s.codec.decodeOpRepImportFn = func(_ io.Reader) (domain.Device, error) {
+		require.Less(t, decodeCall, len(devices))
+
+		device := devices[decodeCall]
+		decodeCall++
+
+		return device, nil
+	}
+
+	s.kernel.attachRemoteFn = func(
+		_ context.Context, _ net.Conn, _ internalapp.RemoteDeviceSpec,
+	) (domain.PortID, error) {
+		require.Less(t, attachCall, len(portIDs))
+
+		portID := portIDs[attachCall]
+		attachCall++
+
+		return portID, nil
+	}
+
+	strategies := make([]*facadeLineageBackoff, 0, len(devices))
+	imp := usbip.NewImporterFromInternalForTest(
+		s.inner,
+		usbip.WithImporterBackoffFactory(func() usbip.BackoffStrategy {
+			strategy := &facadeLineageBackoff{}
+
+			strategies = append(strategies, strategy)
+
+			return strategy
+		}),
+	)
+
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	for idx, device := range devices {
+		port, err := imp.Attach(
+			t.Context(),
+			usbip.RemoteEndpoint{Host: testPeerHost},
+			device.BusID,
+			usbip.AttachOptions{AutoReconnect: true, StatusPollInterval: -1},
+		)
+		require.NoError(t, err)
+		require.Equal(t, portIDs[idx], port.ID)
+	}
+
+	require.Len(t, strategies, len(devices),
+		"the configured factory must run once for each top-level logical Attachment")
+	require.NotSame(t, strategies[0], strategies[1])
+
+	strategies[0].Reset()
+	require.Equal(t, 1, strategies[0].resetCount)
+	require.Zero(t, strategies[1].resetCount,
+		"mutating one logical Attachment's strategy must not affect another")
 }
 
 // TestImporterDetachForwards proves Detach reaches the kernel stub
@@ -226,6 +303,85 @@ func TestImporterWatchYieldsEvents(t *testing.T) {
 
 	require.Len(t, got, 1)
 	require.Equal(t, domain.EventDeviceBound, got[0].EventKind())
+
+	<-cancelled
+}
+
+func TestImporterWatchWithErrorsTranslatesUnexpectedClosure(t *testing.T) {
+	t.Parallel()
+
+	s := newInternalImporterForTest(t)
+
+	ch := make(chan domain.Event)
+	close(ch)
+
+	s.events.subscribeFn = func(_ context.Context) (<-chan domain.Event, func(), error) {
+		return ch, func() {}, nil
+	}
+
+	imp := usbip.NewImporterFromInternalForTest(s.inner)
+
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	count := 0
+
+	for event, watchErr := range imp.WatchWithErrors(t.Context()) {
+		require.Nil(t, event)
+		require.ErrorIs(t, watchErr, usbip.ErrEventStreamClosed)
+		require.NotErrorIs(t, watchErr, internalapp.ErrEventStreamClosed)
+
+		count++
+	}
+
+	require.Equal(t, 1, count)
+}
+
+func TestImporterWatchWithErrorsPreservesSubscribeCause(t *testing.T) {
+	t.Parallel()
+
+	s := newInternalImporterForTest(t)
+
+	s.events.subscribeFn = func(_ context.Context) (<-chan domain.Event, func(), error) {
+		return nil, nil, errNotImplemented
+	}
+
+	imp := usbip.NewImporterFromInternalForTest(s.inner)
+
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	count := 0
+
+	for event, watchErr := range imp.WatchWithErrors(t.Context()) {
+		require.Nil(t, event)
+		require.ErrorIs(t, watchErr, errNotImplemented)
+
+		count++
+	}
+
+	require.Equal(t, 1, count)
+}
+
+func TestImporterWatchWithErrorsEarlyBreakCancelsSubscription(t *testing.T) {
+	t.Parallel()
+
+	s := newInternalImporterForTest(t)
+
+	ch := make(chan domain.Event, 1)
+	ch <- domain.PortAttachedEvent{Port: domain.Port{ID: 7}}
+
+	cancelled := make(chan struct{})
+
+	s.events.subscribeFn = func(_ context.Context) (<-chan domain.Event, func(), error) {
+		return ch, func() { close(cancelled) }, nil
+	}
+
+	imp := usbip.NewImporterFromInternalForTest(s.inner)
+
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	for range imp.WatchWithErrors(t.Context()) {
+		break
+	}
 
 	<-cancelled
 }

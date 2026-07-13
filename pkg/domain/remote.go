@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
 	"unicode"
@@ -26,6 +27,11 @@ const ipv6MinColons = 2
 
 // hostLabelMaxLen is the RFC 1034 maximum length of a DNS label in bytes.
 const hostLabelMaxLen = 63
+
+// hostnameMaxLen is the maximum DNS hostname length excluding one optional
+// absolute-name root dot. The wire representation can therefore be 254 bytes
+// only when the final byte is that root dot.
+const hostnameMaxLen = 253
 
 // RemoteEndpoint identifies a USB/IP peer by host and port.
 //
@@ -83,7 +89,7 @@ func ParseRemote(s string) (RemoteEndpoint, error) {
 		return RemoteEndpoint{}, fmt.Errorf("%w: empty", errInvalidRemote)
 	}
 
-	host, portStr, err := splitHostPort(s)
+	host, portStr, portPresent, err := splitHostPort(s)
 	if err != nil {
 		return RemoteEndpoint{}, err
 	}
@@ -97,7 +103,7 @@ func ParseRemote(s string) (RemoteEndpoint, error) {
 		return RemoteEndpoint{}, err
 	}
 
-	if portStr == "" {
+	if !portPresent {
 		return RemoteEndpoint{Host: host, Port: DefaultPort}, nil
 	}
 
@@ -120,10 +126,10 @@ func parseRemoteWithPort(host, portStr string) (RemoteEndpoint, error) {
 	return RemoteEndpoint{Host: host, Port: uint16(port)}, nil
 }
 
-// splitHostPort splits s into host and port strings, handling IPv6
-// bracket syntax. Returns ("host", "", nil) for bare hosts without a
-// colon-delimited port, and ("host", "port", nil) for standard forms.
-func splitHostPort(s string) (string, string, error) {
+// splitHostPort splits s into host and port strings while preserving whether a
+// port delimiter was present. An explicitly empty port must reach port parsing
+// and fail instead of becoming indistinguishable from an omitted port.
+func splitHostPort(s string) (string, string, bool, error) {
 	if strings.HasPrefix(s, "[") {
 		return splitBracketedIPv6(s)
 	}
@@ -131,40 +137,47 @@ func splitHostPort(s string) (string, string, error) {
 	// Bare IPv6 (contains multiple colons, no brackets): treat as
 	// host-only. validateHost later checks that it parses as an IP.
 	if strings.Count(s, ":") >= ipv6MinColons {
-		return s, "", nil
+		return s, "", false, nil
 	}
 
 	// host or host:port.
 	idx := strings.LastIndexByte(s, ':')
 	if idx >= 0 {
-		return s[:idx], s[idx+1:], nil
+		return s[:idx], s[idx+1:], true, nil
 	}
 
-	return s, "", nil
+	return s, "", false, nil
 }
 
-// splitBracketedIPv6 handles "[host]" and "[host]:port" forms.
-func splitBracketedIPv6(s string) (string, string, error) {
+// splitBracketedIPv6 handles "[v6]" and "[v6]:port" forms. Brackets are
+// reserved for IPv6 literals, including scoped literals; bracketed DNS names
+// and IPv4 addresses are rejected even though their unbracketed forms are valid.
+func splitBracketedIPv6(s string) (string, string, bool, error) {
 	closeIdx := strings.IndexByte(s, ']')
 	if closeIdx < 0 {
-		return "", "", fmt.Errorf("%w: missing ] in %q", errInvalidRemote, s)
+		return "", "", false, fmt.Errorf("%w: missing ] in %q", errInvalidRemote, s)
 	}
 
 	host := s[1:closeIdx]
 	rest := s[closeIdx+1:]
 
+	addr, parseErr := netip.ParseAddr(host)
+	if parseErr != nil || !addr.Is6() {
+		return "", "", false, fmt.Errorf("%w: bracketed host %q must be an IPv6 literal", errInvalidRemote, host)
+	}
+
 	switch {
 	case rest == "":
-		return host, "", nil
+		return host, "", false, nil
 	case strings.HasPrefix(rest, ":"):
-		return host, rest[1:], nil
+		return host, rest[1:], true, nil
 	default:
-		return "", "", fmt.Errorf("%w: unexpected suffix %q", errInvalidRemote, rest)
+		return "", "", false, fmt.Errorf("%w: unexpected suffix %q", errInvalidRemote, rest)
 	}
 }
 
 // validateHost enforces basic sanity on a host string. IPv6 text (which
-// contains colons) must parse via net.ParseIP. Hostname labels follow
+// contains colons) must parse via netip.ParseAddr. Hostname labels follow
 // RFC 1034 + RFC 1123: each label is 1..63 ASCII alphanumerics or
 // hyphens, labels cannot start or end with a hyphen, and no whitespace
 // or control characters are allowed anywhere.
@@ -180,8 +193,9 @@ func validateHost(h string) error {
 
 	// Multi-colon => must be a valid IP literal.
 	if strings.Count(h, ":") >= ipv6MinColons {
-		if net.ParseIP(h) == nil {
-			return fmt.Errorf("%w: host %q has multiple colons but is not a valid IP", errInvalidRemote, h)
+		addr, parseErr := netip.ParseAddr(h)
+		if parseErr != nil || !addr.Is6() {
+			return fmt.Errorf("%w: host %q has multiple colons but is not a valid IPv6 literal", errInvalidRemote, h)
 		}
 
 		return nil
@@ -219,6 +233,10 @@ func validateHostnameLabels(h string) error {
 	labeled := strings.TrimSuffix(h, ".")
 	if labeled == "" {
 		return fmt.Errorf("%w: host is a bare dot", errInvalidRemote)
+	}
+
+	if len(labeled) > hostnameMaxLen {
+		return fmt.Errorf("%w: hostname exceeds %d bytes", errInvalidRemote, hostnameMaxLen)
 	}
 
 	for label := range strings.SplitSeq(labeled, ".") {

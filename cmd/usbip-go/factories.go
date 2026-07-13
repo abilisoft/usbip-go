@@ -26,7 +26,7 @@ type Importer interface {
 		opts usbip.AttachOptions,
 	) (usbip.Port, error)
 	Detach(ctx context.Context, id usbip.PortID) error
-	Watch(ctx context.Context) iter.Seq[usbip.Event]
+	WatchWithErrors(ctx context.Context) iter.Seq2[usbip.Event, error]
 	Close() error
 }
 

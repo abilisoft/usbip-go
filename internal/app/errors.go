@@ -14,6 +14,8 @@ import (
 // public facade (pkg/usbip) re-export a subset; the rest are internal
 // signalling between the service layer and its callers.
 var (
+	errAttachPublicationReservationLost = errors.New("attach publication reservation lost")
+
 	// ErrAttachInProgress indicates Attach is already running on the
 	// same busid/remote pair. Concurrent Attach calls would race the
 	// fd-passing handoff and corrupt the handle map. Aliased to
@@ -30,6 +32,11 @@ var (
 	// Close is idempotent (a second Close returns nil), but other
 	// operations on a closed Importer return this sentinel.
 	ErrImporterClosed = errors.New("importer closed")
+
+	// ErrEventStreamClosed indicates an established KernelEvents source
+	// closed while both the caller context and Importer remained live.
+	// Normal caller cancellation and Importer.Close are not errors.
+	ErrEventStreamClosed = errors.New("event stream closed unexpectedly")
 
 	// ErrPortDetached is the seed error handed to the reconnect
 	// watcher's OnReconnect callback on the FIRST attempt: the attach
@@ -61,6 +68,15 @@ var (
 	// tokens available (security-release-quality OpenSpec). The connection is closed without
 	// invoking the kernel adapter.
 	ErrRateLimited = errors.New("accept rate limit exceeded")
+
+	// ErrAcceptRateLimitInvalid indicates the configured accepts-per-second
+	// value is not finite. Finite zero and negative values intentionally remain
+	// the documented disabled form.
+	ErrAcceptRateLimitInvalid = errors.New("accept rate limit invalid")
+
+	// errListenerFactoryNil protects the internal listener-construction seam
+	// from returning a nil listener without an explanatory error.
+	errListenerFactoryNil = errors.New("exporter listener factory returned nil listener")
 
 	// ErrHandshakeTooLarge indicates the client sent more than
 	// MaxHandshakeBytes before completing the OP request (security-release-quality OpenSpec).

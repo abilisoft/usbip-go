@@ -85,8 +85,15 @@ Implements the use-case services:
 - `Exporter` — `ListAvailable`, `Bind`, `Unbind`, `Serve`, `Sessions`,
   `WatchSessions`, `Shutdown`.
 - Reconnect watcher with per-port generation tokens (see `openspec/specs/importer-lifecycle/spec.md`).
+- Importer-level `BackoffFactory` state is created once per logical Attachment
+  after lifecycle, validation, and duplicate checks; reconnect generations keep
+  that same instance. Legacy shared custom strategies are serialized at the
+  public facade.
 - Session accounting, ACL enforcement, and accept rate limiting, specified in
   `openspec/specs/security-release-quality/spec.md`.
+- `ListenAndServe` reserves the authoritative Serve lifecycle before the
+  transport adapter binds. Shutdown cancels listener setup through the
+  reservation context before waiting for the accept loop.
 - Closed-set outcome enums (AttachOutcome, ReconnectOutcome, etc.) used
   as `slog.String("outcome", …)` field values for journald queries
   (no Prometheus dependency — see `openspec/specs/operations-observability/spec.md`).
@@ -150,8 +157,11 @@ is covered by the Bazel build in `make build`.
 - `Importer` and `Exporter` public methods are safe for concurrent
   use.
 - Kernel adapter writes serialise on a per-adapter mutex.
-- `Watch` / `WatchSessions` return `iter.Seq[Event]` backed by
-  buffered channels; cancelling context closes the sequence.
+- `Watch` / `WatchSessions` return compatibility `iter.Seq[Event]` values
+  backed by buffered channels; `WatchWithErrors` adds terminal subscription
+  and source failures for assured importer monitoring. Subscriber closure is a
+  publication barrier: terminal Close/Shutdown drains events accepted before
+  that barrier, while caller context cancellation stops immediately.
 - Background watcher goroutines are owned by their service and
   terminate on `Close()` / `Shutdown()`.
 - Goroutine-owning test packages (`internal/app`,
@@ -163,6 +173,12 @@ See `openspec/specs/importer-lifecycle/spec.md` and
 `openspec/specs/exporter-daemon/spec.md` for the authoritative lifecycle
 semantics (double-detach idempotency, shutdown drain semantics, runtime module
 disappearance, and related behavior).
+
+Kernel-module observation is shape-stable across platforms. Common facade code
+starts with the canonical `usbip_core`, `vhci_hcd`, and `usbip_host` entries as
+`Unknown`; Linux replaces entries as each sysfs observation completes. A
+cancelled probe therefore returns a complete map plus the wrapped context error,
+not an ambiguous missing key.
 
 ## Error strategy
 

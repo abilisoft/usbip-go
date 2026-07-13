@@ -92,6 +92,11 @@ check-go-mod: bootstrap
 check-pure-go: bootstrap
 	$(BAZEL) test $(BAZEL_TEST_FLAGS) //:pure_go
 
+## Verify production Bazel release stamping with deterministic workspace status
+.PHONY: check-release-stamping
+check-release-stamping: bootstrap
+	$(BAZEL) test --config=release --workspace_status_command=tools/scripts/release_workspace_status_fixture.sh $(BAZEL_TEST_FLAGS) //test/release:release_stamping_test
+
 ## Run the GitHub CI pipeline locally
 .PHONY: ci-local
 ci-local: bootstrap

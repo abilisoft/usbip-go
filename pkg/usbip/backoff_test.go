@@ -4,6 +4,7 @@
 package usbip_test
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -110,6 +111,18 @@ type customBackoff struct {
 	resetCount int
 }
 
+type unsynchronizedBackoff struct {
+	calls int
+}
+
+func (b *unsynchronizedBackoff) Next(_ int) time.Duration {
+	b.calls++
+
+	return 0
+}
+
+func (b *unsynchronizedBackoff) Reset() { b.calls = 0 }
+
 // Next returns a fixed 42 ms delay regardless of attempt. Pointer
 // receiver so Reset can mutate state; BackoffStrategy is satisfied
 // as *customBackoff.
@@ -215,4 +228,23 @@ func TestCustomBackoffWrappedByAdapter(t *testing.T) {
 
 	opts.Backoff.Reset()
 	require.Equal(t, 1, b.resetCount)
+}
+
+func TestLegacyCustomBackoffAdapterSerializesNextAndReset(t *testing.T) {
+	t.Parallel()
+
+	strategy := &unsynchronizedBackoff{}
+	adapted := usbip.BackoffToInternalForTest(strategy)
+
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			for range 100 {
+				_ = adapted.Next(0)
+				adapted.Reset()
+			}
+		})
+	}
+
+	wg.Wait()
 }

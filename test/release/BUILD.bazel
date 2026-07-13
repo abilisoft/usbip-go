@@ -1,0 +1,35 @@
+# gazelle:ignore
+load("//tools:script.bzl", "script_test")
+
+script_test(
+    name = "release_stamping_test",
+    size = "small",
+    src = "release_stamping_test.sh",
+    data = ["//cmd/usbip-go"],
+    tags = [
+        "manual",
+        "release-stamping",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_shell_files",
+    srcs = glob(["*.sh"]),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "repo_bazel_files",
+    srcs = ["BUILD.bazel"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "testdata_files",
+    srcs = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)

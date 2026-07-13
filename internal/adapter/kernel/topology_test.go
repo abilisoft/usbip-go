@@ -8,6 +8,7 @@ package kernel_test
 import (
 	"fmt"
 	"io/fs"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -442,9 +443,8 @@ func TestDiscoverTopology_Realistic_MultiController_MissingSpeed(t *testing.T) {
 }
 
 // countingFS wraps an fs.FS and increments a counter every time Open
-// is called on a name matching the requested path. Used to pin the
-// topology-cache contract: loadTopology must run discoverTopology at
-// most once per adapter instance.
+// is called on a name matching the requested path. Used to pin fresh
+// per-operation topology discovery.
 type countingFS struct {
 	inner   fs.FS
 	watch   string
@@ -467,13 +467,10 @@ func (c countingFS) Open(name string) (fs.File, error) {
 	return f, nil
 }
 
-// TestCommonAdapter_TopologyCached pins the topology-cache contract:
-// calling loadTopology N times on the same adapter must read the
-// sysfs nports attribute once,
-// not N times. Re-reading on every call races a live kernel's topology
-// and, more importantly, makes + consumers (attach/detach,
-// status renumbering) pay a full sysfs walk for every port operation.
-func TestCommonAdapter_TopologyCached(t *testing.T) {
+// TestCommonAdapter_TopologyFreshPerCall pins the module-reload contract:
+// each call must rediscover sysfs rather than reuse a successful snapshot from
+// an earlier vhci_hcd generation.
+func TestCommonAdapter_TopologyFreshPerCall(t *testing.T) {
 	t.Parallel()
 
 	inner := topoFS(map[string]string{
@@ -508,11 +505,49 @@ func TestCommonAdapter_TopologyCached(t *testing.T) {
 		}
 
 		require.True(t, topologiesEqual(first, topo),
-			"loadTopology must return the same cached value on call %d", i+1)
+			"unchanged sysfs must still produce an equivalent snapshot on call %d", i+1)
 	}
 
-	require.Equal(t, 1, count,
-		"loadTopology must open nports exactly once across %d calls", calls)
+	require.Equal(t, calls, count,
+		"loadTopology must reopen nports for each of %d operation-local snapshots", calls)
+}
+
+// TestCommonAdapter_TopologyObservesModuleReload mutates the synthetic sysfs
+// tree between operations. The second load must expose the new controller and
+// bus mapping rather than the first successful result.
+func TestCommonAdapter_TopologyObservesModuleReload(t *testing.T) {
+	t.Parallel()
+
+	mfs := topoFS(map[string]string{
+		testVHCIController0NPortsPath:     testNPorts16Raw,
+		testVHCIController0StatusPath:     "",
+		testVHCIController0USB1BusNumPath: "1\n",
+		testVHCIController0USB2BusNumPath: "2\n",
+	})
+
+	a, err := kernel.NewImporterAdapter(kernel.WithFS(mfs))
+	require.NoError(t, err)
+
+	first, err := kernel.LoadTopologyForTest(a)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, first.NControllers)
+	require.NotContains(t, first.BusMap, uint32(3))
+
+	// Model unload/reload with two controllers and newly assigned USB buses.
+	mfs[testFSVHCIController0NPortsPath] = &fstest.MapFile{Data: []byte(testNPorts32Raw)}
+	mfs[strings.TrimPrefix(testVHCIController0Status1Path, "/")] = &fstest.MapFile{}
+	mfs[strings.TrimPrefix(testVHCIController1USB3BusNumPath, "/")] = &fstest.MapFile{Data: []byte("3\n")}
+	mfs[strings.TrimPrefix(testVHCIController1USB4BusNumPath, "/")] = &fstest.MapFile{Data: []byte("4\n")}
+
+	second, err := kernel.LoadTopologyForTest(a)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, second.NControllers)
+	require.Equal(t,
+		kernel.VHCILocation{ControllerIdx: 1, Hub: kernel.HubTypeHS},
+		second.BusMap[3])
+	require.Equal(t,
+		kernel.VHCILocation{ControllerIdx: 1, Hub: kernel.HubTypeSS},
+		second.BusMap[4])
 }
 
 // topologiesEqual compares two Topology values for deep equality. Used
@@ -592,17 +627,9 @@ func (f flakyFS) Open(name string) (fs.File, error) {
 	return file, nil
 }
 
-// TestCommonAdapter_TopologyRetriesAfterTransientFailure pins the
-// long-lived daemon recovery contract for the topology cache: a
-// transient sysfs error on the first loadTopology call must NOT
-// poison the cache forever. The first call observes the fs error;
-// every subsequent call retries the underlying load and, once the
-// transient fault clears, returns a valid Topology without error.
-//
-// A sync.Once wrapper that memoised both success and error would
-// wedge the cache permanently on the first failure so a daemon that
-// survived a vhci_hcd module reload could never recover its BusMap-
-// consuming paths (uevent mapping, findFreePort).
+// TestCommonAdapter_TopologyRetriesAfterTransientFailure pins fresh discovery's
+// recovery contract: a transient sysfs error on one operation does not poison a
+// later operation once the filesystem is healthy again.
 func TestCommonAdapter_TopologyRetriesAfterTransientFailure(t *testing.T) {
 	t.Parallel()
 
@@ -637,9 +664,8 @@ func TestCommonAdapter_TopologyRetriesAfterTransientFailure(t *testing.T) {
 		"BusMap must be fully populated after the retry succeeds")
 }
 
-// TestImporterAdapter_LoadTopology confirms the importer adapter
-// exposes a cached topology post-construction. and later consume
-// this cached value rather than re-reading sysfs on every call.
+// TestImporterAdapter_LoadTopology confirms the importer adapter exposes a
+// freshly discovered topology after construction.
 func TestImporterAdapter_LoadTopology(t *testing.T) {
 	t.Parallel()
 

@@ -95,9 +95,6 @@ function dirname(path) {
 	return path
 }
 function pct(hit, found) {
-	if (found == 0) {
-		return 100
-	}
 	return (hit * 100.0) / found
 }
 function excluded(path,    i) {
@@ -141,6 +138,10 @@ BEGIN {
 }
 END {
 	fail = 0
+	if (total_found == 0) {
+		print "coverage-check: no executable lines found after exclusions" > "/dev/stderr"
+		exit 1
+	}
 	total_pct = pct(total_hit, total_found)
 	printf("coverage: total %.2f%% (%d/%d), threshold %.2f%%\n", total_pct, total_hit, total_found, total_threshold)
 	if (total_pct + 0.000001 < total_threshold) {
@@ -148,6 +149,12 @@ END {
 		fail = 1
 	}
 	for (pkg in pkg_found) {
+		# An LF:0 record alongside measured packages is valid but has no
+		# denominator to evaluate against the per-package threshold.
+		if (pkg_found[pkg] == 0) {
+			printf("coverage: %s not coverable (0 executable lines)\n", pkg)
+			continue
+		}
 		pkg_pct = pct(pkg_hit[pkg], pkg_found[pkg])
 		printf("coverage: %s %.2f%% (%d/%d), threshold %.2f%%\n", pkg, pkg_pct, pkg_hit[pkg], pkg_found[pkg], package_threshold)
 		if (pkg_pct + 0.000001 < package_threshold) {

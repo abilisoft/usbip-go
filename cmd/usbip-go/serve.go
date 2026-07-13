@@ -79,6 +79,33 @@ func newServeCmd() *cobra.Command {
 // distinguish drain from SIGTERM.
 var errDrainRequested = errors.New("drain requested")
 
+// daemonExporter is the concrete runtime surface runDaemon owns. Keeping the
+// interface at the consumer boundary lets integration tests drive exact Serve
+// and Shutdown interleavings without a real kernel while production still uses
+// *usbip.Exporter.
+type daemonExporter interface {
+	statusExporterBackend
+	Serve(ctx context.Context, listener net.Listener) error
+	Shutdown(ctx context.Context) error
+}
+
+// daemonDependencies contains only process-boundary constructors. Production
+// uses the real listener and exporter; tests inject per-call fakes without
+// mutable package globals or cross-test races.
+type daemonDependencies struct {
+	listen        func(context.Context, *ServeConfig) (net.Listener, error)
+	buildExporter func(*ServeConfig, *slog.Logger) (daemonExporter, error)
+}
+
+func defaultDaemonDependencies() daemonDependencies {
+	return daemonDependencies{
+		listen: listenOrActivation,
+		buildExporter: func(cfg *ServeConfig, log *slog.Logger) (daemonExporter, error) {
+			return buildExporter(cfg, log)
+		},
+	}
+}
+
 // runDaemon composes the full usbipd runtime: pick (or accept) the
 // accept-path listener, build a pkg/usbip.Exporter from ServeConfig, start
 // the status UDS server when configured, and block on Serve until ctx
@@ -86,6 +113,14 @@ var errDrainRequested = errors.New("drain requested")
 // shutdown a bounded Exporter.Shutdown drains in-flight sessions under
 // cfg.ShutdownTimeout per operations-observability and json-contracts OpenSpec documents.
 func runDaemon(ctx context.Context, cfg *ServeConfig) error {
+	return runDaemonWithDependencies(ctx, cfg, defaultDaemonDependencies())
+}
+
+func runDaemonWithDependencies(
+	ctx context.Context,
+	cfg *ServeConfig,
+	deps daemonDependencies,
+) error {
 	log := loggerFromCtx(ctx)
 	if log == nil {
 		log = slog.Default()
@@ -95,7 +130,7 @@ func runDaemon(ctx context.Context, cfg *ServeConfig) error {
 
 	activated := systemdActivated()
 
-	listener, err := listenOrActivation(ctx, cfg)
+	listener, err := deps.listen(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("accept-path listener: %w", err)
 	}
@@ -104,21 +139,21 @@ func runDaemon(ctx context.Context, cfg *ServeConfig) error {
 		_ = listener.Close()
 	}()
 
-	exp, err := buildExporter(cfg, log)
+	exp, err := deps.buildExporter(cfg, log)
 	if err != nil {
 		return err
 	}
 
 	// Serve runs under a child context that drain can cancel with a
 	// labelled cause. The parent ctx still propagates SIGTERM through
-	// the same cancel func. The status server lives on its OWN child
-	// ctx so it stays up through the Serve drain but is wound down
-	// after Serve returns; otherwise completeShutdown would wait for a
-	// server that never sees ctx.Done().
+	// the same cancel func. The status server is deliberately detached
+	// from parent cancellation and stopped explicitly only after the
+	// bounded Exporter.Shutdown completes. That makes UDS disappearance
+	// truthful evidence that the daemon finished its drain attempt.
 	serveCtx, cancelServe := context.WithCancelCause(ctx)
 	defer cancelServe(nil)
 
-	statusCtx, cancelStatus := context.WithCancel(ctx)
+	statusCtx, cancelStatus := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelStatus()
 
 	src := newStatusExporter(exp, listener, activated)
@@ -128,12 +163,14 @@ func runDaemon(ctx context.Context, cfg *ServeConfig) error {
 		return err
 	}
 
-	// Two-stage LIFO shutdown: the health HTTP server must go down
-	// BEFORE exporter drain so /readyz cannot hand out a stale
-	// "accepting=true" while the exporter is winding down. LIFO means
-	// the LAST-registered defer runs FIRST, so we register exp-drain
-	// first, then health-stop.
-	defer drainExporter(ctx, cfg, exp, log)
+	// Shutdown is registered as a once-only fallback for every early
+	// return, then invoked explicitly after Serve exits while the status
+	// socket is still present. The once guard prevents a second call from
+	// the defer after the normal shutdown path completes.
+	shutdownExporter := sync.OnceFunc(func() {
+		drainExporter(ctx, cfg, exp, log)
+	})
+	defer shutdownExporter()
 
 	if healthStop != nil {
 		defer shutdownHealthServer(ctx, healthStop, cfg.ShutdownTimeout, log)
@@ -171,13 +208,21 @@ func runDaemon(ctx context.Context, cfg *ServeConfig) error {
 
 	src.markAccepting(false)
 
-	// Wind down the status UDS after Serve returns. The server is kept
-	// alive through Serve so `usbip drain` can poll sessions=[] during
-	// the drain window; cancelling it here lets completeShutdown
-	// observe statusErrCh without racing the drain.
-	cancelStatus()
+	// Keep GET / available throughout the bounded exporter drain. Only
+	// after Shutdown returns (success or timeout) may status cancellation
+	// close and unlink the UDS that drain clients treat as daemon exit.
+	finishDaemonShutdown(shutdownExporter, cancelStatus)
 
 	return completeShutdown(ctx, serveCtx, cfg, log, serveErr, statusErrCh)
+}
+
+// finishDaemonShutdown fixes the ordering contract between the exporter and
+// the control socket: status cancellation must happen strictly after the
+// bounded shutdown call returns. Kept as a tiny helper so a channel-driven
+// regression can prove the happens-before relationship without a real kernel.
+func finishDaemonShutdown(shutdownExporter func(), cancelStatus context.CancelFunc) {
+	shutdownExporter()
+	cancelStatus()
 }
 
 // firstAcceptListener decorates a net.Listener with a one-shot hook
@@ -231,15 +276,13 @@ func (l *firstAcceptListener) Accept() (net.Conn, error) {
 	return conn, nil
 }
 
-// drainExporter is the deferred Exporter.Shutdown callpoint. Extracted
-// from completeShutdown so the deferred-stack ordering — status/health
-// servers down FIRST, exporter drain SECOND — is visible in runDaemon
-// without hiding the ordering inside completeShutdown's branch-heavy
-// body.
+// drainExporter runs the bounded Exporter.Shutdown callpoint. runDaemon keeps
+// the status server alive until this function returns, while the once-only
+// deferred caller also covers startup failures before Serve begins.
 func drainExporter(
 	parentCtx context.Context,
 	cfg *ServeConfig,
-	exp *usbip.Exporter,
+	exp daemonExporter,
 	log *slog.Logger,
 ) {
 	shutdownCtx, cancel := context.WithTimeout(
@@ -476,15 +519,11 @@ func maybeStartStatusServer(
 	}
 }
 
-// completeShutdown waits for the status server goroutine (if any) to
-// exit and then reports why Serve returned. The exporter drain itself
-// is handled by the deferred drainExporter call in runDaemon so the
-// status/health servers are guaranteed to stop BEFORE exporter drain:
-// completeShutdown runs inside runDaemon's body, the defers run
-// after completeShutdown returns. Serve errors that are merely ctx
-// cancellation or closed-listener signals are suppressed; operators see
-// the real cause via context.Cause instead of a noisy "use of closed
-// connection" wrapper.
+// completeShutdown waits for the status server goroutine (if any) to exit after
+// runDaemon's bounded exporter shutdown has completed, then reports why Serve
+// returned. Serve errors that are merely ctx cancellation or closed-listener
+// signals are suppressed; operators see the real cause via context.Cause
+// instead of a noisy "use of closed connection" wrapper.
 func completeShutdown(
 	parentCtx, serveCtx context.Context,
 	cfg *ServeConfig,

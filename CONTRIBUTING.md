@@ -89,6 +89,12 @@ lint/release tools hermetically. Add an opt-in container wrapper only if a
 future CI-only OS dependency appears. Nightly reuses the security, unit,
 conformance, and coverage jobs and adds a snapshot release packaging pass.
 
+Coverage thresholds use the aggregate executable-line denominator remaining
+after configured exclusions. A zero aggregate fails as missing evidence. An
+`LF:0` package alongside measured packages is reported as not coverable and is
+not assigned a percentage or evaluated against the per-package threshold; the
+measured aggregate and packages still determine the gate result.
+
 Ordinary compile and unit-test actions declare their Bazel toolchains, inputs,
 and runfiles so they remain eligible for remote caching and execution. Targets
 such as `golangci_lint` use `exclusive-if-local` when they only need serialized
@@ -105,6 +111,14 @@ dependency resolver. After changing `go.mod` or `go.sum`, run
 `make update-go-vendor` and commit the synchronized vendor tree. The module
 hygiene gate checks that the vendored module graph loads without network access
 and that regenerating it produces no byte-level diff.
+
+Git-derived version-helper tests are the narrow local-tool exception. Their
+Bazel targets are tagged `local` and `requires-git`, resolve one explicit host
+Git executable before use, and fail clearly when it is unavailable. Bazel
+workspace status itself also runs before the action graph and therefore uses
+checkout Git. The production stamping regression does not share that exception:
+`make check-release-stamping` supplies a committed constant workspace-status
+fixture and executes the declared production binary in a sandboxable test.
 
 Integration tests interact with kernel USB/IP surfaces and require root, a
 writable configfs gadget tree, and loaded `dummy_hcd`, `libcomposite`,
@@ -145,11 +159,19 @@ then publishes with `make release`. GoReleaser, Go, syft, and cosign are all
 resolved through Bazel runfiles. Kernel integration is a separate manual
 maintainer check because it requires a specially provisioned Linux host.
 
+For a local distribution build, `make dist` uses Bazel's release stamping to
+derive the package version from a canonical `vMAJOR.MINOR.PATCH` tag (or a
+deterministic development version), stamp the full source commit, and use that
+commit's committer date as the reproducible build date. Ordinary unstamped
+Bazel builds intentionally retain the binary's `dev`/`none`/`unknown`
+fallbacks. Run `make check-release-stamping` to exercise this production target
+end to end with fixed version, commit, and date inputs.
+
 ## Pull requests
 
 Before opening a PR, run the narrow target for your change plus the relevant
-gate (`make test`, `make lint`, `make test-coverage`, `make release-check`, or
-`make ci-local` for the full repository-owned pull-request gate). Keep changes
-small, self-explanatory, and covered by tests. Do not hide failing checks by
-narrowing CI-only commands; add a Make target when the workflow needs a new
-reusable step.
+gate (`make test`, `make lint`, `make test-coverage`,
+`make check-release-stamping`, `make release-check`, or `make ci-local` for the
+full repository-owned pull-request gate). Keep changes small, self-explanatory,
+and covered by tests. Do not hide failing checks by narrowing CI-only commands;
+add a Make target when the workflow needs a new reusable step.

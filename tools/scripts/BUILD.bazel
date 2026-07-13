@@ -68,6 +68,13 @@ script_binary(
     visibility = PUBLIC_VISIBILITY,
 )
 
+script_test(
+    name = "coverage_check_test",
+    size = "small",
+    src = "coverage_check_test.sh",
+    data = ["coverage_check.sh"],
+)
+
 script_binary(
     name = "domain_boundary_check",
     src = "domain_boundary_check.sh",
@@ -83,6 +90,13 @@ script_binary(
 script_binary(
     name = "pure_go_check",
     src = "pure_go_check.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_binary(
+    name = "pure_go_check_test_runner",
+    src = "pure_go_check_test.sh",
+    data = ["pure_go_check.sh"],
     visibility = PUBLIC_VISIBILITY,
 )
 
@@ -105,6 +119,31 @@ script_test(
     size = "small",
     src = "systemd_unit_test.sh",
     data = ["//:contrib/systemd/usbip-go.service"],
+)
+
+script_test(
+    name = "version_lib_test",
+    size = "small",
+    src = "version_lib_test.sh",
+    data = ["version_lib.sh"],
+    tags = [
+        "local",
+        "requires-git",
+    ],
+)
+
+script_test(
+    name = "workspace_status_test",
+    size = "small",
+    src = "workspace_status_test.sh",
+    data = [
+        "version_lib.sh",
+        "workspace_status.sh",
+    ],
+    tags = [
+        "local",
+        "requires-git",
+    ],
 )
 
 script_binary(

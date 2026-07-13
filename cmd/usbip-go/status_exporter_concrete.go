@@ -57,21 +57,17 @@ func (s *statusExporter) Sessions(ctx context.Context) []usbip.Session {
 	return s.exp.Sessions(ctx)
 }
 
-// Drain flips accepting=false, asks the Exporter to shut down, and
-// fires the run-side cancellation (if installed) so Serve returns.
-// handleStatusDrain already answered 200 by the time this runs —
-// errors here are observability signals only.
-func (s *statusExporter) Drain(ctx context.Context) error {
+// Drain flips accepting=false and fires the run-side cancellation (if
+// installed) so Serve returns. runDaemon exclusively owns the subsequent
+// bounded Exporter.Shutdown and keeps the status socket alive until it
+// completes; performing Shutdown here would let Serve return and tear down
+// status while this goroutine was still draining.
+func (s *statusExporter) Drain(_ context.Context) error {
 	s.markAccepting(false)
 
 	cancel := s.drain.Load()
 	if cancel != nil {
 		(*cancel)()
-	}
-
-	err := s.exp.Shutdown(ctx)
-	if err != nil {
-		return fmt.Errorf("exporter shutdown: %w", err)
 	}
 
 	return nil

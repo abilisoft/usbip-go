@@ -62,15 +62,34 @@ func (a *ImporterAdapter) AttachRemote(
 	// concurrent callers would both see the same free port and race
 	// on the write. Under the lock the loser's findFreePort observes
 	// the post-winner state and returns ErrNoFreePort.
-	a.attachMu.Lock()
-	defer a.attachMu.Unlock()
+	a.portMutationMu.Lock()
+	defer a.portMutationMu.Unlock()
 
-	portID, err := a.findFreePort(spec.Speed)
+	// Capture one operation-local snapshot under the allocation lock. Status
+	// parsing, free-port selection, and pre-write bounds validation must not mix
+	// observations from two vhci_hcd module generations.
+	topo, err := a.loadStatusTopology()
 	if err != nil {
 		return 0, err
 	}
 
-	return a.attachAtPort(ctx, conn, portID, spec)
+	portID, err := a.findFreePortWithTopology(topo, spec.Speed)
+	if err != nil {
+		return 0, err
+	}
+
+	// Publish the selected port to the importer before the potentially
+	// wedged sysfs handoff. Detach can then reserve teardown intent without
+	// holding the application mutex across kernel I/O. A callback failure
+	// aborts before attachAtPortWithTopology can make the port live.
+	if spec.ReserveLocalPort != nil {
+		err = spec.ReserveLocalPort(portID)
+		if err != nil {
+			return 0, fmt.Errorf("reserve local port %d: %w", portID, err)
+		}
+	}
+
+	return a.attachAtPortWithTopology(ctx, conn, portID, spec, topo)
 }
 
 // attachAtPort is the post-port-selection half of AttachRemote. It
@@ -86,7 +105,7 @@ func (a *ImporterAdapter) AttachRemote(
 // write-first-close-second, caller owns conn on error) apply here
 // verbatim because this helper owns the sysfs write.
 //
-// Defence-in-depth: the flat port is validated against the cached
+// Defence-in-depth: the flat port is validated against operation-local
 // topology before any sysfs write. vhci_sysfs.c::attach_store
 // returns -EINVAL when port >= nports, but surfacing that bare
 // errno gives operators no context; the pre-write check wraps
@@ -112,7 +131,7 @@ func (a *ImporterAdapter) AttachRemote(
 // process management or close the conn (the dup'd fd is closed via the
 // defer below regardless of ctx state).
 func (a *ImporterAdapter) attachAtPort(
-	_ context.Context,
+	ctx context.Context,
 	conn net.Conn,
 	portID domain.PortID,
 	spec app.RemoteDeviceSpec,
@@ -122,7 +141,21 @@ func (a *ImporterAdapter) attachAtPort(
 		return 0, err
 	}
 
-	err = validatePortInRange(topo, portID)
+	return a.attachAtPortWithTopology(ctx, conn, portID, spec, topo)
+}
+
+// attachAtPortWithTopology performs validation and handoff using a snapshot
+// captured by the caller. AttachRemote passes the same snapshot used for status
+// parsing and Port selection; the direct test helper path obtains one fresh
+// snapshot in attachAtPort before delegating here.
+func (a *ImporterAdapter) attachAtPortWithTopology(
+	_ context.Context,
+	conn net.Conn,
+	portID domain.PortID,
+	spec app.RemoteDeviceSpec,
+	topo StatusTopology,
+) (domain.PortID, error) {
+	err := validatePortInRange(topo, portID)
 	if err != nil {
 		return 0, err
 	}
@@ -281,6 +314,9 @@ func (a *ImporterAdapter) DetachPort(ctx context.Context, id domain.PortID) erro
 	if err != nil {
 		return err
 	}
+
+	a.portMutationMu.Lock()
+	defer a.portMutationMu.Unlock()
 
 	topo, err := a.loadStatusTopology()
 	if err != nil {

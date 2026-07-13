@@ -160,3 +160,37 @@ func TestWatchTableFormat(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, out.String(), "device_bound")
 }
+
+func TestWatchReturnsEventStreamFailures(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "subscription failure", err: errTest},
+		{name: "unexpected source closure", err: usbip.ErrEventStreamClosed},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			imp := &mockImporter{
+				watchWithErrorsFn: func(_ context.Context) iter.Seq2[usbip.Event, error] {
+					return func(yield func(usbip.Event, error) bool) {
+						_ = yield(nil, test.err)
+					}
+				},
+			}
+			swapFactories(t, imp, &mockExporter{})
+
+			cmd := newRootCmd()
+			cmd.SetArgs([]string{testWatchCommand})
+
+			err := cmd.Execute()
+			require.ErrorIs(t, err, test.err)
+			require.ErrorContains(t, err, "watch events")
+		})
+	}
+}

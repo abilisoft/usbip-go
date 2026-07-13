@@ -234,6 +234,7 @@ func TestExporterServe_ImportHappyPath(t *testing.T) {
 
 			return nil
 		},
+		DisconnectFunc: func(_ context.Context, _ domain.BusID) error { return nil },
 	}
 
 	// Mock the body-only decoder so it actually reads 32 bytes from
@@ -296,13 +297,16 @@ func TestExporterServe_ImportHappyPath(t *testing.T) {
 		t.Fatal("ExportOnConn was not invoked within 2s")
 	}
 
-	// Simulate session end: release the gate so ExportOnConn returns.
+	// Complete the kernel handoff, then stop only the Serve accept loop.
+	// A handed-off Session now outlives this request context and remains
+	// owned until authoritative peer completion or explicit Shutdown.
 	close(releaseExport)
 	cancel()
 
-	_ = client.Close()
-
 	require.NoError(t, <-serveDone)
+	require.NoError(t, exp.Shutdown(context.Background()))
+
+	_ = client.Close()
 
 	require.Len(t, kernel.ExportOnConnCalls(), 1)
 	require.Equal(t, importedBusID, kernel.ExportOnConnCalls()[0].BusID)
@@ -350,4 +354,82 @@ func TestExporterServe_PostShutdownReturnsError(t *testing.T) {
 
 	err := exp.Serve(context.Background(), newPipeListener())
 	require.ErrorIs(t, err, app.ErrAlreadyShutdown)
+}
+
+// TestExporterServeWithListenerFactory_ShutdownCancelsSetup proves a
+// reservation made before listener creation cannot deadlock Shutdown. The
+// factory observes the reservation context cancellation and exits without
+// producing a listener; Shutdown then observes acceptLoopExited and completes.
+func TestExporterServeWithListenerFactory_ShutdownCancelsSetup(t *testing.T) {
+	t.Parallel()
+
+	exp := newExporterForTest(t)
+	factoryStarted := make(chan struct{})
+	serveDone := make(chan error, 1)
+
+	go func() {
+		serveDone <- exp.ServeWithListenerFactory(
+			context.Background(),
+			func(ctx context.Context) (net.Listener, error) {
+				close(factoryStarted)
+				<-ctx.Done()
+
+				return nil, ctx.Err()
+			},
+		)
+	}()
+
+	<-factoryStarted
+	require.NoError(t, exp.Shutdown(context.Background()))
+	require.ErrorIs(t, <-serveDone, context.Canceled)
+}
+
+func TestExporterServeWithListenerFactoryRejectsNilListener(t *testing.T) {
+	t.Parallel()
+
+	exp := newExporterForTest(t)
+
+	nilListeners := make(chan net.Listener, 1)
+	nilListeners <- nil
+
+	err := exp.ServeWithListenerFactory(
+		context.Background(),
+		func(context.Context) (net.Listener, error) { return <-nilListeners, nil },
+	)
+	require.EqualError(t, err, "exporter listener factory returned nil listener")
+	require.NoError(t, exp.Shutdown(context.Background()))
+}
+
+// TestExporterServeWithListenerFactoryClosesListenerReturnedAfterShutdown
+// makes Shutdown publish terminal state before releasing a context-aware
+// factory. The late listener must be rejected, closed exactly once, and never
+// installed into the accept loop.
+func TestExporterServeWithListenerFactoryClosesListenerReturnedAfterShutdown(t *testing.T) {
+	t.Parallel()
+
+	exp := newExporterForTest(t)
+	listener := newPipeListener()
+	factoryStarted := make(chan struct{})
+	serveDone := make(chan error, 1)
+
+	go func() {
+		serveDone <- exp.ServeWithListenerFactory(
+			context.Background(),
+			func(ctx context.Context) (net.Listener, error) {
+				close(factoryStarted)
+				<-ctx.Done()
+
+				return listener, nil
+			},
+		)
+	}()
+
+	<-factoryStarted
+
+	shutdownDone := make(chan error, 1)
+	go func() { shutdownDone <- exp.Shutdown(context.Background()) }()
+
+	require.ErrorIs(t, <-serveDone, app.ErrAlreadyShutdown)
+	require.NoError(t, <-shutdownDone)
+	require.EqualValues(t, 1, listener.closeN.Load())
 }

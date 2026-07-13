@@ -30,9 +30,10 @@ type mockImporter struct {
 		usbip.BusID,
 		usbip.AttachOptions,
 	) (usbip.Port, error)
-	detachFn func(context.Context, usbip.PortID) error
-	watchFn  func(context.Context) iter.Seq[usbip.Event]
-	closeFn  func() error
+	detachFn          func(context.Context, usbip.PortID) error
+	watchFn           func(context.Context) iter.Seq[usbip.Event]
+	watchWithErrorsFn func(context.Context) iter.Seq2[usbip.Event, error]
+	closeFn           func() error
 }
 
 func (m *mockImporter) ListRemote(ctx context.Context, r usbip.RemoteEndpoint) ([]usbip.Device, error) {
@@ -78,6 +79,20 @@ func (m *mockImporter) Watch(ctx context.Context) iter.Seq[usbip.Event] {
 	}
 
 	return func(_ func(usbip.Event) bool) {}
+}
+
+func (m *mockImporter) WatchWithErrors(ctx context.Context) iter.Seq2[usbip.Event, error] {
+	if m.watchWithErrorsFn != nil {
+		return m.watchWithErrorsFn(ctx)
+	}
+
+	return func(yield func(usbip.Event, error) bool) {
+		for event := range m.Watch(ctx) {
+			if !yield(event, nil) {
+				return
+			}
+		}
+	}
 }
 
 func (m *mockImporter) Close() error {

@@ -81,13 +81,13 @@ func TestProbeOneAtEACCESReturnsUnknown(t *testing.T) {
 	// dance, no t.TempDir cleanup hazard — just a direct simulation of
 	// the "probe blocked" signal for which the security-release-quality and
 	// operations-observability OpenSpec documents require Unknown.
-	old := usbip.SwapProbeStatFnForTest(func(_ string) (fs.FileInfo, error) {
-		return nil, syscall.EACCES
-	})
-
-	t.Cleanup(func() { usbip.SwapProbeStatFnForTest(old) })
-
-	state := usbip.ProbeOneAtForTest("/any-root", usbip.KernelModuleUSBIPCore)
+	state := usbip.ProbeOneAtWithStatForTest(
+		"/any-root",
+		usbip.KernelModuleUSBIPCore,
+		func(_ string) (fs.FileInfo, error) {
+			return nil, syscall.EACCES
+		},
+	)
 	require.Equal(t, usbip.ModuleStateUnknown, state,
 		"EACCES under parent must classify as Unknown, got %q", state)
 }

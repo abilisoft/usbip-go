@@ -42,6 +42,24 @@ func (a *ExporterAdapter) ExportOnConn(ctx context.Context, conn net.Conn, busID
 	)
 }
 
+// ExportSessionActive reads usbip_host's authoritative per-device
+// connection state. Linux transitions usbip_status from SDEV_ST_USED
+// back to SDEV_ST_AVAILABLE when a remote peer disconnects, but does
+// not emit an exporter-side VHCI detach uevent for that transition.
+func (a *ExporterAdapter) ExportSessionActive(ctx context.Context, busID domain.BusID) (bool, error) {
+	err := a.ModulesAvailable(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	status, err := ReadUint(a.fs, path.Join(SysfsUSBDevices, string(busID), SysfsUsbipStatus))
+	if err != nil {
+		return false, err
+	}
+
+	return status == usbipStatusUsed, nil
+}
+
 // Disconnect writes "-1" to /sys/bus/usb/devices/<busid>/usbip_sockfd.
 // This triggers SDEV_EVENT_DOWN kernel-side; the export session drops
 // cleanly. Do NOT close the caller's conn as a substitute — kernel

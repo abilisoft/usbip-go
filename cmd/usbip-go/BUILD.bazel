@@ -53,6 +53,11 @@ go_binary(
     name = "usbip-go",
     embed = [":usbip-go_lib"],
     visibility = ["//visibility:public"],
+    x_defs = {
+        "github.com/abilisoft/usbip-go/cmd/usbip-go.buildDate": "{STABLE_BUILD_DATE}",
+        "github.com/abilisoft/usbip-go/cmd/usbip-go.commit": "{STABLE_GIT_COMMIT}",
+        "github.com/abilisoft/usbip-go/cmd/usbip-go.version": "{STABLE_VERSION}",
+    },
 )
 
 go_test(

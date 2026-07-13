@@ -26,10 +26,12 @@ func TestFacadeLifecycleSentinelsDeclared(t *testing.T) {
 		err  error
 	}{
 		{"ErrImporterClosed", usbip.ErrImporterClosed},
+		{"ErrEventStreamClosed", usbip.ErrEventStreamClosed},
 		{"ErrExporterShutdown", usbip.ErrExporterShutdown},
 		{"ErrServeAlreadyRunning", usbip.ErrServeAlreadyRunning},
 		{"ErrAlreadyShutdown", usbip.ErrAlreadyShutdown},
 		{"ErrProtocolError", usbip.ErrProtocolError},
+		{"ErrAcceptRateLimitInvalid", usbip.ErrAcceptRateLimitInvalid},
 	}
 
 	for _, tc := range cases {
@@ -52,6 +54,8 @@ func TestFacadeInternalSentinelsDoNotLeak(t *testing.T) {
 
 	require.NotErrorIs(t, usbip.ErrImporterClosed, internalapp.ErrImporterClosed,
 		"usbip.ErrImporterClosed must not be identity-equal to internal/app.ErrImporterClosed")
+	require.NotErrorIs(t, usbip.ErrEventStreamClosed, internalapp.ErrEventStreamClosed,
+		"usbip.ErrEventStreamClosed must not be identity-equal to internal/app.ErrEventStreamClosed")
 	require.NotErrorIs(t, usbip.ErrExporterShutdown, internalapp.ErrAlreadyShutdown,
 		"usbip.ErrExporterShutdown must not be identity-equal to internal/app.ErrAlreadyShutdown")
 	require.NotErrorIs(t, usbip.ErrServeAlreadyRunning, internalapp.ErrServeAlreadyRunning,
@@ -99,6 +103,24 @@ func TestImporterAfterCloseYieldsPublicSentinel(t *testing.T) {
 		"facade must translate internal/app.ErrImporterClosed, not leak it")
 }
 
+func TestImporterAttachAfterCloseYieldsPublicSentinelBeforeValidation(t *testing.T) {
+	t.Parallel()
+
+	s := newInternalImporterForTest(t)
+	imp := usbip.NewImporterFromInternalForTest(s.inner)
+	require.NoError(t, imp.Close())
+
+	_, err := imp.Attach(
+		t.Context(),
+		usbip.RemoteEndpoint{},
+		usbip.BusID("invalid bus id"),
+		usbip.AttachOptions{MaxAttempts: -1},
+	)
+	require.ErrorIs(t, err, usbip.ErrImporterClosed)
+	require.NotErrorIs(t, err, usbip.ErrAttachOptionsInvalid)
+	require.NotErrorIs(t, err, usbip.ErrBusIDInvalid)
+}
+
 // TestTranslateInternalErrCovers drives every branch of the
 // internal→public sentinel translator directly. The branches for
 // ErrServeAlreadyRunning and the pass-through path cannot be reached
@@ -115,6 +137,16 @@ func TestTranslateInternalErrCovers(t *testing.T) {
 		t,
 		usbip.TranslateInternalErrForTest(internalapp.ErrServeAlreadyRunning),
 		usbip.ErrServeAlreadyRunning,
+	)
+	require.ErrorIs(
+		t,
+		usbip.TranslateInternalErrForTest(internalapp.ErrAcceptRateLimitInvalid),
+		usbip.ErrAcceptRateLimitInvalid,
+	)
+	require.NotErrorIs(
+		t,
+		usbip.TranslateInternalErrForTest(internalapp.ErrAcceptRateLimitInvalid),
+		internalapp.ErrAcceptRateLimitInvalid,
 	)
 	require.NotErrorIs(
 		t,

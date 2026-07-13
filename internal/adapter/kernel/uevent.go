@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -159,16 +160,14 @@ func (a *EventsAdapter) Subscribe(ctx context.Context) (<-chan domain.Event, fun
 // AFTER registering the first subscriber.
 //
 // The VHCI topology is NOT loaded here — the mapper receives a loader
-// that fires lazily on the first VHCI-shaped event. Exporter-only
+// that fires only for VHCI-shaped events. Exporter-only
 // deployments (hosts running usbip_host without vhci_hcd) therefore
 // succeed at Subscribe and continue delivering DeviceBoundEvent /
 // DeviceUnboundEvent from USB driver-core events; only VHCI-shaped
 // events would fail to map, and those never arrive on exporter-only
-// hosts. A sysfs error at first VHCI-event time degrades only the
-// VHCI branch — the usbip-host driver stream is unaffected, and the adapter-
-// level topology cache (see topology.go: loadTopology) retries on
-// every call so the mapper can pick up a successful load once the
-// vhci_hcd module is (re)loaded.
+// hosts. A sysfs error at VHCI-event time degrades only that event's
+// VHCI branch — the usbip-host driver stream is unaffected, and the next
+// relevant event performs fresh discovery so module reloads are observed.
 func (a *EventsAdapter) ensureDispatcher() (*eventDispatcher, bool, error) {
 	if a.disp != nil {
 		return a.disp, false, nil
@@ -394,7 +393,7 @@ func (d *eventDispatcher) broadcast(ev domain.Event) {
 
 // topologyLoader is the deferred-fetch contract the mapper uses to
 // resolve the VHCI topology it needs for flat-Port.ID translation.
-// The mapper invokes it lazily on the first VHCI-shaped event so
+// The mapper invokes it for each VHCI-shaped event so
 // exporter-only deployments (no vhci_hcd module loaded) never pay the
 // topology read and never surface a load error on Subscribe; the
 // usbip-host driver-core path bypasses the loader entirely.
@@ -407,31 +406,23 @@ type topologyLoader func() (Topology, error)
 // Topology so exporter-only deployments — which only need usbip-host
 // events and never touch vhci_hcd — can still start the dispatcher
 // without hard-failing on a missing VHCI module. The loader fires
-// lazily on the first VHCI-shaped event. A loader failure is NOT
-// memoised — the next VHCI event retries, allowing recovery after a
-// transient sysfs error or vhci_hcd module reload. A failure degrades
+// for each VHCI-shaped event. A failure degrades
 // only the VHCI branch: the event is dropped with ok=false, while
 // usbip-host driver events continue unaffected.
 //
-// mu is held through a pointer so copies of vhciEventMapper share the
-// same lock and vet's copylocks check never trips — the dispatcher
-// currently runs mapEvent from a single goroutine, but keeping the
-// guard self-synchronising costs nothing and future-proofs fan-in of
-// the mapper if mapEvent is ever invoked from multiple readers.
+// loadMu is held through a pointer so copies share serialization and vet's
+// copylocks check never trips. The dispatcher is single-threaded today, but the
+// guard prevents future concurrent map calls from overlapping sysfs discovery.
 type vhciEventMapper struct {
 	load      topologyLoader
-	mu        *sync.Mutex
-	topo      Topology
-	loaded    bool
+	loadMu    *sync.Mutex
 	hostMu    *sync.Mutex
 	hostBound map[domain.BusID]struct{}
 }
 
 // newVHCIEventMapper returns a mapper pinned to a fully-resolved
-// topology snapshot. Construction wraps the Topology in an always-
-// succeeding loader so the remainder of the mapper's machinery
-// (sync.Once, lazy resolution) is uniform across the two construction
-// paths.
+// topology snapshot. Construction wraps the Topology in an always-succeeding
+// loader so tests and fixed-topology callers use the same path.
 func newVHCIEventMapper(topo Topology) vhciEventMapper {
 	return newVHCIEventMapperWithLoader(func() (Topology, error) {
 		return topo, nil
@@ -445,46 +436,37 @@ func newVHCIEventMapper(topo Topology) vhciEventMapper {
 func newVHCIEventMapperWithLoader(load topologyLoader) vhciEventMapper {
 	return vhciEventMapper{
 		load:      load,
-		mu:        &sync.Mutex{},
+		loadMu:    &sync.Mutex{},
 		hostMu:    &sync.Mutex{},
 		hostBound: make(map[domain.BusID]struct{}),
 	}
 }
 
-// resolveTopology loads the topology on first call and caches the
-// result. A failed load is NOT memoised — the next call retries so
-// the mapper can recover after a transient sysfs error or vhci_hcd
-// module reload. mu serialises concurrent callers (the dispatcher is
-// single-threaded today, but the lock future-proofs fan-in).
+// resolveTopology obtains a fresh snapshot for one VHCI-shaped event. Neither
+// successes nor failures are memoised so consecutive events can span a
+// vhci_hcd unload/reload safely. loadMu serialises future concurrent callers.
 func (m *vhciEventMapper) resolveTopology() (Topology, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.loaded {
-		return m.topo, true
-	}
+	m.loadMu.Lock()
+	defer m.loadMu.Unlock()
 
 	topo, err := m.load()
 	if err != nil {
 		return Topology{}, false
 	}
 
-	m.topo = topo
-	m.loaded = true
-
-	return m.topo, true
+	return topo, true
 }
 
 // mapEvent is the topology-aware entry point used by the dispatcher.
 // It classifies a parsed uevent field map into a domain.Event using
-// the cached Topology for the vhci devpath branch; usbip-host driver-core
+// fresh Topology for the vhci devpath branch; usbip-host driver-core
 // events bypass the topology entirely and produce device-level
 // bind/unbind events — the VHCI topology loader is NOT consulted on
 // the usbip-host path, so exporter-only deployments never fetch the
 // vhci_hcd sysfs tree for their bind/unbind stream.
 //
-// Pointer receiver because mapVhciEvent may mutate the mapper's cached
-// topology via resolveTopology's sync.Once gate.
+// Pointer receiver because the mapper carries shared loader and host-state
+// synchronization.
 func (m *vhciEventMapper) mapEvent(fields map[string]string) (domain.Event, bool) {
 	if !isInterestingUevent(fields) {
 		return nil, false
@@ -553,14 +535,13 @@ func mapUDCEvent(action, devpath string) (domain.Event, bool) {
 	}
 }
 
-// mapVhciEvent handles the vhci_hcd-shaped devpath using the cached
-// BusMap to translate (usbBus, rootPort1indexed) into a flat
-// domain.PortID. A devpath whose usbN segment references a bus absent
-// from the BusMap is treated as non-VHCI and skipped — the uevent came
-// from a different HCD. A rootPort of zero violates the kernel's
-// 1-indexed root-hub port numbering and is likewise rejected.
+// mapVhciEvent handles the vhci_hcd-shaped devpath using freshly discovered
+// BusMap to translate (controller, usbBus, rootPort1indexed) into a flat
+// domain.PortID. A devpath whose controller suffix disagrees with the fresh
+// BusMap location, whose usbN segment is absent, or whose root Port lies outside
+// [1, HCPorts] is stale or malformed and is dropped rather than remapped.
 //
-// The topology is resolved lazily here rather than at mapper
+// The topology is resolved here rather than at mapper
 // construction. Exporter-only deployments (no vhci_hcd module) never
 // receive a VHCI-shaped devpath, so the loader is never called; if a
 // VHCI-shaped devpath does arrive and the loader fails (e.g.
@@ -573,7 +554,12 @@ func (m *vhciEventMapper) mapVhciEvent(action, devpath string) (domain.Event, bo
 		return nil, false
 	}
 
-	usbBus, err := strconv.ParseUint(match[vhciDevpathGroupBus], 10, 32)
+	controller, err := strconv.ParseUint(match[vhciDevpathGroupController], 10, 64)
+	if err != nil {
+		return nil, false
+	}
+
+	usbBus, err := strconv.ParseUint(match[vhciDevpathGroupBus], 10, 64)
 	if err != nil {
 		return nil, false
 	}
@@ -588,8 +574,8 @@ func (m *vhciEventMapper) mapVhciEvent(action, devpath string) (domain.Event, bo
 		return nil, false
 	}
 
-	loc, mapped := topo.BusMap[uint32(usbBus)]
-	if !mapped {
+	loc, valid := vhciEventLocation(topo, controller, usbBus, rootPort1)
+	if !valid {
 		return nil, false
 	}
 
@@ -597,6 +583,26 @@ func (m *vhciEventMapper) mapVhciEvent(action, devpath string) (domain.Event, bo
 	busID := domain.BusID(match[vhciDevpathGroupFullBusID])
 
 	return vhciActionToEvent(action, portID, busID)
+}
+
+// vhciEventLocation validates the coordinates encoded by one event against
+// the freshly discovered topology and returns the matching bus location.
+func vhciEventLocation(topo Topology, controller, usbBus, rootPort1 uint64) (VHCILocation, bool) {
+	if controller > uint64(math.MaxUint32) || usbBus > uint64(math.MaxUint32) {
+		return VHCILocation{}, false
+	}
+
+	loc, mapped := topo.BusMap[uint32(usbBus)]
+	controllerIdx := uint32(controller)
+
+	if !mapped ||
+		controllerIdx >= topo.NControllers ||
+		loc.ControllerIdx != controllerIdx ||
+		rootPort1 > uint64(topo.HCPorts) {
+		return VHCILocation{}, false
+	}
+
+	return loc, true
 }
 
 // vhciActionToEvent maps a uevent ACTION token to the corresponding
@@ -721,9 +727,10 @@ func isInterestingUevent(fields map[string]string) bool {
 // for the emitted event while also decomposing the (bus, rootPort)
 // pair for topology lookup. Capturing groups:
 //
-//	[1] usbBus — the number after "usb" in the path segment.
-//	[2] fullBusID — the entire "<bus>-<port>[.hub...]" suffix.
-//	[3] rootPort1indexed — the integer between the first '-' and the
+//	[1] controller — the number after "vhci_hcd.".
+//	[2] usbBus — the number after "usb" in the path segment.
+//	[3] fullBusID — the entire "<bus>-<port>[.hub...]" suffix.
+//	[4] rootPort1indexed — the integer between the first '-' and the
 //	    first '.' (or end-of-segment for non-hub devices).
 //
 // The pattern is anchored at both ends. Without the trailing "$"
@@ -735,14 +742,15 @@ func isInterestingUevent(fields map[string]string) bool {
 // is symmetric belt-and-suspenders: the uevent payload always delivers
 // a full absolute DEVPATH, so a leading-anchor mismatch cannot arise
 // in production, but start-anchoring makes the regex intent explicit.
-var vhciDevpathPattern = regexp.MustCompile(`^/devices/platform/vhci_hcd\.\d+/usb(\d+)/(\d+-(\d+)(?:\.\d+)*)$`)
+var vhciDevpathPattern = regexp.MustCompile(`^/devices/platform/vhci_hcd\.(\d+)/usb(\d+)/(\d+-(\d+)(?:\.\d+)*)$`)
 
 // Regex group indices for vhciDevpathPattern. Named so the extraction
 // code reads without magic numbers.
 const (
-	vhciDevpathGroupBus       = 1
-	vhciDevpathGroupFullBusID = 2
-	vhciDevpathGroupRootPort  = 3
+	vhciDevpathGroupController = 1
+	vhciDevpathGroupBus        = 2
+	vhciDevpathGroupFullBusID  = 3
+	vhciDevpathGroupRootPort   = 4
 )
 
 // usbipHostBusIDPattern captures the trailing bus-id segment of a USB

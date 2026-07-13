@@ -14,11 +14,7 @@ import (
 
 // TestExponentialBackoffConfigValidateRejectsOutOfRange pins the
 // acceptance boundary for ExponentialBackoffConfig: Jitter must be in
-// [0, 1); Min and Max must be non-negative with Max >= Min. Silently
-// accepting an out-of-range value produces a schedule that either
-// collapses to zero delay (under-escalated) or overshoots Max
-// (over-escalated); neither is observable from the callsite until
-// operators debug a reconnect storm.
+// [0, 1); Min and Max must be non-negative with Max >= Min.
 func TestExponentialBackoffConfigValidateRejectsOutOfRange(t *testing.T) {
 	t.Parallel()
 
@@ -31,6 +27,7 @@ func TestExponentialBackoffConfigValidateRejectsOutOfRange(t *testing.T) {
 		{"jitter negative", usbip.ExponentialBackoffConfig{Min: time.Second, Max: time.Minute, Jitter: -0.1}},
 		{"min negative", usbip.ExponentialBackoffConfig{Min: -time.Second, Max: time.Minute}},
 		{"max negative", usbip.ExponentialBackoffConfig{Min: time.Second, Max: -time.Minute}},
+		{"max zero below positive min", usbip.ExponentialBackoffConfig{Min: time.Second, Max: 0}},
 		{"max below min", usbip.ExponentialBackoffConfig{Min: time.Minute, Max: time.Second}},
 	}
 
@@ -41,6 +38,37 @@ func TestExponentialBackoffConfigValidateRejectsOutOfRange(t *testing.T) {
 			err := tc.cfg.Validate()
 			require.Error(t, err, "expected %s to fail Validate", tc.name)
 			require.ErrorIs(t, err, usbip.ErrExponentialBackoffConfigInvalid)
+		})
+	}
+}
+
+// TestExponentialBackoffZeroBoundsRetainV1Semantics proves zero bounds remain
+// accepted and produce the historical immediate-retry schedule. Positive
+// jitter must neither create a positive delay from zero nor overflow the cap.
+func TestExponentialBackoffZeroBoundsRetainV1Semantics(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		cfg  usbip.ExponentialBackoffConfig
+	}{
+		{"zero minimum", usbip.ExponentialBackoffConfig{Max: time.Second, Jitter: 0.5}},
+		{"zero minimum and maximum", usbip.ExponentialBackoffConfig{Jitter: 0.5}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.NoError(t, tc.cfg.Validate())
+
+			mustBackoff := usbip.MustNewExponentialBackoff(tc.cfg)
+			compatBackoff := usbip.NewExponentialBackoff(tc.cfg)
+
+			for _, attempt := range []int{-1, 0, 1, 63} {
+				require.Zero(t, mustBackoff.Next(attempt))
+				require.Zero(t, compatBackoff.Next(attempt))
+			}
 		})
 	}
 }

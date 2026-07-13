@@ -10,9 +10,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// version, commit, and buildDate are stamped in via -ldflags at release
-// time. Tests exercise the zero-value defaults; release builds override
-// them from goreleaser.
+// version, commit, and buildDate are stamped through linker definitions at
+// release time. Bazel release builds source them from stable workspace status;
+// GoReleaser supplies the same variables through -ldflags.
 var (
 	version   = "dev"
 	commit    = "none"

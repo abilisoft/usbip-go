@@ -12,11 +12,21 @@ import "fmt"
 // compiled into the binary. Returning ErrKernelModuleMissing lets the
 // caller surface a deterministic, classifiable error rather than a
 // runtime panic when the first Attach runs.
-func newDefaultImporter(_ []ImporterOption) (*Importer, error) {
+func newDefaultImporter(opts []ImporterOption) (*Importer, error) {
+	_, err := resolveImporterConfig(opts)
+	if err != nil {
+		return nil, err
+	}
+
 	return nil, fmt.Errorf("usbip.NewImporter: %w (supported platforms: linux)", ErrKernelModuleMissing)
 }
 
 // newDefaultExporter mirrors newDefaultImporter for the Exporter role.
-func newDefaultExporter(_ []ExporterOption) (*Exporter, error) {
+func newDefaultExporter(opts []ExporterOption) (*Exporter, error) {
+	_, err := resolveExporterConfig(opts)
+	if err != nil {
+		return nil, err
+	}
+
 	return nil, fmt.Errorf("usbip.NewExporter: %w (supported platforms: linux)", ErrKernelModuleMissing)
 }

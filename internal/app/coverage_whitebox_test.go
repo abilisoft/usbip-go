@@ -10,7 +10,9 @@ import (
 	"log/slog"
 	"net"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -23,6 +25,130 @@ var (
 	errRandExhausted = errors.New("rand exhausted")
 	errSomeOther     = errors.New("some other error")
 )
+
+type doneObservedContext struct {
+	forwardedContext
+
+	observed chan struct{}
+	once     sync.Once
+}
+
+func (c *doneObservedContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.observed) })
+
+	return c.done()
+}
+
+type completingDoneContext struct {
+	forwardedContext
+
+	complete func()
+	once     sync.Once
+}
+
+func (c *completingDoneContext) Done() <-chan struct{} {
+	c.once.Do(c.complete)
+
+	return c.done()
+}
+
+type completingErrContext struct {
+	forwardedContext
+
+	complete func()
+	once     sync.Once
+}
+
+func (c *completingErrContext) Err() error {
+	c.once.Do(c.complete)
+
+	return c.err()
+}
+
+type forwardedContext struct {
+	deadline func() (time.Time, bool)
+	done     func() <-chan struct{}
+	err      func() error
+	value    func(any) any
+}
+
+func newForwardedContext(ctx context.Context) forwardedContext {
+	return forwardedContext{
+		deadline: ctx.Deadline,
+		done:     ctx.Done,
+		err:      ctx.Err,
+		value:    ctx.Value,
+	}
+}
+
+func (c forwardedContext) Deadline() (time.Time, bool) { return c.deadline() }
+func (c forwardedContext) Done() <-chan struct{}       { return c.done() }
+func (c forwardedContext) Err() error                  { return c.err() }
+func (c forwardedContext) Value(key any) any           { return c.value(key) }
+
+type activityProbeFunc func(context.Context, domain.BusID) (bool, error)
+
+func (f activityProbeFunc) ExportSessionActive(
+	ctx context.Context, busID domain.BusID,
+) (bool, error) {
+	return f(ctx, busID)
+}
+
+type rollbackKernelProbe struct {
+	detachCalls []domain.PortID
+	listPorts   func(context.Context) ([]domain.Port, error)
+}
+
+func (*rollbackKernelProbe) AttachRemote(
+	context.Context, net.Conn, RemoteDeviceSpec,
+) (domain.PortID, error) {
+	panic("unexpected AttachRemote call")
+}
+
+func (k *rollbackKernelProbe) DetachPort(_ context.Context, id domain.PortID) error {
+	k.detachCalls = append(k.detachCalls, id)
+
+	return nil
+}
+
+func (k *rollbackKernelProbe) ListPorts(ctx context.Context) ([]domain.Port, error) {
+	if k.listPorts == nil {
+		panic("unexpected ListPorts call")
+	}
+
+	return k.listPorts(ctx)
+}
+
+func (*rollbackKernelProbe) ModulesAvailable(context.Context) error {
+	panic("unexpected ModulesAvailable call")
+}
+
+type kernelEventsFunc func(context.Context) (<-chan domain.Event, func(), error)
+
+func (f kernelEventsFunc) Subscribe(
+	ctx context.Context,
+) (<-chan domain.Event, func(), error) {
+	return f(ctx)
+}
+
+type manualAfterClock struct {
+	channels []chan time.Time
+	called   chan int
+	next     int
+}
+
+func (c *manualAfterClock) Now() time.Time { return time.Time{} }
+
+func (c *manualAfterClock) Sleep(time.Duration) {}
+
+func (c *manualAfterClock) After(time.Duration) <-chan time.Time {
+	ch := c.channels[c.next]
+
+	c.next++
+	c.called <- c.next
+
+	return ch
+}
 
 // stringAddr is a net.Addr whose String() returns an arbitrary value.
 // Used to test the host:port and bare-IP branches of ipFromAddr without
@@ -264,14 +390,19 @@ func TestEventEndsSession_DeviceUnbound_DifferentBusID(t *testing.T) {
 	require.False(t, eventEndsSessionForBusID(ev, domain.BusID("1-1")))
 }
 
-// TestEventEndsSession_UnrelatedEvent pins the default branch: event
-// types other than PortDetachedEvent and DeviceUnboundEvent must return
-// false so unrelated events do not prematurely end the session.
+// TestEventEndsSession_UnrelatedEvent pins the default branch: importer-side
+// PortDetachedEvent values and other unrelated events must not terminate an
+// exporter session even when their BusID happens to match.
 func TestEventEndsSession_UnrelatedEvent(t *testing.T) {
 	t.Parallel()
 
-	ev := domain.DeviceBoundEvent{Device: domain.Device{BusID: "1-1"}}
-	require.False(t, eventEndsSessionForBusID(ev, domain.BusID("1-1")),
+	busID := domain.BusID("1-1")
+
+	require.False(t,
+		eventEndsSessionForBusID(domain.PortDetachedEvent{Port: domain.Port{BusID: busID}}, busID),
+		"importer-side PortDetachedEvent must not end an exporter session")
+	require.False(t,
+		eventEndsSessionForBusID(domain.DeviceBoundEvent{Device: domain.Device{BusID: busID}}, busID),
 		"DeviceBoundEvent must not end the session")
 }
 
@@ -360,6 +491,450 @@ func TestSessionHandleRunHandoffSkipsCancelledSession(t *testing.T) {
 	require.False(t, called)
 	require.False(t, ran)
 	require.False(t, disconnectAfterHandoff)
+}
+
+func TestSessionHandleSignalCancelCompletesPreHandoffStates(t *testing.T) {
+	t.Parallel()
+
+	states := []kernelHandoffState{kernelHandoffNotStarted, kernelHandoffFailed}
+	for _, state := range states {
+		handle := &sessionHandle{
+			handoffState: state,
+			cleanupDone:  make(chan struct{}),
+		}
+
+		require.False(t, handle.signalCancel())
+
+		select {
+		case <-handle.cleanupDone:
+		default:
+			t.Fatalf("handoff state %d did not complete cleanup", state)
+		}
+	}
+}
+
+func TestWaitCleanupBoundedObservesCompletionAfterWaitStarts(t *testing.T) {
+	t.Parallel()
+
+	handle := &sessionHandle{
+		cleanupClaimed: true,
+		cleanupDone:    make(chan struct{}),
+	}
+	ctx := &doneObservedContext{
+		forwardedContext: newForwardedContext(context.Background()),
+		observed:         make(chan struct{}),
+	}
+	exporter := &Exporter{}
+
+	result := make(chan error, 1)
+	go func() { result <- exporter.waitCleanupBounded(ctx, []*sessionHandle{handle}) }()
+
+	<-ctx.observed
+	handle.finishCleanup(errSomeOther)
+	require.ErrorIs(t, <-result, errSomeOther)
+}
+
+func TestWaitCleanupBoundedCompletionWinsCancellationTie(t *testing.T) {
+	t.Parallel()
+
+	const attempts = 128
+	for range attempts {
+		handle := &sessionHandle{
+			cleanupClaimed: true,
+			cleanupDone:    make(chan struct{}),
+		}
+		baseCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		ctx := &completingDoneContext{
+			forwardedContext: newForwardedContext(baseCtx),
+			complete:         func() { handle.finishCleanup(errSomeOther) },
+		}
+
+		err := (&Exporter{}).waitCleanupBounded(ctx, []*sessionHandle{handle})
+		require.ErrorIs(t, err, errSomeOther)
+		require.NotErrorIs(t, err, context.Canceled)
+	}
+}
+
+func TestWaitCleanupBoundedSweepsCompletedFailuresAfterTimeout(t *testing.T) {
+	t.Parallel()
+
+	blocked := &sessionHandle{
+		cleanupClaimed: true,
+		cleanupDone:    make(chan struct{}),
+	}
+	failed := &sessionHandle{
+		cleanupClaimed: true,
+		cleanupDone:    make(chan struct{}),
+	}
+	failed.finishCleanup(errSomeOther)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := (&Exporter{}).waitCleanupBounded(ctx, []*sessionHandle{blocked, failed})
+	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorIs(t, err, errSomeOther)
+}
+
+func TestWaitDetachAttemptCompletedAndCancellationTie(t *testing.T) {
+	t.Parallel()
+
+	completed := &detachAttempt{done: make(chan struct{}), err: errSomeOther}
+	close(completed.done)
+	require.ErrorIs(t, waitDetachAttempt(context.Background(), 1, completed), errSomeOther)
+
+	const attempts = 128
+	for range attempts {
+		attempt := &detachAttempt{done: make(chan struct{})}
+		baseCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		ctx := &completingDoneContext{
+			forwardedContext: newForwardedContext(baseCtx),
+			complete: func() {
+				attempt.err = errSomeOther
+				close(attempt.done)
+			},
+		}
+
+		err := waitDetachAttempt(ctx, 1, attempt)
+		require.ErrorIs(t, err, errSomeOther)
+		require.NotErrorIs(t, err, context.Canceled)
+	}
+}
+
+func TestImporterListPortsWrapsKernelError(t *testing.T) {
+	t.Parallel()
+
+	const wantContext = "list vhci ports"
+
+	var calls int
+
+	kernel := &rollbackKernelProbe{
+		listPorts: func(context.Context) ([]domain.Port, error) {
+			calls++
+
+			return nil, errSomeOther
+		},
+	}
+	importer := &Importer{kernel: kernel}
+
+	ports, err := importer.ListPorts(t.Context())
+	require.Nil(t, ports)
+	require.ErrorIs(t, err, errSomeOther)
+	require.ErrorContains(t, err, wantContext)
+	require.Equal(t, 1, calls)
+}
+
+func TestWatchWithErrorsCreatedBeforeCloseSkipsSubscription(t *testing.T) {
+	t.Parallel()
+
+	var subscribeCalls int
+
+	events := kernelEventsFunc(func(
+		context.Context,
+	) (<-chan domain.Event, func(), error) {
+		subscribeCalls++
+
+		return nil, nil, errSomeOther
+	})
+	importer := &Importer{events: events}
+	seq := importer.WatchWithErrors(t.Context())
+
+	importer.mu.Lock()
+	importer.closed = true
+	importer.mu.Unlock()
+
+	var yielded int
+	for range seq {
+		yielded++
+	}
+
+	require.Zero(t, yielded)
+	require.Zero(t, subscribeCalls)
+	require.Empty(t, importer.subscribers)
+}
+
+func TestDetachHandleSkipsSupersededPointer(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 3
+
+	oldHandle := &portHandle{done: make(chan struct{})}
+	newHandle := &portHandle{done: make(chan struct{})}
+	importer := &Importer{handles: map[domain.PortID]*portHandle{portID: newHandle}}
+
+	require.NoError(t, importer.detachHandle(context.Background(), portID, oldHandle))
+	require.Same(t, newHandle, importer.handles[portID])
+}
+
+func TestAttachReservationRejectsDuplicateAndClosedImporter(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 4
+
+	importer := &Importer{reservations: make(map[domain.PortID]*attachReservation)}
+	reservation, err := importer.reserveAttachPort(portID, time.Second)
+	require.NoError(t, err)
+
+	_, err = importer.reserveAttachPort(portID, time.Second)
+	require.ErrorIs(t, err, ErrAttachInProgress)
+
+	importer.abortAttachReservation(reservation)
+
+	select {
+	case <-reservation.done:
+	default:
+		t.Fatal("aborted reservation did not complete")
+	}
+
+	// Repeated/nil aborts are safe and cannot close an unrelated current
+	// reservation through a stale pointer.
+	current, err := importer.reserveAttachPort(portID, time.Second)
+	require.NoError(t, err)
+	importer.abortAttachReservation(nil)
+	importer.abortAttachReservation(reservation)
+	require.Same(t, current, importer.reservations[portID])
+	importer.abortAttachReservation(current)
+
+	detaching := &portHandle{done: make(chan struct{})}
+	detaching.detaching.Store(true)
+
+	importer.handles = map[domain.PortID]*portHandle{portID: detaching}
+
+	_, err = importer.reserveAttachPort(portID, time.Second)
+	require.ErrorIs(t, err, ErrAttachInProgress,
+		"a detach-owned generation must reject a later same-port reservation")
+
+	importer.closed = true
+	_, err = importer.reserveAttachPort(domain.PortID(5), time.Second)
+	require.ErrorIs(t, err, ErrImporterClosed)
+}
+
+func TestWaitAttachPublicationImmediateCancellationAndTie(t *testing.T) {
+	t.Parallel()
+
+	completed := &attachReservation{done: make(chan struct{}), shutdownTimeout: -1}
+	completed.finish()
+
+	importer := &Importer{}
+	attempt, err := importer.waitAttachPublication(context.Background(), 1, completed)
+	require.NoError(t, err)
+	require.Nil(t, attempt)
+
+	pending := &attachReservation{done: make(chan struct{}), shutdownTimeout: -1}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err = importer.waitAttachPublication(cancelled, 2, pending)
+	require.ErrorIs(t, err, context.Canceled)
+
+	tied := &attachReservation{done: make(chan struct{}), shutdownTimeout: -1}
+	tiedCtx := &completingDoneContext{
+		forwardedContext: newForwardedContext(cancelled),
+		complete: func() {
+			tied.finish()
+		},
+	}
+
+	_, err = importer.waitAttachPublication(tiedCtx, 3, tied)
+	require.NoError(t, err,
+		"publication completion must win a cancellation tie")
+
+	errTied := &attachReservation{done: make(chan struct{}), shutdownTimeout: -1}
+	errTiedCtx := &completingErrContext{
+		forwardedContext: newForwardedContext(cancelled),
+		complete:         errTied.finish,
+	}
+
+	_, err = importer.waitAttachPublication(errTiedCtx, 4, errTied)
+	require.NoError(t, err,
+		"publication completed while reading cancellation must win the final recheck")
+}
+
+func TestDetachExactHandleMissingAndFollowerPaths(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 7
+
+	handle := &portHandle{done: make(chan struct{})}
+	importer := &Importer{handles: make(map[domain.PortID]*portHandle)}
+
+	require.NoError(t, importer.detachExactHandle(context.Background(), portID, handle))
+
+	attempt := &detachAttempt{done: make(chan struct{})}
+
+	handle.detachAttempt = attempt
+	importer.handles[portID] = handle
+
+	waitCtx := &doneObservedContext{
+		forwardedContext: newForwardedContext(context.Background()),
+		observed:         make(chan struct{}),
+	}
+
+	result := make(chan error, 1)
+	go func() {
+		result <- importer.detachExactHandle(waitCtx, portID, handle)
+	}()
+
+	<-waitCtx.observed
+	handle.finishDetachAttempt(attempt, errSomeOther)
+	require.ErrorIs(t, <-result, errSomeOther)
+}
+
+func TestRollbackSupersededReconnectSkipsMissingReplacement(t *testing.T) {
+	t.Parallel()
+
+	importer := &Importer{
+		handles: make(map[domain.PortID]*portHandle),
+		logger:  slog.Default(),
+	}
+
+	importer.rollbackSupersededReconnect(
+		context.Background(), 8, &portHandle{done: make(chan struct{})},
+		reconnectParams{portID: 9}, reconnectSourceUevent,
+	)
+}
+
+func TestRollbackSupersededReconnectSkipsReusedReplacementGeneration(t *testing.T) {
+	t.Parallel()
+
+	const (
+		reusedPortID   domain.PortID = 8
+		originalPortID domain.PortID = 9
+	)
+
+	returnedHandle := &portHandle{done: make(chan struct{})}
+	replacementHandle := &portHandle{done: make(chan struct{})}
+	kernel := &rollbackKernelProbe{}
+	importer := &Importer{
+		handles: map[domain.PortID]*portHandle{reusedPortID: replacementHandle},
+		kernel:  kernel,
+		logger:  slog.Default(),
+	}
+
+	importer.rollbackSupersededReconnect(
+		context.Background(), reusedPortID, returnedHandle,
+		reconnectParams{portID: originalPortID, handle: returnedHandle}, reconnectSourceUevent,
+	)
+
+	require.Empty(t, kernel.detachCalls,
+		"rollback must not detach a replacement that reused the returned PortID")
+	require.Same(t, replacementHandle, importer.handles[reusedPortID],
+		"the newer replacement generation must remain registered")
+}
+
+func TestRegisterHandleReservationFailurePaths(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 6
+
+	lost := &attachReservation{id: portID, done: make(chan struct{})}
+	importer := &Importer{
+		handles:      make(map[domain.PortID]*portHandle),
+		reservations: make(map[domain.PortID]*attachReservation),
+	}
+
+	_, _, err := importer.registerHandle(portID, "1-1", domain.RemoteEndpoint{}, 1, false, lost)
+	require.ErrorIs(t, err, errAttachPublicationReservationLost)
+
+	importer.reservations[portID] = lost
+	importer.closed = true
+	_, _, err = importer.registerHandle(portID, "1-1", domain.RemoteEndpoint{}, 1, false, lost)
+	require.ErrorIs(t, err, ErrImporterClosed)
+
+	select {
+	case <-lost.done:
+	default:
+		t.Fatal("closed importer did not resolve its matching reservation")
+	}
+}
+
+func TestWaitForSessionEndSourceAndEventOwnershipRaces(t *testing.T) {
+	t.Parallel()
+
+	const busID domain.BusID = "7-1"
+
+	inactive := activityProbeFunc(func(context.Context, domain.BusID) (bool, error) {
+		return false, nil
+	})
+
+	closedEvents := make(chan domain.Event)
+	close(closedEvents)
+
+	natural := &sessionHandle{done: make(chan struct{}), cleanupDone: make(chan struct{})}
+	exporter := &Exporter{
+		sessionActivity:    inactive,
+		statusPollInterval: -1,
+		logger:             slog.Default(),
+	}
+	require.Equal(t, DisconnectReasonClientGone,
+		exporter.waitForSessionEnd(context.Background(), busID, natural, closedEvents))
+
+	closedEvents = make(chan domain.Event)
+	close(closedEvents)
+
+	shutdownOwned := &sessionHandle{
+		done:           make(chan struct{}),
+		cleanupClaimed: true,
+		cleanupDone:    make(chan struct{}),
+	}
+	require.Equal(t, DisconnectReasonShutdown,
+		exporter.waitForSessionEnd(context.Background(), busID, shutdownOwned, closedEvents))
+
+	events := make(chan domain.Event, 1)
+	events <- domain.DeviceUnboundEvent{Device: domain.Device{BusID: busID}}
+
+	eventShutdownOwned := &sessionHandle{
+		done:           make(chan struct{}),
+		cleanupClaimed: true,
+		cleanupDone:    make(chan struct{}),
+	}
+
+	exporter.sessionActivity = nil
+	require.Equal(t, DisconnectReasonShutdown,
+		exporter.waitForSessionEnd(context.Background(), busID, eventShutdownOwned, events))
+}
+
+func TestWaitForSessionEndRetriesProbeErrors(t *testing.T) {
+	t.Parallel()
+
+	const busID domain.BusID = "7-2"
+
+	ticks := []chan time.Time{make(chan time.Time, 1), make(chan time.Time, 1)}
+	clock := &manualAfterClock{channels: ticks, called: make(chan int, len(ticks))}
+	probeCalls := 0
+	exporter := &Exporter{
+		sessionActivity: activityProbeFunc(func(context.Context, domain.BusID) (bool, error) {
+			probeCalls++
+			if probeCalls == 1 {
+				return false, errSomeOther
+			}
+
+			return false, nil
+		}),
+		clock:              clock,
+		logger:             slog.Default(),
+		statusPollInterval: time.Second,
+	}
+	handle := &sessionHandle{done: make(chan struct{}), cleanupDone: make(chan struct{})}
+
+	reason := make(chan DisconnectReason, 1)
+	go func() {
+		reason <- exporter.waitForSessionEnd(context.Background(), busID, handle, nil)
+	}()
+
+	require.Equal(t, 1, <-clock.called)
+
+	ticks[0] <- time.Time{}
+
+	require.Equal(t, 2, <-clock.called)
+
+	ticks[1] <- time.Time{}
+
+	require.Equal(t, DisconnectReasonClientGone, <-reason)
 }
 
 func TestClassifyImportLookupStatus(t *testing.T) {

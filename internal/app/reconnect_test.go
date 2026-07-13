@@ -116,6 +116,16 @@ func newReconnectFixture(
 ) (*app.Importer, *testutil.FakeClock, *eventChannelRegistry, *ImporterKernelMock) {
 	t.Helper()
 
+	return newReconnectFixtureWithOptions(t, attachRemoteFn)
+}
+
+func newReconnectFixtureWithOptions(
+	t *testing.T,
+	attachRemoteFn func(ctx context.Context, conn net.Conn, spec app.RemoteDeviceSpec) (domain.PortID, error),
+	extraOptions ...app.ImporterOption,
+) (*app.Importer, *testutil.FakeClock, *eventChannelRegistry, *ImporterKernelMock) {
+	t.Helper()
+
 	registry := newEventChannelRegistry()
 
 	events := &KernelEventsMock{
@@ -146,13 +156,18 @@ func newReconnectFixture(
 
 	clk := testutil.NewFakeClockAt(importerTestEpoch())
 
-	imp := app.NewImporter(
+	options := append(
+		make([]app.ImporterOption, 0, 5+len(extraOptions)),
 		app.WithImporterKernel(kernel),
 		app.WithImporterEvents(events),
 		app.WithImporterTransport(transport),
 		app.WithImporterCodec(codec),
 		app.WithImporterClock(clk),
 	)
+
+	options = append(options, extraOptions...)
+
+	imp := app.NewImporter(options...)
 
 	return imp, clk, registry, kernel
 }
@@ -877,6 +892,8 @@ func TestImporterReconnectSameSlotStaleEventIgnored(t *testing.T) {
 func TestImporterReconnectOnReconnectPanicRecovered(t *testing.T) {
 	t.Parallel()
 
+	const maxAttempts = 3
+
 	var attachCount atomic.Int32
 
 	// First AttachRemote succeeds (initial Attach). Every subsequent
@@ -896,14 +913,17 @@ func TestImporterReconnectOnReconnectPanicRecovered(t *testing.T) {
 
 	var (
 		callbackCount atomic.Int32
+		callbackCalls = make(chan int, maxAttempts)
 		panicFired    = make(chan struct{}, 1)
 	)
 
 	opts := attachOptionsWithBackoff()
 
-	opts.MaxAttempts = 3
+	opts.MaxAttempts = maxAttempts
 	opts.OnReconnect = func(attempt int, _ error) {
 		callbackCount.Add(1)
+
+		callbackCalls <- attempt
 
 		if attempt == 1 {
 			select {
@@ -923,10 +943,19 @@ func TestImporterReconnectOnReconnectPanicRecovered(t *testing.T) {
 	registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
 
 	// Drive the watcher through all three attempts. Each iteration
-	// advances the clock until AttachRemote has been invoked for the
-	// expected attempt. If the panic wedged the watcher, the second
-	// attempt never lands and Eventually times out.
-	for i := range 3 {
+	// first observes that attempt's callback, then advances the clock until
+	// AttachRemote has been invoked. Waiting before the advance prevents the
+	// test from intentionally triggering the documented latest-attempt
+	// coalescing policy. If the panic wedges the callback worker, attempt 2's
+	// notification never lands and the select times out.
+	for i := range maxAttempts {
+		select {
+		case gotAttempt := <-callbackCalls:
+			require.Equal(t, i+1, gotAttempt)
+		case <-time.After(reconnectTestSettleBudget):
+			t.Fatalf("OnReconnect was not invoked for attempt %d", i+1)
+		}
+
 		want := int32(i + 2) // +1 initial attach, +1 per attempt
 		require.Eventually(t, func() bool {
 			clk.Advance(reconnectTestBackoff().Delay)
@@ -948,9 +977,9 @@ func TestImporterReconnectOnReconnectPanicRecovered(t *testing.T) {
 	// not leave the watcher alive and orphaned.
 	require.NoError(t, imp.Close())
 
-	require.Equal(t, int32(3), callbackCount.Load(),
+	require.Equal(t, int32(maxAttempts), callbackCount.Load(),
 		"callback must still fire for every attempt despite the first-attempt panic")
-	require.Len(t, kernel.AttachRemoteCalls(), 4, "initial + 3 reconnect attempts")
+	require.Len(t, kernel.AttachRemoteCalls(), maxAttempts+1, "initial + reconnect attempts")
 }
 
 // TestImporterReconnectSupersededWatcherDropsEvent exercises the

@@ -20,59 +20,29 @@ import (
 // injected fs.FS, WriteFunc, NetlinkDialer, logger, and clock without
 // duplicating option plumbing.
 //
-// topoCache memoises the full discoverTopology result (BusMap
-// inclusive) for BusMap consumers; statusTopoCache memoises the
-// lighter discoverStatusTopology for the status-reading path so a
-// transient BusMap shortfall does not hard-fail ListPorts /
-// findFreePort. Both caches are heap-allocated (pointer embed) so that
-// embedding commonAdapter by value in role-adapter structs remains
-// safe under vet's copylocks check — a sync.Once inside a value-copied
-// struct would fail vet and silently duplicate the memoised state.
+// Topology is deliberately not retained in this shared state. A long-lived
+// process can survive vhci_hcd unload/reload, so each importer operation and
+// relevant event must discover a fresh snapshot rather than reuse controller,
+// port, or bus mappings from a prior module generation.
 type commonAdapter struct {
-	fs              fs.FS
-	write           WriteFunc
-	nlDial          NetlinkDialer
-	logger          *slog.Logger
-	clock           app.Clock
-	topoCache       *topologyCache
-	statusTopoCache *statusTopologyCache
-}
-
-// topologyCache memoises a successful discoverTopology result and
-// retries on every call after a transient failure — errors are never
-// cached. A long-lived daemon that survives a vhci_hcd module reload
-// must recover automatically; a sync.Once that memoised the first
-// error would wedge the adapter forever. It is kept behind a pointer
-// so copies of commonAdapter share the same underlying cache and vet's
-// copylocks check never trips on commonAdapter values.
-type topologyCache struct {
-	mu   sync.Mutex
-	topo Topology
-	ok   bool
-}
-
-// statusTopologyCache memoises a successful discoverStatusTopology
-// result with the same retry-on-error semantics as topologyCache.
-// Separate from topologyCache so the status-reading path does not pay
-// the BusMap walk (or its failure) that full-Topology consumers need.
-type statusTopologyCache struct {
-	mu   sync.Mutex
-	topo StatusTopology
-	ok   bool
+	fs     fs.FS
+	write  WriteFunc
+	nlDial NetlinkDialer
+	logger *slog.Logger
+	clock  app.Clock
 }
 
 // ImporterAdapter satisfies app.ImporterKernel. It operates against the
 // vhci_hcd + usbip_core modules.
 //
-// attachMu serializes the findFreePort → sysfs-write critical section
-// of AttachRemote per importer-lifecycle and exporter-daemon OpenSpec documents "Attach vs Attach race: first acquire
-// wins; loser gets ErrNoFreePort". Without this lock, two concurrent
-// AttachRemote callers could both observe the same free port in the
-// status table and race on the sysfs attach write.
+// portMutationMu serializes every VHCI attach/detach topology check and
+// sysfs mutation. Attach-vs-attach needs it to make free-port discovery
+// atomic with the write; attach-vs-detach uses the same adapter-local
+// boundary so their topology reads and kernel mutations cannot overlap.
 type ImporterAdapter struct {
 	commonAdapter
 
-	attachMu sync.Mutex
+	portMutationMu sync.Mutex
 }
 
 // ExporterAdapter satisfies app.ExporterKernel. It operates against the
@@ -146,18 +116,14 @@ func NewEventsAdapter(opts ...Option) (*EventsAdapter, error) {
 // newCommon applies the default substrate then each option in order.
 // Keeping the defaults here rather than inside each constructor
 // guarantees the three role adapters remain indistinguishable in their
-// baseline configuration. The topology cache is heap-allocated here so
-// every copy of the returned commonAdapter shares the same memoised
-// snapshot.
+// baseline configuration.
 func newCommon(opts ...Option) commonAdapter {
 	c := commonAdapter{
-		fs:              osDirFS(),
-		write:           defaultWriteFunc(),
-		nlDial:          defaultNetlinkDialer(),
-		logger:          noopLogger(),
-		clock:           app.RealClock{},
-		topoCache:       &topologyCache{},
-		statusTopoCache: &statusTopologyCache{},
+		fs:     osDirFS(),
+		write:  defaultWriteFunc(),
+		nlDial: defaultNetlinkDialer(),
+		logger: noopLogger(),
+		clock:  app.RealClock{},
 	}
 
 	for _, opt := range opts {

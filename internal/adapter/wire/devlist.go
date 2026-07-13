@@ -132,12 +132,11 @@ func encodeInterfaces(w io.Writer, d domain.Device) error {
 	return nil
 }
 
-// DecodeOpRepDevlist decodes an OP_REP_DEVLIST reply from r. Returns
-// (nil, false, nil) for a zero-device reply. The trailingBytes flag
-// is true when bytes remain after the last device (wire-protocol OpenSpec
-// "permissive on read"); the caller (typically the Codec) logs via
-// its injected logger if desired. Errors follow wire-protocol OpenSpec error
-// matrix:
+// DecodeOpRepDevlist decodes an OP_REP_DEVLIST reply from r. It returns nil
+// devices and zero DecodeFlags for a zero-device reply. TrailingBytes is true
+// when bytes remain after the last device (wire-protocol OpenSpec "permissive
+// on read"); the caller (typically the Codec) logs via its injected logger if
+// desired. Errors follow wire-protocol OpenSpec error matrix:
 //
 //   - Truncated mid-device → io.ErrUnexpectedEOF wrapped with
 //     "truncated devlist at index N" where N is the count of devices
@@ -146,7 +145,15 @@ func encodeInterfaces(w io.Writer, d domain.Device) error {
 //     remaining bytes → io.ErrUnexpectedEOF wrapped with
 //     "truncated interfaces".
 func DecodeOpRepDevlist(r io.Reader) ([]domain.Device, DecodeFlags, error) {
-	_, op, _, err := DecodeHeader(r)
+	// Route the entire frame through one buffered reader. Besides avoiding a
+	// speculative post-frame read, this preserves bytes fetched alongside the
+	// header/body so adjacent trailing data remains observable.
+	br, ok := r.(*bufio.Reader)
+	if !ok {
+		br = bufio.NewReader(r)
+	}
+
+	_, op, _, err := DecodeHeader(br)
 	if err != nil {
 		return nil, DecodeFlags{}, err
 	}
@@ -158,7 +165,7 @@ func DecodeOpRepDevlist(r io.Reader) ([]domain.Device, DecodeFlags, error) {
 
 	countBuf := make([]byte, devlistCountSize)
 
-	_, err = io.ReadFull(r, countBuf)
+	_, err = io.ReadFull(br, countBuf)
 	if err != nil {
 		return nil, DecodeFlags{}, wrapUnexpectedEOF("read devlist count", err)
 	}
@@ -172,12 +179,6 @@ func DecodeOpRepDevlist(r io.Reader) ([]domain.Device, DecodeFlags, error) {
 	if count > MaxDevlistDevices {
 		return nil, DecodeFlags{}, fmt.Errorf("%w: devlist count %d exceeds cap %d",
 			domain.ErrProtocolMismatch, count, MaxDevlistDevices)
-	}
-
-	// Use a bufio.Reader so we can Peek to detect trailing bytes.
-	br, ok := r.(*bufio.Reader)
-	if !ok {
-		br = bufio.NewReader(r)
 	}
 
 	devices, flags, err := decodeDevlistBody(br, count)
@@ -300,13 +301,11 @@ func wrapUnexpectedEOF(ctx string, err error) error {
 	return fmt.Errorf("%s: %w", ctx, err)
 }
 
-// hasTrailingBytes reports whether at least one byte remains beyond the
-// declared frame (wire-protocol OpenSpec permissive-read signal). Peek(1)
-// may read from the underlying reader if the bufio buffer is empty; callers
-// should ensure the connection carries a read deadline so a stalled peer
-// cannot cause an indefinite block here.
+// hasTrailingBytes reports whether at least one byte was already buffered
+// beyond the declared frame (wire-protocol OpenSpec permissive-read signal).
+// Buffered is deliberately used instead of Peek: a complete count-delimited
+// frame is sufficient to return, even when the underlying connection remains
+// open and no future byte is currently available.
 func hasTrailingBytes(br *bufio.Reader) bool {
-	_, err := br.Peek(1)
-
-	return err == nil
+	return br.Buffered() > 0
 }

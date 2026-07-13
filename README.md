@@ -194,6 +194,10 @@ usbip-go watch --output json
 ```
 
 The JSON contract is documented in [`docs/json-schema.md`](docs/json-schema.md).
+`watch` exits non-zero if it cannot establish the kernel-event subscription or
+if that source closes unexpectedly. Embedders that need the same monitoring
+assurance should use `Importer.WatchWithErrors`; the original `Watch` method
+remains available as an event-only compatibility iterator.
 
 ## Go example
 
@@ -242,6 +246,23 @@ More examples:
 - [`examples/server`](examples/server) — exporter flow.
 - [`examples/events`](examples/events) — event streams.
 - [`examples/reconnect`](examples/reconnect) — reconnect behavior.
+
+### Public API lifecycle details
+
+- Use `WithImporterBackoffFactory` for a stateful custom reconnect strategy.
+  The factory creates one strategy per logical attachment and that strategy
+  remains with the attachment across reconnect generations. The legacy
+  `WithImporterBackoff` option remains supported and serializes calls to a
+  shared custom strategy.
+- `WithExporterAcceptRateLimit(0)` explicitly disables accept-rate limiting;
+  omitting the option selects the library default. NaN and infinity are rejected
+  with `ErrAcceptRateLimitInvalid`.
+- `ProbeKernelModules` always returns `usbip_core`, `vhci_hcd`, and
+  `usbip_host`. If cancellation prevents an observation, that entry is
+  `ModuleStateUnknown` and the returned error preserves the context cause.
+- `ListenAndServe` reserves the Exporter lifecycle before binding. Calls after
+  Shutdown or during another Serve return the lifecycle sentinel without
+  opening a listener.
 
 ## Documentation
 

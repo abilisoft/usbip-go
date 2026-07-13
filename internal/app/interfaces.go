@@ -28,6 +28,9 @@ import (
 // surface). A process that only imports does NOT need usbip_host
 // loaded. See architecture-layering OpenSpec.
 type ImporterKernel interface {
+	// AttachRemote must invoke spec.ReserveLocalPort, when non-nil, after
+	// choosing the returned port and before starting the kernel mutation.
+	// A reservation error aborts the handoff without making the port live.
 	AttachRemote(ctx context.Context, conn net.Conn, spec RemoteDeviceSpec) (domain.PortID, error)
 	DetachPort(ctx context.Context, id domain.PortID) error
 	ListPorts(ctx context.Context) ([]domain.Port, error)
@@ -56,6 +59,14 @@ type ExporterKernel interface {
 	Disconnect(ctx context.Context, busID domain.BusID) error
 	// ModulesAvailable probes usbip_host + usbip_core.
 	ModulesAvailable(ctx context.Context) error
+}
+
+// exporterSessionActivity is an optional, role-specific capability of
+// production exporter kernels. Keeping it separate from ExporterKernel lets
+// the generated broad service mock remain generator-owned; focused polling
+// tests provide a small wrapper that implements this extra capability.
+type exporterSessionActivity interface {
+	ExportSessionActive(ctx context.Context, busID domain.BusID) (bool, error)
 }
 
 // KernelEvents is the shared uevent source consumed by the importer

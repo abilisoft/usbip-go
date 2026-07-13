@@ -3,6 +3,13 @@
 
 package usbip_test
 
+import "github.com/abilisoft/usbip-go/pkg/usbip"
+
+// Importer remains a comparable public type. Keep this compile-time assertion
+// because unexported facade configuration changes can otherwise break callers
+// that use Importer values as map keys without changing any exported field.
+var _ map[usbip.Importer]struct{}
+
 // This file documents the role-specific option guarantee from spec
 // public-library-api OpenSpec via a compile-time counter-example. Uncomment the snippet to
 // observe the compile error — intentionally left commented so the

@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 AbiliSoft
 // SPDX-License-Identifier: Apache-2.0
 
+//go:build linux
+
 package usbip_test
 
 import (
@@ -39,14 +41,14 @@ func TestNewExporterDefaultsSucceeds(t *testing.T) {
 	require.NoError(t, exp.Shutdown(t.Context()))
 }
 
-// TestNewExporterAllowCIDRInvalidReturnsError proves bad CIDR strings
-// surface at construction time — not at Serve time, per security-release-quality OpenSpec.
-func TestNewExporterAllowCIDRInvalidReturnsError(t *testing.T) {
+func TestNewExporterAcceptsExplicitDisabledRate(t *testing.T) {
 	t.Parallel()
 
-	_, err := usbip.NewExporter(usbip.WithExporterAllowCIDR("not-a-cidr"))
-	require.Error(t, err)
-	require.ErrorIs(t, err, usbip.ErrACLInvalid)
+	for _, rps := range []float64{0, -1} {
+		exp, err := usbip.NewExporter(usbip.WithExporterAcceptRateLimit(rps))
+		require.NoError(t, err)
+		require.NoError(t, exp.Shutdown(t.Context()))
+	}
 }
 
 // TestNewImporterAppliesOptions drives every NewImporter option so the
