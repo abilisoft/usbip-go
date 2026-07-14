@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/abilisoft/usbip-go/internal/adapter/wire"
+	"github.com/abilisoft/usbip-go/pkg/domain"
 )
 
 // FuzzDecodeHeader feeds arbitrary bytes through the OP-header
@@ -49,13 +50,26 @@ func FuzzDecodeHeader(f *testing.F) {
 // device descriptor; it must not panic, allocate without bound,
 // or hang on any input.
 func FuzzDecodeOpRepDevlist(f *testing.F) {
+	var oneDevice bytes.Buffer
+
+	err := wire.EncodeOpRepDevlist(&oneDevice, []domain.Device{{
+		Path:  "/sys/devices/1-1",
+		BusID: domain.BusID("1-1"),
+		Speed: domain.SpeedHigh,
+	}})
+	if err != nil {
+		f.Fatalf("build valid devlist seed: %v", err)
+	}
+
 	seeds := [][]byte{
-		// Valid empty reply: 0-device list (4-byte u32 nDevices).
-		{0x00, 0x00, 0x00, 0x00},
-		// Truncated: claims 1 device but no body.
-		{0x00, 0x00, 0x00, 0x01},
-		// Hostile: claims max u32 devices.
-		{0xff, 0xff, 0xff, 0xff},
+		// Valid complete replies, including the common empty listing and a
+		// body-bearing frame. The full header ensures the body decoder runs.
+		{0x01, 0x11, 0x00, 0x05, 0, 0, 0, 0, 0, 0, 0, 0},
+		oneDevice.Bytes(),
+		// Truncated full frame: claims 1 device but has no descriptor.
+		{0x01, 0x11, 0x00, 0x05, 0, 0, 0, 0, 0, 0, 0, 1},
+		// Hostile full frame: claims max u32 devices.
+		{0x01, 0x11, 0x00, 0x05, 0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff},
 		nil,
 	}
 

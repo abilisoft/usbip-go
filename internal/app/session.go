@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"time"
 
 	"github.com/abilisoft/usbip-go/internal/protocol"
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -244,9 +245,9 @@ func (e *Exporter) serveDevlist(ctx context.Context, _ io.Reader, conn net.Conn,
 // and the kernel carries the session for its actual duration. The
 // handler MUST NOT exit yet — an early return would fire the deferred
 // endSession and unregister the session, leaving Sessions() empty
-// while the device is still exported. waitForSessionEnd blocks until
-// the kernel signals session end via a matching uevent, Shutdown
-// signals handle.done, or ctx cancels.
+// while the device is still exported. waitForSessionEnd blocks until a
+// matching lifecycle event or status probe reports peer completion, or
+// Shutdown signals handle.done.
 func (e *Exporter) serveImport(
 	ctx context.Context, reader io.Reader, conn net.Conn, stopTimeout func(),
 ) {
@@ -444,7 +445,12 @@ func (e *Exporter) runRegisteredSession(
 	// Opening the subscription first guarantees the event is buffered
 	// into our channel regardless of timing. An already-pending event
 	// is consumed by the first iteration of waitForSessionEnd's select.
-	events, cancelEvents, evErr := e.events.Subscribe(ctx)
+	// A handed-off fd is kernel-owned and must outlive cancellation of
+	// the Serve accept-loop context. Shutdown uses handle.done as the
+	// explicit lifetime signal.
+	sessionCtx := context.WithoutCancel(ctx)
+
+	events, cancelEvents, evErr := e.events.Subscribe(sessionCtx)
 	if evErr != nil {
 		// Subscribe failure is the same observability class as a
 		// kernel-side error; record the typed reason BEFORE returning
@@ -458,9 +464,8 @@ func (e *Exporter) runRegisteredSession(
 			slog.String("disconnect_reason", reason),
 			slog.Any("err", evErr))
 
-		// Subscribe is the only observation path for session end; if
-		// we cannot open one we must not hand the fd to the kernel
-		// (we would park forever after a successful handoff). The
+		// This pre-handoff path requires the lifecycle subscription; if
+		// it cannot open, do not hand the fd to the kernel. The
 		// importer side has nothing to read otherwise; emit ST_DEV_ERR
 		// so it surfaces the rejection rather than EOF.
 		encErr := e.codec.EncodeOpRepImportError(conn, protocol.ImportStatusDevErr)
@@ -477,7 +482,7 @@ func (e *Exporter) runRegisteredSession(
 
 	defer cancelEvents()
 
-	e.runHandoffAndPark(ctx, conn, busID, handle, dev, stopTimeout, events)
+	e.runHandoffAndPark(ctx, sessionCtx, conn, busID, handle, dev, stopTimeout, events)
 }
 
 // runHandoffAndPark performs the post-subscribe phase of the import
@@ -486,7 +491,8 @@ func (e *Exporter) runRegisteredSession(
 // park on waitForSessionEnd. Extracted from runRegisteredSession to
 // keep that function under the funlen cap.
 func (e *Exporter) runHandoffAndPark(
-	ctx context.Context,
+	handoffCtx context.Context,
+	sessionCtx context.Context,
 	conn net.Conn,
 	busID domain.BusID,
 	handle *sessionHandle,
@@ -528,7 +534,7 @@ func (e *Exporter) runHandoffAndPark(
 	// handler owns the exactly-once Disconnect after success; Shutdown
 	// must not issue it early against kernel state that does not exist.
 	ran, disconnectAfterHandoff, err := handle.runHandoff(func() error {
-		return e.kernel.ExportOnConn(ctx, conn, busID)
+		return e.kernel.ExportOnConn(handoffCtx, conn, busID)
 	})
 	if !ran {
 		reason := string(DisconnectReasonShutdown)
@@ -558,14 +564,8 @@ func (e *Exporter) runHandoffAndPark(
 		// The Serve/request context may already be cancelled. This kernel
 		// cleanup must outlive that cancellation to avoid orphaning the
 		// export created by the just-completed handoff.
-		cleanupCtx := context.WithoutCancel(ctx)
-
-		disconnectErr := e.kernel.Disconnect(cleanupCtx, busID)
-		if disconnectErr != nil {
-			e.logger.Warn("disconnect after cancelled kernel handoff",
-				slog.Any("busid", busID),
-				slog.Any("err", disconnectErr))
-		}
+		cleanupCtx := context.WithoutCancel(handoffCtx)
+		e.disconnectSession(cleanupCtx, handle)
 
 		return
 	}
@@ -575,7 +575,7 @@ func (e *Exporter) runHandoffAndPark(
 	// signals the session ended; the typed disconnect reason is used
 	// to override the deferred endSession's free-form "handler exited"
 	// fallback so journald carries the closed-set classification.
-	reason := string(e.waitForSessionEnd(ctx, busID, handle, events))
+	reason := string(e.waitForSessionEnd(sessionCtx, busID, handle, events))
 	handle.disconnectReason.Store(&reason)
 }
 
@@ -586,12 +586,11 @@ func (e *Exporter) runHandoffAndPark(
 //  1. handle.done closed — Shutdown is tearing the exporter down;
 //     returns DisconnectReasonShutdown. Exporter.Shutdown cancels every
 //     handle before draining sessionsWG, so the handler exits promptly.
-//  2. ctx cancelled — same treatment as handle.done.
-//  3. A KernelEvents event whose busid matches busID:
-//     - PortDetachedEvent: kernel published a `remove`-action uevent
-//     for the exported device — returns DisconnectReasonClientGone
-//     because the remote client's detach drove the signal.
-//     - DeviceUnboundEvent: local unbind of the busid — same treatment.
+//  2. A matching exporter-side DeviceUnboundEvent. Importer-side
+//     PortDetachedEvent values are deliberately ignored: VHCI Port BusIDs name
+//     remote devices and can collide with this host's exported BusIDs.
+//  3. The status-poll backstop reports usbip_host no longer has the
+//     BusID in SDEV_ST_USED. Probe errors are logged and retried.
 //
 // The subscription is opened by serveImport BEFORE kernel.ExportOnConn
 // so a detach uevent published in the gap between "kernel took the
@@ -605,58 +604,142 @@ func (e *Exporter) waitForSessionEnd(
 	handle *sessionHandle,
 	events <-chan domain.Event,
 ) DisconnectReason {
+	var pollCh <-chan time.Time
+	if e.sessionActivity != nil && e.statusPollInterval > 0 {
+		pollCh = e.clock.After(e.statusPollInterval)
+	}
+
 	for {
-		select {
-		case <-handle.done:
-			return DisconnectReasonShutdown
-		case <-ctx.Done():
-			return DisconnectReasonShutdown
-		case ev, ok := <-events:
-			if !ok {
-				// Source closed without a matching event. The kernel
-				// events subscription has torn down from under us; the
-				// safest thing is to unwind the session as if the kernel
-				// signalled end — otherwise the handler leaks forever.
-				// Log at Warn so operators can distinguish this
-				// disconnect-reason source from a real kernel adapter
-				// failure surfaced by ExportOnConn.
-				e.logger.Warn("session-end events channel closed unexpectedly",
-					slog.Any("busid", busID))
-
-				return DisconnectReasonKernelError
-			}
-
-			if eventEndsSessionForBusID(ev, busID) {
-				return DisconnectReasonClientGone
-			}
+		tick := e.waitForSessionEndTick(ctx, busID, handle, events, pollCh)
+		if tick.done {
+			return tick.reason
 		}
+
+		events = tick.events
+		pollCh = tick.poll
 	}
 }
 
-// eventEndsSessionForBusID returns true iff ev is a kernel-side signal
-// that the exporter session for busID has ended. kernel-adapter and importer-lifecycle OpenSpec documents
-// says the kernel emits a `remove` uevent on the exported device's
-// DEVPATH when the session tears down; the EventsAdapter's dispatcher
-// turns that into a PortDetachedEvent or DeviceUnboundEvent depending
-// on the SUBSYSTEM. Matching on BusID is sufficient — both events
-// carry the busid verbatim and the handler's subscription is per-
-// session so no cross-talk can masquerade as an end signal.
-func eventEndsSessionForBusID(ev domain.Event, busID domain.BusID) bool {
-	switch e := ev.(type) {
-	case domain.PortDetachedEvent:
-		return e.Port.BusID == busID
-	case domain.DeviceUnboundEvent:
-		return e.Device.BusID == busID
+type sessionEndTick struct {
+	events <-chan domain.Event
+	poll   <-chan time.Time
+	reason DisconnectReason
+	done   bool
+}
+
+func (e *Exporter) waitForSessionEndTick(
+	ctx context.Context,
+	busID domain.BusID,
+	handle *sessionHandle,
+	events <-chan domain.Event,
+	pollCh <-chan time.Time,
+) sessionEndTick {
+	select {
+	case <-handle.done:
+		return sessionEndTick{done: true, reason: DisconnectReasonShutdown}
+	case event, ok := <-events:
+		return e.sessionEventTick(ctx, busID, handle, events, pollCh, event, ok)
+	case <-pollCh:
+		return e.sessionPollTick(ctx, busID, handle, events)
+	}
+}
+
+func (e *Exporter) sessionEventTick(
+	ctx context.Context,
+	busID domain.BusID,
+	handle *sessionHandle,
+	events <-chan domain.Event,
+	pollCh <-chan time.Time,
+	event domain.Event,
+	ok bool,
+) sessionEndTick {
+	if !ok {
+		return e.closedSessionEventsTick(ctx, busID, handle, pollCh)
 	}
 
-	return false
+	if eventEndsSessionForBusID(event, busID) {
+		return completedSessionEndTick(handle)
+	}
+
+	return sessionEndTick{events: events, poll: pollCh}
+}
+
+func (e *Exporter) closedSessionEventsTick(
+	ctx context.Context,
+	busID domain.BusID,
+	handle *sessionHandle,
+	pollCh <-chan time.Time,
+) sessionEndTick {
+	// Losing the advisory uevent source does not prove the kernel-owned
+	// socket ended. Disable this select arm and retain the authoritative
+	// status poll + Shutdown paths.
+	e.logger.Warn("session-end events channel closed unexpectedly",
+		slog.Any("busid", busID))
+
+	if e.sessionActivity != nil && e.exportSessionInactive(ctx, busID) {
+		return completedSessionEndTick(handle)
+	}
+
+	return sessionEndTick{poll: pollCh}
+}
+
+func (e *Exporter) sessionPollTick(
+	ctx context.Context,
+	busID domain.BusID,
+	handle *sessionHandle,
+	events <-chan domain.Event,
+) sessionEndTick {
+	if e.exportSessionInactive(ctx, busID) {
+		return completedSessionEndTick(handle)
+	}
+
+	return sessionEndTick{
+		events: events,
+		poll:   e.clock.After(e.statusPollInterval),
+	}
+}
+
+func completedSessionEndTick(handle *sessionHandle) sessionEndTick {
+	if handle.completeWithoutDisconnect() {
+		return sessionEndTick{done: true, reason: DisconnectReasonClientGone}
+	}
+
+	return sessionEndTick{done: true, reason: DisconnectReasonShutdown}
+}
+
+// exportSessionInactive performs one authoritative status probe. Read or
+// parse failures retain the Session because guessing inactive could orphan a
+// still kernel-owned connection; a later poll or explicit Shutdown retries.
+func (e *Exporter) exportSessionInactive(ctx context.Context, busID domain.BusID) bool {
+	active, err := e.sessionActivity.ExportSessionActive(ctx, busID)
+	if err != nil {
+		e.logger.Warn("exporter session activity probe failed",
+			slog.Any("busid", busID),
+			slog.Any("err", err))
+
+		return false
+	}
+
+	return !active
+}
+
+// eventEndsSessionForBusID accepts only exporter-role lifecycle events.
+// KernelEvents is shared by importer and exporter consumers, so a
+// PortDetachedEvent with a matching remote BusID is not evidence about this
+// host's exported device. usbip_host inactivity is authoritative through the
+// status probe; a DeviceUnboundEvent is also role-correct because it names the
+// local exported device itself.
+func eventEndsSessionForBusID(ev domain.Event, busID domain.BusID) bool {
+	e, ok := ev.(domain.DeviceUnboundEvent)
+
+	return ok && e.Device.BusID == busID
 }
 
 // classifyDisconnectReason maps an ExportOnConn error terminator onto
 // the stable disconnect reason label. The caller invokes this
 // only on the non-nil branch — successful ExportOnConn parks on
-// waitForSessionEnd, which classifies via PortDetached / DeviceUnbound
-// kernel events instead.
+// waitForSessionEnd, which classifies via exporter-side DeviceUnbound
+// events or the authoritative activity probe instead.
 func classifyDisconnectReason(err error) DisconnectReason {
 	if errors.Is(err, context.Canceled) {
 		return DisconnectReasonShutdown
@@ -679,6 +762,8 @@ func classifyDisconnectReason(err error) DisconnectReason {
 // protocol_error)
 // rather than a free-form fallback.
 func (e *Exporter) endSession(h *sessionHandle, reason string) {
+	_ = h.completeWithoutDisconnect()
+
 	if typed := h.disconnectReason.Load(); typed != nil && *typed != "" {
 		reason = *typed
 	}

@@ -21,8 +21,8 @@ type probeCtxKey struct{}
 // silently seed a fresh context.Background and swallow the signal.
 //
 // The test injects a sentinel value into ctx, runs a probe subcommand
-// whose RunE captures cmd.Context().Value, and verifies the sentinel
-// survives the runCtx dispatch unchanged.
+// whose RunE captures cmd.Context().Value through the same executeRoot
+// dispatch used by runCtx, and verifies the sentinel survives unchanged.
 func TestRunCtxPropagatesRootContext(t *testing.T) {
 	t.Parallel()
 
@@ -30,30 +30,18 @@ func TestRunCtxPropagatesRootContext(t *testing.T) {
 
 	var captured any
 
-	probeFactory := func() *cobra.Command {
-		root := newRootCmd()
-		root.AddCommand(&cobra.Command{
-			Use:    "__probe",
-			Hidden: true,
-			RunE: func(cmd *cobra.Command, _ []string) error {
-				captured = cmd.Context().Value(probeCtxKey{})
+	root := newRootCmd()
+	root.AddCommand(&cobra.Command{
+		Use:    "__probe",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			captured = cmd.Context().Value(probeCtxKey{})
 
-				return nil
-			},
-		})
-
-		return root
-	}
-
-	prev := rootCmdFactory
-
-	rootCmdFactory = probeFactory
-
-	t.Cleanup(func() {
-		rootCmdFactory = prev
+			return nil
+		},
 	})
 
-	code, err := runCtx(ctx, []string{"__probe"})
+	code, err := executeRoot(ctx, []string{"__probe"}, root)
 	require.NoError(t, err, "probe subcommand should succeed")
 	require.Equal(t, 0, code)
 	require.Equal(t, "sentinel", captured,

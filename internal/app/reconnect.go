@@ -380,11 +380,11 @@ func (i *Importer) portIsDetached(ctx context.Context, id domain.PortID) bool {
 }
 
 // runReconnectLoop runs attempts 1..MaxAttempts (0 = infinite) gated by
-// the Backoff. Each iteration sleeps, then re-attaches via the public
-// Attach path so the whole dial-handshake-handoff sequence (importer-lifecycle OpenSpec)
+// the Backoff. Each iteration sleeps, then re-attaches via the shared
+// attach path so the whole dial-handshake-handoff sequence (importer-lifecycle OpenSpec)
 // is exercised. On success, the old handle is removed and the loop
-// exits; the replacement watcher is already running inside the
-// successful Attach return.
+// exits; a successful recursive Attach resets the shared strategy before
+// starting its replacement watcher.
 //
 // A successful Attach that follows a user-initiated Detach on the
 // original handle must be rolled back: Detach sets handle.detaching
@@ -429,9 +429,13 @@ func (i *Importer) runReconnectLoop(
 			return
 		}
 
-		newPort, err := i.Attach(ctx, p.endpoint, p.busID, p.opts)
+		attemptOpts := p.opts
+
+		attemptOpts.resetBackoffOnSuccess = true
+
+		newPort, newHandle, err := i.attach(ctx, p.endpoint, p.busID, attemptOpts)
 		if err == nil {
-			i.finishReconnectSuccess(ctx, newPort, p, attempt, source)
+			i.finishReconnectSuccess(ctx, newPort, newHandle, p, attempt, source)
 
 			return
 		}
@@ -491,6 +495,7 @@ func (i *Importer) runReconnectLoop(
 func (i *Importer) finishReconnectSuccess(
 	ctx context.Context,
 	newPort domain.Port,
+	newHandle *portHandle,
 	p reconnectParams,
 	attempt int,
 	source string,
@@ -500,7 +505,7 @@ func (i *Importer) finishReconnectSuccess(
 		// the original handle already; the user expects the device
 		// to stay gone. Roll back the replacement kernel handoff
 		// before it wins the race.
-		i.rollbackSupersededReconnect(ctx, newPort.ID, p, source)
+		i.rollbackSupersededReconnect(ctx, newPort.ID, newHandle, p, source)
 
 		return
 	}
@@ -512,20 +517,6 @@ func (i *Importer) finishReconnectSuccess(
 	// PortID than the original, the gauge would otherwise stay
 	// inflated by one. The rollback path does the same refresh; the
 	// success path needs the symmetric refresh too.
-
-	// Per importer-lifecycle OpenSpec / BackoffStrategy contract (internal/app/backoff.go:20
-	// and pkg/usbip/backoff.go:19): "Reset is called after a successful
-	// reconnect so the next failure starts from the smallest delay
-	// again." Without this call a stateful backoff stays escalated
-	// across outages and the next failure pays the last-attempt delay
-	// instead of the configured floor. Reset is NOT invoked on the
-	// rollback-superseded branch above: that path is not a user-
-	// visible success (the kernel port is about to be detached). The
-	// Backoff field is typed as an interface with nil-zero; guard
-	// before the call so a caller that passes nil does not crash.
-	if p.opts.Backoff != nil {
-		p.opts.Backoff.Reset()
-	}
 
 	i.logger.Info(
 		"reconnect succeeded",
@@ -539,8 +530,9 @@ func (i *Importer) finishReconnectSuccess(
 
 // rollbackSupersededReconnect releases the kernel port that a
 // reconnect-path Attach acquired after the user's Detach had already
-// bounded-waited past the wedged watcher. The replacement handle is
-// already registered in the map by Attach's finishAttach call.
+// bounded-waited past the wedged watcher. The caller supplies the exact handle
+// returned by the shared attach path; rollback never rediscovers ownership
+// through a PortID that may already name a newer attachment generation.
 //
 // kernel.DetachPort fires BEFORE the handle map entry is removed, and
 // the entry is removed only on DetachPort success. If DetachPort
@@ -554,19 +546,32 @@ func (i *Importer) finishReconnectSuccess(
 // letting the watcher keep running would spawn another Attempt on
 // every detach uevent.
 func (i *Importer) rollbackSupersededReconnect(
-	ctx context.Context, newID domain.PortID, p reconnectParams, source string,
+	ctx context.Context,
+	newID domain.PortID,
+	fresh *portHandle,
+	p reconnectParams,
+	source string,
 ) {
-	i.mu.RLock()
+	// A Detach that targeted the replacement while Attach was still
+	// publishing it has already installed an exact-handle compensating
+	// teardown. Do not race that owner or automatically retry its failed
+	// attempt: the handle remains registered for a later explicit retry.
+	if fresh.detaching.Load() {
+		i.logger.Info(
+			"reconnect rollback already owned by detach",
+			slog.Any("new_port_id", newID),
+			slog.Any("old_port_id", p.portID),
+			slog.String("source", source),
+		)
 
-	fresh, ok := i.handles[newID]
-
-	i.mu.RUnlock()
-
-	if ok && fresh != nil {
-		fresh.cancel()
+		return
 	}
 
-	err := i.kernel.DetachPort(ctx, newID)
+	// The reconnect context is derived from the original handle and is
+	// already cancelled when user Detach wins. Kernel cleanup must outlive
+	// that cancellation, while detachExactHandle still shares ownership
+	// with a public Detach that races this transition.
+	err := i.detachExactHandle(context.WithoutCancel(ctx), newID, fresh)
 	if err != nil {
 		i.logger.Warn(
 			"rollback reconnect detach failed; handle preserved for retry",
@@ -580,14 +585,6 @@ func (i *Importer) rollbackSupersededReconnect(
 		// Detach(newID) can drive a fresh kernel.DetachPort call.
 		return
 	}
-
-	i.mu.Lock()
-
-	if cur, stillOurs := i.handles[newID]; stillOurs && cur == fresh {
-		delete(i.handles, newID)
-	}
-
-	i.mu.Unlock()
 
 	i.logger.Info(
 		"reconnect rolled back after Detach",

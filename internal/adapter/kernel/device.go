@@ -118,7 +118,7 @@ func (a *ExporterAdapter) ListLocalDevices(ctx context.Context) ([]domain.Device
 // usbipStatusUsed is the SDEV_ST_USED value the kernel writes to
 // /sys/bus/usb/devices/<busid>/usbip_status when an importer is
 // actively attached. Matches drivers/usb/usbip/stub_dev.h definitions.
-const usbipStatusUsed = "2"
+const usbipStatusUsed uint32 = 2
 
 // ListExportedDevices returns only devices currently exportable on
 // the wire: bound to usbip-host AND not actively claimed by an
@@ -161,7 +161,7 @@ func (a *ExporterAdapter) isExportable(busID domain.BusID) bool {
 		return false
 	}
 
-	status, err := ReadLine(a.fs, path.Join(SysfsUSBDevices, string(busID), SysfsUsbipStatus))
+	status, err := ReadUint(a.fs, path.Join(SysfsUSBDevices, string(busID), SysfsUsbipStatus))
 	if err != nil {
 		return false
 	}

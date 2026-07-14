@@ -245,6 +245,12 @@ func probeStatusOnce(ctx context.Context, client *http.Client) (bool, error) {
 
 	defer func() { _ = resp.Body.Close() }()
 
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		_, _ = io.Copy(io.Discard, resp.Body)
+
+		return false, fmt.Errorf("%w: HTTP %d", errDrainStatusResponse, resp.StatusCode)
+	}
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return false, fmt.Errorf("read GET / body: %w", err)
@@ -257,15 +263,55 @@ func probeStatusOnce(ctx context.Context, client *http.Client) (bool, error) {
 		return false, fmt.Errorf("decode GET / body: %w", err)
 	}
 
-	return len(state.Sessions) == 0 && !state.Listening.Accepting, nil
+	err = validateStatusProbe(state)
+	if err != nil {
+		return false, err
+	}
+
+	return len(*state.Sessions) == 0 && !*state.Listening.Accepting, nil
 }
+
+// validateStatusProbe requires presence-aware schema-v1 evidence before drain
+// interprets an empty array and false boolean as completion.
+func validateStatusProbe(state statusProbe) error {
+	if state.Schema != schemaVersion {
+		return fmt.Errorf("%w: schema %q, want %q",
+			errDrainStatusResponse, state.Schema, schemaVersion)
+	}
+
+	if state.Sessions == nil {
+		return fmt.Errorf("%w: missing sessions", errDrainStatusResponse)
+	}
+
+	if state.Listening == nil {
+		return fmt.Errorf("%w: missing listening", errDrainStatusResponse)
+	}
+
+	if state.Listening.Accepting == nil {
+		return fmt.Errorf("%w: missing listening.accepting", errDrainStatusResponse)
+	}
+
+	return nil
+}
+
+// errDrainStatusResponse classifies an HTTP or schema response that cannot
+// prove drain state. The client fails closed rather than treating missing JSON
+// fields as their Go zero values and incorrectly reporting completion.
+var errDrainStatusResponse = errors.New("invalid GET / status response")
 
 // statusProbe is a minimal view of the schema-v1 status JSON — only
 // the fields drain needs to make its go/no-go decision. Using a typed
 // view (not map[string]any) keeps the JSON contract compiler-checked.
 type statusProbe struct {
-	Sessions  []json.RawMessage `json:"sessions"`
-	Listening listeningState    `json:"listening"`
+	Schema    string                `json:"schema"`
+	Sessions  *[]json.RawMessage    `json:"sessions"`
+	Listening *statusProbeListening `json:"listening"`
+}
+
+// statusProbeListening uses a pointer for accepting so false remains
+// distinguishable from an omitted or null required field.
+type statusProbeListening struct {
+	Accepting *bool `json:"accepting"`
 }
 
 // isDaemonGoneError reports whether err from an HTTP Do call looks

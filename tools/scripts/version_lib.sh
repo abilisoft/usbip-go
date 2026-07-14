@@ -6,21 +6,27 @@ set -euo pipefail
 
 readonly HARNESS_VERSION_FALLBACK_BASE="0.0.0"
 readonly HARNESS_VERSION_FALLBACK_SHA="0000000"
-readonly HARNESS_VERSION_TAG_GLOB="[0-9]*.[0-9]*.[0-9]*"
-readonly HARNESS_VERSION_TAG_REGEX='^[0-9]+\.[0-9]+\.[0-9]+$'
+readonly HARNESS_BUILD_DATE_FALLBACK="unknown"
+readonly HARNESS_VERSION_TAG_GLOB="v[0-9]*.[0-9]*.[0-9]*"
+readonly HARNESS_VERSION_TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+$'
+readonly HARNESS_GIT="${HARNESS_GIT:-git}"
 
 harness_git_short_sha() {
-	git rev-parse --short=7 HEAD 2>/dev/null || printf '%s\n' "${HARNESS_VERSION_FALLBACK_SHA}"
+	"${HARNESS_GIT}" rev-parse --short=7 HEAD 2>/dev/null || printf '%s\n' "${HARNESS_VERSION_FALLBACK_SHA}"
 }
 
 harness_git_full_sha() {
-	git rev-parse HEAD 2>/dev/null || printf '%s\n' "unknown"
+	"${HARNESS_GIT}" rev-parse HEAD 2>/dev/null || printf '%s\n' "unknown"
+}
+
+harness_git_commit_date() {
+	"${HARNESS_GIT}" show -s --format=%cI HEAD 2>/dev/null || printf '%s\n' "${HARNESS_BUILD_DATE_FALLBACK}"
 }
 
 harness_git_dirty_flag() {
 	local status
 
-	if status=$(git status --porcelain --untracked-files=all 2>/dev/null) && [[ -n "${status}" ]]; then
+	if status=$("${HARNESS_GIT}" status --porcelain --untracked-files=all 2>/dev/null) && [[ -n "${status}" ]]; then
 		printf '%s\n' "true"
 		return
 	fi
@@ -29,12 +35,17 @@ harness_git_dirty_flag() {
 }
 
 harness_latest_version_tag() {
+	local -a describe_args=()
 	local tag
 
-	tag=$(git describe --tags --abbrev=0 --match "${HARNESS_VERSION_TAG_GLOB}" 2>/dev/null) || return 1
-	if [[ ! "${tag}" =~ ${HARNESS_VERSION_TAG_REGEX} ]]; then
-		return 1
-	fi
+	while IFS= read -r tag; do
+		if [[ "${tag}" =~ ${HARNESS_VERSION_TAG_REGEX} ]]; then
+			describe_args+=(--match "${tag}")
+		fi
+	done < <("${HARNESS_GIT}" tag --merged HEAD --list "${HARNESS_VERSION_TAG_GLOB}" 2>/dev/null)
+
+	((${#describe_args[@]} > 0)) || return 1
+	tag=$("${HARNESS_GIT}" describe --tags --abbrev=0 "${describe_args[@]}" 2>/dev/null) || return 1
 
 	printf '%s\n' "${tag}"
 }
@@ -43,11 +54,11 @@ harness_commit_distance() {
 	local tag=${1:-}
 
 	if [[ -n "${tag}" ]]; then
-		git rev-list "${tag}..HEAD" --count 2>/dev/null || printf '%s\n' "0"
+		"${HARNESS_GIT}" rev-list "${tag}..HEAD" --count 2>/dev/null || printf '%s\n' "0"
 		return
 	fi
 
-	git rev-list HEAD --count 2>/dev/null || printf '%s\n' "0"
+	"${HARNESS_GIT}" rev-list HEAD --count 2>/dev/null || printf '%s\n' "0"
 }
 
 harness_pep440_version() {
@@ -63,7 +74,7 @@ harness_pep440_version() {
 	fi
 
 	if tag=$(harness_latest_version_tag); then
-		version="${tag}"
+		version="${tag#v}"
 		distance=$(harness_commit_distance "${tag}")
 	else
 		version="${HARNESS_VERSION_FALLBACK_BASE}"

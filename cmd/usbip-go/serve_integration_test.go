@@ -6,8 +6,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -17,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/abilisoft/usbip-go/pkg/usbip"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,6 +40,233 @@ func lockRunDaemonForTest(t *testing.T) {
 	t.Cleanup(runDaemonTestMu.Unlock)
 }
 
+// TestFinishDaemonShutdownKeepsStatusUntilExporterStops proves the status
+// socket cannot be canceled (and therefore unlinked) while exporter Shutdown
+// is still in flight. Channels provide exact ordering without sleeps.
+func TestFinishDaemonShutdownKeepsStatusUntilExporterStops(t *testing.T) {
+	t.Parallel()
+
+	statusCtx, cancelStatus := context.WithCancel(t.Context())
+	shutdownStarted := make(chan struct{})
+	releaseShutdown := make(chan struct{})
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		finishDaemonShutdown(func() {
+			close(shutdownStarted)
+			<-releaseShutdown
+		}, cancelStatus)
+	}()
+
+	select {
+	case <-shutdownStarted:
+	case <-t.Context().Done():
+		t.Fatal("exporter shutdown did not start")
+	}
+
+	select {
+	case <-statusCtx.Done():
+		t.Fatal("status context canceled before exporter shutdown completed")
+	default:
+	}
+
+	close(releaseShutdown)
+
+	select {
+	case <-done:
+	case <-t.Context().Done():
+		t.Fatal("daemon shutdown coordinator did not return")
+	}
+
+	require.ErrorIs(t, statusCtx.Err(), context.Canceled)
+}
+
+// TestRunDaemonShutdownContract exercises the real runDaemon/status-UDS
+// composition with a deterministic exporter. Each case proves Shutdown is
+// called exactly once, the status endpoint remains responsive until that call
+// returns, error/timeout outcomes are logged, and the UDS disappears only after
+// runDaemon completes.
+func TestRunDaemonShutdownContract(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		shutdownError error
+		waitForExpiry bool
+		wantWarning   string
+	}{
+		{
+			name: "success",
+		},
+		{
+			name:          "error",
+			shutdownError: errTest,
+			wantWarning:   "exporter shutdown returned error",
+		},
+		{
+			name:          "timeout",
+			waitForExpiry: true,
+			wantWarning:   "context deadline exceeded",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			lockRunDaemonForTest(t)
+
+			var listenConfig net.ListenConfig
+
+			listener, err := listenConfig.Listen(t.Context(), "tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = listener.Close() })
+
+			sockPath := filepath.Join(shortSocketTempDir(t), "status.sock")
+			shutdownStarted := make(chan struct{})
+			releaseShutdown := make(chan struct{})
+
+			var shutdownCalls atomic.Int32
+
+			fake := &fakeDaemonExporter{
+				serve: func(ctx context.Context, _ net.Listener) error {
+					<-ctx.Done()
+
+					return ctx.Err()
+				},
+				shutdown: func(ctx context.Context) error {
+					shutdownCalls.Add(1)
+					close(shutdownStarted)
+
+					if tt.waitForExpiry {
+						<-ctx.Done()
+
+						return ctx.Err()
+					}
+
+					<-releaseShutdown
+
+					return tt.shutdownError
+				},
+			}
+
+			deps := daemonDependencies{
+				listen: func(context.Context, *ServeConfig) (net.Listener, error) {
+					return listener, nil
+				},
+				buildExporter: func(*ServeConfig, *slog.Logger) (daemonExporter, error) {
+					return fake, nil
+				},
+			}
+
+			var logs bytes.Buffer
+
+			log := slog.New(slog.NewTextHandler(&logs, nil))
+			ctx := context.WithValue(t.Context(), loggerContextKey{}, log)
+
+			cfg := &ServeConfig{
+				Listen:           listener.Addr().String(),
+				StatusSocket:     sockPath,
+				ShutdownTimeout:  500 * time.Millisecond,
+				HandshakeTimeout: time.Second,
+				MaxSessions:      1,
+			}
+
+			done := make(chan error, 1)
+
+			go func() {
+				done <- runDaemonWithDependencies(ctx, cfg, deps)
+			}()
+
+			require.Eventually(t, func() bool {
+				_, statErr := os.Stat(sockPath)
+
+				return statErr == nil
+			}, 2*time.Second, 20*time.Millisecond, "status socket not bound")
+
+			client := newUDSHTTPClient(sockPath)
+			t.Cleanup(client.CloseIdleConnections)
+
+			req, err := http.NewRequestWithContext(
+				t.Context(),
+				http.MethodPost,
+				"http://usbipd/drain",
+				nil,
+			)
+			require.NoError(t, err)
+
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusAccepted, resp.StatusCode)
+			require.NoError(t, resp.Body.Close())
+
+			select {
+			case <-shutdownStarted:
+			case <-time.After(2 * time.Second):
+				t.Fatal("exporter shutdown did not start")
+			}
+
+			statusReq, err := http.NewRequestWithContext(
+				t.Context(),
+				http.MethodGet,
+				"http://usbipd/",
+				nil,
+			)
+			require.NoError(t, err)
+
+			statusResp, err := client.Do(statusReq)
+			require.NoError(t, err, "status UDS must remain responsive during exporter shutdown")
+			require.Equal(t, http.StatusOK, statusResp.StatusCode)
+			require.NoError(t, statusResp.Body.Close())
+
+			if !tt.waitForExpiry {
+				close(releaseShutdown)
+			}
+
+			select {
+			case runErr := <-done:
+				require.NoError(t, runErr)
+			case <-time.After(3 * time.Second):
+				t.Fatal("runDaemon did not finish after exporter shutdown")
+			}
+
+			require.Equal(t, int32(1), shutdownCalls.Load())
+
+			_, statErr := os.Stat(sockPath)
+			require.True(t, os.IsNotExist(statErr),
+				"status socket must disappear after shutdown, stat err=%v", statErr)
+
+			if tt.wantWarning == "" {
+				require.NotContains(t, logs.String(), "exporter shutdown returned error")
+			} else {
+				require.Contains(t, logs.String(), tt.wantWarning)
+			}
+		})
+	}
+}
+
+type fakeDaemonExporter struct {
+	serve    func(context.Context, net.Listener) error
+	shutdown func(context.Context) error
+}
+
+func (f *fakeDaemonExporter) Serve(ctx context.Context, listener net.Listener) error {
+	return f.serve(ctx, listener)
+}
+
+func (f *fakeDaemonExporter) Shutdown(ctx context.Context) error {
+	return f.shutdown(ctx)
+}
+
+func (f *fakeDaemonExporter) ListExported(context.Context) ([]usbip.Device, error) {
+	return nil, nil
+}
+
+func (f *fakeDaemonExporter) Sessions(context.Context) []usbip.Session {
+	return nil
+}
+
 // TestRunContextDrainExits spins the full run() composition (listener +
 // exporter + status server + signal plumbing) and verifies POST /drain
 // returns the process within ShutdownTimeout while context.Cause
@@ -48,7 +278,7 @@ func TestRunContextDrainExits(t *testing.T) {
 	t.Parallel()
 	lockRunDaemonForTest(t)
 
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	sockPath := filepath.Join(dir, "status.sock")
 
 	// Free port — bind & release so the Listen call inside run() picks
@@ -140,7 +370,7 @@ func TestRunDaemonUnlinksStatusSocketOnForcedShutdown(t *testing.T) {
 	t.Parallel()
 	lockRunDaemonForTest(t)
 
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	sockPath := filepath.Join(dir, "status.sock")
 
 	// Install a stub that binds + announces ready but deliberately

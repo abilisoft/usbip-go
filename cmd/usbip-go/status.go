@@ -99,6 +99,12 @@ var errStatusLockFdTooLarge = errors.New("status lock fd exceeds platform int wi
 // the server goroutine indefinitely (G112 / Slowloris defence).
 const statusReadHeaderTimeout = 5 * time.Second
 
+// statusServerShutdownTimeout is the grace window for already-accepted status
+// handlers to observe context cancellation and return. The UDS control plane
+// performs no long-running work in request goroutines, so one second is ample;
+// after the bound, http.Server.Close force-closes every remaining connection.
+const statusServerShutdownTimeout = time.Second
+
 // statusSocketMode is the permission mask applied to the UDS
 // immediately after net.Listen via os.Chmod while the sidecar flock is
 // still held. 0660 matches the operations-observability and json-contracts
@@ -199,15 +205,11 @@ func serveStatus(
 	// function-scoped defers before returning to main.
 	defer func() { _ = lis.Close() }()
 
-	// drainCtx is the daemon ctx itself, NOT context.WithoutCancel(ctx).
-	// The HTTP request context is ignored by the handler (the second
-	// arg is `_ *http.Request`), so the status client's connection
-	// state never reaches Drain — that part of the previous comment
-	// stands. The daemon's own cancellation MUST propagate, however:
-	// an operator who Ctrl-C's the daemon process AFTER triggering
-	// drain expects the in-flight Shutdown call to abort, not to keep
-	// running detached past the parent ctx. context.WithoutCancel
-	// would have severed the daemon-cancel signal too.
+	// Drain is independent of the initiating HTTP request. runDaemon keeps this
+	// server context alive until its bounded Exporter.Shutdown call returns, so
+	// the first accepted POST can cancel Serve even if the client disconnects.
+	// The concrete statusExporter.Drain performs no blocking cleanup itself;
+	// runDaemon exclusively owns that one bounded Shutdown call.
 	drainCtx := ctx
 
 	// drainStarted gates handleStatusDrain so concurrent / repeat
@@ -240,31 +242,94 @@ func serveStatus(
 		ReadHeaderTimeout: statusReadHeaderTimeout,
 	}
 
-	// closeCtx is canceled when serveStatus returns for any reason, not
-	// only on ctx cancellation. Without this scope, the watcher goroutine
-	// leaks if server.Serve returns early due to a non-context error —
-	// it would stay parked on ctx.Done until the wider daemon context
-	// is eventually canceled.
-	closeCtx, closeCancel := context.WithCancel(ctx)
-	defer closeCancel()
+	// Every request inherits handlerCtx so shutdown cancels active handler
+	// work before closing accepted connections. The status control plane first
+	// gives canceled handlers one short bounded grace window, then force-closes
+	// any remaining new, active, or idle connection.
+	handlerCtx, cancelHandlers := context.WithCancel(ctx)
 
-	go func() {
-		<-closeCtx.Done()
-		// Force-close the listener; http.Serve returns with the resulting
-		// net.ErrClosed and shuts cleanly.
-		_ = lis.Close()
-	}()
+	server.BaseContext = func(net.Listener) context.Context { return handlerCtx }
+
+	// closeCtx is also canceled when Serve returns unexpectedly. Waiting on
+	// closeErrCh below guarantees the Close pass has completed before
+	// serveStatus returns on either cancellation or listener failure.
+	closeCtx, closeCancel := context.WithCancel(ctx)
+	closeErrCh := make(chan error, 1)
+
+	go coordinateStatusServerClose(ctx, closeCtx, server, cancelHandlers, closeErrCh)
 
 	if started != nil {
 		close(started)
 	}
 
 	serr := server.Serve(lis)
-	if serr != nil && !errors.Is(serr, net.ErrClosed) && !errors.Is(serr, http.ErrServerClosed) {
-		return fmt.Errorf("serve status: %w", serr)
+
+	closeCancel()
+
+	closeErr := <-closeErrCh
+
+	cancelHandlers()
+
+	return combineStatusServerErrors(serr, closeErr)
+}
+
+// combineStatusServerErrors filters expected close sentinels while preserving
+// independent Serve and close-pass failures when both occur.
+func combineStatusServerErrors(serveErr, closeErr error) error {
+	var result error
+
+	if serveErr != nil && !errors.Is(serveErr, net.ErrClosed) && !errors.Is(serveErr, http.ErrServerClosed) {
+		result = fmt.Errorf("serve status: %w", serveErr)
 	}
 
-	return nil
+	if closeErr != nil && !errors.Is(closeErr, net.ErrClosed) && !errors.Is(closeErr, http.ErrServerClosed) {
+		result = errors.Join(result, fmt.Errorf("close status server: %w", closeErr))
+	}
+
+	return result
+}
+
+// coordinateStatusServerClose waits for explicit cancellation or an
+// unexpected Serve return, then reports completion of the full close pass.
+func coordinateStatusServerClose(
+	ctx, closeCtx context.Context,
+	server *http.Server,
+	cancelHandlers context.CancelFunc,
+	closeErrCh chan<- error,
+) {
+	<-closeCtx.Done()
+	cancelHandlers()
+
+	closeErrCh <- closeStatusServer(ctx, server)
+}
+
+// closeStatusServer gives canceled handlers a bounded graceful window and
+// force-closes accepted connections if that grace period expires.
+func closeStatusServer(ctx context.Context, server *http.Server) error {
+	return closeStatusServerWithTimeout(ctx, server, statusServerShutdownTimeout)
+}
+
+// closeStatusServerWithTimeout is the timeout-injected core used by the
+// force-close regression without a wall-clock sleep.
+func closeStatusServerWithTimeout(
+	ctx context.Context,
+	server *http.Server,
+	shutdownTimeout time.Duration,
+) error {
+	shutdownCtx, shutdownCancel := context.WithTimeout(
+		context.WithoutCancel(ctx), shutdownTimeout,
+	)
+	shutdownErr := server.Shutdown(shutdownCtx)
+
+	shutdownCancel()
+
+	if shutdownErr == nil {
+		return nil
+	}
+
+	closeErr := server.Close()
+
+	return errors.Join(shutdownErr, closeErr)
 }
 
 // bindStatusSocket is the mode-atomic bind sequence: it acquires an
@@ -445,8 +510,8 @@ func handleStatusGet(w http.ResponseWriter, r *http.Request, src statusSource) {
 // slow kernel block the status client; the drain is fire-and-forget
 // and the client uses `GET /` to poll for completion. drainCtx is
 // derived from the daemon's server ctx (see serveStatus), so drain
-// outlives the HTTP client but still stops when the daemon itself
-// is asked to shut down.
+// outlives the HTTP client and remains valid until runDaemon finishes its
+// bounded exporter shutdown attempt.
 //
 // started guards against repeat POSTs spawning redundant goroutines.
 // OpenSpec requires `POST /drain` be idempotent at the handler level:
@@ -456,14 +521,9 @@ func handleStatusGet(w http.ResponseWriter, r *http.Request, src statusSource) {
 // see started already true and return 200 OK as an idempotent
 // no-op acknowledgement. The two-code split lets monitoring tools
 // distinguish "I initiated this drain" from "someone else already
-// did" without parsing a response body. The underlying src.Drain
-// implementation is also idempotent: Exporter.Shutdown flips a
-// `shutdown` flag under its mutex on first entry and captures-and-
-// clears the tracked listener so subsequent calls find an empty
-// session map and return after the no-op cleanup pass. The
-// handler-level CAS guard avoids the wasted goroutines and the
-// duplicate error log noise that would otherwise occur on the rare
-// path where Drain returns non-nil.
+// did" without parsing a response body. The handler-level CAS guard avoids
+// redundant Serve cancellation and duplicate error-log noise; runDaemon owns
+// the subsequent once-only Exporter.Shutdown.
 func handleStatusDrain(drainCtx context.Context, started *atomic.Bool, w http.ResponseWriter, src statusSource) {
 	if !started.CompareAndSwap(false, true) {
 		w.WriteHeader(http.StatusOK)

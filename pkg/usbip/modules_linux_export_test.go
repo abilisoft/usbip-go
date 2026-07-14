@@ -6,26 +6,29 @@
 package usbip
 
 import (
+	"context"
 	"io/fs"
 )
 
-// probeOneAtForTestInvoke is the Linux-tagged shim used by
-// ProbeOneAtForTest to route into probeOneAt. Split out so the
-// non-Linux build doesn't see probeOneAt at all.
 func probeOneAtForTestInvoke(root, name string) ModuleState {
 	return probeOneAt(root, name)
 }
 
-// SwapProbeStatFnForTest replaces the stat indirection used by
-// probeOneAt under probeStatMu. Returns the previous function so
-// callers can restore it in t.Cleanup.
-func SwapProbeStatFnForTest(fn func(string) (fs.FileInfo, error)) func(string) (fs.FileInfo, error) {
-	probeStatMu.Lock()
-	defer probeStatMu.Unlock()
+// ProbeOneAtWithStatForTest exposes the pure stat-injection helper so parallel
+// black-box tests can classify failures without mutating process-global state.
+func ProbeOneAtWithStatForTest(
+	root string,
+	name string,
+	stat func(string) (fs.FileInfo, error),
+) ModuleState {
+	return probeOneAtWithStat(root, name, stat)
+}
 
-	old := probeStatFn
-
-	probeStatFn = fn
-
-	return old
+// ProbeKernelModulesWithForTest exposes the Linux probe loop with a controlled
+// per-module probe so black-box tests can cancel between entries.
+func ProbeKernelModulesWithForTest(
+	ctx context.Context,
+	probe func(string) ModuleState,
+) (map[string]ModuleState, error) {
+	return probeKernelModulesWith(ctx, unknownModuleStates(), probe)
 }

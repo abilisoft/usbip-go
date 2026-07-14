@@ -10,6 +10,7 @@ import (
 	"iter"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	internalapp "github.com/abilisoft/usbip-go/internal/app"
@@ -24,8 +25,8 @@ import (
 // consumers never need to import internal/app to classify a returned
 // error (public-library-api OpenSpec).
 //
-// The translation is scoped to the three internal sentinels that
-// would otherwise leak across the boundary. Any other error passes
+// The translation is scoped to internal sentinels that would otherwise leak
+// across the boundary. Any other error passes
 // through unchanged so adapter-level wrap chains (fmt.Errorf with %w
 // from transport/kernel/codec) reach the caller intact.
 func translateInternalErr(err error) error {
@@ -36,6 +37,8 @@ func translateInternalErr(err error) error {
 	switch {
 	case errors.Is(err, internalapp.ErrImporterClosed):
 		return ErrImporterClosed
+	case errors.Is(err, internalapp.ErrEventStreamClosed):
+		return ErrEventStreamClosed
 	case errors.Is(err, internalapp.ErrAlreadyShutdown):
 		return ErrExporterShutdown
 	case errors.Is(err, internalapp.ErrServeAlreadyRunning):
@@ -54,6 +57,10 @@ func translateInternalErr(err error) error {
 		detail := strings.TrimPrefix(err.Error(), internalapp.ErrACLInvalid.Error()+": ")
 
 		return fmt.Errorf("%w: %s", ErrACLInvalid, detail)
+	case errors.Is(err, internalapp.ErrAcceptRateLimitInvalid):
+		detail := strings.TrimPrefix(err.Error(), internalapp.ErrAcceptRateLimitInvalid.Error()+": ")
+
+		return fmt.Errorf("%w: %s", ErrAcceptRateLimitInvalid, detail)
 	}
 
 	return err
@@ -173,20 +180,6 @@ type AttachOptions struct {
 	ShutdownTimeout time.Duration
 }
 
-// toInternal translates the public AttachOptions shape to the internal
-// app.AttachOptions. Centralising the translation keeps the public
-// shape decoupled from internal evolutions.
-func (a AttachOptions) toInternal() internalapp.AttachOptions {
-	return internalapp.AttachOptions{
-		AutoReconnect:      a.AutoReconnect,
-		Backoff:            backoffToInternal(a.Backoff),
-		MaxAttempts:        a.MaxAttempts,
-		OnReconnect:        a.OnReconnect,
-		StatusPollInterval: a.StatusPollInterval,
-		ShutdownTimeout:    a.ShutdownTimeout,
-	}
-}
-
 // Importer is the public wrapper around internalapp.Importer. Method
 // bodies forward after argument translation so the internal shape can
 // evolve without breaking consumers. Construct via NewImporter; the
@@ -214,10 +207,12 @@ func (i *Importer) ListRemote(ctx context.Context, r RemoteEndpoint) ([]Device, 
 
 // Attach runs the USB/IP import handshake for busID at r and returns
 // the attached Port. AttachOptions is merged with the Importer-level
-// defaults (WithImporterBackoff, WithImporterStatusPollInterval) then
+// defaults (WithImporterBackoff, WithImporterBackoffFactory, and
+// WithImporterStatusPollInterval) then
 // translated to the internal form before forwarding.
 func (i *Importer) Attach(ctx context.Context, r RemoteEndpoint, busID BusID, opts AttachOptions) (Port, error) {
-	port, err := i.inner.Attach(ctx, r, busID, i.mergeAttachOptions(opts).toInternal())
+	port, err := i.inner.Attach(ctx, r, busID,
+		i.attachOptionsToInternal(i.mergeAttachOptions(opts)))
 
 	return port, translateInternalErr(err)
 }
@@ -241,20 +236,62 @@ func (i *Importer) Watch(ctx context.Context) iter.Seq[Event] {
 	return i.inner.Watch(ctx)
 }
 
+// WatchWithErrors returns an error-aware event iterator. Ordinary events are
+// paired with nil; subscription failures preserve their wrapped cause; and an
+// unexpectedly closed established source yields ErrEventStreamClosed. Caller
+// cancellation and Importer.Close end the iterator without an error.
+func (i *Importer) WatchWithErrors(ctx context.Context) iter.Seq2[Event, error] {
+	return func(yield func(Event, error) bool) {
+		for event, watchErr := range i.inner.WatchWithErrors(ctx) {
+			if !yield(event, translateInternalErr(watchErr)) {
+				return
+			}
+		}
+	}
+}
+
 // Close cancels every active port handle, drains background goroutines,
 // and marks the Importer closed. Idempotent via the internal sync.Once.
 func (i *Importer) Close() error {
 	return translateInternalErr(i.inner.Close())
 }
 
+// attachOptionsToInternal translates the public AttachOptions shape and the
+// Importer's configured defaults to internal app options. Custom strategy
+// calls share one facade-owned mutex for v1 compatibility; a configured
+// factory still supplies independent state per logical attachment.
+func (i *Importer) attachOptionsToInternal(a AttachOptions) internalapp.AttachOptions {
+	out := internalapp.AttachOptions{
+		AutoReconnect:      a.AutoReconnect,
+		MaxAttempts:        a.MaxAttempts,
+		OnReconnect:        a.OnReconnect,
+		StatusPollInterval: a.StatusPollInterval,
+		ShutdownTimeout:    a.ShutdownTimeout,
+	}
+
+	switch {
+	case a.Backoff != nil:
+		out.Backoff = backoffToInternal(a.Backoff, i.cfg.backoffMu)
+	case i.cfg.backoffFactory != nil:
+		factory := i.cfg.backoffFactory.newStrategy
+
+		out.BackoffFactory = func() internalapp.BackoffStrategy {
+			// A factory guarantees a separately owned strategy, so its adapter
+			// receives a per-Attachment lock rather than the compatibility lock
+			// shared by legacy strategy values.
+			return backoffToInternal(factory(), &sync.Mutex{})
+		}
+	case i.cfg.backoff != nil:
+		out.Backoff = backoffToInternal(i.cfg.backoff, i.cfg.backoffMu)
+	}
+
+	return out
+}
+
 // mergeAttachOptions overlays importer-level defaults onto the per-
 // call AttachOptions. Caller-supplied fields win; unset fields pick
 // up the corresponding WithImporter* value (if any).
 func (i *Importer) mergeAttachOptions(opts AttachOptions) AttachOptions {
-	if opts.Backoff == nil {
-		opts.Backoff = i.cfg.backoff
-	}
-
 	if opts.StatusPollInterval == 0 {
 		opts.StatusPollInterval = i.cfg.statusPollInterval
 	}
@@ -326,29 +363,39 @@ func (e *Exporter) Serve(ctx context.Context, listener net.Listener) error {
 	return translateInternalErr(e.inner.Serve(ctx, listener))
 }
 
-// ListenAndServe binds addr through the transport adapter (so accepted
-// connections inherit the WithExporterTransportOptions tuning) and
-// then runs Serve on the resulting listener. It is the option-honoring
+// ListenAndServe reserves the Exporter's lifecycle, then binds addr through
+// the transport adapter (so accepted connections inherit the
+// WithExporterTransportOptions tuning) and runs the accept loop. It is the option-honoring
 // counterpart to Serve(ctx, listener) for callers that do not need
 // systemd activation or other foreign listener wiring.
 //
-// A Listen failure short-circuits the call: ListenAndServe surfaces
-// the wrapped error and never invokes Serve. The bound listener is
-// closed deterministically on Serve's return — the transport
-// adapter's ctxListener already closes on ctx cancellation, but a
-// Serve early-return path (e.g. startServing rejecting a second
-// concurrent caller, ErrAlreadyShutdown) might exit before any ctx
-// signal lands. ListenAndServe's deferred Close covers that gap so
-// the bound port never outlives the call.
+// Lifecycle rejection precedes Listen. A Listen failure short-circuits the
+// reserved call and is surfaced wrapped. Any bound listener is closed
+// deterministically before ListenAndServe returns.
 func (e *Exporter) ListenAndServe(ctx context.Context, addr string) error {
-	listener, err := e.transport.Listen(ctx, addr, e.cfg.transportOptions)
-	if err != nil {
-		return fmt.Errorf("usbip.Exporter.ListenAndServe: %w", err)
-	}
+	var listener net.Listener
 
-	defer func() { _ = listener.Close() }()
+	defer func() {
+		if listener != nil {
+			_ = listener.Close()
+		}
+	}()
 
-	return translateInternalErr(e.inner.Serve(ctx, listener))
+	err := e.inner.ServeWithListenerFactory(
+		ctx,
+		func(listenCtx context.Context) (net.Listener, error) {
+			var listenErr error
+
+			listener, listenErr = e.transport.Listen(listenCtx, addr, e.cfg.transportOptions)
+			if listenErr != nil {
+				return nil, fmt.Errorf("usbip.Exporter.ListenAndServe: %w", listenErr)
+			}
+
+			return listener, nil
+		},
+	)
+
+	return translateInternalErr(err)
 }
 
 // Sessions returns a snapshot of currently-accepted sessions, sorted

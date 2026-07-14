@@ -6,6 +6,7 @@ package usbip
 import (
 	"log/slog"
 	"runtime"
+	"sync"
 	"time"
 
 	internalapp "github.com/abilisoft/usbip-go/internal/app"
@@ -28,7 +29,7 @@ func ProbeOneAtForTest(root, name string) ModuleState {
 // BackoffToInternalForTest exposes backoffToInternal so backoff_test.go
 // can assert the translation paths without duplicating the type-switch.
 func BackoffToInternalForTest(b BackoffStrategy) internalapp.BackoffStrategy {
-	return backoffToInternal(b)
+	return backoffToInternal(b, &sync.Mutex{})
 }
 
 // TranslateInternalErrForTest exposes the internal→public sentinel
@@ -40,11 +41,39 @@ func TranslateInternalErrForTest(err error) error {
 }
 
 // NewImporterFromInternalForTest wraps an already-constructed internal
-// Importer in a public *Importer so facade tests can exercise forwarding
-// without exposing adapter injection on the public surface. Consumers
-// can never reach this helper — it lives in an _test.go file.
-func NewImporterFromInternalForTest(inner *internalapp.Importer) *Importer {
-	return &Importer{inner: inner}
+// Importer in a public *Importer so facade tests can exercise forwarding and
+// public options without exposing adapter injection on the public surface.
+// Consumers can never reach this helper — it lives in an _test.go file.
+func NewImporterFromInternalForTest(
+	inner *internalapp.Importer,
+	opts ...ImporterOption,
+) *Importer {
+	cfg := newImporterConfig()
+
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+
+	return &Importer{inner: inner, cfg: cfg}
+}
+
+// ImporterAttachOptionsForTest applies importer defaults and exposes the
+// internal translation result so facade tests can verify backoff precedence
+// without performing kernel or network side effects.
+func ImporterAttachOptionsForTest(
+	attach AttachOptions,
+	opts ...ImporterOption,
+) internalapp.AttachOptions {
+	cfg := newImporterConfig()
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	importer := &Importer{cfg: cfg}
+
+	return importer.attachOptionsToInternal(importer.mergeAttachOptions(attach))
 }
 
 // NewExporterFromInternalForTest mirrors NewImporterFromInternalForTest
@@ -82,7 +111,7 @@ type ImporterConfigForTest struct {
 // and returns the resulting view. Tests use this to prove each With*
 // option lands on the matching config field.
 func NewImporterConfigForTest(opts ...ImporterOption) ImporterConfigForTest {
-	cfg := importerConfig{}
+	cfg := newImporterConfig()
 
 	for _, opt := range opts {
 		opt(&cfg)
@@ -96,6 +125,15 @@ func (c ImporterConfigForTest) LoggerForTest() *slog.Logger { return c.inner.log
 
 // BackoffForTest returns the stored backoff strategy (or nil if unset).
 func (c ImporterConfigForTest) BackoffForTest() BackoffStrategy { return c.inner.backoff }
+
+// BackoffFactoryForTest returns the configured per-attachment factory.
+func (c ImporterConfigForTest) BackoffFactoryForTest() BackoffFactory {
+	if c.inner.backoffFactory == nil {
+		return nil
+	}
+
+	return c.inner.backoffFactory.newStrategy
+}
 
 // StatusPollIntervalForTest returns the stored poll interval.
 func (c ImporterConfigForTest) StatusPollIntervalForTest() time.Duration {
@@ -137,6 +175,12 @@ func (c ExporterConfigForTest) MaxSessionsPerPeerForTest() int { return c.inner.
 
 // AcceptRateLimitForTest returns the stored rate-limit rps.
 func (c ExporterConfigForTest) AcceptRateLimitForTest() float64 { return c.inner.acceptRateLimit }
+
+// AcceptRateLimitSetForTest reports whether the option was explicitly
+// supplied, distinguishing an omitted default from an explicit disabled zero.
+func (c ExporterConfigForTest) AcceptRateLimitSetForTest() bool {
+	return c.inner.acceptRateLimitSet
+}
 
 // AllowCIDRsForTest returns the stored allow-list.
 func (c ExporterConfigForTest) AllowCIDRsForTest() []string { return c.inner.allowCIDRs }

@@ -6,12 +6,13 @@ Specify daemon operations, status and health endpoints, structured logging, JSON
 
 ### Requirement: Daemon supports plain listener and systemd socket activation
 
-`usbip-go serve` SHALL either bind its configured TCP address or consume a systemd-passed listener named for USB/IP service.
+`usbip-go serve` SHALL either bind its configured TCP address or consume a systemd-passed listener named for USB/IP service, and SHALL resolve ownership of every activation listener returned by systemd.
 
 #### Scenario: Named activation listener exists
 
 - **WHEN** `LISTEN_FDS` and `LISTEN_FDNAMES` provide exactly one listener named `usbip-go`
 - **THEN** the daemon uses that listener
+- **AND** closes every other activation listener returned in the same handoff
 - **AND** status output identifies the listener as activation-received
 - **AND** `--listen` is ignored
 
@@ -33,7 +34,7 @@ Specify daemon operations, status and health endpoints, structured logging, JSON
 
 ### Requirement: Status UDS exposes live daemon state
 
-When `--status-socket` is non-empty, the daemon SHALL serve HTTP over a Unix-domain socket with a schema v1 status document.
+When `--status-socket` is non-empty, the daemon SHALL serve HTTP over a Unix-domain socket with a schema v1 status document and SHALL own the complete lifecycle of accepted status connections.
 
 #### Scenario: Status root is requested
 
@@ -47,9 +48,15 @@ When `--status-socket` is non-empty, the daemon SHALL serve HTTP over a Unix-dom
 - **THEN** the daemon applies mode `0660`
 - **AND** group ownership from `--status-socket-group` is best-effort and non-fatal when lookup or chown fails
 
+#### Scenario: Status server stops
+
+- **WHEN** the daemon cancels the status server
+- **THEN** active request contexts are canceled
+- **AND** active and idle accepted HTTP connections are closed before the status server returns
+
 ### Requirement: Drain API is HTTP over the status UDS
 
-The daemon SHALL expose a drain control path over the status socket that causes it to refuse new sessions, wait for in-flight sessions up to the daemon-side shutdown timeout, and exit.
+The daemon SHALL expose a drain control path over the status socket that causes it to refuse new sessions, wait for in-flight sessions up to the daemon-side shutdown timeout, and exit. `runDaemon` SHALL own exactly one bounded `Exporter.Shutdown` call.
 
 #### Scenario: Drain is requested
 
@@ -61,6 +68,12 @@ The daemon SHALL expose a drain control path over the status socket that causes 
 
 - **WHEN** `POST /drain` includes any query string
 - **THEN** the daemon rejects it with HTTP 400 because v1 defines no drain parameters
+
+#### Scenario: Daemon drain attempt completes
+
+- **WHEN** `Serve` exits because drain or process cancellation was requested
+- **THEN** the status UDS remains available while the bounded `Exporter.Shutdown` call is in flight
+- **AND** status shutdown and socket unlink occur only after that call returns or reaches its deadline
 
 ### Requirement: Health endpoints are optional and separate from the USB/IP listener
 
@@ -112,13 +125,37 @@ The daemon SHALL emit structured `slog` records with stable outcome fields for i
 
 ### Requirement: Build provenance is visible at startup and in status
 
-The binary SHALL expose version and commit metadata through `usbip-go version`, daemon startup logs, and status output where applicable.
+The binary SHALL expose version and commit metadata through `usbip-go version`, daemon startup logs, and status output where applicable. Release-configured Bazel builds SHALL populate version, commit, and build date from declared workspace-status inputs; ordinary unstamped development builds SHALL retain explicit compiled fallback values.
 
 #### Scenario: Daemon starts
 
 - **WHEN** `usbip-go serve` starts
 - **THEN** startup logs include version, commit, build date value, and Go version
 - **AND** unstamped fields retain their compiled default values
+
+#### Scenario: Bazel distribution binary reports provenance
+
+- **WHEN** the production binary is built through the Bazel release configuration
+- **THEN** version, commit, and build date are populated from repository status metadata
+
+### Requirement: Event stream failures are observable
+
+An importer event stream SHALL distinguish normal caller cancellation from failure to subscribe and unexpected upstream source loss. Error-aware consumers MUST receive the underlying classified error or a stable event-stream-closed error.
+
+#### Scenario: Kernel event subscription fails
+
+- **WHEN** the importer cannot establish its KernelEvents subscription
+- **THEN** the error-aware event iterator yields the subscription error
+
+#### Scenario: Kernel event source closes unexpectedly
+
+- **WHEN** an established KernelEvents source closes while the Importer and caller context remain live
+- **THEN** the error-aware event iterator yields a stable unexpected-closure error
+
+#### Scenario: Caller cancels event watching
+
+- **WHEN** the caller context is cancelled
+- **THEN** iteration ends without reporting source failure
 
 ### Requirement: Systemd units document operational defaults
 
@@ -184,3 +221,32 @@ The drain path SHALL prioritize daemon shutdown over preserving in-flight USB tr
 
 - **WHEN** sessions remain after `--shutdown-timeout`
 - **THEN** tracked session connections are force-closed and the daemon exits
+
+### Requirement: Module probe cancellation preserves a complete observation shape
+
+Operational kernel-module probing SHALL return the canonical `usbip_core`,
+`vhci_hcd`, and `usbip_host` keys even when cancellation prevents some or all
+observations. Unobserved entries SHALL be `Unknown` rather than absent.
+
+#### Scenario: Status probe is cancelled before work
+
+- **WHEN** module probing starts with a cancelled context
+- **THEN** the result contains all three canonical keys as `Unknown`
+- **AND** the returned error preserves the cancellation cause
+
+#### Scenario: Status probe is cancelled partway through Linux observations
+
+- **WHEN** cancellation occurs after one Linux module state is observed
+- **THEN** that observed state is retained
+- **AND** the two unobserved keys remain present as `Unknown`
+
+### Requirement: Queued terminal lifecycle observations are not discarded
+
+Terminal Importer Close and Exporter Shutdown SHALL preserve lifecycle events
+already accepted by an active subscriber before the subscriber's closure
+barrier.
+
+#### Scenario: A terminal event and closure are both ready
+
+- **WHEN** an active event iterator observes terminal closure with an event already queued before the closure barrier
+- **THEN** it yields the queued event before returning

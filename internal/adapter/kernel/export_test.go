@@ -19,16 +19,13 @@ import (
 // DiscoverTopologyForTest exposes the unexported discoverTopology so
 // topology_test.go can drive a MapFS-backed discovery directly without
 // constructing an adapter. The production code keeps discoverTopology
-// internal so tasks 2+ route every topology read through the cached
-// LoadTopologyForTest path.
+// internal so callers obtain operation-local snapshots through adapter paths.
 func DiscoverTopologyForTest(fsys fs.FS) (Topology, error) {
 	return discoverTopology(fsys)
 }
 
-// LoadTopologyForTest exposes the ImporterAdapter's loadTopology method
-// so an integration-shaped test can confirm a freshly-constructed
-// adapter surfaces the sysfs topology via its injected fs.FS without
-// any later attach-path consumers wired yet.
+// LoadTopologyForTest exposes the ImporterAdapter's fresh loadTopology method
+// so tests can model module changes between consecutive operations.
 func LoadTopologyForTest(a *ImporterAdapter) (Topology, error) {
 	return a.loadTopology()
 }
@@ -111,6 +108,21 @@ func FormatDetachPayloadForTest(portID domain.PortID) string {
 	return formatDetachPayload(portID)
 }
 
+// PortMutationLockHeldForTest reports whether an AttachRemote or DetachPort
+// operation currently owns the adapter's shared VHCI mutation boundary. It is
+// intentionally observation-only: tests wait until the injected sysfs writer
+// is running, then use TryLock to prove both public mutation paths hold the
+// same adapter mutex across their writes.
+func PortMutationLockHeldForTest(a *ImporterAdapter) bool {
+	if a.portMutationMu.TryLock() {
+		a.portMutationMu.Unlock()
+
+		return false
+	}
+
+	return true
+}
+
 // AttachAtPortForTest exposes the unexported attachAtPort so tests
 // can drive the post-selection half of AttachRemote with an explicit
 // flat port — the synthetic "a bad port somehow reached attach"
@@ -174,9 +186,8 @@ type ParsedPortForTest struct {
 }
 
 // VHCIEventMapperForTest is the test-side façade over the internal
-// vhciEventMapper. The inner mapper is held through a pointer so the
-// sync.Once + cached topology mutations made by resolveTopology
-// persist across successive MapEventForTest calls on the same value.
+// vhciEventMapper. The inner mapper is held through a pointer so loader and
+// usbip-host state synchronization persists across MapEventForTest calls.
 type VHCIEventMapperForTest struct {
 	inner *vhciEventMapper
 }
@@ -193,8 +204,8 @@ func NewVHCIEventMapperForTest(topo Topology) VHCIEventMapperForTest {
 // topology is produced lazily by the supplied loader. Tests drive
 // this to exercise the exporter-only contract the Task-3 BUG-1 fix
 // installs:
-//   - deferred-load: the loader must only fire on the first VHCI-
-//     shaped event, never at construction;
+//   - deferred-load: the loader fires only for VHCI-shaped events, never at
+//     construction or for exporter-only events;
 //   - graceful degradation: a loader that returns an error must not
 //     break usbip_host-path event mapping.
 func NewVHCIEventMapperWithLoaderForTest(loader func() (Topology, error)) VHCIEventMapperForTest {

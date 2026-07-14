@@ -4,6 +4,7 @@
 package app_test
 
 import (
+	"math"
 	"math/rand/v2"
 	"testing"
 	"time"
@@ -11,6 +12,12 @@ import (
 	"github.com/abilisoft/usbip-go/internal/app"
 	"github.com/stretchr/testify/require"
 )
+
+// maxUint64Source makes rand.Rand.Float64 sample as close to 1 as the API
+// permits, deterministically exercising the largest positive jitter branch.
+type maxUint64Source struct{}
+
+func (maxUint64Source) Uint64() uint64 { return math.MaxUint64 }
 
 // backoffJitterSeed returns a deterministic PRNG seed used across the
 // jitter tests so failures reproduce locally without recovering the
@@ -91,6 +98,40 @@ func TestExponentialBackoffJitterBounds(t *testing.T) {
 		require.GreaterOrEqualf(t, got, lo, "attempt %d: got %s < lo %s", attempt, got, lo)
 		require.LessOrEqualf(t, got, hi, "attempt %d: got %s > hi %s", attempt, got, hi)
 	}
+}
+
+// TestExponentialBackoffCapsFinalJitter proves Max bounds the emitted delay,
+// not only the pre-jitter base. The deterministic high sample would otherwise
+// turn an 8 ns base into almost 12 ns and violate the documented 10 ns cap.
+func TestExponentialBackoffCapsFinalJitter(t *testing.T) {
+	t.Parallel()
+
+	b := app.NewExponentialBackoff(app.ExponentialBackoffConfig{
+		Min:    8,
+		Max:    10,
+		Jitter: 0.5,
+		Rand:   rand.New(maxUint64Source{}),
+	})
+
+	require.Equal(t, 10*time.Nanosecond, b.Next(0))
+}
+
+// TestExponentialBackoffJitterNearDurationLimitDoesNotOverflow covers the
+// numeric boundary where float64(MaxInt64)*positive-jitter is outside the
+// time.Duration range. Capping before conversion must return Max rather than a
+// wrapped or implementation-dependent negative duration.
+func TestExponentialBackoffJitterNearDurationLimitDoesNotOverflow(t *testing.T) {
+	t.Parallel()
+
+	maxDuration := time.Duration(math.MaxInt64)
+	b := app.NewExponentialBackoff(app.ExponentialBackoffConfig{
+		Min:    maxDuration,
+		Max:    maxDuration,
+		Jitter: 0.5,
+		Rand:   rand.New(maxUint64Source{}),
+	})
+
+	require.Equal(t, maxDuration, b.Next(0))
 }
 
 // TestExponentialBackoffJitterDeterministic asserts a seeded PRNG

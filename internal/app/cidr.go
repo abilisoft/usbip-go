@@ -37,6 +37,16 @@ func parseACL(cidrs []string) (*aclChecker, error) {
 	return &aclChecker{nets: nets}, nil
 }
 
+// ValidateExporterACL checks public Exporter allow-list configuration without
+// exposing the internal aclChecker representation. The public facade calls this
+// before platform-specific adapter construction so invalid CIDRs take
+// precedence over unsupported-platform errors.
+func ValidateExporterACL(cidrs []string) error {
+	_, err := parseACL(cidrs)
+
+	return err
+}
+
 // allow reports whether addr should be permitted. A nil receiver
 // always permits (matches the "empty allow-list means permit-all"
 // contract in security-release-quality OpenSpec). An unparseable addr is rejected because

@@ -156,6 +156,22 @@ func TestFindFreePort_AllSSBusyReturnsNoFreePort(t *testing.T) {
 	require.ErrorContains(t, err, "SuperSpeed+")
 }
 
+// TestFindFreePort_PropagatesTopologyDiscoveryFailure covers the fresh
+// operation-local topology wrapper: a missing nports attribute must surface
+// before status parsing instead of being mistaken for an exhausted hub.
+func TestFindFreePort_PropagatesTopologyDiscoveryFailure(t *testing.T) {
+	t.Parallel()
+
+	mfs := statusFS("", nil, 16)
+	delete(mfs, testFSVHCIController0NPortsPath)
+
+	a, err := kernel.NewImporterAdapter(kernel.WithFS(mfs))
+	require.NoError(t, err)
+
+	_, err = kernel.FindFreePortForTest(a, domain.SpeedHigh)
+	require.Error(t, err)
+}
+
 // TestListPorts_ReturnsAllRowsIncludingFree confirms ListPorts surfaces
 // free rows as well as used ones. SS row lives in the flat 8..15 range
 // of a default single-controller build.
@@ -232,6 +248,23 @@ func TestListPorts_ModuleMissingReturnsBoth(t *testing.T) {
 	ports, err := a.ListPorts(context.Background())
 	require.Empty(t, ports)
 	require.ErrorIs(t, err, domain.ErrKernelModuleMissing)
+}
+
+// TestListPorts_PropagatesTopologyDiscoveryFailure distinguishes module
+// availability from a malformed live topology. The module probes succeed, then
+// readStatusRows must return the fresh-discovery error and no partial Ports.
+func TestListPorts_PropagatesTopologyDiscoveryFailure(t *testing.T) {
+	t.Parallel()
+
+	mfs := statusFS("", nil, 16)
+	delete(mfs, testFSVHCIController0NPortsPath)
+
+	a, err := kernel.NewImporterAdapter(kernel.WithFS(mfs))
+	require.NoError(t, err)
+
+	ports, err := a.ListPorts(context.Background())
+	require.Nil(t, ports)
+	require.Error(t, err)
 }
 
 // TestListPorts_TrustsFlatPortSingleController pins the trust-flat

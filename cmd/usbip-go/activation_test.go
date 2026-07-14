@@ -18,12 +18,12 @@ var errActivationInjected = errors.New("injected activation error")
 
 // tcpListen spins a TCP listener bound to loopback using the context-
 // aware ListenConfig path; noctx demands no bare net.Listen.
-func tcpListen(t *testing.T, addr string) *net.TCPListener {
+func tcpListen(t *testing.T) *net.TCPListener {
 	t.Helper()
 
 	var lc net.ListenConfig
 
-	lis, err := lc.Listen(context.Background(), "tcp", addr)
+	lis, err := lc.Listen(context.Background(), "tcp", testEphemeralListenAddr)
 	require.NoError(t, err)
 
 	tcpLis, ok := lis.(*net.TCPListener)
@@ -87,7 +87,7 @@ func TestListenOrActivationNamedSocket(t *testing.T) {
 	// Not parallel: swaps the package-level seam.
 	orig := listenersWithNames
 
-	srcLis := tcpListen(t, testEphemeralListenAddr)
+	srcLis := tcpListen(t)
 	t.Cleanup(func() { _ = srcLis.Close() })
 
 	listenersWithNames = func() (map[string][]net.Listener, error) {
@@ -104,6 +104,32 @@ func TestListenOrActivationNamedSocket(t *testing.T) {
 	require.Same(t, srcLis, lis)
 }
 
+// TestPickNamedListenerClosesUnusedActivationListeners proves ownership of
+// every listener returned by systemd is resolved before the daemon starts.
+// The selected usbip-go listener remains open; every listener under another
+// name is closed so its inherited fd cannot leak for the daemon lifetime.
+func TestPickNamedListenerClosesUnusedActivationListeners(t *testing.T) {
+	t.Parallel()
+
+	selected := tcpListen(t)
+	t.Cleanup(func() { _ = selected.Close() })
+
+	unused := tcpListen(t)
+	t.Cleanup(func() { _ = unused.Close() })
+
+	got, activated, err := pickNamedListener(t.Context(), map[string][]net.Listener{
+		activationFdName: {selected},
+		"metrics":        {unused},
+	})
+	require.NoError(t, err)
+	require.True(t, activated)
+	require.Same(t, selected, got)
+
+	closeErr := unused.Close()
+	require.ErrorIs(t, closeErr, net.ErrClosed,
+		"the unused activation listener must already be closed")
+}
+
 // TestListenOrActivationAmbiguousFds covers the operations-observability and
 // json-contracts OpenSpec "no socket named 'usbip-go' and multiple fds present"
 // error branch. It injects the
@@ -113,10 +139,10 @@ func TestListenOrActivationAmbiguousFds(t *testing.T) {
 	// Not parallel: swaps the package-level seam.
 	orig := listenersWithNames
 
-	lisA := tcpListen(t, testEphemeralListenAddr)
+	lisA := tcpListen(t)
 	t.Cleanup(func() { _ = lisA.Close() })
 
-	lisB := tcpListen(t, testEphemeralListenAddr)
+	lisB := tcpListen(t)
 	t.Cleanup(func() { _ = lisB.Close() })
 
 	listenersWithNames = func() (map[string][]net.Listener, error) {

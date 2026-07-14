@@ -71,7 +71,10 @@ receives the listener via `LISTEN_FDS` + `LISTEN_FDNAMES` and never
 races with a previous daemon over port 3240 during upgrades. The
 `FileDescriptorName=usbip-go` directive lets the Go
 `activation.ListenersWithNames` helper disambiguate if multiple
-sockets are ever passed to the same unit.
+sockets are ever passed to the same unit. After selecting the one
+`usbip-go` listener, the daemon closes every other listener transferred in the
+same activation handoff; an ambiguous set with no matching name is closed and
+rejected rather than leaked or guessed.
 
 ### `usbip-go.service`
 
@@ -224,6 +227,18 @@ listener without a connect-refused window. See
 `openspec/specs/operations-observability/spec.md` for the
 HTTP-over-UDS drain behavior.
 
+The daemon keeps the status UDS bound until its authoritative bounded
+`Exporter.Shutdown` call has returned. It then cancels active status request
+contexts, closes idle and active accepted HTTP connections, and unlinks the
+socket. A polling client therefore cannot mistake early UDS disappearance for
+completed exporter cleanup.
+
+Each drain poll also fails closed unless `GET /` returns HTTP 2xx, schema `v1`,
+an explicitly present non-null `sessions` array, and an explicitly present
+non-null `listening.accepting` boolean. Unknown additive v1 fields remain
+accepted. Missing fields and error responses are diagnostics, not proof that
+the daemon is idle.
+
 ### Two timeouts, server-authoritative
 
 Two timeouts coexist:
@@ -236,7 +251,8 @@ Two timeouts coexist:
 Recommended: keep `--drain-timeout > --shutdown-timeout` so the
 operator-visible result reflects the daemon's actual behavior. When
 the daemon hits its cap first, the client's next poll sees
-`ECONNREFUSED` and treats it as drain success. When the client times
+`ECONNREFUSED` only after that bounded shutdown attempt has returned and treats
+it as drain success. When the client times
 out first (`--drain-timeout < --shutdown-timeout`), the client
 reports failure but the daemon keeps draining and exits when its own
 timeout fires — operator sees a misleading "drain timed out" but

@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/charmbracelet/fang"
+	"github.com/spf13/cobra"
 )
 
 // applyNoColorEarly sets NO_COLOR=1 when argv contains --no-color in
@@ -71,12 +72,6 @@ func renderMainError(w io.Writer, err error) {
 	_, _ = fmt.Fprintln(w, FormatError(err))
 }
 
-// rootCmdFactory produces the root cobra command runCtx dispatches
-// against. Tests swap it to register probe subcommands without
-// reaching into the cobra call stack; production keeps the default
-// newRootCmd factory.
-var rootCmdFactory = newRootCmd
-
 // runCtx executes the root cobra command under ctx and returns the
 // mapped exit code. Passing a cancellable ctx lets every subcommand
 // observe shutdown via cmd.Context, which matters for long-running
@@ -93,7 +88,13 @@ var rootCmdFactory = newRootCmd
 func runCtx(ctx context.Context, args []string) (int, error) {
 	applyNoColorEarly(args)
 
-	cmd := rootCmdFactory()
+	return executeRoot(ctx, args, newRootCmd())
+}
+
+// executeRoot dispatches an already-constructed root command through fang.
+// Keeping command construction outside this helper lets tests inject a probe
+// command without mutating package-global state visible to parallel callers.
+func executeRoot(ctx context.Context, args []string, cmd *cobra.Command) (int, error) {
 	cmd.SetArgs(args)
 
 	err := fang.Execute(

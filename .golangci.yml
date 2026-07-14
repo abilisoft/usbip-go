@@ -139,11 +139,6 @@ linters:
         # keeps the test-only binary out of the gochecknoglobals
         # surface.
         linters: [gochecknoglobals]
-      - path: pkg/usbip/modules_linux\.go
-        # probeStatFn is a test-injection seam for EACCES / EIO
-        # simulation without chmod (which gosec G302 false-flags on
-        # directory traversal bits). Swapped only in export_test.go.
-        linters: [gochecknoglobals]
       - path: cmd/usbip-go/main\.go
         # runWithContext threads ctx into cobra via cmd.SetContext +
         # cmd.Execute; contextcheck insists ctx flow through newRootCmd

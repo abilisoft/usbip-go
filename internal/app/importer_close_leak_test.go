@@ -257,7 +257,9 @@ func TestImporterOnReconnectCallbackConcurrencyIsBounded(t *testing.T) {
 
 	imp, _, registry, _ := newReconnectFixture(t, attachFn)
 	releaseCallback := make(chan struct{})
-	callbackStarted := make(chan struct{})
+	// Buffer the start signal so a callback that wins the scheduler race before
+	// the assertion begins receiving cannot discard the only notification.
+	callbackStarted := make(chan struct{}, 1)
 
 	var (
 		callbackCalls atomic.Int32

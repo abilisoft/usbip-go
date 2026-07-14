@@ -80,7 +80,10 @@ func listenOrActivation(ctx context.Context, cfg *ServeConfig) (net.Listener, er
 func pickNamedListener(ctx context.Context, named map[string][]net.Listener) (net.Listener, bool, error) {
 	fds, ok := named[activationFdName]
 	if ok && len(fds) == 1 {
-		return fds[0], true, nil
+		selected := fds[0]
+		closeListenersExcept(named, selected)
+
+		return selected, true, nil
 	}
 
 	total := countListeners(named)
@@ -105,6 +108,22 @@ func pickNamedListener(ctx context.Context, named map[string][]net.Listener) (ne
 	}
 
 	return nil, false, nil
+}
+
+// closeListenersExcept releases every systemd-owned listener other than the
+// one selected for the USB/IP accept loop. activation.ListenersWithNames
+// transfers ownership of every returned fd to the caller, so ignoring an
+// unrelated named entry would leak its listener for the daemon lifetime.
+func closeListenersExcept(named map[string][]net.Listener, selected net.Listener) {
+	for _, listeners := range named {
+		for _, listener := range listeners {
+			if listener == selected {
+				continue
+			}
+
+			_ = listener.Close()
+		}
+	}
 }
 
 // firstSingletonListenerName returns the label of the named map's

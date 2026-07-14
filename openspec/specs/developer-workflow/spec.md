@@ -133,7 +133,12 @@ The repository SHALL separate unit tests, conformance tests, integration tests, 
 
 ### Requirement: GitHub Actions use the Make/Bazel contract
 
-GitHub Actions workflows SHALL invoke Make targets for repository build, test, lint, vulnerability, mutation, and release operations so CI behavior matches local contributor behavior. Kernel integration SHALL remain a manual Make target for capable Linux hosts rather than a GitHub Actions job.
+GitHub Actions workflows SHALL invoke Make targets for repository build, test,
+lint, vulnerability, mutation, and release operations so CI behavior matches
+local contributor behavior. Kernel integration SHALL remain a manual Make target
+for capable Linux hosts rather than a GitHub Actions job. The release workflow
+SHALL expose both direct tag-push and GitHub Actions manual entry points, and
+both SHALL converge on the same tag-context Make/Bazel release jobs.
 
 #### Scenario: CodeQL traces the production binary
 
@@ -156,7 +161,24 @@ GitHub Actions workflows SHALL invoke Make targets for repository build, test, l
 
 #### Scenario: Tagged release runs
 
-- **WHEN** the release workflow runs for a stable SemVer tag
+- **WHEN** the release workflow runs at a stable SemVer tag created by either supported entry point
 - **THEN** prereq jobs invoke the reusable Make/Bazel security, unit, conformance, coverage, and architecture/API gates
 - **AND** the publish job invokes `make ci-local`, `make changelog`, and `make release`
 - **AND** release publication uses the workflow `GITHUB_TOKEN` and GoReleaser environment expected by the Bazel release target
+
+#### Scenario: Manual release start runs
+
+- **WHEN** a maintainer starts a stable release from the GitHub Actions UI
+- **THEN** the repository-owned start script validates and creates the tag, confirms the default-branch head did not move during creation, and only then redispatches the tag-context workflow
+- **AND** hermetic script tests cover success, validation failures, API failures, concurrent default-branch movement, and handoff rollback
+
+### Requirement: Git provenance checks declare their host dependency
+
+Git provenance fixture tests SHALL resolve one exact Git executable, fail clearly when Git is unavailable, and declare the narrow host-tool execution requirement. The production release-stamping regression SHALL use committed constant status input instead of requiring Git inside its test action.
+
+#### Scenario: Git provenance fixture tests run
+
+- **WHEN** the version-helper or workspace-status fixture tests run
+- **THEN** the Bazel targets are tagged `local` and `requires-git`
+- **AND** each harness passes the resolved executable through `HARNESS_GIT`
+- **AND** the release-stamping test remains sandboxable with constant workspace-status input

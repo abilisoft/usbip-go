@@ -216,6 +216,7 @@ func TestExporterWatchSessions_StartEnd(t *testing.T) {
 
 	close(release)
 	cancel()
+	require.NoError(t, exp.Shutdown(context.Background()))
 
 	gotEnded := false
 
@@ -233,8 +234,6 @@ func TestExporterWatchSessions_StartEnd(t *testing.T) {
 		"SessionEndedEvent must reach the subscriber within 10 s of session end")
 
 	_ = client.Close()
-
-	require.NoError(t, exp.Shutdown(context.Background()))
 
 	<-serveDone
 }
@@ -376,8 +375,14 @@ func TestExporterShutdown_DisconnectsOnlyAfterHandoffSuccess(t *testing.T) {
 		t.Fatal("Disconnect did not run after ExportOnConn succeeded")
 	}
 
-	require.NoError(t, <-shutdownDone)
+	shutdownErr := <-shutdownDone
+	require.ErrorIs(t, shutdownErr, io.ErrUnexpectedEOF)
 	require.EqualValues(t, 1, disconnectCount.Load())
+
+	repeatErr := exp.Shutdown(context.Background())
+	require.ErrorIs(t, repeatErr, io.ErrUnexpectedEOF)
+	require.EqualValues(t, 1, disconnectCount.Load(),
+		"repeated Shutdown must return the stored error without another Disconnect")
 
 	cancelServe()
 	require.NoError(t, <-serveDone)

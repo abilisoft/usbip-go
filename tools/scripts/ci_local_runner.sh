@@ -83,4 +83,5 @@ run_step 'Vulnerability scan' test "${test_flags[@]}" //:govulncheck
 run_step 'Coverage' coverage --combined_report=lcov "${unit_test_flags[@]}" "${test_flags[@]}" "${coverage_targets[@]}"
 copy_coverage_report "$("${bazel_cmd[@]}" info output_path)"
 run_step 'Coverage thresholds' run "${build_flags[@]}" //tools/scripts:coverage_check -- build/coverage/coverage.lcov .testcoverage.yaml
+run_step 'Release stamping' test --config=release --workspace_status_command=tools/scripts/release_workspace_status_fixture.sh "${test_flags[@]}" //test/release:release_stamping_test
 run_step 'GoReleaser config' run "${build_flags[@]}" //:release-check

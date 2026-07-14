@@ -4,20 +4,26 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -44,6 +50,25 @@ type fakeStatusSource struct {
 	drainErr    error
 	modulesErr  error
 	mu          sync.Mutex
+}
+
+// blockingStatusSource holds a GET handler in BoundDevices until its request
+// context is canceled. It lets the shutdown regression prove serveStatus
+// does not return while an accepted active connection or handler survives.
+type blockingStatusSource struct {
+	*fakeStatusSource
+
+	entered  chan struct{}
+	canceled chan struct{}
+	once     sync.Once
+}
+
+func (s *blockingStatusSource) BoundDevices(ctx context.Context) ([]usbip.Device, error) {
+	s.once.Do(func() { close(s.entered) })
+	<-ctx.Done()
+	close(s.canceled)
+
+	return nil, fmt.Errorf("status request canceled: %w", ctx.Err())
 }
 
 func (f *fakeStatusSource) BoundDevices(_ context.Context) ([]usbip.Device, error) {
@@ -90,6 +115,40 @@ func (f *fakeStatusSource) Drain(_ context.Context) error {
 // udsHTTPClientTimeout caps every helper HTTP call so a broken server
 // can't wedge the test suite.
 const udsHTTPClientTimeout = 5 * time.Second
+
+// shortSocketTempDir avoids Linux's 108-byte sun_path ceiling when tests use a
+// deliberately persistent, long GOTMPDIR. testing.T.TempDir includes the full
+// test name and can make an otherwise valid UDS test fail with EINVAL.
+func shortSocketTempDir(t *testing.T) string {
+	t.Helper()
+
+	root := os.Getenv("GOTMPDIR")
+	if root == "" {
+		root = os.TempDir()
+	}
+
+	rootDir, err := os.OpenRoot(root)
+	require.NoError(t, err)
+
+	name := "u-" + rand.Text()
+	require.NoError(t, rootDir.Mkdir(name, 0o700))
+
+	t.Cleanup(func() {
+		socketDir, openErr := rootDir.OpenRoot(name)
+		require.NoError(t, openErr)
+
+		for _, basename := range []string{"status.sock", "status.sock.lock"} {
+			removeErr := socketDir.Remove(basename)
+			require.True(t, removeErr == nil || errors.Is(removeErr, fs.ErrNotExist))
+		}
+
+		require.NoError(t, socketDir.Close())
+		require.NoError(t, rootDir.Remove(name))
+		require.NoError(t, rootDir.Close())
+	})
+
+	return filepath.Join(root, name)
+}
 
 // newUDSHTTPClient returns an http.Client that dials the given UDS
 // path. Every request uses scheme http with the host ignored by the
@@ -161,11 +220,12 @@ func isClosedErr(err error) bool {
 func TestStatusUnlinkStale(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	sockPath := filepath.Join(dir, "status.sock")
 
 	// Leave a stale file at sockPath with no listener on it. Path is
-	// rooted at t.TempDir, so gosec G304's "variable inclusion" is a
+	// rooted at a test-owned temporary directory, so gosec G304's
+	// "variable inclusion" is a
 	// false positive here — the filename is test-controlled, not
 	// attacker-derived.
 	f, err := os.Create(filepath.Clean(sockPath))
@@ -205,7 +265,7 @@ func TestStatusUnlinkStale(t *testing.T) {
 func TestStatusAlreadyRunning(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	sockPath := filepath.Join(dir, "status.sock")
 
 	// Spin a plain unix listener at sockPath to simulate "another
@@ -235,6 +295,250 @@ func TestStatusAlreadyRunning(t *testing.T) {
 	require.ErrorIs(t, err, errAlreadyRunning)
 }
 
+// TestServeStatusCancelsActiveHandlersBeforeReturn proves listener shutdown
+// also owns already-accepted HTTP connections. The active GET blocks in its
+// source until the handler context is canceled; serveStatus may return only
+// after that cancellation has happened and the client connection has closed.
+func TestServeStatusCancelsActiveHandlersBeforeReturn(t *testing.T) {
+	t.Parallel()
+
+	dir := shortSocketTempDir(t)
+	sockPath := filepath.Join(dir, "status.sock")
+
+	src := &blockingStatusSource{
+		fakeStatusSource: &fakeStatusSource{
+			modules: map[string]usbip.ModuleState{},
+		},
+		entered:  make(chan struct{}),
+		canceled: make(chan struct{}),
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	started := make(chan struct{})
+	serverDone := make(chan error, 1)
+
+	go func() {
+		serverDone <- serveStatus(ctx, sockPath, "", src, started)
+	}()
+
+	select {
+	case <-started:
+	case <-t.Context().Done():
+		t.Fatal("status server did not start")
+	}
+
+	client := newUDSHTTPClient(sockPath)
+	t.Cleanup(client.CloseIdleConnections)
+
+	reqCtx, cancelRequest := context.WithCancel(t.Context())
+	t.Cleanup(cancelRequest)
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, "http://usbipd/", nil)
+	require.NoError(t, err)
+
+	requestDone := make(chan error, 1)
+
+	go func() {
+		resp, doErr := client.Do(req)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+
+		requestDone <- doErr
+	}()
+
+	select {
+	case <-src.entered:
+	case <-t.Context().Done():
+		t.Fatal("status GET handler did not enter BoundDevices")
+	}
+
+	cancel()
+
+	select {
+	case serveErr := <-serverDone:
+		require.NoError(t, serveErr)
+	case <-t.Context().Done():
+		t.Fatal("serveStatus did not return after cancellation")
+	}
+
+	select {
+	case <-src.canceled:
+	default:
+		t.Fatal("serveStatus returned before canceling the active handler context")
+	}
+
+	select {
+	case <-requestDone:
+	case <-t.Context().Done():
+		t.Fatal("active status client connection remained open after serveStatus returned")
+	}
+}
+
+// TestServeStatusClosesIdleAcceptedConnections proves graceful status-server
+// shutdown owns keep-alive connections after their request handler has
+// returned. The raw UDS connection remains idle after a complete GET; server
+// cancellation must close it before serveStatus reports completion.
+func TestServeStatusClosesIdleAcceptedConnections(t *testing.T) {
+	t.Parallel()
+
+	dir := shortSocketTempDir(t)
+	sockPath := filepath.Join(dir, "status.sock")
+
+	src := &fakeStatusSource{modules: map[string]usbip.ModuleState{}}
+	ctx, cancel := context.WithCancel(t.Context())
+	started := make(chan struct{})
+	serverDone := make(chan error, 1)
+
+	go func() {
+		serverDone <- serveStatus(ctx, sockPath, "", src, started)
+	}()
+
+	select {
+	case <-started:
+	case <-t.Context().Done():
+		t.Fatal("status server did not start")
+	}
+
+	var dialer net.Dialer
+
+	conn, err := dialer.DialContext(t.Context(), "unix", sockPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	_, err = io.WriteString(conn, "GET / HTTP/1.1\r\nHost: usbipd\r\n\r\n")
+	require.NoError(t, err)
+
+	response, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+
+	cancel()
+
+	select {
+	case serveErr := <-serverDone:
+		require.NoError(t, serveErr)
+	case <-t.Context().Done():
+		t.Fatal("serveStatus did not return after cancellation")
+	}
+
+	oneByte := make([]byte, 1)
+
+	_, err = conn.Read(oneByte)
+	require.ErrorIs(t, err, io.EOF,
+		"serveStatus returned while an accepted idle connection remained open")
+}
+
+// TestCloseStatusServerForceClosesUncooperativeHandler exercises the bounded
+// fallback when a handler does not observe its context. The injected zero
+// timeout avoids sleeps: Shutdown reaches its deadline and Close tears down the
+// accepted connection before the helper returns.
+func TestCloseStatusServerForceClosesUncooperativeHandler(t *testing.T) {
+	t.Parallel()
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	handlerDone := make(chan struct{})
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		close(entered)
+		<-release
+		close(handlerDone)
+	}))
+	server.Start()
+
+	requestDone := make(chan error, 1)
+
+	go func() {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+		if err != nil {
+			requestDone <- err
+
+			return
+		}
+
+		resp, err := server.Client().Do(req)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+
+		requestDone <- err
+	}()
+
+	select {
+	case <-entered:
+	case <-t.Context().Done():
+		t.Fatal("test handler was not accepted")
+	}
+
+	err := closeStatusServerWithTimeout(t.Context(), server.Config, 0)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+
+	close(release)
+
+	select {
+	case <-handlerDone:
+	case <-t.Context().Done():
+		t.Fatal("test handler did not return after release")
+	}
+
+	select {
+	case requestErr := <-requestDone:
+		require.Error(t, requestErr,
+			"forced status-server close must terminate the accepted request")
+	case <-t.Context().Done():
+		t.Fatal("status client connection remained open after forced close")
+	}
+
+	server.Close()
+}
+
+// TestCombineStatusServerErrors pins expected-close filtering and preserves
+// both independent failures when Serve and the close pass fail together.
+func TestCombineStatusServerErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		serveErr  error
+		closeErr  error
+		wantErr   bool
+		wantServe bool
+		wantClose bool
+	}{
+		{name: "clean"},
+		{name: "expected serve close", serveErr: net.ErrClosed},
+		{name: "expected server close", closeErr: http.ErrServerClosed},
+		{name: "serve failure", serveErr: errTest, wantErr: true, wantServe: true},
+		{name: "close failure", closeErr: errTest, wantErr: true, wantClose: true},
+		{
+			name:      "joined failures",
+			serveErr:  errTest,
+			closeErr:  errTest,
+			wantErr:   true,
+			wantServe: true,
+			wantClose: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := combineStatusServerErrors(tt.serveErr, tt.closeErr)
+			if !tt.wantErr {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, errTest)
+			require.Equal(t, tt.wantServe, strings.Contains(err.Error(), "serve status"))
+			require.Equal(t, tt.wantClose, strings.Contains(err.Error(), "close status server"))
+		})
+	}
+}
+
 // TestStatusGetJSON proves the operations-observability and json-contracts
 // OpenSpec v1 schema is rendered by GET /. Every required key is asserted.
 func TestStatusGetJSON(t *testing.T) {
@@ -247,7 +551,7 @@ func TestStatusGetJSON(t *testing.T) {
 		0x0d, 0x0e, 0x0f, 0x10,
 	}
 
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	sockPath := filepath.Join(dir, "status.sock")
 
 	src := &fakeStatusSource{
@@ -315,7 +619,7 @@ func TestStatusGetJSON(t *testing.T) {
 func TestStatusDrainTriggersShutdown(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	sockPath := filepath.Join(dir, "status.sock")
 
 	src := &fakeStatusSource{
@@ -353,7 +657,7 @@ func TestStatusDrainTriggersShutdown(t *testing.T) {
 func TestStatusFileMode0660(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	sockPath := filepath.Join(dir, "status.sock")
 
 	src := &fakeStatusSource{
@@ -378,7 +682,7 @@ func TestStatusFileMode0660(t *testing.T) {
 func TestStatusGroupChownSkipsIfMissing(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	sockPath := filepath.Join(dir, "status.sock")
 
 	src := &fakeStatusSource{
@@ -433,7 +737,7 @@ func TestStatusGroupChownSkipsIfMissing(t *testing.T) {
 func TestStatusBindSerialisedByFlock(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	sockPath := filepath.Join(dir, "status.sock")
 
 	src := &fakeStatusSource{
@@ -512,7 +816,7 @@ func TestStatusGroupChownResolvesCallerGroup(t *testing.T) {
 
 	require.NotEmpty(t, gname, "unable to resolve any caller group to a name")
 
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	sockPath := filepath.Join(dir, "status.sock")
 
 	// Create the file mode 0600 so the chown-only helper has a valid
@@ -550,7 +854,7 @@ func TestApplyStatusSocketACL_UnknownGroupRoutesViaCtxLogger(t *testing.T) {
 	captured := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	ctx := context.WithValue(t.Context(), loggerContextKey{}, captured)
 
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	sockPath := filepath.Join(dir, "status.sock")
 
 	f, err := os.OpenFile(filepath.Clean(sockPath), os.O_CREATE|os.O_RDWR, 0o600)
@@ -580,7 +884,7 @@ func TestApplyStatusSocketACL_EmptyGroupShortCircuits(t *testing.T) {
 	captured := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	ctx := context.WithValue(t.Context(), loggerContextKey{}, captured)
 
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	sockPath := filepath.Join(dir, "status.sock")
 
 	f, err := os.OpenFile(filepath.Clean(sockPath), os.O_CREATE|os.O_RDWR, 0o600)
@@ -608,7 +912,7 @@ func TestApplyStatusSocketACL_EmptyGroupShortCircuits(t *testing.T) {
 func TestStatusDrainRejectsQueryParams(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	sockPath := filepath.Join(dir, "status.sock")
 
 	src := &fakeStatusSource{
@@ -647,7 +951,7 @@ func TestStatusDrainRejectsQueryParams(t *testing.T) {
 func TestStatusDrainHandlerIdempotent(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	sockPath := filepath.Join(dir, "status.sock")
 
 	src := &fakeStatusSource{

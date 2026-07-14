@@ -31,6 +31,11 @@ func importerTestEpoch() time.Time {
 // can use errors.Is instead of string comparison (satisfies err113).
 var errBoom = errors.New("boom")
 
+// importerHandshakeCancellationBudget bounds synchronization failures without
+// adding timing to the behavior under test. The read-start and result channels
+// provide the deterministic ordering.
+const importerHandshakeCancellationBudget = 2 * time.Second
+
 // newImporterForTest constructs an Importer with every required
 // dependency stubbed so individual tests only wire the mocks they
 // actually exercise.
@@ -80,6 +85,79 @@ func TestNewImporterCloseIsIdempotent(t *testing.T) {
 	require.NoError(t, imp.Close())
 	require.NoError(t, imp.Close())
 	require.NoError(t, imp.Close())
+}
+
+func TestImporterAttachClosedStatePrecedesValidation(t *testing.T) {
+	t.Parallel()
+
+	imp := newImporterForTest(t)
+	require.NoError(t, imp.Close())
+
+	tests := []struct {
+		name     string
+		endpoint domain.RemoteEndpoint
+		busID    domain.BusID
+		opts     app.AttachOptions
+	}{
+		{
+			name:     "invalid endpoint",
+			endpoint: domain.RemoteEndpoint{},
+			busID:    attachBusID(),
+		},
+		{
+			name:     "invalid bus id",
+			endpoint: testRemote(),
+			busID:    domain.BusID("invalid bus id"),
+		},
+		{
+			name:     "invalid options",
+			endpoint: testRemote(),
+			busID:    attachBusID(),
+			opts:     app.AttachOptions{MaxAttempts: -1},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var factoryCalls atomic.Int32
+
+			tc.opts.AutoReconnect = true
+			tc.opts.BackoffFactory = func() app.BackoffStrategy {
+				factoryCalls.Add(1)
+
+				return app.FixedBackoff{}
+			}
+
+			_, err := imp.Attach(t.Context(), tc.endpoint, tc.busID, tc.opts)
+			require.ErrorIs(t, err, app.ErrImporterClosed)
+			require.NotErrorIs(t, err, app.ErrAttachOptionsInvalid)
+			require.Zero(t, factoryCalls.Load(),
+				"closed Attach must not construct backoff state")
+		})
+	}
+}
+
+func TestImporterAttachValidationPrecedesBackoffFactory(t *testing.T) {
+	t.Parallel()
+
+	imp := newImporterForTest(t)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	var factoryCalls atomic.Int32
+
+	_, err := imp.Attach(t.Context(), domain.RemoteEndpoint{}, attachBusID(), app.AttachOptions{
+		AutoReconnect: true,
+		BackoffFactory: func() app.BackoffStrategy {
+			factoryCalls.Add(1)
+
+			return app.FixedBackoff{}
+		},
+	})
+
+	require.Error(t, err)
+	require.Zero(t, factoryCalls.Load(), "invalid Attach must not construct backoff state")
 }
 
 // TestNewImporterPanicsOnMissingKernel proves the required-dependency
@@ -167,17 +245,43 @@ func TestNewImporterAppliesLoggerAndClock(t *testing.T) {
 // network. Read is backed by a buffered byte stream supplied by the
 // test; Write is a no-op that records the payload.
 type fakeConn struct {
-	mu        sync.Mutex
-	closed    int
-	writes    [][]byte
-	readData  []byte
-	readPos   int
-	closedCh  chan struct{}
-	closeOnce sync.Once
+	mu                 sync.Mutex
+	closed             int
+	writes             [][]byte
+	readData           []byte
+	readPos            int
+	readDeadlines      []time.Time
+	setReadDeadlineErr error
+	closedCh           chan struct{}
+	closeOnce          sync.Once
 }
 
 func newFakeConn() *fakeConn {
 	return &fakeConn{closedCh: make(chan struct{})}
+}
+
+// blockingReadConn models a handshake read that can only finish when Close is
+// called. It lets cancellation tests prove the Importer watcher interrupts I/O
+// without installing or replacing a read deadline.
+type blockingReadConn struct {
+	*fakeConn
+
+	readStarted chan struct{}
+	startOnce   sync.Once
+}
+
+func newBlockingReadConn() *blockingReadConn {
+	return &blockingReadConn{
+		fakeConn:    newFakeConn(),
+		readStarted: make(chan struct{}),
+	}
+}
+
+func (c *blockingReadConn) Read(_ []byte) (int, error) {
+	c.startOnce.Do(func() { close(c.readStarted) })
+	<-c.closedCh
+
+	return 0, net.ErrClosed
 }
 
 // Read copies from the buffered readData; returns io.EOF when drained.
@@ -220,10 +324,19 @@ func (c *fakeConn) Close() error {
 	return nil
 }
 
-func (*fakeConn) LocalAddr() net.Addr                { return fakeAddr{} }
-func (*fakeConn) RemoteAddr() net.Addr               { return fakeAddr{} }
-func (*fakeConn) SetDeadline(_ time.Time) error      { return nil }
-func (*fakeConn) SetReadDeadline(_ time.Time) error  { return nil }
+func (*fakeConn) LocalAddr() net.Addr           { return fakeAddr{} }
+func (*fakeConn) RemoteAddr() net.Addr          { return fakeAddr{} }
+func (*fakeConn) SetDeadline(_ time.Time) error { return nil }
+
+func (c *fakeConn) SetReadDeadline(deadline time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.readDeadlines = append(c.readDeadlines, deadline)
+
+	return c.setReadDeadlineErr
+}
+
 func (*fakeConn) SetWriteDeadline(_ time.Time) error { return nil }
 
 func (c *fakeConn) closeCount() int {
@@ -239,6 +352,16 @@ func (c *fakeConn) writeLog() [][]byte {
 
 	out := make([][]byte, len(c.writes))
 	copy(out, c.writes)
+
+	return out
+}
+
+func (c *fakeConn) readDeadlineLog() []time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	out := make([]time.Time, len(c.readDeadlines))
+	copy(out, c.readDeadlines)
 
 	return out
 }
@@ -308,6 +431,104 @@ func TestImporterListRemoteHappyPath(t *testing.T) {
 
 	// Conn closed exactly once by ListRemote (it owns the conn).
 	require.Equal(t, 1, conn.closeCount())
+}
+
+// TestImporterListRemotePreservesTransportReadDeadline proves the application
+// layer never replaces the deadline installed by Transport.Dial. The context
+// deliberately carries a deadline and the connection would reject any
+// SetReadDeadline call, so the pre-fix override fails deterministically.
+func TestImporterListRemotePreservesTransportReadDeadline(t *testing.T) {
+	t.Parallel()
+
+	conn := newFakeConn()
+
+	conn.setReadDeadlineErr = errBoom
+
+	transport := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
+			return conn, nil
+		},
+	}
+	codec := &ProtocolCodecMock{
+		EncodeOpReqDevlistFunc: func() []byte { return []byte{1} },
+		DecodeOpRepDevlistFunc: func(_ io.Reader) ([]domain.Device, error) {
+			return []domain.Device{}, nil
+		},
+	}
+
+	imp := newImporterForTest(
+		t,
+		app.WithImporterTransport(transport),
+		app.WithImporterCodec(codec),
+	)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+	defer cancel()
+
+	devices, err := imp.ListRemote(ctx, testRemote())
+	require.NoError(t, err)
+	require.Empty(t, devices)
+	require.Empty(t, conn.readDeadlineLog(),
+		"application code must not replace the transport-owned read deadline")
+}
+
+// TestImporterListRemoteCancellationClosesBlockedHandshake proves caller
+// cancellation promptly closes and unblocks a live devlist read without an
+// application-owned SetReadDeadline call.
+func TestImporterListRemoteCancellationClosesBlockedHandshake(t *testing.T) {
+	t.Parallel()
+
+	conn := newBlockingReadConn()
+
+	conn.setReadDeadlineErr = errBoom
+
+	transport := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
+			return conn, nil
+		},
+	}
+	codec := &ProtocolCodecMock{
+		EncodeOpReqDevlistFunc: func() []byte { return []byte{1} },
+		DecodeOpRepDevlistFunc: func(r io.Reader) ([]domain.Device, error) {
+			_, err := r.Read(make([]byte, 1))
+
+			return nil, fmt.Errorf("read blocked devlist reply: %w", err)
+		},
+	}
+	imp := newImporterForTest(
+		t,
+		app.WithImporterTransport(transport),
+		app.WithImporterCodec(codec),
+	)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	result := make(chan error, 1)
+
+	go func() {
+		_, err := imp.ListRemote(ctx, testRemote())
+		result <- err
+	}()
+
+	select {
+	case <-conn.readStarted:
+	case <-time.After(importerHandshakeCancellationBudget):
+		t.Fatal("ListRemote did not reach the blocked handshake read")
+	}
+
+	cancel()
+
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, net.ErrClosed)
+	case <-time.After(importerHandshakeCancellationBudget):
+		t.Fatal("ListRemote did not unblock after caller cancellation")
+	}
+
+	require.NotZero(t, conn.closeCount(), "the cancellation watcher must close the connection")
+	require.Empty(t, conn.readDeadlineLog(),
+		"application cancellation must not replace the transport-owned read deadline")
 }
 
 // TestImporterListRemoteDialFailure asserts a transport error surfaces
@@ -460,6 +681,7 @@ func TestImporterAttachHappyPath(t *testing.T) {
 			require.Same(t, conn, c)
 			require.Equal(t, attachDevice(), spec.Device)
 			require.Equal(t, attachDevice().Speed, spec.Speed)
+			require.NoError(t, spec.ReserveLocalPort(wantPortID))
 
 			return wantPortID, nil
 		},
@@ -491,6 +713,117 @@ func TestImporterAttachHappyPath(t *testing.T) {
 
 	// Critical: success path leaves the conn untouched — kernel owns it.
 	require.Equal(t, 0, conn.closeCount())
+}
+
+// TestImporterAttachPreservesTransportReadDeadline pins the same ownership rule
+// for the OP_REQ_IMPORT / OP_REP_IMPORT handshake. Caller cancellation remains
+// effective through the connection-close watcher in attachOverDialed.
+func TestImporterAttachPreservesTransportReadDeadline(t *testing.T) {
+	t.Parallel()
+
+	conn := newFakeConn()
+
+	conn.setReadDeadlineErr = errBoom
+
+	transport := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
+			return conn, nil
+		},
+	}
+	codec := &ProtocolCodecMock{
+		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
+		DecodeOpRepImportFunc: func(_ io.Reader) (domain.Device, error) {
+			return attachDevice(), nil
+		},
+	}
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			return domain.PortID(1), nil
+		},
+	}
+
+	imp := newImporterForTest(
+		t,
+		app.WithImporterKernel(kernel),
+		app.WithImporterTransport(transport),
+		app.WithImporterCodec(codec),
+	)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+	defer cancel()
+
+	_, err := imp.Attach(ctx, testRemote(), attachBusID(), app.AttachOptions{})
+	require.NoError(t, err)
+	require.Empty(t, conn.readDeadlineLog(),
+		"application code must not replace the transport-owned read deadline")
+}
+
+// TestImporterAttachCancellationClosesBlockedHandshake proves the import
+// handshake watcher promptly interrupts a blocked reply read without mutating
+// the transport-owned deadline or reaching kernel handoff.
+func TestImporterAttachCancellationClosesBlockedHandshake(t *testing.T) {
+	t.Parallel()
+
+	conn := newBlockingReadConn()
+
+	conn.setReadDeadlineErr = errBoom
+
+	transport := &TransportMock{
+		DialFunc: func(_ context.Context, _ domain.RemoteEndpoint, _ app.TransportOptions) (net.Conn, error) {
+			return conn, nil
+		},
+	}
+	codec := &ProtocolCodecMock{
+		EncodeOpReqImportFunc: func(_ io.Writer, _ domain.BusID) error { return nil },
+		DecodeOpRepImportFunc: func(r io.Reader) (domain.Device, error) {
+			_, err := r.Read(make([]byte, 1))
+
+			return domain.Device{}, fmt.Errorf("read blocked import reply: %w", err)
+		},
+	}
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			return 0, errBoom
+		},
+	}
+	imp := newImporterForTest(
+		t,
+		app.WithImporterKernel(kernel),
+		app.WithImporterTransport(transport),
+		app.WithImporterCodec(codec),
+	)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	result := make(chan error, 1)
+
+	go func() {
+		_, err := imp.Attach(ctx, testRemote(), attachBusID(), app.AttachOptions{})
+		result <- err
+	}()
+
+	select {
+	case <-conn.readStarted:
+	case <-time.After(importerHandshakeCancellationBudget):
+		t.Fatal("Attach did not reach the blocked handshake read")
+	}
+
+	cancel()
+
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, net.ErrClosed)
+	case <-time.After(importerHandshakeCancellationBudget):
+		t.Fatal("Attach did not unblock after caller cancellation")
+	}
+
+	require.NotZero(t, conn.closeCount(), "the cancellation watcher must close the connection")
+	require.Empty(t, conn.readDeadlineLog(),
+		"application cancellation must not replace the transport-owned read deadline")
+	require.Empty(t, kernel.AttachRemoteCalls())
 }
 
 // TestImporterAttachModulesAvailableFailure asserts a ModulesAvailable
@@ -618,7 +951,14 @@ func TestImporterAttachAttachRemoteFailure(t *testing.T) {
 
 	kernel := &ImporterKernelMock{
 		ModulesAvailableFunc: func(_ context.Context) error { return nil },
-		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+		AttachRemoteFunc: func(
+			_ context.Context, _ net.Conn, spec app.RemoteDeviceSpec,
+		) (domain.PortID, error) {
+			reserveErr := spec.ReserveLocalPort(domain.PortID(0))
+			if reserveErr != nil {
+				return 0, fmt.Errorf("reserve local port: %w", reserveErr)
+			}
+
 			return 0, domain.ErrNoFreePort
 		},
 	}
@@ -1046,6 +1386,256 @@ func TestImporterWatchSubscribeErrorYieldsEmpty(t *testing.T) {
 	}
 
 	require.Zero(t, count)
+}
+
+func TestImporterWatchWithErrorsYieldsSubscribeFailure(t *testing.T) {
+	t.Parallel()
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return nil, nil, errBoom
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterEvents(events))
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	count := 0
+
+	for event, watchErr := range imp.WatchWithErrors(context.Background()) {
+		require.Nil(t, event)
+		require.ErrorIs(t, watchErr, errBoom)
+
+		count++
+	}
+
+	require.Equal(t, 1, count)
+	require.Len(t, events.SubscribeCalls(), 1)
+}
+
+func TestImporterWatchWithErrorsClassifiesUnexpectedSourceClosure(t *testing.T) {
+	t.Parallel()
+
+	var cancelCount atomic.Int32
+
+	ch := make(chan domain.Event)
+	close(ch)
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return ch, func() { cancelCount.Add(1) }, nil
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterEvents(events))
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	count := 0
+
+	for event, watchErr := range imp.WatchWithErrors(context.Background()) {
+		require.Nil(t, event)
+		require.ErrorIs(t, watchErr, app.ErrEventStreamClosed)
+
+		count++
+	}
+
+	require.Equal(t, 1, count)
+	require.Equal(t, int32(1), cancelCount.Load())
+}
+
+func TestImporterWatchWithErrorsTreatsCallerCancellationAsClean(t *testing.T) {
+	t.Parallel()
+
+	ch := make(chan domain.Event)
+	close(ch)
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return ch, func() {}, nil
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterEvents(events))
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	count := 0
+	for range imp.WatchWithErrors(ctx) {
+		count++
+	}
+
+	require.Zero(t, count)
+}
+
+func TestImporterWatchWithErrorsSuppressesSubscribeFailureAfterCallerCancellation(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			cancel()
+
+			return nil, nil, errBoom
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterEvents(events))
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	count := 0
+	for range imp.WatchWithErrors(ctx) {
+		count++
+	}
+
+	require.Zero(t, count)
+}
+
+func TestImporterWatchWithErrorsTreatsImporterCloseAsClean(t *testing.T) {
+	t.Parallel()
+
+	subscribed := make(chan struct{})
+	ch := make(chan domain.Event)
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			close(subscribed)
+
+			return ch, func() {}, nil
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterEvents(events))
+	finished := make(chan int, 1)
+
+	go func() {
+		count := 0
+		for range imp.WatchWithErrors(context.Background()) {
+			count++
+		}
+
+		finished <- count
+	}()
+
+	<-subscribed
+	require.NoError(t, imp.Close())
+	require.Zero(t, <-finished)
+}
+
+func TestImporterWatchWithErrorsSuppressesSubscribeFailureAfterImporterClose(t *testing.T) {
+	t.Parallel()
+
+	subscribed := make(chan struct{})
+	releaseSubscribe := make(chan struct{})
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			close(subscribed)
+			<-releaseSubscribe
+
+			return nil, nil, errBoom
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterEvents(events))
+	finished := make(chan int, 1)
+
+	go func() {
+		count := 0
+		for range imp.WatchWithErrors(context.Background()) {
+			count++
+		}
+
+		finished <- count
+	}()
+
+	<-subscribed
+	require.NoError(t, imp.Close())
+	close(releaseSubscribe)
+	require.Zero(t, <-finished)
+}
+
+func TestImporterWatchWithErrorsYieldsEventsBeforeClosureError(t *testing.T) {
+	t.Parallel()
+
+	ch := make(chan domain.Event, 1)
+
+	want := domain.PortAttachedEvent{Port: domain.Port{ID: 7}}
+
+	ch <- want
+
+	close(ch)
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return ch, func() {}, nil
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterEvents(events))
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	var (
+		got         = make([]domain.Event, 0, 1)
+		terminalErr error
+	)
+
+	for event, watchErr := range imp.WatchWithErrors(context.Background()) {
+		if watchErr != nil {
+			terminalErr = watchErr
+
+			continue
+		}
+
+		got = append(got, event)
+	}
+
+	require.Equal(t, []domain.Event{want}, got)
+	require.ErrorIs(t, terminalErr, app.ErrEventStreamClosed)
+}
+
+func TestImporterWatchWithErrorsIsLazy(t *testing.T) {
+	t.Parallel()
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return make(chan domain.Event), func() {}, nil
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterEvents(events))
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	_ = imp.WatchWithErrors(context.Background())
+
+	require.Empty(t, events.SubscribeCalls())
+	require.Zero(t, app.ImporterSubscribersLenForTest(imp))
+}
+
+func TestImporterWatchWithErrorsEarlyBreakCancelsSubscription(t *testing.T) {
+	t.Parallel()
+
+	var cancelCount atomic.Int32
+
+	ch := make(chan domain.Event, 1)
+	ch <- domain.PortAttachedEvent{Port: domain.Port{ID: 9}}
+
+	events := &KernelEventsMock{
+		SubscribeFunc: func(_ context.Context) (<-chan domain.Event, func(), error) {
+			return ch, func() { cancelCount.Add(1) }, nil
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterEvents(events))
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	for range imp.WatchWithErrors(context.Background()) {
+		break
+	}
+
+	require.Equal(t, int32(1), cancelCount.Load())
 }
 
 // TestImporterWatchDoesNotSubscribeUntilIterated asserts the cost of

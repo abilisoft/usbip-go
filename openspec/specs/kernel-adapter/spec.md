@@ -22,7 +22,13 @@ The kernel layer SHALL expose importer, exporter, and events adapters with share
 
 ### Requirement: AttachRemote preserves fd handoff ordering
 
-Importer attach SHALL write the duplicated socket fd to `vhci_hcd` sysfs before closing the userspace connection reference.
+Importer attach SHALL reserve the selected local PortID with the application before writing the duplicated socket fd to `vhci_hcd` sysfs, then close the userspace connection reference only after the write succeeds. The adapter SHALL serialize attach and detach kernel mutations through one VHCI port-mutation boundary.
+
+#### Scenario: Selected port reservation is rejected
+
+- **WHEN** the application rejects the adapter-selected local PortID reservation
+- **THEN** AttachRemote returns the reservation error before the sysfs attach write
+- **AND** leaves the caller-owned connection open
 
 #### Scenario: Kernel attach succeeds
 
@@ -35,18 +41,28 @@ Importer attach SHALL write the duplicated socket fd to `vhci_hcd` sysfs before 
 - **WHEN** attach fails before the sysfs write succeeds
 - **THEN** the adapter leaves the caller-owned connection open for the caller to close
 
+#### Scenario: Attach and detach overlap
+
+- **WHEN** AttachRemote and DetachPort are invoked concurrently on one adapter
+- **THEN** their topology discovery, selected-port reservation, and sysfs mutations do not overlap
+
 ### Requirement: AttachRemote validates flat port bounds before sysfs write
 
-The adapter SHALL validate the selected flat vhci Port ID against discovered status topology before writing to the attach sysfs file.
+The adapter SHALL validate the selected flat vhci Port ID against the same freshly discovered status topology used to select it before writing to the attach sysfs file.
 
 #### Scenario: Port ID is out of range
 
 - **WHEN** a requested Port ID is outside `[0, NControllers*VHCIPorts)`
 - **THEN** the adapter returns a diagnostic error before the kernel sysfs write
 
+#### Scenario: Topology changes during an AttachRemote call
+
+- **WHEN** the live VHCI topology changes after AttachRemote has captured its operation-local snapshot
+- **THEN** selection and pre-write validation remain internally consistent with that snapshot
+
 ### Requirement: VHCI status parsing is defensive
 
-The adapter SHALL parse `status` and `status.N` files using validated topology, skip malformed rows with a warning, and fail on controller-window inconsistencies.
+The adapter SHALL parse `status` and `status.N` files using one freshly discovered validated status topology per operation, skip malformed rows with a warning, and fail on controller-window inconsistencies.
 
 #### Scenario: Status row is malformed
 
@@ -57,6 +73,40 @@ The adapter SHALL parse `status` and `status.N` files using validated topology, 
 
 - **WHEN** a parsed flat port falls outside the controller file's valid window
 - **THEN** the status read fails because kernel state is inconsistent
+
+### Requirement: VHCI topology snapshots are fresh and operation-local
+
+The kernel adapter SHALL rediscover VHCI topology for each importer operation and each relevant VHCI-shaped event, SHALL use one status-topology snapshot throughout a single AttachRemote allocation and bounds-validation sequence, and SHALL validate event controller/root-Port coordinates against the fresh topology before flat-Port conversion.
+
+#### Scenario: VHCI module reload changes topology
+
+- **WHEN** a long-lived adapter performs an operation after `vhci_hcd` is unloaded and reloaded with different controllers, ports, or bus mappings
+- **THEN** the operation uses the newly discovered topology rather than a previously successful snapshot
+
+#### Scenario: Attach selects and validates a Port
+
+- **WHEN** AttachRemote reads status rows, selects a free Port, and validates the Port before the sysfs write
+- **THEN** all three steps use one internally consistent status-topology snapshot
+
+#### Scenario: Consecutive VHCI events span a reload
+
+- **WHEN** two relevant VHCI-shaped events are mapped on opposite sides of a module reload
+- **THEN** each event is mapped only when its controller and root Port agree with topology discovered for that event
+
+#### Scenario: Delayed event names a previous controller
+
+- **WHEN** an event's controller suffix disagrees with the fresh BusMap location after reload
+- **THEN** the stale event is dropped instead of remapped to a different flat Port
+
+#### Scenario: Event root Port exceeds the fresh hub width
+
+- **WHEN** an event's 1-indexed root Port is zero or greater than HCPorts
+- **THEN** the malformed event is dropped before FlatPort arithmetic
+
+#### Scenario: Exporter-only event is mapped
+
+- **WHEN** a usbip-host driver event is mapped on a host without `vhci_hcd`
+- **THEN** the event bypasses VHCI topology discovery
 
 ### Requirement: Bind follows upstream-safe ordering
 
@@ -111,6 +161,25 @@ Unbind SHALL verify the Device is bound to `usbip-host`, best-effort disconnect 
 - **WHEN** Unbind sees no driver or a non-`usbip-host` driver
 - **THEN** it returns `ErrDeviceNotBound`
 
+### Requirement: Exporter session activity is observable from sysfs
+
+The exporter kernel adapter SHALL report whether a bound Device's `usbip_status` is actively used so the application can detect peer completion without relying on importer-side uevents.
+
+#### Scenario: Export session is active
+
+- **WHEN** `usbip_status` contains the kernel `SDEV_ST_USED` value
+- **THEN** the adapter reports the exporter Session active
+
+#### Scenario: Peer connection completed
+
+- **WHEN** `usbip_status` contains an available or other non-used value
+- **THEN** the adapter reports the exporter Session inactive
+
+#### Scenario: Activity status cannot be read
+
+- **WHEN** the per-device status attribute cannot be read or parsed
+- **THEN** the adapter returns the read error instead of guessing that the Session ended
+
 ### Requirement: ExportOnConn and Disconnect own exporter-side fd handoff
 
 Exporter fd handoff SHALL write the duplicated accepted socket fd to the Device's `usbip_sockfd`, while Disconnect writes `-1` to drop the kernel session.
@@ -141,7 +210,7 @@ EventsAdapter SHALL open one `NETLINK_KOBJECT_UEVENT` socket lazily, fan events 
 
 ### Requirement: Event mapping separates exporter and importer concerns
 
-The events adapter SHALL deliver usbip-host bind/unbind events even on exporter-only hosts and SHALL load VHCI topology lazily only for VHCI-shaped events.
+The events adapter SHALL deliver usbip-host bind/unbind events even on exporter-only hosts and SHALL discover fresh VHCI topology only for each VHCI-shaped event.
 
 #### Scenario: Exporter-only host subscribes
 
@@ -154,6 +223,11 @@ The events adapter SHALL deliver usbip-host bind/unbind events even on exporter-
 - **THEN** the adapter emits a device-bound event and remembers that bus ID
 - **AND** a matching `ACTION=unbind` without a `DRIVER` field emits a device-unbound event
 - **AND** unrelated USB driver unbinds do not emit usbip-host lifecycle events
+
+#### Scenario: VHCI event arrives
+
+- **WHEN** an event carries a VHCI-shaped devpath
+- **THEN** the mapper discovers topology for that event and drops only that event if discovery or coordinate validation fails
 
 ### Requirement: Kernel errors map to public sentinels
 

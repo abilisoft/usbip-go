@@ -65,9 +65,20 @@ type parsedPort struct {
 	busID  domain.BusID
 }
 
-// readStatusRows parses every status + status.N file into parsedPort
-// rows. Controller count and per-controller VHCI_PORTS stride come
-// from the cached StatusTopology snapshot — the lighter projection
+// readStatusRows parses every status + status.N file into parsedPort rows using
+// one fresh status-topology snapshot for the whole operation.
+func (a *commonAdapter) readStatusRows() ([]parsedPort, error) {
+	topo, err := a.loadStatusTopology()
+	if err != nil {
+		return nil, err
+	}
+
+	return a.readStatusRowsWithTopology(topo)
+}
+
+// readStatusRowsWithTopology parses every status file against the supplied
+// operation-local snapshot. Controller count and per-controller VHCI_PORTS
+// stride come from the StatusTopology snapshot — the lighter projection
 // that omits BusMap. Status-row parsing never consumes usb*/busnum;
 // insisting on a complete BusMap here would hard-fail ListPorts /
 // findFreePort during live-host mid-probe races the parser is
@@ -82,14 +93,11 @@ type parsedPort struct {
 //
 // Malformed rows surface a slog.Warn signal and are skipped; a row
 // whose flat port falls outside its controller's window fails the
-// whole call — that is a kernel-state inconsistency the caller must
-// see, not a tokenisation glitch the caller can ignore.
-func (a *commonAdapter) readStatusRows() ([]parsedPort, error) {
-	topo, err := a.loadStatusTopology()
-	if err != nil {
-		return nil, err
-	}
-
+// whole call — that is a kernel-state inconsistency the caller must see, not a
+// tokenisation glitch the caller can ignore. AttachRemote supplies the same
+// snapshot later used for pre-write bounds validation so one attach cannot mix
+// two vhci_hcd generations.
+func (a *commonAdapter) readStatusRowsWithTopology(topo StatusTopology) ([]parsedPort, error) {
 	rows := make([]parsedPort, 0)
 
 	for i := range topo.NControllers {
@@ -127,7 +135,7 @@ func statusFileName(idx uint32) string {
 // not belong to controllerIdx's block ([controllerIdx*vhciPorts,
 // (controllerIdx+1)*vhciPorts)) is a kernel-state inconsistency and
 // fails the whole call. vhciPorts is the per-controller width
-// (VHCI_PORTS, i.e. HCPorts*2) sourced from the cached topology.
+// (VHCI_PORTS, i.e. HCPorts*2) sourced from the operation-local topology.
 func (a *commonAdapter) parseStatusFile(body, source string, controllerIdx, vhciPorts uint32) ([]parsedPort, error) {
 	if vhciPorts == 0 {
 		return nil, fmt.Errorf("%w: source=%s controllerIdx=%d", errStatusRowZeroVHCIPorts, source, controllerIdx)
@@ -320,7 +328,22 @@ func parseStatusRowNumbers(fields []string) (statusNums, bool) {
 // class matches the requested speed. USB low/full/high/wireless select
 // "hs" rows; USB SuperSpeed / SuperSpeedPlus select "ss" rows.
 func (a *commonAdapter) findFreePort(speed domain.Speed) (domain.PortID, error) {
-	rows, err := a.readStatusRows()
+	topo, err := a.loadStatusTopology()
+	if err != nil {
+		return 0, err
+	}
+
+	return a.findFreePortWithTopology(topo, speed)
+}
+
+// findFreePortWithTopology selects a Port using the caller's operation-local
+// status snapshot. AttachRemote uses this form so selection and validation are
+// guaranteed to share one topology generation.
+func (a *commonAdapter) findFreePortWithTopology(
+	topo StatusTopology,
+	speed domain.Speed,
+) (domain.PortID, error) {
+	rows, err := a.readStatusRowsWithTopology(topo)
 	if err != nil {
 		return 0, err
 	}

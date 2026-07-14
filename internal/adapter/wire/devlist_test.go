@@ -5,6 +5,7 @@ package wire_test
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"testing"
 
@@ -12,6 +13,30 @@ import (
 	"github.com/abilisoft/usbip-go/pkg/domain"
 	"github.com/stretchr/testify/require"
 )
+
+var errDevlistWouldBlock = errors.New("open devlist stream has no more data yet")
+
+// openFrameReader models a live connection that has delivered exactly one
+// complete frame but has not closed. A read after data is exhausted records the
+// speculative probe and returns a would-block sentinel instead of hanging the
+// test. A correct count-delimited decoder never makes that second read.
+type openFrameReader struct {
+	data  []byte
+	reads int
+}
+
+func (r *openFrameReader) Read(p []byte) (int, error) {
+	r.reads++
+	if len(r.data) == 0 {
+		return 0, errDevlistWouldBlock
+	}
+
+	n := copy(p, r.data)
+
+	r.data = r.data[n:]
+
+	return n, nil
+}
 
 // TestEncodeOpReqDevlist produces exactly the 8-byte header.
 func TestEncodeOpReqDevlist(t *testing.T) {
@@ -23,7 +48,7 @@ func TestEncodeOpReqDevlist(t *testing.T) {
 }
 
 // TestDecodeOpRepDevlistZeroDevices is the wire-protocol OpenSpec edge case:
-// nDevices=0 is a valid response and returns (nil, false, nil).
+// nDevices=0 is a valid response and returns nil devices with zero flags.
 func TestDecodeOpRepDevlistZeroDevices(t *testing.T) {
 	t.Parallel()
 
@@ -36,6 +61,23 @@ func TestDecodeOpRepDevlistZeroDevices(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, got)
 	require.False(t, trailing.TrailingBytes)
+}
+
+// TestDecodeOpRepDevlistExactOpenFrameDoesNotProbe pins the live-stream
+// boundary: the count completes the frame, so the decoder must return without
+// asking an open connection whether a future byte might arrive.
+func TestDecodeOpRepDevlistExactOpenFrameDoesNotProbe(t *testing.T) {
+	t.Parallel()
+
+	frame := append(wire.EncodeHeader(wire.OpRepDevlist, 0), 0, 0, 0, 0)
+	r := &openFrameReader{data: frame}
+
+	devices, flags, err := wire.DecodeOpRepDevlist(r)
+	require.NoError(t, err)
+	require.Nil(t, devices)
+	require.False(t, flags.TrailingBytes)
+	require.Equal(t, 1, r.reads,
+		"a complete count-delimited frame must not trigger a speculative underlying read")
 }
 
 // TestDecodeOpRepDevlistOneDeviceZeroInterfaces checks a single device

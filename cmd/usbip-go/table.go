@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
+	"unicode"
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
@@ -53,6 +55,50 @@ func styleWriter(w io.Writer) io.Writer {
 // degrades to plain text. The --no-color flag wires through pickRenderer.
 type tableRenderer struct{}
 
+// escapeTerminalControls converts every Unicode control code point into
+// visible lowercase hexadecimal text before dynamic content reaches
+// lipgloss. Printable Unicode is deliberately preserved: USB string
+// descriptors are commonly localized and only terminal controls are unsafe.
+func escapeTerminalControls(value string) string {
+	if !strings.ContainsFunc(value, unicode.IsControl) {
+		return value
+	}
+
+	var escaped strings.Builder
+	escaped.Grow(len(value))
+
+	for _, char := range value {
+		if !unicode.IsControl(char) {
+			escaped.WriteRune(char)
+
+			continue
+		}
+
+		hex := strconv.FormatInt(int64(char), 16)
+
+		escaped.WriteString(`\x`)
+
+		if len(hex) == 1 {
+			escaped.WriteByte('0')
+		}
+
+		escaped.WriteString(hex)
+	}
+
+	return escaped.String()
+}
+
+// terminalSafeRow establishes the security boundary for human tables. Every
+// dynamic cell is escaped before the row is passed to lipgloss and before any
+// project-owned style can be applied.
+func terminalSafeRow(cells ...string) []string {
+	for idx := range cells {
+		cells[idx] = escapeTerminalControls(cells[idx])
+	}
+
+	return cells
+}
+
 // borderStyle defines the table chrome: rounded box-drawing corners
 // (lipgloss.RoundedBorder, U+256D and friends) with dim foreground
 // so the eye lands on the row contents, not the frame. Plain
@@ -90,14 +136,14 @@ func (tableRenderer) Devices(w io.Writer, devs []usbip.Device) error {
 	speeds := make([]usbip.Speed, 0, len(devs))
 
 	for _, d := range devs {
-		rows = append(rows, []string{
+		rows = append(rows, terminalSafeRow(
 			string(d.BusID),
 			deviceLabel(d),
 			d.Speed.String(),
 			fmt.Sprintf("%04x:%04x", d.VendorID, d.ProductID),
 			d.Class.String(),
 			strconv.Itoa(int(d.NumInterfaces)),
-		})
+		))
 		speeds = append(speeds, d.Speed)
 	}
 
@@ -157,14 +203,14 @@ func (tableRenderer) Ports(w io.Writer, ports []usbip.Port) error {
 	statuses := make([]usbip.Status, 0, len(ports))
 
 	for _, p := range ports {
-		rows = append(rows, []string{
+		rows = append(rows, terminalSafeRow(
 			strconv.FormatUint(uint64(p.ID), 10),
 			p.Status.String(),
 			p.Speed.String(),
 			p.Remote.String(),
 			string(p.BusID),
 			string(p.LocalBusID),
-		})
+		))
 		speeds = append(speeds, p.Speed)
 		statuses = append(statuses, p.Status)
 	}
@@ -203,14 +249,14 @@ func (tableRenderer) Sessions(w io.Writer, sessions []usbip.Session) error {
 	rows := make([][]string, 0, len(sessions))
 
 	for _, s := range sessions {
-		rows = append(rows, []string{
+		rows = append(rows, terminalSafeRow(
 			s.ID.String(),
 			s.RemoteAddr.String(),
 			string(s.BusID),
 			s.StartedAt.Format("2006-01-02T15:04:05Z"),
 			strconv.FormatUint(s.BytesIn, 10),
 			strconv.FormatUint(s.BytesOut, 10),
-		})
+		))
 	}
 
 	const colSessionID = 0

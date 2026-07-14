@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Workspace status command for Bazel release stamping.
-# Produces a PEP 440-compatible version from x.x.x git tags.
+# Produces stable release metadata from canonical vMAJOR.MINOR.PATCH tags.
 
 set -euo pipefail
 
@@ -13,4 +13,4 @@ echo "STABLE_VERSION $(harness_pep440_version)"
 echo "STABLE_GIT_COMMIT $(harness_git_full_sha)"
 echo "STABLE_GIT_SHA_SHORT $(harness_git_short_sha)"
 echo "STABLE_GIT_DIRTY $(harness_git_dirty_flag)"
-echo "BUILD_DATE $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "STABLE_BUILD_DATE $(harness_git_commit_date)"

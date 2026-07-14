@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,40 @@ import (
 // stubTransport's listen hook in this file. Defining it at package
 // scope satisfies err113 without an opaque errors.New inline.
 var errStubListenSentinel = errors.New("stub listen: skip serve")
+
+type lifecycleBlockingListener struct {
+	acceptStarted chan struct{}
+	closed        chan struct{}
+	acceptOnce    sync.Once
+	closeOnce     sync.Once
+}
+
+func newLifecycleBlockingListener() *lifecycleBlockingListener {
+	return &lifecycleBlockingListener{
+		acceptStarted: make(chan struct{}),
+		closed:        make(chan struct{}),
+	}
+}
+
+func (l *lifecycleBlockingListener) Accept() (net.Conn, error) {
+	l.acceptOnce.Do(func() { close(l.acceptStarted) })
+	<-l.closed
+
+	return nil, net.ErrClosed
+}
+
+func (l *lifecycleBlockingListener) Close() error {
+	l.closeOnce.Do(func() { close(l.closed) })
+
+	return nil
+}
+
+func (*lifecycleBlockingListener) Addr() net.Addr { return lifecycleTestAddr("blocked") }
+
+type lifecycleTestAddr string
+
+func (a lifecycleTestAddr) Network() string { return "test" }
+func (a lifecycleTestAddr) String() string  { return string(a) }
 
 // TestExporterListenAndServeUsesTransport asserts the public
 // ListenAndServe method dispatches through Transport.Listen with the
@@ -98,6 +133,68 @@ func TestExporterListenAndServeReturnsListenErrorVerbatim(t *testing.T) {
 	require.ErrorIs(t, err, errStubListenSentinel)
 }
 
+func TestExporterListenAndServeRejectsShutdownBeforeBind(t *testing.T) {
+	t.Parallel()
+
+	s := newInternalExporterForTest(t)
+	listenCalls := 0
+
+	s.trans.listenFn = func(
+		_ context.Context,
+		_ string,
+		_ internalapp.TransportOptions,
+	) (net.Listener, error) {
+		listenCalls++
+
+		return nil, errStubListenSentinel
+	}
+
+	exp := usbip.NewExporterFromInternalForTestWithTransportOptions(
+		s.inner, s.trans, usbip.TransportOptions{},
+	)
+	require.NoError(t, exp.Shutdown(t.Context()))
+
+	err := exp.ListenAndServe(t.Context(), "127.0.0.1:0")
+	require.ErrorIs(t, err, usbip.ErrExporterShutdown)
+	require.Zero(t, listenCalls, "terminal lifecycle rejection must precede bind")
+}
+
+func TestExporterListenAndServeRejectsOverlapBeforeBind(t *testing.T) {
+	t.Parallel()
+
+	s := newInternalExporterForTest(t)
+	listener := newLifecycleBlockingListener()
+	listenCalls := 0
+
+	s.trans.listenFn = func(
+		_ context.Context,
+		_ string,
+		_ internalapp.TransportOptions,
+	) (net.Listener, error) {
+		listenCalls++
+
+		return nil, errStubListenSentinel
+	}
+
+	exp := usbip.NewExporterFromInternalForTestWithTransportOptions(
+		s.inner, s.trans, usbip.TransportOptions{},
+	)
+	serveCtx, cancelServe := context.WithCancel(t.Context())
+	serveDone := make(chan error, 1)
+
+	go func() { serveDone <- exp.Serve(serveCtx, listener) }()
+
+	<-listener.acceptStarted
+
+	err := exp.ListenAndServe(t.Context(), "127.0.0.1:0")
+	require.ErrorIs(t, err, usbip.ErrServeAlreadyRunning)
+	require.Zero(t, listenCalls, "overlap rejection must precede bind")
+
+	cancelServe()
+	require.NoError(t, <-serveDone)
+	require.NoError(t, exp.Shutdown(t.Context()))
+}
+
 // closeRecordingListener wraps a net.Listener and records the number
 // of Close calls it observes. The wrap is identity for Accept/Addr; a
 // counter exposes whether ListenAndServe closed the listener on its
@@ -128,13 +225,7 @@ func TestExporterListenAndServeClosesListenerOnServeReturn(t *testing.T) {
 	t.Parallel()
 
 	s := newInternalExporterForTest(t)
-
-	var lc net.ListenConfig
-
-	loopback, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	wrapped := &closeRecordingListener{Listener: loopback}
+	wrapped := &closeRecordingListener{Listener: newLifecycleBlockingListener()}
 
 	s.trans.listenFn = func(
 		_ context.Context,

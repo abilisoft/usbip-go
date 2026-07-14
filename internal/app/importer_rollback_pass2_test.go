@@ -99,7 +99,8 @@ func TestImporterRollback_PreservesHandleOnKernelDetachFailure(t *testing.T) {
 
 	registry.waitFor(t, 1)
 
-	registry.channel(t, 0) <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
+	originalEvents := registry.channel(t, 0)
+	originalEvents <- domain.PortDetachedEvent{Port: domain.Port{ID: port.ID}}
 
 	require.Eventually(t, func() bool {
 		clk.Advance(reconnectTestBackoff().Delay)
@@ -146,6 +147,13 @@ func TestImporterRollback_PreservesHandleOnKernelDetachFailure(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		t.Fatal("rollback kernel.DetachPort(2) was not invoked")
 	}
+
+	// The mock records the kernel call before it returns its failure. Wait for
+	// the old watcher to close its subscription, which happens only after
+	// rollback has published that failure and released shared-attempt
+	// ownership; otherwise the explicit retry can legitimately join the still
+	// active failed attempt instead of starting a new one.
+	requireEventChannelClosed(t, originalEvents)
 
 	// Because rollback DetachPort failed, the handle for PortID=2 MUST
 	// stay registered so the user can retry. The retry Detach(2) must

@@ -53,7 +53,7 @@ Unbind SHALL reverse a previous Bind and perform best-effort cleanup for bound s
 
 ### Requirement: Serve accepts one session goroutine per connection
 
-Exporter Serve SHALL run an accept loop until context cancellation, shutdown, or a permanent listener error, spawning a per-connection handler for each accepted connection.
+Exporter Serve SHALL run an accept loop until context cancellation, shutdown, or a permanent listener error, spawning a per-connection handler for each accepted connection. A Session whose fd has been handed to the kernel SHALL remain owned independently of the Serve context until authoritative peer completion or Shutdown cleanup.
 
 #### Scenario: Devlist request arrives
 
@@ -64,6 +64,11 @@ Exporter Serve SHALL run an accept loop until context cancellation, shutdown, or
 
 - **WHEN** a peer sends `OP_REQ_IMPORT`
 - **THEN** the handler decodes the BusID, registers a Session, writes the import reply, hands the fd to the kernel, and waits for Session termination
+
+#### Scenario: Serve context is cancelled after kernel handoff
+
+- **WHEN** Serve stops after a Session fd has been handed to the kernel
+- **THEN** the Session remains registered and kernel-owned until peer completion or Shutdown claims cleanup
 
 ### Requirement: Session registration enforces configured limits
 
@@ -91,8 +96,7 @@ Each successful import Session SHALL have a UUIDv7 SessionID, remote address, Bu
 
 ### Requirement: Session events are observable
 
-`Exporter.WatchSessions` SHALL emit future session lifecycle events while its
-context is live and once the returned iterator is consumed.
+`Exporter.WatchSessions` SHALL emit future session lifecycle events while its context is live and once the returned iterator is consumed. Exporter Session termination SHALL be detected by role-correct exporter lifecycle events or by an authoritative kernel activity probe. Importer-side VHCI Port events SHALL NOT terminate an exporter Session by BusID alone.
 
 #### Scenario: Import handshake completes
 
@@ -103,6 +107,17 @@ context is live and once the returned iterator is consumed.
 
 - **WHEN** the kernel-owned connection closes, disconnects, or shutdown ends it
 - **THEN** a `session_ended` event is emitted with the final Session snapshot and reason
+
+#### Scenario: Normal peer completion emits no exporter detach event
+
+- **WHEN** the kernel activity probe reports that a handed-off BusID is no longer used
+- **THEN** the exporter ends and unregisters that Session without requiring a synthetic detach event
+
+#### Scenario: Imported remote BusID collides with exported local BusID
+
+- **WHEN** the shared kernel event stream emits an importer-side `PortDetachedEvent` whose remote BusID equals a live exporter Session's local BusID
+- **THEN** the exporter ignores that event for Session termination
+- **AND** retains the Session until a role-correct local unbind, authoritative inactive status, or Shutdown
 
 #### Scenario: Watch iterator is constructed but not consumed
 
@@ -117,17 +132,28 @@ context is live and once the returned iterator is consumed.
 
 ### Requirement: Shutdown performs graceful drain
 
-Exporter Shutdown SHALL stop new accepts, signal active sessions, wait for in-flight sessions subject to context/deadline semantics, and return a classified error on timeout or lifecycle misuse.
+Exporter Shutdown SHALL stop new accepts, signal active sessions, perform at most one required kernel Disconnect per handed-off Session, wait for in-flight Sessions and cleanup subject to context/deadline semantics, and return joined drain and cleanup failures. Repeated Shutdown calls SHALL observe the retained completion and error result without repeating Disconnect.
 
 #### Scenario: Shutdown is called with active sessions
 
 - **WHEN** active Sessions exist
-- **THEN** the exporter refuses new handshakes and attempts graceful disconnect of existing Sessions
+- **THEN** the exporter refuses new handshakes and attempts graceful disconnect of every handed-off Session exactly once
+
+#### Scenario: Multiple disconnects fail
+
+- **WHEN** independent Session disconnect attempts return errors
+- **THEN** Shutdown returns an error that preserves every failure for `errors.Is` inspection
+
+#### Scenario: Shutdown is repeated after cleanup failure
+
+- **WHEN** a completed Disconnect failed and Shutdown is called again
+- **THEN** the repeat call returns the stored failure without another Disconnect attempt
 
 #### Scenario: Drain deadline expires
 
 - **WHEN** the shutdown deadline expires before Sessions terminate
 - **THEN** the exporter force-closes outstanding connections to unwedge handlers
+- **AND** returns a joined timeout and any cleanup failures already completed
 
 ### Requirement: Serve lifecycle rejects overlap and terminal reuse
 
@@ -142,3 +168,54 @@ Exporter SHALL reject overlapping Serve calls and treat completed Shutdown as te
 
 - **WHEN** a caller tries to serve again on the same Exporter after Shutdown
 - **THEN** it returns `ErrExporterShutdown`
+
+### Requirement: Exporter terminal session events are drained
+
+Exporter subscriber closure SHALL establish a publication barrier and an active
+WatchSessions iterator SHALL drain every lifecycle event accepted into its
+bounded subscriber buffer before terminal Exporter shutdown.
+
+#### Scenario: Session end is queued before shutdown closes subscribers
+
+- **WHEN** a session-ended event has entered a subscriber buffer before shutdown closes that subscriber
+- **THEN** the active iterator yields the session-ended event before returning
+
+#### Scenario: WatchSessions caller cancels independently
+
+- **WHEN** the WatchSessions context is cancelled independently of Exporter shutdown
+- **THEN** the iterator stops without a terminal-buffer drain requirement
+
+### Requirement: Serving lifecycle is reserved before listener setup
+
+The Exporter SHALL atomically reserve one Serve lifecycle before invoking a
+listener factory, SHALL reject terminal or overlapping calls before factory
+side effects, and SHALL let Shutdown cancel an in-flight context-aware factory.
+
+#### Scenario: Listener setup overlaps Shutdown
+
+- **WHEN** Shutdown begins while a listener factory is waiting on its supplied context
+- **THEN** the factory context is cancelled
+- **AND** Shutdown waits for the reserved Serve call to leave setup
+
+#### Scenario: Concurrent Serve already owns the reservation
+
+- **WHEN** a second Serve operation begins before the first Serve operation exits
+- **THEN** the second operation returns `ErrServeAlreadyRunning`
+- **AND** its listener factory is not invoked
+
+### Requirement: Accept-rate option has explicit disable semantics
+
+Exporter construction SHALL apply the default accept rate only when the option
+is omitted, SHALL treat an explicit finite rate less than or equal to zero as
+disabled, and SHALL reject a non-finite rate.
+
+#### Scenario: Explicit zero differs from omission
+
+- **WHEN** one Exporter omits the rate option and another explicitly supplies zero
+- **THEN** the omitted option receives the documented default limiter
+- **AND** the explicit zero Exporter has no accept-rate limiter
+
+#### Scenario: Non-finite rate is configured
+
+- **WHEN** NaN or either infinity is supplied as the accept rate
+- **THEN** Exporter construction fails with the accept-rate-invalid sentinel

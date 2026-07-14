@@ -22,19 +22,58 @@ const sessionEventBufSize = 16
 // sessionEventSubscriber is one active WatchSessions consumer. done is
 // closed exactly once by removeSubscriber or closeAllSubscribers to
 // signal the iterator that no more events will arrive. ch is
-// deliberately NOT closed from unsubscribe paths — the publish-side
-// select on ch vs done would otherwise race a removeSubscriber close
-// and panic with send-on-closed-channel.
+// deliberately NOT closed from unsubscribe paths. Publication and removal use
+// the same mutex, forming a barrier without risking send-on-closed-channel.
 type sessionEventSubscriber struct {
-	ch       chan domain.Event
-	done     chan struct{}
-	doneOnce sync.Once
+	ch   chan domain.Event
+	done chan struct{}
+
+	mu     sync.Mutex
+	closed bool
 }
 
 // closeDone signals the subscriber as removed exactly once. Safe to
 // call from any goroutine.
 func (s *sessionEventSubscriber) closeDone() {
-	s.doneOnce.Do(func() { close(s.done) })
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.closeDoneLocked()
+}
+
+// closeDoneLocked publishes the terminal barrier. The caller must hold s.mu.
+func (s *sessionEventSubscriber) closeDoneLocked() {
+	if s.closed {
+		return
+	}
+
+	// Synchronize termination with publishSessionEvent. Once done is closed,
+	// no later event can enter ch, so the iterator can drain every event that
+	// was already queued before returning.
+	s.closed = true
+	close(s.done)
+}
+
+func (s *sessionEventSubscriber) tryPublish(ev domain.Event) (bool, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.tryPublishLocked(ev)
+}
+
+// tryPublishLocked publishes one event before the terminal barrier. The caller
+// must hold s.mu.
+func (s *sessionEventSubscriber) tryPublishLocked(ev domain.Event) (bool, bool) {
+	if s.closed {
+		return false, false
+	}
+
+	select {
+	case s.ch <- ev:
+		return true, true
+	default:
+		return true, false
+	}
 }
 
 // Sessions returns a snapshot of the currently-accepted sessions,
@@ -107,10 +146,9 @@ func (e *Exporter) WatchSessions(ctx context.Context) iter.Seq[domain.Event] {
 }
 
 // removeSubscriber drops sub from the subscriber list and signals the
-// iterator via sub.done. The event channel is NOT closed here: closing
-// it would race a concurrent publishSessionEvent send. Instead the
-// publish path selects on sub.done and skips subscribers that have
-// unsubscribed.
+// iterator via sub.done. The event channel is NOT closed here: closing it
+// would race a concurrent publishSessionEvent send. Instead closeDone and the
+// publish path share the subscriber mutex.
 func (e *Exporter) removeSubscriber(sub *sessionEventSubscriber) {
 	e.mu.Lock()
 
@@ -129,9 +167,9 @@ func (e *Exporter) removeSubscriber(sub *sessionEventSubscriber) {
 
 // publishSessionEvent fans ev out to every live WatchSessions
 // subscriber. Slow consumers drop the event (logged) so one stuck
-// watcher cannot stall the session state machine. Sends are guarded
-// by a select on sub.done so a concurrent removeSubscriber is observed
-// as "subscriber gone" instead of racing the channel close.
+// watcher cannot stall the session state machine. tryPublish serializes each
+// send with the close barrier so no event can enter the buffer after an
+// iterator observes sub.done.
 func (e *Exporter) publishSessionEvent(ev domain.Event) {
 	e.mu.RLock()
 
@@ -144,11 +182,8 @@ func (e *Exporter) publishSessionEvent(ev domain.Event) {
 	e.mu.RUnlock()
 
 	for _, sub := range subs {
-		select {
-		case <-sub.done:
-			// Subscriber already torn down; skip without logging.
-		case sub.ch <- ev:
-		default:
+		active, sent := sub.tryPublish(ev)
+		if active && !sent {
 			e.logger.Debug("exporter session event dropped (slow consumer)",
 				slog.Any("event", ev))
 		}
@@ -192,11 +227,29 @@ func runSessionEventSeq(
 		case <-ctx.Done():
 			return
 		case <-sub.done:
+			drainSessionEvents(sub, yield)
+
 			return
 		case ev := <-sub.ch:
 			if !yield(ev) {
 				return
 			}
+		}
+	}
+}
+
+// drainSessionEvents yields every lifecycle event queued before closeDone's
+// publication barrier. Caller-context cancellation intentionally bypasses this
+// drain so the established cancellation semantics remain unchanged.
+func drainSessionEvents(sub *sessionEventSubscriber, yield func(domain.Event) bool) {
+	for {
+		select {
+		case ev := <-sub.ch:
+			if !yield(ev) {
+				return
+			}
+		default:
+			return
 		}
 	}
 }

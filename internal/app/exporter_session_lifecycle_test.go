@@ -15,21 +15,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestExporterSession_LifecycleFollowsKernelDetachEvent asserts that a
-// handler whose kernel.ExportOnConn returns immediately (mirroring the
-// real sysfs write semantics — the kernel takes the fd and the call
-// returns) keeps the session registered until a matching detach uevent
-// arrives on the KernelEvents subscription. If Sessions() emptied the
-// moment the handler goroutine returned after ExportOnConn the TCP conn
-// would leak and the daemon view of active sessions would be wrong,
-// since ExportOnConn does not actually own the session lifetime.
-func TestExporterSession_LifecycleFollowsKernelDetachEvent(t *testing.T) {
+// TestExporterSession_IgnoresImporterPortDetachBusIDCollision proves that a
+// VHCI detach for an imported remote device cannot terminate an unrelated
+// exporter session merely because both devices use the same BusID string.
+// KernelEvents is role-shared; only local DeviceUnbound, authoritative
+// usbip_status inactivity, or Shutdown can end the exported Session.
+func TestExporterSession_IgnoresImporterPortDetachBusIDCollision(t *testing.T) {
 	t.Parallel()
 
-	const (
-		sessionBusID          = domain.BusID("4-1")
-		unrelatedSessionBusID = domain.BusID("4-9")
-	)
+	const sessionBusID = domain.BusID("4-1")
 
 	kernel := &ExporterKernelMock{
 		// serveImport now looks the requested device up in the
@@ -83,28 +77,26 @@ func TestExporterSession_LifecycleFollowsKernelDetachEvent(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond,
 		"Sessions() must report the session after ExportOnConn returns — the kernel still owns the fd")
 
-	// An unbuffered unrelated event can be delivered only after the handler
-	// has entered its kernel-event receive loop. That handoff proves the
-	// session remains owned without a scheduler delay.
+	// The unbuffered send completes only after the exporter handler receives
+	// the importer-role event. Matching BusID is intentional: it reproduces
+	// the cross-role identity collision without scheduler sleeps.
 	select {
-	case events <- domain.PortDetachedEvent{Port: domain.Port{BusID: unrelatedSessionBusID}}:
+	case events <- domain.PortDetachedEvent{Port: domain.Port{BusID: sessionBusID}}:
 	case <-time.After(2 * time.Second):
 		t.Fatal("session handler did not start waiting for kernel events")
 	}
 
 	require.Len(t, exp.Sessions(context.Background()), 1,
-		"session must stay listed until a kernel detach event arrives")
+		"importer PortDetachedEvent must not terminate the colliding exporter Session")
 
 	require.Len(t, kernel.ExportOnConnCalls(), 1,
 		"ExportOnConn should have been invoked exactly once")
 
-	// Push a detach event keyed to the session's busid. The handler's
-	// waitForSessionEnd helper matches this event and unwinds.
+	// A role-correct local unbind remains a terminal exporter event.
 	select {
-	case events <- domain.PortDetachedEvent{
+	case events <- domain.DeviceUnboundEvent{
 		At:     time.Now(),
-		Port:   domain.Port{BusID: sessionBusID},
-		Reason: testKernelSessionEndReason,
+		Device: domain.Device{BusID: sessionBusID},
 	}:
 	case <-time.After(2 * time.Second):
 		t.Fatal("session handler stopped receiving kernel events")
@@ -113,7 +105,7 @@ func TestExporterSession_LifecycleFollowsKernelDetachEvent(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return len(exp.Sessions(context.Background())) == 0
 	}, 2*time.Second, 10*time.Millisecond,
-		"Sessions() must empty only after the matching kernel detach event arrives")
+		"Sessions() must empty after the matching exporter DeviceUnboundEvent")
 
 	cancel()
 

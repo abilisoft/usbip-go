@@ -177,6 +177,12 @@ exit code and a message on stderr, never as `{"ok": false}`.
 carries the schema envelope plus a `kind` discriminator. The command's current
 importer stream can emit these six kinds:
 
+Failure to establish the event subscription, or unexpected loss of an
+established source, terminates the CLI with a non-zero error rather than
+producing a successful empty stream. Library consumers can observe the same
+terminal error through `Importer.WatchWithErrors`; the v1 `Importer.Watch`
+iterator retains its event-only shape and stops on source failure.
+
 - `port_attached`
 - `port_detached`
 - `port_errored`
@@ -318,6 +324,12 @@ readiness on `usbip_core` and `usbip_host` being loaded.
 records: `id` is the canonical UUIDv7 form and `started_at` is RFC 3339 nano
 UTC.
 
+The `usbip-go drain` consumer treats `schema`, `sessions`, `listening`, and
+`listening.accepting` as required completion evidence. It accepts unknown
+additive v1 fields, but rejects non-2xx responses, another schema version, or an
+omitted or null required field rather than interpreting a Go zero value as an
+idle daemon.
+
 ## Observability via slog
 
 Per `openspec/specs/operations-observability/spec.md`, this project
@@ -348,6 +360,10 @@ Build provenance (`version`, `commit`, `build_date`, `go_version`)
 appears as fields on the `"usbip-go serve starting"` slog record at
 daemon startup. Operators query for it via `journalctl --output=json |
 jq 'select(.MESSAGE == "usbip-go serve starting")'`.
+Release-configured Bazel distribution binaries populate version, commit, and
+build date from stable Git workspace status. The build date is the source
+commit's committer date, not the build invocation wall clock; ordinary
+unstamped development builds keep their explicit fallback values.
 
 ## Forward compatibility
 

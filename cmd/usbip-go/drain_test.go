@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -20,6 +21,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+// roundTripFunc adapts a function to http.RoundTripper so probe validation
+// tests can supply exact status codes and JSON bodies without a network
+// listener or timing-sensitive server goroutine.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 // drainTestServer spins a minimal status UDS answering GET / with a
 // provided sessionsFn (so tests can model "first non-empty, then
@@ -134,7 +144,7 @@ func (s *drainTestServer) Close() {
 func TestDrainSubcommandSuccess(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	sockPath := filepath.Join(dir, "status.sock")
 
 	srv := newDrainTestServer(t, sockPath, func(drainCalled int) drainTestState {
@@ -173,7 +183,7 @@ func TestDrainSubcommandSuccess(t *testing.T) {
 func TestDrainSubcommandTimeout(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	sockPath := filepath.Join(dir, "status.sock")
 
 	srv := newDrainTestServer(t, sockPath, func(_ int) drainTestState {
@@ -205,6 +215,118 @@ func TestDrainSubcommandTimeout(t *testing.T) {
 	// sets SilenceErrors=true. The drain-timeout phrase MUST appear
 	// in the returned error itself so renderMainError can format it.
 	require.Contains(t, err.Error(), "drain timed out")
+}
+
+// TestProbeStatusOnceValidatesSchemaAndRequiredFields pins the fail-closed
+// drain contract. JSON zero values are not evidence that a daemon is idle:
+// GET must be 2xx schema v1 and explicitly carry sessions plus
+// listening.accepting before the client can make a completion decision.
+func TestProbeStatusOnceValidatesSchemaAndRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		wantDone   bool
+		wantErr    bool
+	}{
+		{
+			name:       "valid idle status",
+			statusCode: http.StatusOK,
+			body:       `{"schema":"v1","sessions":[],"listening":{"accepting":false}}`,
+			wantDone:   true,
+		},
+		{
+			name:       "valid active status",
+			statusCode: http.StatusOK,
+			body:       `{"schema":"v1","sessions":[{}],"listening":{"accepting":false}}`,
+		},
+		{
+			name:       "valid accepting status",
+			statusCode: http.StatusOK,
+			body:       `{"schema":"v1","sessions":[],"listening":{"accepting":true}}`,
+		},
+		{
+			name:       "additive fields ignored",
+			statusCode: http.StatusOK,
+			body:       `{"schema":"v1","future":true,"sessions":[],"listening":{"addr":"x","accepting":false}}`,
+			wantDone:   true,
+		},
+		{
+			name:       "non-2xx",
+			statusCode: http.StatusServiceUnavailable,
+			body:       `{"schema":"v1","sessions":[],"listening":{"accepting":false}}`,
+			wantErr:    true,
+		},
+		{
+			name:       "empty object",
+			statusCode: http.StatusOK,
+			body:       `{}`,
+			wantErr:    true,
+		},
+		{
+			name:       "wrong schema",
+			statusCode: http.StatusOK,
+			body:       `{"schema":"v2","sessions":[],"listening":{"accepting":false}}`,
+			wantErr:    true,
+		},
+		{
+			name:       "missing sessions",
+			statusCode: http.StatusOK,
+			body:       `{"schema":"v1","listening":{"accepting":false}}`,
+			wantErr:    true,
+		},
+		{
+			name:       "null sessions",
+			statusCode: http.StatusOK,
+			body:       `{"schema":"v1","sessions":null,"listening":{"accepting":false}}`,
+			wantErr:    true,
+		},
+		{
+			name:       "missing listening",
+			statusCode: http.StatusOK,
+			body:       `{"schema":"v1","sessions":[]}`,
+			wantErr:    true,
+		},
+		{
+			name:       "missing accepting",
+			statusCode: http.StatusOK,
+			body:       `{"schema":"v1","sessions":[],"listening":{}}`,
+			wantErr:    true,
+		},
+		{
+			name:       "null accepting",
+			statusCode: http.StatusOK,
+			body:       `{"schema":"v1","sessions":[],"listening":{"accepting":null}}`,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: tt.statusCode,
+					Body:       io.NopCloser(bytes.NewBufferString(tt.body)),
+					Header:     make(http.Header),
+				}, nil
+			})}
+
+			done, err := probeStatusOnce(t.Context(), client)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.False(t, done)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tt.wantDone, done)
+		})
+	}
 }
 
 // TestIsDaemonGoneErrorClassification pins the transport-error
@@ -269,7 +391,7 @@ var (
 func TestDrainSubcommandUDSDisappears(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	sockPath := filepath.Join(dir, "status.sock")
 
 	srv := newDrainTestServer(t, sockPath, func(_ int) drainTestState {

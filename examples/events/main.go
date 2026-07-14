@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2026 AbiliSoft
 // SPDX-License-Identifier: Apache-2.0
 
-// Example events demonstrates iterating over Importer.Watch and
-// Exporter.WatchSessions. Both return iter.Seq[Event], Go 1.23+'s
-// range-over-function shape, so consumers can drive them with a
-// plain `for ev := range ...` loop.
+// Example events demonstrates iterating over the v1-compatible
+// Importer.Watch and Exporter.WatchSessions event-only sequences. Consumers
+// that must distinguish clean cancellation from subscription or source
+// failure should use Importer.WatchWithErrors instead.
 //
 // Usage:
 //

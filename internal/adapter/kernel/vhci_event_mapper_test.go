@@ -7,6 +7,7 @@ package kernel_test
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"testing/fstest"
 
@@ -188,6 +189,52 @@ func TestVhciEventMapper_NonVHCIBusIgnored(t *testing.T) {
 	ev, ok := mapper.MapEventForTest(fields)
 	require.False(t, ok, "bus 99 is not in the BusMap — mapper must skip")
 	require.Nil(t, ev, "skipped events must have nil payload")
+}
+
+// TestVhciEventMapper_RejectsCoordinatesOutsideFreshTopology proves the
+// devpath's controller and root Port are validated against the freshly loaded
+// BusMap location and HCPorts before FlatPort arithmetic.
+func TestVhciEventMapper_RejectsCoordinatesOutsideFreshTopology(t *testing.T) {
+	t.Parallel()
+
+	topo := loadTopoForMapperTest(t, singleControllerTopoFS())
+	mapper := kernel.NewVHCIEventMapperForTest(topo)
+
+	cases := []struct {
+		name    string
+		devpath string
+	}{
+		{
+			name:    "controller suffix disagrees with bus map",
+			devpath: "/devices/platform/vhci_hcd.1/usb1/1-1",
+		},
+		{
+			name:    "root port exceeds fresh hub width",
+			devpath: "/devices/platform/vhci_hcd.0/usb1/1-9",
+		},
+		{
+			name:    "controller exceeds uint32 topology coordinate",
+			devpath: "/devices/platform/vhci_hcd.4294967296/usb1/1-1",
+		},
+		{
+			name:    "controller exceeds parser width",
+			devpath: "/devices/platform/vhci_hcd.18446744073709551616/usb1/1-1",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ev, ok := mapper.MapEventForTest(map[string]string{
+				testUeventActionField:    testUeventActionRemove,
+				testUeventSubsystemField: testUeventSubsystemUSB,
+				testUeventDevPathField:   tc.devpath,
+			})
+			require.False(t, ok)
+			require.Nil(t, ev)
+		})
+	}
 }
 
 // TestVhciEventMapper_MalformedDevpath covers the parse guards: non-
@@ -379,11 +426,10 @@ func TestVhciEventMapper_AnchoredRegexPreservesValidBusIDs(t *testing.T) {
 //  2. usbip_host events MUST bypass the VHCI topology entirely — they
 //     do not need it, and firing the loader on a usbip_host bind would
 //     defeat point 1.
-//  3. The first VHCI-shaped event fires the loader exactly once. On
+//  3. Each VHCI-shaped event fires the loader exactly once. On
 //     loader error, VHCI events are dropped (ok=false) — no panic, no
 //     surfaced error; the mapper is degraded for VHCI only.
-//  4. A loader-error result is memoised: subsequent VHCI events do not
-//     re-invoke the loader.
+//  4. Loader errors are not memoised: subsequent VHCI events retry.
 //
 // A loader that always fails exercises the degraded path; a usbip_host
 // event issued alongside still maps. This is the exporter-only
@@ -452,17 +498,35 @@ func TestVhciEventMapper_LazyLoaderDegradesVHCIButPassesUsbipHost(t *testing.T) 
 		"loader failure must not be memoised — second VHCI event must retry")
 }
 
-// TestVhciEventMapper_LazyLoaderSuccessCachedAcrossVHCIEvents mirrors
-// the degraded test above but with a successful loader. Pins the
-// "load once on first VHCI event, reuse thereafter" cache contract.
-func TestVhciEventMapper_LazyLoaderSuccessCachedAcrossVHCIEvents(t *testing.T) {
+// TestVhciEventMapper_FreshTopologyAcrossVHCIEvents proves successful topology
+// observations are event-local. The loader changes the same bus mapping between
+// two events, and the second Port ID must reflect the new module generation.
+func TestVhciEventMapper_FreshTopologyAcrossVHCIEvents(t *testing.T) {
 	t.Parallel()
 
-	topo := loadTopoForMapperTest(t, singleControllerTopoFS())
+	topologies := []kernel.Topology{
+		{
+			NControllers: 1,
+			HCPorts:      8,
+			VHCIPorts:    16,
+			BusMap: map[uint32]kernel.VHCILocation{
+				1: {ControllerIdx: 0, Hub: kernel.HubTypeHS},
+			},
+		},
+		{
+			NControllers: 2,
+			HCPorts:      4,
+			VHCIPorts:    8,
+			BusMap: map[uint32]kernel.VHCILocation{
+				1: {ControllerIdx: 1, Hub: kernel.HubTypeSS},
+			},
+		},
+	}
 
 	var calls int
 
 	loader := func() (kernel.Topology, error) {
+		topo := topologies[calls]
 		calls++
 
 		return topo, nil
@@ -478,13 +542,95 @@ func TestVhciEventMapper_LazyLoaderSuccessCachedAcrossVHCIEvents(t *testing.T) {
 		testUeventDevPathField:   testVHCIDeviceDevPath,
 	}
 
-	_, ok := mapper.MapEventForTest(vhciFields)
+	first, ok := mapper.MapEventForTest(vhciFields)
 	require.True(t, ok, "first VHCI event maps once the loader succeeds")
 	require.Equal(t, 1, calls, "loader fires exactly once on first VHCI event")
 
-	_, ok = mapper.MapEventForTest(vhciFields)
+	firstDetach, ok := first.(domain.PortDetachedEvent)
 	require.True(t, ok)
-	require.Equal(t, 1, calls, "loader success must be memoised")
+	require.Equal(t, domain.PortID(0), firstDetach.Port.ID)
+
+	vhciFields[testUeventDevPathField] = "/devices/platform/vhci_hcd.1/usb1/1-1"
+
+	second, ok := mapper.MapEventForTest(vhciFields)
+	require.True(t, ok)
+	require.Equal(t, 2, calls, "each VHCI event must discover a fresh topology")
+
+	secondDetach, ok := second.(domain.PortDetachedEvent)
+	require.True(t, ok)
+	require.Equal(t, domain.PortID(12), secondDetach.Port.ID,
+		"second event must use controller 1 SS mapping from reloaded topology")
+}
+
+// TestVhciEventMapper_DelayedEventFromPreviousControllerDroppedAfterReload
+// models a queued controller-0 event arriving after bus 1 moved to controller 1.
+// Fresh discovery must not reinterpret that stale coordinate as Port 12.
+func TestVhciEventMapper_DelayedEventFromPreviousControllerDroppedAfterReload(t *testing.T) {
+	t.Parallel()
+
+	topo := kernel.Topology{
+		NControllers: 2,
+		HCPorts:      4,
+		VHCIPorts:    8,
+		BusMap: map[uint32]kernel.VHCILocation{
+			1: {ControllerIdx: 1, Hub: kernel.HubTypeSS},
+		},
+	}
+	mapper := kernel.NewVHCIEventMapperWithLoaderForTest(func() (kernel.Topology, error) {
+		return topo, nil
+	})
+
+	ev, ok := mapper.MapEventForTest(map[string]string{
+		testUeventActionField:    testUeventActionRemove,
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   testVHCIDeviceDevPath,
+	})
+	require.False(t, ok)
+	require.Nil(t, ev, "a delayed event must be dropped rather than remapped to the new controller")
+}
+
+// TestVhciEventMapper_ConcurrentFreshTopologyLoads exercises the event-local
+// loader through concurrent callers. The loader intentionally uses an ordinary
+// counter: resolveTopology's mutex must serialize access, and the race detector
+// validates that future dispatcher fan-in cannot race loader state.
+func TestVhciEventMapper_ConcurrentFreshTopologyLoads(t *testing.T) {
+	t.Parallel()
+
+	const events = 64
+
+	topo := loadTopoForMapperTest(t, singleControllerTopoFS())
+	loads := 0
+	mapper := kernel.NewVHCIEventMapperWithLoaderForTest(func() (kernel.Topology, error) {
+		loads++
+
+		return topo, nil
+	})
+	fields := map[string]string{
+		testUeventActionField:    testUeventActionRemove,
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   testVHCIDeviceDevPath,
+	}
+
+	var wg sync.WaitGroup
+
+	results := make(chan bool, events)
+
+	for range events {
+		wg.Go(func() {
+			_, ok := mapper.MapEventForTest(fields)
+			results <- ok
+		})
+	}
+
+	wg.Wait()
+	close(results)
+
+	for ok := range results {
+		require.True(t, ok)
+	}
+
+	require.Equal(t, events, loads,
+		"each concurrent VHCI event must receive one fresh serialized snapshot")
 }
 
 // TestVhciEventMapper_UsbipHostPassThrough confirms the mapper routes

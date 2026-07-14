@@ -136,6 +136,150 @@ func attachFS() fstest.MapFS {
 	}
 }
 
+// rotatingNPortsFS returns successive nports values on successive opens while
+// delegating every other path. It deterministically models a vhci_hcd reload
+// between two topology reads without mutating shared filesystem state.
+type rotatingNPortsFS struct {
+	inner  fs.FS
+	values []string
+
+	mu    sync.Mutex
+	opens int
+}
+
+func (f *rotatingNPortsFS) Open(name string) (fs.File, error) {
+	if name != testFSVHCIController0NPortsPath {
+		file, err := f.inner.Open(name)
+		if err != nil {
+			return nil, fmt.Errorf("open %s: %w", name, err)
+		}
+
+		return file, nil
+	}
+
+	f.mu.Lock()
+	idx := min(f.opens, len(f.values)-1)
+	value := f.values[idx]
+	f.opens++
+	f.mu.Unlock()
+
+	file, err := (fstest.MapFS{
+		name: &fstest.MapFile{Data: []byte(value)},
+	}).Open(name)
+	if err != nil {
+		return nil, fmt.Errorf("open rotating nports %s: %w", name, err)
+	}
+
+	return file, nil
+}
+
+func (f *rotatingNPortsFS) openCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.opens
+}
+
+// TestAttachRemote_MalformedNPortsStopsBeforeReservationAndHandoff proves a
+// topology parse failure returns the zero PortID before any importer
+// reservation, sysfs write, or connection ownership transition.
+func TestAttachRemote_MalformedNPortsStopsBeforeReservationAndHandoff(t *testing.T) {
+	t.Parallel()
+
+	left, right := net.Pipe()
+	defer func() {
+		_ = right.Close()
+		_ = left.Close()
+	}()
+
+	wrapped := &closeCountingConn{Conn: left}
+	mfs := attachFS()
+
+	mfs[testFSVHCIController0NPortsPath] = &fstest.MapFile{Data: []byte("not-a-port-count\n")}
+
+	var (
+		reservations atomic.Int32
+		writes       atomic.Int32
+	)
+
+	a, err := kernel.NewImporterAdapter(
+		kernel.WithFS(mfs),
+		kernel.WithWriteFunc(func(string, string) error {
+			writes.Add(1)
+
+			return nil
+		}),
+	)
+	require.NoError(t, err)
+
+	port, err := a.AttachRemote(context.Background(), wrapped, app.RemoteDeviceSpec{
+		DevID: 1,
+		Speed: domain.SpeedHigh,
+		ReserveLocalPort: func(domain.PortID) error {
+			reservations.Add(1)
+
+			return nil
+		},
+	})
+	require.ErrorIs(t, err, strconv.ErrSyntax)
+	require.ErrorContains(t, err, "vhci_hcd.0/nports")
+	require.Zero(t, port)
+	require.Zero(t, reservations.Load(), "topology failure must precede port reservation")
+	require.Zero(t, writes.Load(), "topology failure must precede the sysfs handoff")
+	require.Zero(t, wrapped.closes.Load(), "pre-handoff failure leaves connection ownership with the caller")
+}
+
+// TestAttachRemote_UsesOneStatusTopologySnapshot proves free-port selection
+// and pre-write validation cannot mix module generations. Port 15 is valid in
+// the first 16-port snapshot but invalid in the second 8-port snapshot; a
+// second topology read would therefore fail before the write.
+func TestAttachRemote_UsesOneStatusTopologySnapshot(t *testing.T) {
+	t.Parallel()
+
+	left, right := socketpairConns(t)
+	defer func() {
+		_ = right.Close()
+		_ = left.Close()
+	}()
+
+	wrapped := &closeCountingConn{Conn: left}
+	mfs := attachFS()
+
+	mfs[testFSVHCIController0NPortsPath] = &fstest.MapFile{Data: []byte("16\n")}
+	mfs[testFSVHCIController0StatusPath] = &fstest.MapFile{Data: []byte(
+		"hub port sta spd dev      sockfd local_busid\n" +
+			"ss  0015 000 005 00000000 000000 0-0\n",
+	)}
+
+	rotating := &rotatingNPortsFS{
+		inner:  mfs,
+		values: []string{"16\n", "8\n"},
+	}
+
+	var writes atomic.Int32
+
+	a, err := kernel.NewImporterAdapter(
+		kernel.WithFS(rotating),
+		kernel.WithWriteFunc(func(path, _ string) error {
+			require.Equal(t, testVHCIAttachPath, path)
+			writes.Add(1)
+
+			return nil
+		}),
+	)
+	require.NoError(t, err)
+
+	port, err := a.AttachRemote(context.Background(), wrapped, app.RemoteDeviceSpec{
+		DevID: 1,
+		Speed: domain.SpeedSuper,
+	})
+	require.NoError(t, err)
+	require.Equal(t, domain.PortID(15), port)
+	require.Equal(t, 1, rotating.openCount(),
+		"one AttachRemote call must load status topology exactly once")
+	require.EqualValues(t, 1, writes.Load())
+}
+
 // TestAttachRemote_PortOutOfRangeSentinelIsAdapterLocal pins the
 // layering invariant: the out-of-range sentinel lives in
 // the kernel adapter package, not on pkg/domain or pkg/usbip. The
@@ -611,7 +755,12 @@ func TestAttachRemote_HappyPath(t *testing.T) {
 
 	var gotWrites []writeCall
 
+	reservedPort := domain.PortID(^uint32(0))
+
 	writer := func(path, data string) error {
+		require.Equal(t, domain.PortID(0), reservedPort,
+			"selected port must be reserved before the sysfs write")
+
 		gotWrites = append(gotWrites, writeCall{Path: path, Data: data})
 
 		return nil
@@ -626,6 +775,11 @@ func TestAttachRemote_HappyPath(t *testing.T) {
 	spec := app.RemoteDeviceSpec{
 		DevID: domain.DeviceID(0x00010007),
 		Speed: domain.SpeedHigh,
+		ReserveLocalPort: func(id domain.PortID) error {
+			reservedPort = id
+
+			return nil
+		},
 	}
 
 	portID, err := a.AttachRemote(context.Background(), wrapped, spec)
@@ -648,6 +802,44 @@ func TestAttachRemote_HappyPath(t *testing.T) {
 
 	require.EqualValues(t, 1, wrapped.closes.Load(),
 		"conn must be closed exactly once after successful sysfs write")
+}
+
+func TestAttachRemote_PortReservationFailureAbortsBeforeSysfsWrite(t *testing.T) {
+	t.Parallel()
+
+	left, right := socketpairConns(t)
+
+	defer func() {
+		_ = right.Close()
+		_ = left.Close()
+	}()
+
+	wrapped := &closeCountingConn{Conn: left}
+
+	var writes atomic.Int32
+
+	a, err := kernel.NewImporterAdapter(
+		kernel.WithFS(attachFS()),
+		kernel.WithWriteFunc(func(_, _ string) error {
+			writes.Add(1)
+
+			return nil
+		}),
+	)
+	require.NoError(t, err)
+
+	spec := app.RemoteDeviceSpec{
+		DevID: domain.DeviceID(1),
+		Speed: domain.SpeedHigh,
+		ReserveLocalPort: func(_ domain.PortID) error {
+			return domain.ErrPermission
+		},
+	}
+
+	_, err = a.AttachRemote(context.Background(), wrapped, spec)
+	require.ErrorIs(t, err, domain.ErrPermission)
+	require.Zero(t, writes.Load(), "reservation rejection must precede sysfs mutation")
+	require.Zero(t, wrapped.closes.Load(), "caller retains conn ownership before handoff")
 }
 
 func TestAttachRemote_FailureAtSysfsWriteDoesNotCloseConn(t *testing.T) {

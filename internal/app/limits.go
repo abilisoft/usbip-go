@@ -77,14 +77,11 @@ type acceptLimiter struct {
 // newAcceptLimiter returns an acceptLimiter configured for rps tokens
 // per second with the given burst size. rps <= 0 returns a disabled
 // limiter that always permits; burst <= 0 picks up the default so a
-// caller who supplied only rps still gets a usable bucket. NaN /
-// +Inf inputs are also treated as "disabled" — neither comparison
-// rps <= 0 nor rate.NewLimiter handles NaN sensibly (NaN slips
-// through every numeric guard and produces a limiter that permits
-// every connection), and an Inf rate is functionally unlimited
-// anyway.
+// caller who supplied only rps still gets a usable bucket. Non-finite
+// inputs are rejected by ValidateAcceptRateLimit during
+// construction and never reach this helper.
 func newAcceptLimiter(rps float64, burst int) acceptLimiter {
-	if rps <= 0 || math.IsNaN(rps) || math.IsInf(rps, 0) {
+	if rps <= 0 {
 		return acceptLimiter{}
 	}
 
@@ -93,6 +90,17 @@ func newAcceptLimiter(rps float64, burst int) acceptLimiter {
 	}
 
 	return acceptLimiter{bucket: rate.NewLimiter(rate.Limit(rps), burst)}
+}
+
+// ValidateAcceptRateLimit rejects values a token bucket cannot interpret
+// safely. Omission is tracked separately by exporterConfig; every finite value
+// is valid, with zero and negatives selecting the documented disabled form.
+func ValidateAcceptRateLimit(rps float64) error {
+	if math.IsNaN(rps) || math.IsInf(rps, 0) {
+		return fmt.Errorf("%w: rps %g must be finite", ErrAcceptRateLimitInvalid, rps)
+	}
+
+	return nil
 }
 
 // allow returns true when a token was consumed successfully. A
@@ -106,10 +114,10 @@ func (l acceptLimiter) allow() bool {
 }
 
 // resolveAcceptRate picks the effective tokens-per-second rate.
-// Zero option value picks up the security-release-quality OpenSpec default; callers may pass a
-// negative rps to disable rate limiting entirely.
+// An omitted option picks up the security-release-quality OpenSpec default;
+// callers may explicitly pass zero or a negative rps to disable rate limiting.
 func resolveAcceptRate(cfg *exporterConfig) float64 {
-	if cfg.acceptRateLimit == 0 {
+	if !cfg.acceptRateLimitSet {
 		return defaultAcceptRateLimit
 	}
 

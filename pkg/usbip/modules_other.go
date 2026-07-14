@@ -7,19 +7,15 @@ package usbip
 
 import "context"
 
-// probedModuleNames mirrors the Linux list byte-for-byte so the JSON
-// schema is shape-stable across platforms.
-func probedModuleNames() []string {
-	return []string{KernelModuleUSBIPCore, KernelModuleVHCIHCD, KernelModuleUSBIPHost}
-}
-
-// ProbeKernelModules on non-Linux has no sysfs to consult. Every
+// probeKernelModulesPlatform on non-Linux has no sysfs to consult. Every
 // module reports ModuleStateUnknown (not Missing) because the platform
 // lacks the signal entirely — claiming "missing" would be a lie.
-func ProbeKernelModules(_ context.Context) (map[string]ModuleState, error) {
-	out := make(map[string]ModuleState, len(probedModuleNames()))
-	for _, name := range probedModuleNames() {
-		out[name] = ModuleStateUnknown
+func probeKernelModulesPlatform(
+	ctx context.Context,
+	out map[string]ModuleState,
+) (map[string]ModuleState, error) {
+	if err := moduleProbeContextError(ctx); err != nil {
+		return out, err
 	}
 
 	return out, nil

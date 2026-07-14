@@ -110,6 +110,7 @@ filegroup(
         "//test/conformance:testdata_files",
         "//test/integration:testdata_files",
         "//test/integration/killable:testdata_files",
+        "//test/release:testdata_files",
         "//tools:testdata_files",
         "//tools/bazel:testdata_files",
         "//tools/scripts:testdata_files",
@@ -265,6 +266,7 @@ filegroup(
     name = "all_shell_sources",
     srcs = [
         ":repo_shell_files",
+        "//test/release:repo_shell_files",
         "//tools/scripts:repo_shell_files",
     ],
     visibility = ["//visibility:public"],
@@ -318,6 +320,7 @@ filegroup(
         "//test/conformance:repo_bazel_files",
         "//test/integration:repo_bazel_files",
         "//test/integration/killable:repo_bazel_files",
+        "//test/release:repo_bazel_files",
         "//tools:repo_bazel_files",
         "//tools/bazel:repo_bazel_files",
         "//tools/scripts:repo_bazel_files",
@@ -485,11 +488,19 @@ toolwrap_test(
         "go.mod",
         "go.sum",
         ":all_go_sources",
+        ":vendor_files",
     ],
     dereference = True,
     path_tools = ["@go_sdk//:bin/go"],
     tags = ["lint"],
     tool = "//tools/scripts:pure_go_check",
+)
+
+toolwrap_test(
+    name = "pure_go_check_test",
+    size = "small",
+    path_tools = ["@go_sdk//:bin/go"],
+    tool = "//tools/scripts:pure_go_check_test_runner",
 )
 
 toolwrap_test(
@@ -501,6 +512,7 @@ toolwrap_test(
         "go.mod",
         "go.sum",
         ":all_go_sources",
+        ":vendor_files",
     ],
     dereference = True,
     path_tools = [
@@ -736,6 +748,7 @@ alias(
 test_suite(
     name = "test",
     tests = [
+        ":pure_go_check_test",
         "//cmd/usbip-go:usbip-go_test",
         "//examples/client:client_test",
         "//examples/events:events_test",
@@ -751,9 +764,13 @@ test_suite(
         "//pkg/usbip:usbip_test",
         "//tools/scripts:api_compatibility_check_test",
         "//tools/scripts:ci_local_runner_test",
+        "//tools/scripts:coverage_check_test",
         "//tools/scripts:govulncheck_sarif_test",
         "//tools/scripts:repo_coverage_test_runner_test",
+        "//tools/scripts:start_release_test",
         "//tools/scripts:systemd_unit_test",
+        "//tools/scripts:version_lib_test",
+        "//tools/scripts:workspace_status_test",
     ],
     visibility = ["//visibility:public"],
 )

@@ -4,9 +4,53 @@
 package usbip
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
+
+// probedModuleNames is the canonical module triple returned on every platform.
+// A function returns a fresh slice so callers and tests cannot mutate shared
+// package state.
+func probedModuleNames() []string {
+	return []string{KernelModuleUSBIPCore, KernelModuleVHCIHCD, KernelModuleUSBIPHost}
+}
+
+// unknownModuleStates constructs the shape-stable baseline for every probe.
+// Platform implementations overwrite entries they can classify; cancellation
+// leaves every unprobed entry explicitly Unknown instead of omitting keys.
+func unknownModuleStates() map[string]ModuleState {
+	out := make(map[string]ModuleState, len(probedModuleNames()))
+	for _, name := range probedModuleNames() {
+		out[name] = ModuleStateUnknown
+	}
+
+	return out
+}
+
+// ProbeKernelModules reports the canonical USB/IP module triple on every
+// platform. The returned map always contains all three keys, including when
+// ctx is cancelled; platform code may replace Unknown values as observations
+// complete.
+func ProbeKernelModules(ctx context.Context) (map[string]ModuleState, error) {
+	out := unknownModuleStates()
+
+	err := moduleProbeContextError(ctx)
+	if err != nil {
+		return out, err
+	}
+
+	return probeKernelModulesPlatform(ctx, out)
+}
+
+func moduleProbeContextError(ctx context.Context) error {
+	err := ctx.Err()
+	if err != nil {
+		return fmt.Errorf("probe kernel modules: %w", err)
+	}
+
+	return nil
+}
 
 // ModuleState is the tri-state classification of a USB/IP kernel
 // module probe result. A two-state "loaded" / "missing" design

@@ -35,6 +35,16 @@ func TestRemoteEndpoint_String(t *testing.T) {
 func TestParseRemote(t *testing.T) {
 	t.Parallel()
 
+	const scopedIPv6 = "fe80::1%eth0"
+
+	hostname253 := strings.Join([]string{
+		strings.Repeat("a", 63),
+		strings.Repeat("b", 63),
+		strings.Repeat("c", 63),
+		strings.Repeat("d", 61),
+	}, ".")
+	hostname254 := hostname253 + "e"
+
 	cases := []struct {
 		name string
 		in   string
@@ -48,10 +58,16 @@ func TestParseRemote(t *testing.T) {
 		{"empty", "", domain.RemoteEndpoint{}, true},
 		{"whitespace", "   ", domain.RemoteEndpoint{}, true},
 		{"bad_port", "host:abc", domain.RemoteEndpoint{}, true},
+		{"empty_port", "host:", domain.RemoteEndpoint{}, true},
 		{"port_overflow", "host:99999", domain.RemoteEndpoint{}, true},
 		{"port_zero", "host:0", domain.RemoteEndpoint{}, true},
 		{"ipv6_bare", testIPv6Loopback, domain.RemoteEndpoint{Host: testIPv6Loopback, Port: 3240}, false},
 		{"ipv6_only_bracketed", "[::1]", domain.RemoteEndpoint{Host: testIPv6Loopback, Port: 3240}, false},
+		{"ipv6_bracket_empty_port", "[::1]:", domain.RemoteEndpoint{}, true},
+		{"ipv6_scoped_bare", scopedIPv6, domain.RemoteEndpoint{Host: scopedIPv6, Port: 3240}, false},
+		{"ipv6_scoped_bracketed", "[fe80::1%eth0]:3241", domain.RemoteEndpoint{Host: scopedIPv6, Port: 3241}, false},
+		{"bracketed_ipv4", "[192.0.2.1]:3240", domain.RemoteEndpoint{}, true},
+		{"bracketed_hostname", "[host.example]:3240", domain.RemoteEndpoint{}, true},
 		{"ipv6_missing_bracket", "[::1", domain.RemoteEndpoint{}, true},
 		{"ipv6_bad_suffix", "[::1]garbage", domain.RemoteEndpoint{}, true},
 		{"empty_host", ":1234", domain.RemoteEndpoint{}, true},
@@ -64,6 +80,9 @@ func TestParseRemote(t *testing.T) {
 		{"host_starts_with_dot", ".host.example", domain.RemoteEndpoint{}, true},
 		{"host_trailing_dot_ok", "host.example.", domain.RemoteEndpoint{Host: "host.example.", Port: 3240}, false},
 		{"label_too_long", strings.Repeat("a", 64) + ".example", domain.RemoteEndpoint{}, true},
+		{"hostname_253_bytes", hostname253, domain.RemoteEndpoint{Host: hostname253, Port: 3240}, false},
+		{"hostname_253_bytes_absolute", hostname253 + ".", domain.RemoteEndpoint{Host: hostname253 + ".", Port: 3240}, false},
+		{"hostname_254_bytes", hostname254, domain.RemoteEndpoint{}, true},
 		{"label_leading_hyphen", "-host.example", domain.RemoteEndpoint{}, true},
 		{"label_trailing_hyphen", "host-.example", domain.RemoteEndpoint{}, true},
 		{"label_underscore", "bad_host", domain.RemoteEndpoint{}, true},
