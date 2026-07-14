@@ -104,3 +104,12 @@ func TestEventHeaderRejectsUnknownRecord(t *testing.T) {
 	_, _, ok := eventHeader("a string is not an event record")
 	require.False(t, ok)
 }
+
+func TestNewPortViewLeavesUnknownRemoteEmpty(t *testing.T) {
+	t.Parallel()
+
+	view := newPortView(usbip.Port{ID: 1, LocalBusID: testRootBusID})
+
+	require.Empty(t, view.Remote)
+	require.NotEqual(t, ":3240", view.Remote)
+}

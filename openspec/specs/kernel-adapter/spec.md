@@ -74,6 +74,37 @@ The adapter SHALL parse `status` and `status.N` files using one freshly discover
 - **WHEN** a parsed flat port falls outside the controller file's valid window
 - **THEN** the status read fails because kernel state is inconsistent
 
+### Requirement: VHCI port identity remains local at the kernel boundary
+
+The kernel adapter SHALL map VHCI `local_busid` only to Port.LocalBusID. It SHALL leave remote Port.BusID and Port.Remote unknown because Linux VHCI status and events do not retain exporter identity.
+
+#### Scenario: ListPorts parses an attached VHCI row
+
+- **WHEN** VHCI status reports local_busid `2-1`
+- **THEN** the adapter returns LocalBusID `2-1`
+- **AND** BusID and Remote are empty
+
+#### Scenario: VHCI event is mapped
+
+- **WHEN** a VHCI attach, detach, or error event resolves to a local kernel row
+- **THEN** the emitted Port carries the local busid only in LocalBusID
+- **AND** it does not present that value as the remote BusID
+
+### Requirement: Detach reconciles state inside the mutation boundary
+
+ImporterAdapter DetachPort SHALL inspect fresh VHCI status and perform the detach write while holding the same port-mutation boundary used by attach.
+
+#### Scenario: Requested Port is attached
+
+- **WHEN** the validated PortID identifies a non-free VHCI row
+- **THEN** DetachPort writes that PortID to the detach sysfs attribute
+
+#### Scenario: Requested Port is absent or free
+
+- **WHEN** the PortID is outside the live rows or its status is null or available
+- **THEN** DetachPort returns the canonical not-bound sentinel
+- **AND** it does not write the detach sysfs attribute
+
 ### Requirement: VHCI topology snapshots are fresh and operation-local
 
 The kernel adapter SHALL rediscover VHCI topology for each importer operation and each relevant VHCI-shaped event, SHALL use one status-topology snapshot throughout a single AttachRemote allocation and bounds-validation sequence, and SHALL validate event controller/root-Port coordinates against the fresh topology before flat-Port conversion.
@@ -210,7 +241,7 @@ EventsAdapter SHALL open one `NETLINK_KOBJECT_UEVENT` socket lazily, fan events 
 
 ### Requirement: Event mapping separates exporter and importer concerns
 
-The events adapter SHALL deliver usbip-host bind/unbind events even on exporter-only hosts and SHALL discover fresh VHCI topology only for each VHCI-shaped event.
+The events adapter SHALL deliver `usbip-host` bind/unbind events even on exporter-only hosts. For each VHCI-shaped event, it SHALL discover fresh VHCI topology and validate controller/root-Port coordinates; if either step fails, it SHALL make at most one complete retry for that same event using a newly rediscovered topology before dropping it. It SHALL retain no topology or retry state across events, and non-VHCI exporter events SHALL bypass VHCI topology discovery.
 
 #### Scenario: Exporter-only host subscribes
 
@@ -227,7 +258,7 @@ The events adapter SHALL deliver usbip-host bind/unbind events even on exporter-
 #### Scenario: VHCI event arrives
 
 - **WHEN** an event carries a VHCI-shaped devpath
-- **THEN** the mapper discovers topology for that event and drops only that event if discovery or coordinate validation fails
+- **THEN** the mapper discovers topology and validates controller/root-Port coordinates for that event, makes at most one complete retry with a newly rediscovered topology if either step fails, emits the mapped event if either attempt succeeds, drops only that event if both attempts fail, and retains no topology or retry state for a later event
 
 ### Requirement: Kernel errors map to public sentinels
 

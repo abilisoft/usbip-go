@@ -247,7 +247,7 @@ func newPortView(p usbip.Port) portView {
 		ID:         uint32(p.ID),
 		Status:     p.Status.String(),
 		Speed:      p.Speed.String(),
-		Remote:     p.Remote.String(),
+		Remote:     formatRemoteEndpoint(p.Remote),
 		BusID:      string(p.BusID),
 		LocalBusID: string(p.LocalBusID),
 	}

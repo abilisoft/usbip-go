@@ -426,7 +426,6 @@ func (a *ImporterAdapter) ListPorts(ctx context.Context) ([]domain.Port, error) 
 			Status:     r.status,
 			Speed:      r.speed,
 			DeviceID:   r.devID,
-			BusID:      r.busID,
 			LocalBusID: r.busID,
 		})
 	}

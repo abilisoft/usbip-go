@@ -56,6 +56,19 @@ func TestTableRendererPorts(t *testing.T) {
 	}
 }
 
+func TestTableRendererPortsLeavesUnknownRemoteEmpty(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	require.NoError(t, tableRenderer{}.Ports(&out, []usbip.Port{{
+		ID:         2,
+		Status:     domain.StatusUsed,
+		LocalBusID: testSecondaryBusID,
+	}}))
+	require.NotContains(t, out.String(), ":3240",
+		"a zero-value remote endpoint must render as unknown, not as a default port with an empty host")
+}
+
 // TestTableRendererSessions smoke-tests the Sessions renderer.
 func TestTableRendererSessions(t *testing.T) {
 	t.Parallel()

@@ -229,7 +229,7 @@ func TestPortNoFilterListsAll(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{testOutputJSONFlag, "port"})
+	cmd.SetArgs([]string{testOutputJSONFlag, testPortCommand})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -260,7 +260,27 @@ func TestPortIDNotAttached(t *testing.T) {
 
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"port", "--id=42"})
+	cmd.SetArgs([]string{testPortCommand, "--id=42"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	require.Equal(t, ExitDeviceNotFound, MapError(err))
+}
+
+// TestPortIDFreeNotAttached proves that a kernel slot is not an attachment
+// merely because ListPorts exposes its numeric row.
+func TestPortIDFreeNotAttached(t *testing.T) {
+	t.Parallel()
+
+	imp := &mockImporter{
+		listPortsFn: func(_ context.Context) ([]usbip.Port, error) {
+			return []usbip.Port{{ID: 42, Status: domain.StatusAvailable}}, nil
+		},
+	}
+	swapFactories(t, imp, &mockExporter{})
+
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{testPortCommand, "--id=42"})
 
 	err := cmd.Execute()
 	require.Error(t, err)

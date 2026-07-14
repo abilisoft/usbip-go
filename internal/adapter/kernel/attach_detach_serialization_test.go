@@ -25,12 +25,14 @@ func TestImporterAdapterAttachAndDetachSharePortMutationBoundary(t *testing.T) {
 	releaseAttachWrite := make(chan struct{})
 	detachWriteEntered := make(chan struct{})
 	releaseDetachWrite := make(chan struct{})
+	status := newSinglePortStatus(8)
 
 	writer := func(path, _ string) error {
 		switch path {
 		case testVHCIAttachPath:
 			close(attachWriteEntered)
 			<-releaseAttachWrite
+			status.markUsed(0)
 		case kernel.SysfsVHCIHCD + "/" + kernel.SysfsVHCIDetach:
 			close(detachWriteEntered)
 			<-releaseDetachWrite
@@ -40,7 +42,7 @@ func TestImporterAdapterAttachAndDetachSharePortMutationBoundary(t *testing.T) {
 	}
 
 	adapter, err := kernel.NewImporterAdapter(
-		kernel.WithFS(attachFS()),
+		kernel.WithFS(&mutableStatusFS{inner: attachFS(), state: status}),
 		kernel.WithWriteFunc(writer),
 	)
 	require.NoError(t, err)

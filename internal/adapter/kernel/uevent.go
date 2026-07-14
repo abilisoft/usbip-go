@@ -36,6 +36,16 @@ const netlinkUdevGroup = 1
 // consumers that fill this buffer drop subsequent events (logged).
 const subscriberChanBuffer = 32
 
+// vhciTopologyRetryDelay is the single bounded pause between topology
+// discovery attempts for one VHCI uevent. USB remove notifications are
+// one-shot, so dropping one solely because sysfs was transiently unreadable
+// would lose the lifecycle transition permanently.
+const vhciTopologyRetryDelay = 5 * time.Millisecond
+
+// vhciTopologyMaxAttempts bounds one event to an initial fresh mapping attempt
+// plus one fresh retry. No attempt state survives the mapper call.
+const vhciTopologyMaxAttempts = 2
+
 // eventDispatcher owns the single netlink socket and the fan-out list
 // of subscriber channels. EventsAdapter lazily constructs one on the
 // first Subscribe call and tears it down on the last Unsubscribe.
@@ -178,7 +188,7 @@ func (a *EventsAdapter) ensureDispatcher() (*eventDispatcher, bool, error) {
 		return nil, false, fmt.Errorf("dial netlink: %w", err)
 	}
 
-	mapper := newVHCIEventMapperWithLoader(a.loadTopology)
+	mapper := newVHCIEventMapperWithLoaderAndWait(a.loadTopology, a.clock.Sleep)
 
 	d := newDispatcher(sock, a.logger, mapper)
 
@@ -406,15 +416,16 @@ type topologyLoader func() (Topology, error)
 // Topology so exporter-only deployments — which only need usbip-host
 // events and never touch vhci_hcd — can still start the dispatcher
 // without hard-failing on a missing VHCI module. The loader fires
-// for each VHCI-shaped event. A failure degrades
-// only the VHCI branch: the event is dropped with ok=false, while
-// usbip-host driver events continue unaffected.
+// for each VHCI-shaped event. A failure receives one fresh retry and, if that
+// also fails, degrades only the VHCI branch: the event is dropped with
+// ok=false, while usbip-host driver events continue unaffected.
 //
 // loadMu is held through a pointer so copies share serialization and vet's
 // copylocks check never trips. The dispatcher is single-threaded today, but the
 // guard prevents future concurrent map calls from overlapping sysfs discovery.
 type vhciEventMapper struct {
 	load      topologyLoader
+	wait      func(time.Duration)
 	loadMu    *sync.Mutex
 	hostMu    *sync.Mutex
 	hostBound map[domain.BusID]struct{}
@@ -434,27 +445,52 @@ func newVHCIEventMapper(topo Topology) vhciEventMapper {
 // NOT invoked at construction — exporter-only deployments therefore
 // never trigger a vhci_hcd sysfs read just to start the dispatcher.
 func newVHCIEventMapperWithLoader(load topologyLoader) vhciEventMapper {
+	return newVHCIEventMapperWithLoaderAndWait(load, time.Sleep)
+}
+
+// newVHCIEventMapperWithLoaderAndWait constructs a lazy mapper with an
+// injected retry wait. EventsAdapter supplies its configured clock so tests
+// can advance the retry deterministically without sleeping in wall time.
+func newVHCIEventMapperWithLoaderAndWait(
+	load topologyLoader,
+	wait func(time.Duration),
+) vhciEventMapper {
 	return vhciEventMapper{
 		load:      load,
+		wait:      wait,
 		loadMu:    &sync.Mutex{},
 		hostMu:    &sync.Mutex{},
 		hostBound: make(map[domain.BusID]struct{}),
 	}
 }
 
-// resolveTopology obtains a fresh snapshot for one VHCI-shaped event. Neither
-// successes nor failures are memoised so consecutive events can span a
-// vhci_hcd unload/reload safely. loadMu serialises future concurrent callers.
-func (m *vhciEventMapper) resolveTopology() (Topology, bool) {
+// resolveEventLocation obtains and validates a fresh snapshot for one
+// VHCI-shaped event. A one-shot uevent gets one bounded retry when either the
+// topology load fails or its coordinates do not validate against that fresh
+// snapshot. Neither result is memoised across events, so consecutive events
+// can still span a vhci_hcd unload/reload safely. loadMu serialises future
+// concurrent callers through both attempts and the intervening wait.
+func (m *vhciEventMapper) resolveEventLocation(
+	controller, usbBus, rootPort1 uint64,
+) (Topology, VHCILocation, bool) {
 	m.loadMu.Lock()
 	defer m.loadMu.Unlock()
 
-	topo, err := m.load()
-	if err != nil {
-		return Topology{}, false
+	for attempt := range vhciTopologyMaxAttempts {
+		topo, err := m.load()
+		if err == nil {
+			loc, valid := vhciEventLocation(topo, controller, usbBus, rootPort1)
+			if valid {
+				return topo, loc, true
+			}
+		}
+
+		if attempt == 0 {
+			m.wait(vhciTopologyRetryDelay)
+		}
 	}
 
-	return topo, true
+	return Topology{}, VHCILocation{}, false
 }
 
 // mapEvent is the topology-aware entry point used by the dispatcher.
@@ -544,10 +580,10 @@ func mapUDCEvent(action, devpath string) (domain.Event, bool) {
 // The topology is resolved here rather than at mapper
 // construction. Exporter-only deployments (no vhci_hcd module) never
 // receive a VHCI-shaped devpath, so the loader is never called; if a
-// VHCI-shaped devpath does arrive and the loader fails (e.g.
-// vhci_hcd sysfs group is absent), the event drops cleanly with
-// ok=false — the Subscribe caller is not impacted, and usbip-host
-// events continue to flow.
+// VHCI-shaped devpath does arrive and both fresh mapping attempts fail (e.g.
+// the vhci_hcd sysfs group is absent), the event drops cleanly with ok=false —
+// the Subscribe caller is not impacted, and usbip-host events continue to
+// flow.
 func (m *vhciEventMapper) mapVhciEvent(action, devpath string) (domain.Event, bool) {
 	match := vhciDevpathPattern.FindStringSubmatch(devpath)
 	if match == nil {
@@ -569,20 +605,15 @@ func (m *vhciEventMapper) mapVhciEvent(action, devpath string) (domain.Event, bo
 		return nil, false
 	}
 
-	topo, ok := m.resolveTopology()
+	topo, loc, ok := m.resolveEventLocation(controller, usbBus, rootPort1)
 	if !ok {
 		return nil, false
 	}
 
-	loc, valid := vhciEventLocation(topo, controller, usbBus, rootPort1)
-	if !valid {
-		return nil, false
-	}
-
 	portID := topo.FlatPort(loc, uint32(rootPort1)-1)
-	busID := domain.BusID(match[vhciDevpathGroupFullBusID])
+	localBusID := domain.BusID(match[vhciDevpathGroupFullBusID])
 
-	return vhciActionToEvent(action, portID, busID)
+	return vhciActionToEvent(action, portID, localBusID)
 }
 
 // vhciEventLocation validates the coordinates encoded by one event against
@@ -607,23 +638,23 @@ func vhciEventLocation(topo Topology, controller, usbBus, rootPort1 uint64) (VHC
 
 // vhciActionToEvent maps a uevent ACTION token to the corresponding
 // domain event constructor. Unknown actions produce ok=false.
-func vhciActionToEvent(action string, portID domain.PortID, busID domain.BusID) (domain.Event, bool) {
+func vhciActionToEvent(action string, portID domain.PortID, localBusID domain.BusID) (domain.Event, bool) {
 	switch action {
 	case ueventActionAdd:
 		return domain.PortAttachedEvent{
 			At:   time.Now(),
-			Port: domain.Port{ID: portID, BusID: busID},
+			Port: domain.Port{ID: portID, LocalBusID: localBusID},
 		}, true
 	case ueventActionRemove:
 		return domain.PortDetachedEvent{
 			At:     time.Now(),
-			Port:   domain.Port{ID: portID, BusID: busID},
+			Port:   domain.Port{ID: portID, LocalBusID: localBusID},
 			Reason: "uevent",
 		}, true
 	case ueventActionChange:
 		return domain.PortErroredEvent{
 			At:   time.Now(),
-			Port: domain.Port{ID: portID, BusID: busID},
+			Port: domain.Port{ID: portID, LocalBusID: localBusID},
 			Err:  "usbip_status change",
 		}, true
 	default:

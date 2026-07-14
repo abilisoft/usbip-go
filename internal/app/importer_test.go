@@ -620,6 +620,11 @@ func attachBusID() domain.BusID {
 	return domain.BusID("1-1.2")
 }
 
+const (
+	importerLocalBusID      = domain.BusID("2-1")
+	importerOtherLocalBusID = domain.BusID("2-2")
+)
+
 // attachDevice is the canonical decoded OP_REP_IMPORT reply. Speed
 // HighSpeed and a synthetic DeviceID let tests verify the Port is
 // populated from the decoded fields rather than fabricated.
@@ -1068,36 +1073,71 @@ func TestImporterDetachCancelsThenDelegates(t *testing.T) {
 	require.Equal(t, portID, kernel.DetachPortCalls()[0].ID)
 }
 
-// TestImporterDetachUnknownReturnsNotBound asserts detaching an ID that
-// was never attached returns ErrDeviceNotBound without calling the
-// kernel (the map lookup is the source of truth, not sysfs).
+// TestImporterDetachUnknownReturnsNotBound asserts a fresh Importer delegates
+// an untracked PortID to the kernel adapter and preserves its canonical
+// not-bound classification. The adapter's live VHCI snapshot, rather than the
+// process-local handle map, is authoritative across CLI process boundaries.
 func TestImporterDetachUnknownReturnsNotBound(t *testing.T) {
 	t.Parallel()
 
-	kernel := &ImporterKernelMock{}
+	const portID domain.PortID = 99
+
+	kernel := &ImporterKernelMock{
+		DetachPortFunc: func(_ context.Context, _ domain.PortID) error {
+			return domain.ErrDeviceNotBound
+		},
+	}
 
 	imp := newImporterForTest(t, app.WithImporterKernel(kernel))
 	t.Cleanup(func() { require.NoError(t, imp.Close()) })
 
-	err := imp.Detach(context.Background(), domain.PortID(99))
+	err := imp.Detach(context.Background(), portID)
 	require.ErrorIs(t, err, domain.ErrDeviceNotBound)
-	require.Empty(t, kernel.DetachPortCalls())
+	require.Len(t, kernel.DetachPortCalls(), 1)
+	require.Equal(t, portID, kernel.DetachPortCalls()[0].ID)
 }
 
-// TestImporterDetachDuplicateReturnsNotBound asserts the second Detach
-// after a successful first Detach returns ErrDeviceNotBound. Handles
-// are removed from the map on the first successful detach.
+// TestImporterDetachUntrackedLivePort asserts a fresh Importer can release a
+// kernel-owned Port that predates its process without fabricating a handle.
+func TestImporterDetachUntrackedLivePort(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 8
+
+	kernel := &ImporterKernelMock{
+		DetachPortFunc: func(_ context.Context, _ domain.PortID) error { return nil },
+	}
+
+	imp := newImporterForTest(t, app.WithImporterKernel(kernel))
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	require.NoError(t, imp.Detach(context.Background(), portID))
+	require.Len(t, kernel.DetachPortCalls(), 1)
+	require.Equal(t, portID, kernel.DetachPortCalls()[0].ID)
+}
+
+// TestImporterDetachDuplicateReturnsNotBound asserts the second Detach after a
+// successful first Detach reconciles through the adapter and returns its
+// canonical not-bound result. The first success removes the tracked handle.
 func TestImporterDetachDuplicateReturnsNotBound(t *testing.T) {
 	t.Parallel()
 
 	const portID domain.PortID = 2
+
+	var detachCalls atomic.Int32
 
 	kernel := &ImporterKernelMock{
 		ModulesAvailableFunc: func(_ context.Context) error { return nil },
 		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
 			return portID, nil
 		},
-		DetachPortFunc: func(_ context.Context, _ domain.PortID) error { return nil },
+		DetachPortFunc: func(_ context.Context, _ domain.PortID) error {
+			if detachCalls.Add(1) == 1 {
+				return nil
+			}
+
+			return domain.ErrDeviceNotBound
+		},
 	}
 
 	imp, _ := attachOnce(t, kernel)
@@ -1107,7 +1147,7 @@ func TestImporterDetachDuplicateReturnsNotBound(t *testing.T) {
 
 	err := imp.Detach(context.Background(), portID)
 	require.ErrorIs(t, err, domain.ErrDeviceNotBound)
-	require.Len(t, kernel.DetachPortCalls(), 1)
+	require.Len(t, kernel.DetachPortCalls(), 2)
 }
 
 // TestImporterDetachClosedReturnsErr asserts Detach after Close returns
@@ -1163,16 +1203,15 @@ func TestImporterDetachKernelFailurePreservesHandle(t *testing.T) {
 	require.ErrorIs(t, err, kernelDetachErr)
 }
 
-// TestImporterListPortsDelegates asserts ListPorts forwards to the
-// kernel's view and returns the slice verbatim. The Importer's handle
-// map is local bookkeeping; the kernel's sysfs-derived list is the
-// authoritative source.
+// TestImporterListPortsDelegates asserts a fresh Importer preserves truthful
+// kernel-only rows, including local topology, without inventing remote
+// endpoint or BusID metadata.
 func TestImporterListPortsDelegates(t *testing.T) {
 	t.Parallel()
 
 	want := []domain.Port{
-		{ID: 1, Status: domain.StatusUsed, BusID: domain.BusID("1-1")},
-		{ID: 2, Status: domain.StatusUsed, BusID: domain.BusID("2-1")},
+		{ID: 1, Status: domain.StatusUsed, LocalBusID: importerLocalBusID},
+		{ID: 2, Status: domain.StatusUsed, LocalBusID: importerOtherLocalBusID},
 	}
 
 	kernel := &ImporterKernelMock{
@@ -1185,6 +1224,128 @@ func TestImporterListPortsDelegates(t *testing.T) {
 	got, err := imp.ListPorts(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, want, got)
+
+	for _, port := range got {
+		require.Empty(t, port.BusID)
+		require.Empty(t, port.Remote)
+	}
+}
+
+func TestImporterListPortsEnrichesMatchingCurrentHandle(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 18
+
+	var listed domain.Port
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec) (domain.PortID, error) {
+			return portID, nil
+		},
+		ListPortsFunc: func(_ context.Context) ([]domain.Port, error) {
+			return []domain.Port{listed}, nil
+		},
+	}
+
+	imp, attached := attachOnce(t, kernel)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	listed = domain.Port{
+		ID:         attached.ID,
+		Status:     domain.StatusUsed,
+		Speed:      attached.Speed,
+		DeviceID:   attached.DeviceID,
+		LocalBusID: importerLocalBusID,
+	}
+
+	ports, err := imp.ListPorts(context.Background())
+	require.NoError(t, err)
+	require.Len(t, ports, 1)
+
+	got := ports[0]
+	require.Equal(t, attached.ID, got.ID)
+	require.Equal(t, listed.Status, got.Status)
+	require.Equal(t, listed.Speed, got.Speed)
+	require.Equal(t, listed.DeviceID, got.DeviceID)
+	require.Equal(t, importerLocalBusID, got.LocalBusID)
+	require.Equal(t, attached.BusID, got.BusID)
+	require.Equal(t, attached.Remote, got.Remote)
+}
+
+func TestImporterListPortsRejectsMismatchedHandleMetadata(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 19
+
+	tests := []struct {
+		name   string
+		mutate func(*domain.Port)
+	}{
+		{
+			name: "different port id",
+			mutate: func(port *domain.Port) {
+				port.ID++
+			},
+		},
+		{
+			name: "port not used",
+			mutate: func(port *domain.Port) {
+				port.Status = domain.StatusAvailable
+			},
+		},
+		{
+			name: "different device id",
+			mutate: func(port *domain.Port) {
+				port.DeviceID++
+			},
+		},
+		{
+			name: "different speed",
+			mutate: func(port *domain.Port) {
+				port.Speed = domain.SpeedSuper
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var listed domain.Port
+
+			kernel := &ImporterKernelMock{
+				ModulesAvailableFunc: func(_ context.Context) error { return nil },
+				AttachRemoteFunc: func(
+					_ context.Context, _ net.Conn, _ app.RemoteDeviceSpec,
+				) (domain.PortID, error) {
+					return portID, nil
+				},
+				ListPortsFunc: func(_ context.Context) ([]domain.Port, error) {
+					return []domain.Port{listed}, nil
+				},
+			}
+
+			imp, attached := attachOnce(t, kernel)
+			t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+			listed = domain.Port{
+				ID:         attached.ID,
+				Status:     domain.StatusUsed,
+				Speed:      attached.Speed,
+				DeviceID:   attached.DeviceID,
+				LocalBusID: importerOtherLocalBusID,
+			}
+			tc.mutate(&listed)
+
+			ports, err := imp.ListPorts(context.Background())
+			require.NoError(t, err)
+			require.Len(t, ports, 1)
+			require.Equal(t, listed, ports[0])
+			require.Empty(t, ports[0].BusID)
+			require.Empty(t, ports[0].Remote)
+		})
+	}
 }
 
 // TestImporterListPortsClosedReturnsErr asserts ListPorts on a closed

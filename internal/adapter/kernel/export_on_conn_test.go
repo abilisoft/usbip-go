@@ -212,7 +212,7 @@ func TestDetachPort_WritesDecimalPortID(t *testing.T) {
 			testFSVHCIController0NPortsPath: &fstest.MapFile{Data: []byte("8\n")},
 			testFSVHCIController0StatusPath: &fstest.MapFile{Data: []byte(
 				"hub port sta spd dev      sockfd local_busid\n" +
-					"hs  0000 000 000 00000000 000000 0-0\n",
+					"ss  0005 003 005 01020304 000005 2-2\n",
 			)},
 		}),
 		kernel.WithWriteFunc(writer),

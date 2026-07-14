@@ -46,6 +46,18 @@ func pickRenderer(output string) Renderer {
 	return &tableRenderer{}
 }
 
+// formatRemoteEndpoint renders only known peer identities. A zero-value
+// endpoint represents metadata that vhci_hcd cannot reconstruct after the
+// attaching process exits; RemoteEndpoint.String would misleadingly render it
+// as ":3240" by applying the protocol's default port to an empty host.
+func formatRemoteEndpoint(remote usbip.RemoteEndpoint) string {
+	if remote.Host == "" {
+		return ""
+	}
+
+	return remote.String()
+}
+
 // jsonRenderer implements Renderer over JSON. Every top-level document
 // carries the `"schema": "v1"` envelope. Watch mode emits one record
 // per line via Event.

@@ -212,6 +212,201 @@ func TestImporterDetachFollowerCancellationDoesNotCancelOwner(t *testing.T) {
 	require.Len(t, kernel.DetachPortCalls(), 1)
 }
 
+func TestImporterDetachUntrackedSharesSuccessfulAttempt(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 25
+
+	detachEntered := make(chan struct{})
+	releaseDetach := make(chan struct{})
+
+	kernel := &ImporterKernelMock{
+		DetachPortFunc: func(_ context.Context, _ domain.PortID) error {
+			close(detachEntered)
+			<-releaseDetach
+
+			return nil
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterKernel(kernel))
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	ownerResult := make(chan error, 1)
+	go func() { ownerResult <- imp.Detach(context.Background(), portID) }()
+
+	requireSignal(t, detachEntered, "untracked owner kernel detach")
+
+	followerCtx := newObservedDoneContext(context.Background())
+
+	followerResult := make(chan error, 1)
+	go func() { followerResult <- imp.Detach(followerCtx, portID) }()
+
+	requireSignal(t, followerCtx.doneObserved, "untracked follower shared-attempt wait")
+	close(releaseDetach)
+
+	require.NoError(t, <-ownerResult)
+	require.NoError(t, <-followerResult)
+	require.Len(t, kernel.DetachPortCalls(), 1,
+		"overlapping untracked callers must share one kernel mutation")
+}
+
+func TestImporterDetachUntrackedSharesFailureAndAllowsRetry(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 26
+
+	firstDetachEntered := make(chan struct{})
+	releaseFirstDetach := make(chan struct{})
+
+	var detachCalls atomic.Int32
+
+	kernel := &ImporterKernelMock{
+		DetachPortFunc: func(_ context.Context, _ domain.PortID) error {
+			if detachCalls.Add(1) == 1 {
+				close(firstDetachEntered)
+				<-releaseFirstDetach
+
+				return errSharedDetach
+			}
+
+			return nil
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterKernel(kernel))
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	ownerResult := make(chan error, 1)
+	go func() { ownerResult <- imp.Detach(context.Background(), portID) }()
+
+	requireSignal(t, firstDetachEntered, "untracked failing kernel detach")
+
+	followerCtx := newObservedDoneContext(context.Background())
+
+	followerResult := make(chan error, 1)
+	go func() { followerResult <- imp.Detach(followerCtx, portID) }()
+
+	requireSignal(t, followerCtx.doneObserved, "untracked failing-attempt follower")
+	close(releaseFirstDetach)
+
+	require.ErrorIs(t, <-ownerResult, errSharedDetach)
+	require.ErrorIs(t, <-followerResult, errSharedDetach)
+	require.EqualValues(t, 1, detachCalls.Load())
+
+	require.NoError(t, imp.Detach(context.Background(), portID),
+		"a completed untracked failure must release ownership for retry")
+	require.EqualValues(t, 2, detachCalls.Load())
+}
+
+func TestImporterUntrackedDetachRejectsSamePortReservation(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 27
+
+	detachEntered := make(chan struct{})
+	releaseDetach := make(chan struct{})
+
+	var releaseOnce sync.Once
+
+	release := func() {
+		releaseOnce.Do(func() { close(releaseDetach) })
+	}
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(
+			_ context.Context, _ net.Conn, spec app.RemoteDeviceSpec,
+		) (domain.PortID, error) {
+			reserveErr := spec.ReserveLocalPort(portID)
+			if reserveErr == nil {
+				return 0, fmt.Errorf("reservation unexpectedly succeeded: %w", errSharedDetach)
+			}
+
+			return 0, fmt.Errorf("reserve local port: %w", reserveErr)
+		},
+		DetachPortFunc: func(_ context.Context, _ domain.PortID) error {
+			close(detachEntered)
+			<-releaseDetach
+
+			return nil
+		},
+	}
+
+	imp := newAttachPublicationImporter(
+		t, kernel, testutil.NewFakeClockAt(importerTestEpoch()),
+	)
+	t.Cleanup(func() {
+		release()
+		require.NoError(t, imp.Close())
+	})
+
+	detachResult := make(chan error, 1)
+	go func() { detachResult <- imp.Detach(context.Background(), portID) }()
+
+	requireSignal(t, detachEntered, "active untracked detach")
+
+	_, err := imp.Attach(
+		context.Background(), testRemote(), attachBusID(), app.AttachOptions{},
+	)
+	require.ErrorIs(t, err, app.ErrAttachInProgress)
+	require.Len(t, kernel.AttachRemoteCalls(), 1)
+
+	release()
+	require.NoError(t, <-detachResult)
+}
+
+func TestImporterCloseWaitsForUntrackedDetach(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 28
+
+	detachEntered := make(chan struct{})
+	releaseDetach := make(chan struct{})
+
+	kernel := &ImporterKernelMock{
+		DetachPortFunc: func(_ context.Context, _ domain.PortID) error {
+			close(detachEntered)
+			<-releaseDetach
+
+			return nil
+		},
+	}
+
+	clock := newObservedReconnectClock()
+	imp := newImporterForTest(
+		t,
+		app.WithImporterKernel(kernel),
+		app.WithImporterClock(clock),
+	)
+
+	detachResult := make(chan error, 1)
+	go func() { detachResult <- imp.Detach(context.Background(), portID) }()
+
+	requireSignal(t, detachEntered, "untracked detach before Close")
+
+	closeResult := make(chan error, 1)
+	go func() { closeResult <- imp.Close() }()
+
+	select {
+	case <-clock.calls:
+		// Close has armed its bounded wait while the detach still owns the
+		// lifecycle wait-group entry.
+	case <-time.After(detachCoordinationTimeout):
+		t.Fatal("Close did not start its bounded lifecycle wait")
+	}
+
+	select {
+	case err := <-closeResult:
+		t.Fatalf("Close returned before untracked Detach finished: %v", err)
+	default:
+	}
+
+	close(releaseDetach)
+	require.NoError(t, <-detachResult)
+	require.NoError(t, <-closeResult)
+}
+
 func TestImporterDetachRemovesOnlyItsExactHandle(t *testing.T) {
 	t.Parallel()
 
