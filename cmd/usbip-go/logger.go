@@ -77,7 +77,7 @@ func buildLogger(f globalFlags) (*slog.Logger, error) {
 // newTintLogger builds a slog.Logger backed by the lmittmann/tint
 // handler. noColor suppresses ANSI escapes (tint.Options.NoColor).
 func newTintLogger(lvl slog.Level, noColor bool) *slog.Logger {
-	return slog.New(tint.NewHandler(os.Stderr, &tint.Options{
+	return slog.New(tint.NewTextHandler(os.Stderr, &tint.Options{
 		Level:   lvl,
 		NoColor: noColor,
 	}))
