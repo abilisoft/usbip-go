@@ -122,8 +122,13 @@ type Importer struct {
 	// the dial + handshake + AttachRemote sequence and import the same
 	// device onto two local ports. Guarded by mu.
 	inFlight map[attachKey]struct{}
-	nextGen  uint64
-	wg       lifecycleWaitGroup
+	// untrackedDetaches coordinates callers detaching a kernel-owned port
+	// that has no process-local handle (for example, a later one-shot CLI
+	// invocation). Guarded by mu; entries exist only while their owner is
+	// executing the adapter mutation.
+	untrackedDetaches map[domain.PortID]*detachAttempt
+	nextGen           uint64
+	wg                lifecycleWaitGroup
 	// subscribers is the per-call fanout list for app-synthesized port
 	// lifecycle events (PortReconnectExhausted). Watch merges these with
 	// the upstream KernelEvents subscription so consumers see all port
@@ -225,6 +230,7 @@ type detachTarget struct {
 	attempt     *detachAttempt
 	reservation *attachReservation
 	owner       bool
+	untracked   bool
 }
 
 // cancel closes the done channel exactly once, signalling any watcher
@@ -328,16 +334,17 @@ func NewImporter(opts ...ImporterOption) *Importer {
 	}
 
 	return &Importer{
-		kernel:           cfg.kernel,
-		events:           cfg.events,
-		transport:        cfg.transport,
-		codec:            cfg.codec,
-		clock:            cfg.clock,
-		logger:           cfg.logger,
-		transportOptions: cfg.transportOptions,
-		handles:          make(map[domain.PortID]*portHandle),
-		reservations:     make(map[domain.PortID]*attachReservation),
-		inFlight:         make(map[attachKey]struct{}),
+		kernel:            cfg.kernel,
+		events:            cfg.events,
+		transport:         cfg.transport,
+		codec:             cfg.codec,
+		clock:             cfg.clock,
+		logger:            cfg.logger,
+		transportOptions:  cfg.transportOptions,
+		handles:           make(map[domain.PortID]*portHandle),
+		reservations:      make(map[domain.PortID]*attachReservation),
+		inFlight:          make(map[attachKey]struct{}),
+		untrackedDetaches: make(map[domain.PortID]*detachAttempt),
 	}
 }
 
@@ -570,7 +577,38 @@ func (i *Importer) ListPorts(ctx context.Context) ([]domain.Port, error) {
 		return nil, fmt.Errorf("list vhci ports: %w", err)
 	}
 
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	for index := range ports {
+		handle, ok := i.handles[ports[index].ID]
+		if !ok {
+			continue
+		}
+
+		ports[index] = enrichPortFromHandle(ports[index], handle)
+	}
+
 	return ports, nil
+}
+
+// enrichPortFromHandle overlays only remote identity that the kernel cannot
+// retain. Kernel-derived lifecycle and local-topology fields remain
+// authoritative, and a reused slot must match the handle's last successful
+// DeviceID and speed before receiving process-local metadata.
+func enrichPortFromHandle(port domain.Port, handle *portHandle) domain.Port {
+	lastKnown := handle.lastKnownPort
+	if port.ID != lastKnown.ID ||
+		port.Status != domain.StatusUsed ||
+		port.DeviceID != lastKnown.DeviceID ||
+		port.Speed != lastKnown.Speed {
+		return port
+	}
+
+	port.Remote = lastKnown.Remote
+	port.BusID = lastKnown.BusID
+
+	return port
 }
 
 // Watch returns the v1 event-only iterator. It is a compatibility wrapper
@@ -744,6 +782,10 @@ func (i *Importer) detachPublishedTarget(
 		return waitDetachAttempt(ctx, id, target.attempt)
 	}
 
+	if target.untracked {
+		return i.detachUntrackedTarget(ctx, id, target.attempt)
+	}
+
 	err := i.detachHandle(ctx, id, target.handle)
 	target.handle.finishDetachAttempt(target.attempt, err)
 	i.wg.Done()
@@ -794,7 +836,53 @@ func (i *Importer) acquireDetachTarget(id domain.PortID) (detachTarget, error) {
 		return detachTarget{handle: h, attempt: attempt, owner: owner}, nil
 	}
 
-	return detachTarget{}, fmt.Errorf("detach port %d: %w", id, domain.ErrDeviceNotBound)
+	if attempt, ok := i.untrackedDetaches[id]; ok {
+		return detachTarget{attempt: attempt, untracked: true}, nil
+	}
+
+	attempt := &detachAttempt{done: make(chan struct{})}
+
+	i.untrackedDetaches[id] = attempt
+	i.wg.Add(1)
+
+	return detachTarget{attempt: attempt, owner: true, untracked: true}, nil
+}
+
+// detachUntrackedTarget owns the adapter mutation for a kernel port that has
+// no process-local reconnect handle. Concurrent followers share the exact
+// result, while completion removes the ephemeral map entry so a later retry
+// reconciles against fresh kernel state.
+func (i *Importer) detachUntrackedTarget(
+	ctx context.Context, id domain.PortID, attempt *detachAttempt,
+) error {
+	err := i.kernel.DetachPort(ctx, id)
+	if err != nil {
+		err = fmt.Errorf("detach port %d: %w", id, err)
+		if errors.Is(err, domain.ErrDeviceNotBound) {
+			err = i.detachTargetError(id, err)
+		} else {
+			i.logger.Warn("importer detach kernel error",
+				slog.Any("port_id", id),
+				slog.String("outcome", string(DetachOutcomeError)),
+				slog.Any("err", err))
+		}
+	} else {
+		i.logger.Info("importer detached",
+			slog.Any("port_id", id),
+			slog.String("outcome", string(DetachOutcomeOK)))
+	}
+
+	i.mu.Lock()
+	attempt.err = err
+	close(attempt.done)
+
+	if current, ok := i.untrackedDetaches[id]; ok && current == attempt {
+		delete(i.untrackedDetaches, id)
+	}
+	i.mu.Unlock()
+	i.wg.Done()
+
+	return err
 }
 
 // waitAttachPublication waits for a selected port to become either a tracked
@@ -1184,6 +1272,10 @@ func (i *Importer) reserveAttachPort(
 
 	if _, exists := i.reservations[id]; exists {
 		return nil, fmt.Errorf("%w: local port %d publication already reserved", ErrAttachInProgress, id)
+	}
+
+	if _, detaching := i.untrackedDetaches[id]; detaching {
+		return nil, fmt.Errorf("%w: local port %d is detaching", ErrAttachInProgress, id)
 	}
 
 	// Detach won the per-Port transition before this reservation callback.

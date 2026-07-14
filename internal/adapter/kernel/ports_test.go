@@ -193,6 +193,12 @@ func TestListPorts_ReturnsAllRowsIncludingFree(t *testing.T) {
 	require.Equal(t, domain.StatusNull, ports[0].Status)
 	require.Equal(t, domain.StatusUsed, ports[1].Status)
 	require.Equal(t, domain.StatusUsed, ports[2].Status)
+	require.Empty(t, ports[1].BusID,
+		"kernel status rows do not contain the exporter's remote busid")
+	require.Equal(t, domain.BusID("1-1"), ports[1].LocalBusID,
+		"local_busid must remain the VHCI-side enumeration identity")
+	require.Empty(t, ports[1].Remote.Host,
+		"kernel status rows do not contain the remote endpoint")
 }
 
 // TestListPorts_HeaderlessFileIsEmpty matches the spec: if the header

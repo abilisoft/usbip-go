@@ -128,16 +128,16 @@ role modules before running commands.
 
 ## Recovering from a stuck port
 
-`usbip-go detach N` fails with `ErrDeviceNotFound` when the kernel
-still owns the port but the daemon lost track. Check the kernel
-view:
+`usbip-go detach N` reconciles the requested port against the live VHCI state,
+so it also works when the process that attached the device has exited. If the
+command still fails, check the kernel view:
 
 ```text
 $ cat /sys/devices/platform/vhci_hcd.0/status
 ```
 
-Ports in `SDEV_ST_ERROR` or `SDEV_ST_USED` that are not in
-`usbip-go port` output can be force-detached via sysfs:
+As a last resort, a port in `VDEV_ST_ERROR` or `VDEV_ST_USED` can be
+force-detached via sysfs:
 
 ```text
 $ echo <port_id> | sudo tee /sys/devices/platform/vhci_hcd.0/detach

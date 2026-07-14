@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/abilisoft/usbip-go/pkg/usbip"
 	"github.com/spf13/cobra"
@@ -99,7 +100,21 @@ func completePortIDs(cmd *cobra.Command, _ []string, _ string) ([]cobra.Completi
 	out := make([]cobra.Completion, 0, len(ports))
 
 	for _, p := range ports {
-		out = append(out, fmt.Sprintf("%d\t%s %s", p.ID, p.Remote.String(), p.BusID))
+		if !isAttachedPort(p) {
+			continue
+		}
+
+		description := strings.TrimSpace(strings.Join([]string{
+			formatRemoteEndpoint(p.Remote),
+			string(p.BusID),
+		}, " "))
+
+		completion := strconv.FormatUint(uint64(p.ID), 10)
+		if description != "" {
+			completion += "\t" + description
+		}
+
+		out = append(out, completion)
 	}
 
 	return out, cobra.ShellCompDirectiveNoFileComp

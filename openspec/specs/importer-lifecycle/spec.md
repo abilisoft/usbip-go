@@ -127,7 +127,7 @@ After the kernel adapter selects a local PortID, the importer SHALL reserve that
 
 ### Requirement: Detach is idempotent for port teardown
 
-`Detach` SHALL cancel any reconnect watcher for the Port, wait for watcher wind-down subject to the configured shutdown timeout, and share at most one active kernel detach attempt per attachment generation. The handle SHALL be removed only after a successful attempt and only when the PortID still maps to that exact handle.
+`Detach` SHALL cancel any reconnect watcher for a tracked Port, wait for watcher wind-down subject to the configured shutdown timeout, and share at most one active kernel detach attempt per tracked attachment generation or untracked kernel Port. A tracked handle SHALL be removed only after a successful attempt and only when the PortID still maps to that exact handle. When no handle or attach reservation exists, Detach SHALL reconcile the PortID against authoritative kernel state and detach it if it is live.
 
 #### Scenario: Watcher is still running
 
@@ -137,7 +137,7 @@ After the kernel adapter selects a local PortID, the importer SHALL reserve that
 
 #### Scenario: Concurrent callers detach one attachment
 
-- **WHEN** multiple callers overlap while detaching the same handle generation
+- **WHEN** multiple callers overlap while detaching the same tracked generation or untracked kernel Port
 - **THEN** exactly one caller issues the kernel detach
 - **AND** other callers observe the same completed result
 
@@ -151,7 +151,7 @@ After the kernel adapter selects a local PortID, the importer SHALL reserve that
 
 - **WHEN** the shared kernel detach attempt returns an error
 - **THEN** every overlapping caller observes that error
-- **AND** the exact handle remains registered so a later call can retry
+- **AND** the exact tracked handle remains registered, or the ephemeral untracked attempt is removed, so a later call can retry
 
 #### Scenario: PortID is reused before an old detach completes
 
@@ -160,8 +160,36 @@ After the kernel adapter selects a local PortID, the importer SHALL reserve that
 
 #### Scenario: Port is already gone
 
-- **WHEN** Detach observes that the kernel Port is absent
+- **WHEN** Detach observes that the kernel Port is absent or free
 - **THEN** the result is classified with the canonical not-found/device sentinel
+- **AND** no detach sysfs write occurs
+
+#### Scenario: Port is live but untracked by this Importer
+
+- **WHEN** Detach receives a PortID that authoritative kernel state reports as attached but the current Importer has no handle or reservation for it
+- **THEN** Detach releases that kernel Port
+- **AND** it does not fabricate reconnect metadata or a tracked handle
+
+#### Scenario: Attach selects a Port under untracked detach
+
+- **WHEN** AttachRemote selects a PortID whose untracked detach transition is active in the same Importer
+- **THEN** the reservation is rejected before the adapter attach mutation
+
+### Requirement: Port listing separates kernel truth from process metadata
+
+Importer ListPorts SHALL preserve kernel-derived Port fields and SHALL enrich remote BusID and Remote only from the exact current handle generation whose used row still matches the last successful Port ID, DeviceID, and speed.
+
+#### Scenario: Current Importer owns the live attachment
+
+- **WHEN** ListPorts reads a used kernel row that matches the current handle generation
+- **THEN** the returned Port retains kernel status, speed, DeviceID, and LocalBusID
+- **AND** remote BusID and Remote are populated from that handle
+
+#### Scenario: Attachment predates this Importer
+
+- **WHEN** ListPorts reads a kernel row for which the current Importer has no matching live handle
+- **THEN** remote BusID and Remote remain unknown
+- **AND** LocalBusID remains the authoritative importer-local identity
 
 ### Requirement: Reconnect watcher re-establishes attachments
 

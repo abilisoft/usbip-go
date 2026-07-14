@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/abilisoft/usbip-go/pkg/domain"
 	"github.com/abilisoft/usbip-go/pkg/usbip"
 	"github.com/spf13/cobra"
 )
@@ -76,14 +77,21 @@ func runPort(cmd *cobra.Command, pf *portFlags) error {
 	return nil
 }
 
-// filterPortByID returns the single-port slice and true when id is in
-// ports; nil and false when absent.
+// filterPortByID returns the single-port slice and true when id identifies an
+// attached port; nil and false when the slot is absent or free.
 func filterPortByID(ports []usbip.Port, id usbip.PortID) ([]usbip.Port, bool) {
 	for _, p := range ports {
-		if p.ID == id {
+		if p.ID == id && isAttachedPort(p) {
 			return []usbip.Port{p}, true
 		}
 	}
 
 	return nil, false
+}
+
+// isAttachedPort mirrors the kernel adapter's allocation boundary: null and
+// available slots are free, while transitional, used, and error rows remain
+// owned kernel attachments that operators may inspect or detach.
+func isAttachedPort(port usbip.Port) bool {
+	return port.Status != domain.StatusNull && port.Status != domain.StatusAvailable
 }

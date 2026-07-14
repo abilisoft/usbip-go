@@ -16,9 +16,12 @@ type Port struct {
 	Speed Speed
 	// DeviceID encodes (busnum << 16) | devnum of the remote device.
 	DeviceID DeviceID
-	// Remote is the peer address serving this port.
+	// Remote is the peer address serving this port. It is zero when the
+	// attachment is known only from kernel state because VHCI does not retain
+	// exporter endpoint metadata.
 	Remote RemoteEndpoint
-	// BusID is the remote busid as reported by the exporter.
+	// BusID is the remote busid as reported by the exporter. It is empty when
+	// the attachment is known only from kernel state.
 	BusID BusID
 	// LocalBusID is the local representation of the busid if one exists;
 	// empty for ports without a local sysfs entry.

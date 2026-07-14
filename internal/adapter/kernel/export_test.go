@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/abilisoft/usbip-go/internal/app"
 	"github.com/abilisoft/usbip-go/pkg/domain"
@@ -195,7 +196,9 @@ type VHCIEventMapperForTest struct {
 // NewVHCIEventMapperForTest constructs a mapper against the supplied
 // topology snapshot. Mirrors the internal newVHCIEventMapper.
 func NewVHCIEventMapperForTest(topo Topology) VHCIEventMapperForTest {
-	inner := newVHCIEventMapper(topo)
+	inner := newVHCIEventMapperWithLoaderAndWait(func() (Topology, error) {
+		return topo, nil
+	}, func(time.Duration) {})
 
 	return VHCIEventMapperForTest{inner: &inner}
 }
@@ -209,7 +212,18 @@ func NewVHCIEventMapperForTest(topo Topology) VHCIEventMapperForTest {
 //   - graceful degradation: a loader that returns an error must not
 //     break usbip_host-path event mapping.
 func NewVHCIEventMapperWithLoaderForTest(loader func() (Topology, error)) VHCIEventMapperForTest {
-	inner := newVHCIEventMapperWithLoader(loader)
+	inner := newVHCIEventMapperWithLoaderAndWait(loader, func(time.Duration) {})
+
+	return VHCIEventMapperForTest{inner: &inner}
+}
+
+// NewVHCIEventMapperWithLoaderAndWaitForTest constructs a lazy mapper with a
+// deterministic retry wait supplied by the caller.
+func NewVHCIEventMapperWithLoaderAndWaitForTest(
+	loader func() (Topology, error),
+	wait func(time.Duration),
+) VHCIEventMapperForTest {
+	inner := newVHCIEventMapperWithLoaderAndWait(loader, wait)
 
 	return VHCIEventMapperForTest{inner: &inner}
 }

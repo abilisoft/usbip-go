@@ -59,9 +59,15 @@ referenced by every envelope below.
 | `id` | integer (u32) | `domain.Port.ID` | Numeric vhci port id. |
 | `status` | string | `domain.Status.String()` | `null`, `not-assigned`, `available`, `used`, `error`, or `status(N)` for unknown wire values. |
 | `speed` | string | `domain.Port.Speed.String()` | Same enum as `deviceView.speed`. |
-| `remote` | string | `domain.Port.Remote.String()` | `host:port`, IPv6 literals bracketed. |
-| `busid` | string | `domain.Port.BusID` | Remote busid as reported by the exporter. |
+| `remote` | string | `domain.Port.Remote` | `host:port`, with IPv6 literals bracketed; empty when exporter metadata is unavailable. |
+| `busid` | string | `domain.Port.BusID` | Remote busid as reported by the exporter; empty when unavailable. |
 | `local_busid` | string | `domain.Port.LocalBusID` | Local sysfs busid if the kernel mapped one; empty otherwise. |
+
+A fresh CLI or Importer process can inspect attachments that the kernel still
+owns, but VHCI does not retain the exporter endpoint or remote busid. Such rows
+keep all six fields and emit empty `remote` and `busid` strings; they never copy
+`local_busid` into the remote identity or render an unknown endpoint as
+`:3240`.
 
 ### `sessionView`
 

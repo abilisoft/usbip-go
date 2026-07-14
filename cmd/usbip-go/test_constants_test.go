@@ -26,6 +26,7 @@ const (
 	testOutputJSONFlag      = "--output=json"
 	testPollIntervalFlag    = "--poll-interval"
 	testPollIntervalValue   = "20ms"
+	testPortCommand         = "port"
 	testProduct             = "DataTraveler"
 	testRemoteHost          = "10.0.0.5"
 	testRootBusID           = "1-1"

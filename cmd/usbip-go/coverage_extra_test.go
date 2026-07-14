@@ -202,8 +202,9 @@ func TestCompletePortIDsListsKnownPorts(t *testing.T) {
 	imp := &mockImporter{
 		listPortsFn: func(_ context.Context) ([]usbip.Port, error) {
 			return []usbip.Port{
-				{ID: 100, BusID: testNestedBusID},
-				{ID: 256, BusID: testSecondaryBusID},
+				{ID: 100, Status: domain.StatusUsed, BusID: testNestedBusID},
+				{ID: 256, Status: domain.StatusError, BusID: testSecondaryBusID},
+				{ID: 512, Status: domain.StatusAvailable, BusID: "3-3"},
 			}, nil
 		},
 	}
@@ -214,9 +215,36 @@ func TestCompletePortIDsListsKnownPorts(t *testing.T) {
 
 	got, _ := completePortIDs(cmd, nil, "")
 	require.Len(t, got, 2,
-		"completePortIDs must return one entry per kernel port")
+		"completePortIDs must return only attached kernel ports")
 	require.Contains(t, got[0], "100")
 	require.Contains(t, got[1], "256")
+	require.NotContains(t, got, "512")
+	require.NotContains(t, got[0], ":3240")
+	require.NotContains(t, got[1], ":3240")
+}
+
+func TestIsAttachedPort(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status domain.Status
+		want   bool
+	}{
+		{name: "null", status: domain.StatusNull, want: false},
+		{name: "available", status: domain.StatusAvailable, want: false},
+		{name: "not assigned", status: domain.StatusNotAssigned, want: true},
+		{name: "used", status: domain.StatusUsed, want: true},
+		{name: "error", status: domain.StatusError, want: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, test.want, isAttachedPort(usbip.Port{Status: test.status}))
+		})
+	}
 }
 
 // TestCompletePortIDsErrorReturnsDirective covers the error path:

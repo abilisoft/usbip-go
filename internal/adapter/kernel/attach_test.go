@@ -136,6 +136,31 @@ func attachFS() fstest.MapFS {
 	}
 }
 
+// failSecondStatusOpenFS lets topology discovery observe the controller's
+// status file, then fails the operation's subsequent row read. This isolates
+// DetachPort's post-topology error path from the earlier controller probe.
+type failSecondStatusOpenFS struct {
+	inner fs.FS
+	opens atomic.Int32
+}
+
+func (f *failSecondStatusOpenFS) Open(name string) (fs.File, error) {
+	if name == testFSVHCIController0StatusPath && f.opens.Add(1) == 2 {
+		return nil, &fs.PathError{
+			Op:   testOpenOperation,
+			Path: name,
+			Err:  fs.ErrPermission,
+		}
+	}
+
+	file, err := f.inner.Open(name)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", name, err)
+	}
+
+	return file, nil
+}
+
 // rotatingNPortsFS returns successive nports values on successive opens while
 // delegating every other path. It deterministically models a vhci_hcd reload
 // between two topology reads without mutating shared filesystem state.
@@ -657,7 +682,8 @@ func TestDetachPort_RejectsOutOfRangePort(t *testing.T) {
 // port 0. Mirrors TestAttachRemote_RejectsPortAtNportsBoundary's
 // accept half on the detach side.
 //
-// attachFS() declares nports=8; port 7 is the last valid slot.
+// The fixture declares nports=8 and marks port 7 used; port 7 is the
+// last valid slot.
 func TestDetachPort_AcceptsInRangePort(t *testing.T) {
 	t.Parallel()
 
@@ -669,8 +695,15 @@ func TestDetachPort_AcceptsInRangePort(t *testing.T) {
 		return nil
 	}
 
+	mfs := attachFS()
+
+	mfs[testFSVHCIController0StatusPath] = &fstest.MapFile{Data: []byte(
+		"hub port sta spd dev      sockfd local_busid\n" +
+			"ss  0007 003 005 01020304 000005 2-4\n",
+	)}
+
 	a, err := kernel.NewImporterAdapter(
-		kernel.WithFS(attachFS()),
+		kernel.WithFS(mfs),
 		kernel.WithWriteFunc(writer),
 	)
 	require.NoError(t, err)
@@ -682,6 +715,67 @@ func TestDetachPort_AcceptsInRangePort(t *testing.T) {
 	require.Equal(t, "/sys/devices/platform/vhci_hcd.0/detach", gotWrites[0].Path)
 	require.Equal(t, "7", gotWrites[0].Data,
 		"detach payload must be the bare decimal of the flat port id")
+}
+
+// TestDetachPort_RejectsNonLivePort confirms the adapter validates the
+// current status row while holding the port-mutation lock. An in-range
+// port that is either explicitly free or absent from the snapshot is
+// not a live kernel attachment and must never reach the detach sysfs
+// write.
+func TestDetachPort_RejectsNonLivePort(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		port domain.PortID
+	}{
+		{name: "free row", port: domain.PortID(0)},
+		{name: "absent row", port: domain.PortID(3)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var writes atomic.Int32
+
+			a, err := kernel.NewImporterAdapter(
+				kernel.WithFS(attachFS()),
+				kernel.WithWriteFunc(func(string, string) error {
+					writes.Add(1)
+
+					return nil
+				}),
+			)
+			require.NoError(t, err)
+
+			err = a.DetachPort(t.Context(), tt.port)
+			require.ErrorIs(t, err, domain.ErrDeviceNotBound)
+			require.EqualValues(t, 0, writes.Load(),
+				"a non-live port must be rejected before any sysfs write")
+		})
+	}
+}
+
+func TestDetachPort_PropagatesStatusReadFailure(t *testing.T) {
+	t.Parallel()
+
+	var writes atomic.Int32
+
+	a, err := kernel.NewImporterAdapter(
+		kernel.WithFS(&failSecondStatusOpenFS{inner: attachFS()}),
+		kernel.WithWriteFunc(func(string, string) error {
+			writes.Add(1)
+
+			return nil
+		}),
+	)
+	require.NoError(t, err)
+
+	err = a.DetachPort(t.Context(), domain.PortID(0))
+	require.ErrorIs(t, err, fs.ErrPermission)
+	require.EqualValues(t, 0, writes.Load(),
+		"a status-read failure must be returned before any sysfs write")
 }
 
 // TestDetachPort_SucceedsDespiteIncompleteBusMap pins the
@@ -726,7 +820,7 @@ func TestDetachPort_SucceedsDespiteIncompleteBusMap(t *testing.T) {
 		testFSVHCIController0NPortsPath: &fstest.MapFile{Data: []byte("8\n")},
 		testFSVHCIController0StatusPath: &fstest.MapFile{Data: []byte(
 			"hub port sta spd dev      sockfd local_busid\n" +
-				"hs  0000 000 000 00000000 000000 0-0\n",
+				"hs  0000 003 003 01020304 000005 1-1\n",
 		)},
 	}
 
