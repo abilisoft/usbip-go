@@ -162,6 +162,11 @@ usbip-go port
 sudo usbip-go detach 0
 ```
 
+The kernel retains the numeric port and importer-local busid after the one-shot
+`attach` process exits, so a later `port`/`detach` invocation still works. VHCI
+does not retain the exporter endpoint or remote busid; those fields are empty
+when `port` runs in a fresh process.
+
 ### Run as a daemon with systemd
 
 Use the `.deb` or `.rpm` package when you want systemd. Packages

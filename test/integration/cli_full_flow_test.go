@@ -9,11 +9,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/abilisoft/usbip-go/pkg/domain"
 	"github.com/abilisoft/usbip-go/test/integration"
 )
 
@@ -147,35 +150,39 @@ func TestCLIFullFlow_DummyHCD(t *testing.T) {
 			"list HOST must return the bound busid %q; got: %s", busID, out)
 	}
 
-	// Step 5: attach the device.
-	mustRunOK(t, ctx, usbipBin, "attach", listenAddr, busID)
+	// Step 5: attach the device and retain the exact port identity returned by
+	// the importer. The exported busid is a remote topology identity; after a
+	// same-host loopback attach, vhci_hcd enumerates a different local busid.
+	attachOut := mustRunOK(t, ctx, usbipBin, "attach", listenAddr, busID, "--output=json")
+	portID := parseAttachPortID(t, attachOut, busID)
+	portIDArg := strconv.FormatUint(uint64(portID), 10)
 
-	// Register a busid-based detach cleanup IMMEDIATELY after the
-	// successful attach. A fatal in the upcoming port lookup step
-	// (findPortIDByBusID) would otherwise leak the vhci port until
-	// the next reboot. The cleanup re-resolves the port id by busid
-	// at run time so a port lookup failure during the test body does
-	// not break the cleanup path.
+	// Register the exact port cleanup IMMEDIATELY after the successful attach.
+	// A fatal in the upcoming convergence check would otherwise leak the vhci
+	// port until the daemon connection closes.
+	detachCleanupNeeded := true
 	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		id, err := lookupPortIDByBusIDForCleanup(cleanupCtx, commandOutput, usbipBin, busID)
-		if err != nil || id == "" {
-			return
+		if detachCleanupNeeded {
+			_ = exec.Command(usbipBin, "detach", portIDArg).Run()
 		}
-
-		_ = exec.Command(usbipBin, "detach", id).Run()
 	})
 
-	// Step 6: run `usbip-go port` — find OUR port by matching the local busid.
-	// A naked ports[0] lookup would happily match a port from a
-	// concurrent attach (parallel tests) or a leftover from a prior
-	// run, then detach the wrong port and leave ours behind.
-	portID := findPortIDByBusID(t, ctx, usbipBin, busID)
+	// Step 6: run `usbip-go port` until OUR acknowledged port reports the
+	// used state. Matching the acknowledged id avoids both peer ports and the
+	// remote-busid/local-busid distinction.
+	err := waitForAttachedPortByID(
+		ctx,
+		commandOutput,
+		usbipBin,
+		portID,
+		portAttachDeadline,
+		portAttachPoll,
+	)
+	require.NoError(t, err)
 
 	// Step 7: detach by port id.
-	mustRunOK(t, ctx, usbipBin, "detach", portID)
+	mustRunOK(t, ctx, usbipBin, "detach", portIDArg)
+	detachCleanupNeeded = false
 
 	// Step 8: unbind the device.
 	mustRunOK(t, ctx, usbipBin, "unbind", busID)
@@ -343,66 +350,10 @@ func parseDevicesEnvelope(t *testing.T, raw []byte) []map[string]any {
 	return env.Devices
 }
 
-// lookupPortIDByBusIDForCleanup mirrors findPortIDByBusID but is
-// fatal-free so it can run from a t.Cleanup. Returns:
-//
-//	("<id>", nil) when a port row matches busID
-//	("",     nil) when the envelope parses but no row matches —
-//	              the caller treats this as "nothing to detach"
-//	("",   error) when the binary cannot exec or the output is not
-//	              valid JSON — the caller logs and skips
 type commandOutputFunc func(context.Context, string, ...string) ([]byte, error)
 
 func commandOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
 	return exec.CommandContext(ctx, name, args...).Output()
-}
-
-func lookupPortIDByBusIDForCleanup(
-	ctx context.Context,
-	output commandOutputFunc,
-	usbipBin string,
-	busID string,
-) (string, error) {
-	out, err := output(ctx, usbipBin, "port", "--output=json")
-	if err != nil {
-		return "", err
-	}
-
-	var env struct {
-		Ports []map[string]any `json:"ports"`
-	}
-
-	if err := json.Unmarshal(out, &env); err != nil {
-		return "", err
-	}
-
-	for _, p := range env.Ports {
-		for _, key := range []string{"local_busid", "localBusID", "busid"} {
-			v, ok := p[key]
-			if !ok {
-				continue
-			}
-
-			s, ok := v.(string)
-			if !ok || strings.TrimSpace(s) != busID {
-				continue
-			}
-
-			idVal, ok := p["id"]
-			if !ok {
-				continue
-			}
-
-			switch n := idVal.(type) {
-			case string:
-				return n, nil
-			case float64:
-				return tcpPortString(int(n)), nil
-			}
-		}
-	}
-
-	return "", nil
 }
 
 const (
@@ -410,17 +361,48 @@ const (
 	portAttachPoll     = 50 * time.Millisecond
 )
 
-// waitForPortIDByBusID polls the CLI until the kernel's asynchronous VHCI
-// attach becomes visible. Importer.Attach hands the socket to the kernel but
-// does not promise that the port status file has converged before it returns.
-func waitForPortIDByBusID(
+// parseAttachPortID extracts the authoritative vhci port identity from the
+// successful attach acknowledgement. The acknowledgement's busid is remote,
+// so it remains stable even when the local vhci topology uses another busid.
+func parseAttachPortID(t *testing.T, raw []byte, wantBusID string) uint32 {
+	t.Helper()
+
+	var env struct {
+		Schema string `json:"schema"`
+		Op     string `json:"op"`
+		OK     bool   `json:"ok"`
+		Port   struct {
+			ID    *uint32 `json:"id"`
+			BusID string  `json:"busid"`
+		} `json:"port"`
+	}
+
+	require.NoError(t, json.Unmarshal(raw, &env),
+		"attach --output=json must emit a valid acknowledgement; got: %s", raw)
+	require.Equal(t, "v1", env.Schema)
+	require.Equal(t, "attach", env.Op)
+	require.True(t, env.OK)
+	require.Equal(t, wantBusID, env.Port.BusID)
+
+	if env.Port.ID == nil {
+		t.Fatalf("attach acknowledgement has no port id: %s", raw)
+	}
+
+	return *env.Port.ID
+}
+
+// waitForAttachedPortByID polls the CLI until the kernel's asynchronous VHCI
+// attach becomes visible at the exact port acknowledged by Importer.Attach.
+// Neither busid field participates in identity: same-host loopback changes the
+// local topology, while the acknowledged numeric port remains authoritative.
+func waitForAttachedPortByID(
 	ctx context.Context,
 	output commandOutputFunc,
 	usbipBin string,
-	busID string,
+	portID uint32,
 	timeout time.Duration,
 	interval time.Duration,
-) (string, error) {
+) error {
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
 
@@ -428,42 +410,63 @@ func waitForPortIDByBusID(
 	defer ticker.Stop()
 
 	var lastErr error
+	var lastOutput []byte
+	portIDArg := strconv.FormatUint(uint64(portID), 10)
 
 	for {
-		id, err := lookupPortIDByBusIDForCleanup(ctx, output, usbipBin, busID)
-		if err == nil && id != "" {
-			return id, nil
-		}
-		if err != nil {
-			lastErr = err
+		out, outputErr := output(ctx, usbipBin, "port", "--id", portIDArg, "--output=json")
+		lastOutput = out
+		if outputErr == nil {
+			lastErr = validateAttachedPort(out, portID)
+			if lastErr == nil {
+				return nil
+			}
+		} else {
+			lastErr = outputErr
 		}
 
 		select {
 		case <-ctx.Done():
-			return "", fmt.Errorf("wait for VHCI port %s: %w", busID, ctx.Err())
+			return fmt.Errorf("wait for VHCI port %d: %w", portID, ctx.Err())
 		case <-deadline.C:
-			return "", fmt.Errorf("VHCI port %s did not converge within %s (last error: %v)",
-				busID, timeout, lastErr)
+			return fmt.Errorf("VHCI port %d did not converge within %s "+
+				"(last error: %v; last output: %q)",
+				portID, timeout, lastErr, lastOutput)
 		case <-ticker.C:
 		}
 	}
 }
 
-// findPortIDByBusID waits for the row whose local-busid matches busID.
-// Filtering by busid (rather than ports[0]) makes the test resilient to peer
-// attaches and stale leftovers.
-func findPortIDByBusID(t *testing.T, ctx context.Context, usbipBin, busID string) string {
-	t.Helper()
+func validateAttachedPort(raw []byte, portID uint32) error {
+	var env struct {
+		Schema string `json:"schema"`
+		Ports  []struct {
+			ID     *uint32 `json:"id"`
+			Status string  `json:"status"`
+		} `json:"ports"`
+	}
 
-	id, err := waitForPortIDByBusID(
-		ctx,
-		commandOutput,
-		usbipBin,
-		busID,
-		portAttachDeadline,
-		portAttachPoll,
-	)
-	require.NoError(t, err)
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return fmt.Errorf("decode port envelope: %w", err)
+	}
+	if env.Schema != "v1" {
+		return fmt.Errorf("unexpected port schema %q", env.Schema)
+	}
+	if len(env.Ports) != 1 {
+		return fmt.Errorf("port --id %d returned %d rows", portID, len(env.Ports))
+	}
 
-	return id
+	port := env.Ports[0]
+	if port.ID == nil {
+		return errors.New("port row has no id")
+	}
+	if *port.ID != portID {
+		return fmt.Errorf("port row id is %d, expected %d", *port.ID, portID)
+	}
+	if port.Status != domain.StatusUsed.String() {
+		return fmt.Errorf("port %d status is %q, expected %q",
+			portID, port.Status, domain.StatusUsed.String())
+	}
+
+	return nil
 }

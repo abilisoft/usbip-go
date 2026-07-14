@@ -419,32 +419,32 @@ func TestSubscribe_DottedBusIDProducesEvent(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name      string
-		action    string
-		devpath   string
-		wantKind  domain.EventKind
-		wantBusID domain.BusID
+		name           string
+		action         string
+		devpath        string
+		wantKind       domain.EventKind
+		wantLocalBusID domain.BusID
 	}{
 		{
-			name:      "remove_one_dot",
-			action:    testUeventActionRemove,
-			devpath:   "/devices/platform/vhci_hcd.0/usb1/1-1.2",
-			wantKind:  domain.EventPortDetached,
-			wantBusID: domain.BusID("1-1.2"),
+			name:           "remove_one_dot",
+			action:         testUeventActionRemove,
+			devpath:        "/devices/platform/vhci_hcd.0/usb1/1-1.2",
+			wantKind:       domain.EventPortDetached,
+			wantLocalBusID: domain.BusID("1-1.2"),
 		},
 		{
-			name:      "add_two_dots",
-			action:    testUeventActionAdd,
-			devpath:   "/devices/platform/vhci_hcd.0/usb2/2-3.4.5",
-			wantKind:  domain.EventPortAttached,
-			wantBusID: domain.BusID("2-3.4.5"),
+			name:           "add_two_dots",
+			action:         testUeventActionAdd,
+			devpath:        "/devices/platform/vhci_hcd.0/usb2/2-3.4.5",
+			wantKind:       domain.EventPortAttached,
+			wantLocalBusID: domain.BusID("2-3.4.5"),
 		},
 		{
-			name:      "change_one_dot",
-			action:    "change",
-			devpath:   "/devices/platform/vhci_hcd.0/usb1/1-2.3",
-			wantKind:  domain.EventPortErrored,
-			wantBusID: domain.BusID("1-2.3"),
+			name:           "change_one_dot",
+			action:         "change",
+			devpath:        "/devices/platform/vhci_hcd.0/usb1/1-2.3",
+			wantKind:       domain.EventPortErrored,
+			wantLocalBusID: domain.BusID("1-2.3"),
 		},
 	}
 	for _, tc := range cases {
@@ -477,11 +477,14 @@ func TestSubscribe_DottedBusIDProducesEvent(t *testing.T) {
 
 				switch e := ev.(type) {
 				case domain.PortAttachedEvent:
-					require.Equal(t, tc.wantBusID, e.Port.BusID)
+					require.Empty(t, e.Port.BusID)
+					require.Equal(t, tc.wantLocalBusID, e.Port.LocalBusID)
 				case domain.PortDetachedEvent:
-					require.Equal(t, tc.wantBusID, e.Port.BusID)
+					require.Empty(t, e.Port.BusID)
+					require.Equal(t, tc.wantLocalBusID, e.Port.LocalBusID)
 				case domain.PortErroredEvent:
-					require.Equal(t, tc.wantBusID, e.Port.BusID)
+					require.Empty(t, e.Port.BusID)
+					require.Equal(t, tc.wantLocalBusID, e.Port.LocalBusID)
 				default:
 					t.Fatalf("unexpected event type %T", ev)
 				}
@@ -617,7 +620,8 @@ func TestSubscribe_EmitsFlatPortIDForVhciEvent(t *testing.T) {
 		require.True(t, ok, "expected PortAttachedEvent, got %T", ev)
 		require.Equal(t, domain.PortID(4), attach.Port.ID,
 			"rhport0=4 on HS hub of controller 0 must flatten to Port.ID=4")
-		require.Equal(t, domain.BusID("1-5"), attach.Port.BusID)
+		require.Empty(t, attach.Port.BusID)
+		require.Equal(t, domain.BusID("1-5"), attach.Port.LocalBusID)
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for flat-port event")
 	}
@@ -663,7 +667,8 @@ func TestSubscribe_EmitsFlatPortIDForMultiController(t *testing.T) {
 		require.True(t, ok, "expected PortDetachedEvent, got %T", ev)
 		require.Equal(t, domain.PortID(25), detach.Port.ID,
 			"rhport0=1 on SS hub of controller 1 must flatten to Port.ID=25")
-		require.Equal(t, domain.BusID("4-2"), detach.Port.BusID)
+		require.Empty(t, detach.Port.BusID)
+		require.Equal(t, domain.BusID("4-2"), detach.Port.LocalBusID)
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for multi-controller flat-port event")
 	}

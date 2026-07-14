@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -90,8 +91,10 @@ func TestVhciEventMapper_SingleControllerHS(t *testing.T) {
 	require.True(t, isDetach, "expected PortDetachedEvent, got %T", ev)
 	require.Equal(t, domain.PortID(2), detach.Port.ID,
 		"rhport0=2 on HS hub of controller 0 must flatten to Port.ID=2")
-	require.Equal(t, domain.BusID("1-3"), detach.Port.BusID,
-		"BusID must preserve the full matched busid for correlation")
+	require.Empty(t, detach.Port.BusID,
+		"VHCI uevents do not contain the exporter's remote busid")
+	require.Equal(t, domain.BusID("1-3"), detach.Port.LocalBusID,
+		"LocalBusID must preserve the full VHCI-side busid for correlation")
 }
 
 // TestVhciEventMapper_SingleControllerSS covers ACTION=add on the SS hub.
@@ -116,7 +119,8 @@ func TestVhciEventMapper_SingleControllerSS(t *testing.T) {
 	require.True(t, isAttach, "expected PortAttachedEvent, got %T", ev)
 	require.Equal(t, domain.PortID(8), attach.Port.ID,
 		"rhport0=0 on SS hub of controller 0 must flatten to Port.ID=8")
-	require.Equal(t, domain.BusID("2-1"), attach.Port.BusID)
+	require.Empty(t, attach.Port.BusID)
+	require.Equal(t, domain.BusID("2-1"), attach.Port.LocalBusID)
 }
 
 // TestVhciEventMapper_MultiControllerHS covers ACTION=remove on
@@ -141,7 +145,8 @@ func TestVhciEventMapper_MultiControllerHS(t *testing.T) {
 	require.True(t, isDetach, "expected PortDetachedEvent, got %T", ev)
 	require.Equal(t, domain.PortID(17), detach.Port.ID,
 		"rhport0=1 on HS hub of controller 1 must flatten to Port.ID=17")
-	require.Equal(t, domain.BusID("3-2"), detach.Port.BusID)
+	require.Empty(t, detach.Port.BusID)
+	require.Equal(t, domain.BusID("3-2"), detach.Port.LocalBusID)
 }
 
 // TestVhciEventMapper_MultiControllerSS covers ACTION=change on
@@ -167,7 +172,8 @@ func TestVhciEventMapper_MultiControllerSS(t *testing.T) {
 	require.True(t, isErr, "expected PortErroredEvent, got %T", ev)
 	require.Equal(t, domain.PortID(26), errEv.Port.ID,
 		"rhport0=2 on SS hub of controller 1 must flatten to Port.ID=26")
-	require.Equal(t, domain.BusID("4-3"), errEv.Port.BusID)
+	require.Empty(t, errEv.Port.BusID)
+	require.Equal(t, domain.BusID("4-3"), errEv.Port.LocalBusID)
 }
 
 // TestVhciEventMapper_NonVHCIBusIgnored covers the defensive short-
@@ -333,7 +339,7 @@ func TestVhciEventMapper_NonDefaultHCPorts(t *testing.T) {
 }
 
 // TestVhciEventMapper_DottedBusIDProducesFlatPort pins hub-chained
-// busid resolution. The full busid "1-2.3" preserves as domain.BusID,
+// busid resolution. The full busid "1-2.3" preserves as LocalBusID,
 // but the flat Port.ID only indexes the root-hub port (rhport0=1).
 // HS offset = 0; controller 0 offset = 0; flat Port.ID = 0*16 + 0 + 1
 // = 1.
@@ -356,8 +362,10 @@ func TestVhciEventMapper_DottedBusIDProducesFlatPort(t *testing.T) {
 	require.True(t, isDetach, "expected PortDetachedEvent, got %T", ev)
 	require.Equal(t, domain.PortID(1), detach.Port.ID,
 		"rhport0 is always the leading segment before the first '.'")
-	require.Equal(t, domain.BusID("1-2.3"), detach.Port.BusID,
-		"full dotted busid preserved verbatim in the emitted event")
+	require.Empty(t, detach.Port.BusID,
+		"VHCI uevents do not contain the exporter's remote busid")
+	require.Equal(t, domain.BusID("1-2.3"), detach.Port.LocalBusID,
+		"full dotted local busid preserved verbatim in the emitted event")
 }
 
 // TestVhciEventMapper_AnchoredRegexPreservesValidBusIDs is the positive
@@ -366,7 +374,7 @@ func TestVhciEventMapper_DottedBusIDProducesFlatPort(t *testing.T) {
 // range of VALID devpath shapes the kernel emits on root-hub-level
 // add/remove events: single-digit root port, dotted hub-attached busid
 // (1-1.2), and deeper chains (1-1.2.3). Each case maps to a
-// PortDetachedEvent whose Port.BusID preserves the full dotted path.
+// PortDetachedEvent whose Port.LocalBusID preserves the full dotted path.
 func TestVhciEventMapper_AnchoredRegexPreservesValidBusIDs(t *testing.T) {
 	t.Parallel()
 
@@ -410,8 +418,10 @@ func TestVhciEventMapper_AnchoredRegexPreservesValidBusIDs(t *testing.T) {
 
 			detach, isDetach := ev.(domain.PortDetachedEvent)
 			require.True(t, isDetach, "expected PortDetachedEvent, got %T", ev)
-			require.Equal(t, tc.busID, detach.Port.BusID,
-				"full dotted busid must be preserved verbatim")
+			require.Empty(t, detach.Port.BusID,
+				"VHCI uevents do not contain the exporter's remote busid")
+			require.Equal(t, tc.busID, detach.Port.LocalBusID,
+				"full dotted local busid must be preserved verbatim")
 		})
 	}
 }
@@ -426,9 +436,9 @@ func TestVhciEventMapper_AnchoredRegexPreservesValidBusIDs(t *testing.T) {
 //  2. usbip_host events MUST bypass the VHCI topology entirely — they
 //     do not need it, and firing the loader on a usbip_host bind would
 //     defeat point 1.
-//  3. Each VHCI-shaped event fires the loader exactly once. On
-//     loader error, VHCI events are dropped (ok=false) — no panic, no
-//     surfaced error; the mapper is degraded for VHCI only.
+//  3. Each VHCI-shaped event fires the loader at most twice. On a
+//     permanent loader error, VHCI events are dropped (ok=false) — no panic,
+//     no surfaced error; the mapper is degraded for VHCI only.
 //  4. Loader errors are not memoised: subsequent VHCI events retry.
 //
 // A loader that always fails exercises the degraded path; a usbip_host
@@ -446,7 +456,12 @@ func TestVhciEventMapper_LazyLoaderDegradesVHCIButPassesUsbipHost(t *testing.T) 
 		return kernel.Topology{}, errMapperLoaderFailed
 	}
 
-	mapper := kernel.NewVHCIEventMapperWithLoaderForTest(loader)
+	var waits []time.Duration
+
+	mapper := kernel.NewVHCIEventMapperWithLoaderAndWaitForTest(
+		loader,
+		func(delay time.Duration) { waits = append(waits, delay) },
+	)
 
 	require.Zero(t, calls,
 		"mapper construction must not call the topology loader — lazy init "+
@@ -471,9 +486,9 @@ func TestVhciEventMapper_LazyLoaderDegradesVHCIButPassesUsbipHost(t *testing.T) 
 		"usbip-host events must bypass the VHCI topology entirely — "+
 			"the loader must still not have been called")
 
-	// First VHCI-shaped event triggers the loader exactly once; since
-	// the loader errors, the VHCI event is dropped but no caller-
-	// visible error is produced.
+	// First VHCI-shaped event exhausts its two bounded load attempts; since
+	// both error, the VHCI event is dropped but no caller-visible error is
+	// produced.
 	vhciFields := map[string]string{
 		testUeventActionField:    testUeventActionRemove,
 		testUeventSubsystemField: testUeventSubsystemUSB,
@@ -486,16 +501,100 @@ func TestVhciEventMapper_LazyLoaderDegradesVHCIButPassesUsbipHost(t *testing.T) 
 			"the exporter-only deployment has no vhci_hcd module to query")
 	require.Nil(t, vhciEvent, "dropped VHCI event must carry no payload")
 
-	require.Equal(t, 1, calls,
-		"the loader must be invoked exactly once on the first VHCI event")
+	require.Equal(t, 2, calls,
+		"the loader must be invoked twice before one VHCI event is dropped")
+	require.Len(t, waits, 1, "one event gets exactly one bounded retry wait")
+	require.Positive(t, waits[0], "the production retry delay must be non-zero")
 
 	// Loader failures are not memoised — each subsequent VHCI event
 	// retries so the mapper recovers automatically after a transient
 	// sysfs error or vhci_hcd module reload.
 	_, _ = mapper.MapEventForTest(vhciFields)
 
-	require.Equal(t, 2, calls,
-		"loader failure must not be memoised — second VHCI event must retry")
+	require.Equal(t, 4, calls,
+		"loader failure must not be memoised — second VHCI event gets fresh attempts")
+	require.Len(t, waits, 2, "each failed event gets its own single retry wait")
+}
+
+// TestVhciEventMapper_RetriesTransientTopologyFailureForSameRemove proves a
+// one-shot remove uevent is not lost when its first fresh sysfs snapshot fails.
+// The injected wait records the bounded pause without sleeping in wall time.
+func TestVhciEventMapper_RetriesTransientTopologyFailureForSameRemove(t *testing.T) {
+	t.Parallel()
+
+	topo := loadTopoForMapperTest(t, singleControllerTopoFS())
+	calls := 0
+
+	loader := func() (kernel.Topology, error) {
+		calls++
+		if calls == 1 {
+			return kernel.Topology{}, errMapperLoaderFailed
+		}
+
+		return topo, nil
+	}
+
+	var waits []time.Duration
+
+	mapper := kernel.NewVHCIEventMapperWithLoaderAndWaitForTest(
+		loader,
+		func(delay time.Duration) { waits = append(waits, delay) },
+	)
+
+	event, ok := mapper.MapEventForTest(map[string]string{
+		testUeventActionField:    testUeventActionRemove,
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   testVHCIDeviceDevPath,
+	})
+	require.True(t, ok, "the same remove event must map after a transient first failure")
+	require.Equal(t, 2, calls, "the one event receives exactly one fresh retry")
+	require.Len(t, waits, 1, "retry uses the injected non-sleeping wait exactly once")
+	require.Positive(t, waits[0], "the named production retry delay must be non-zero")
+
+	detached, isDetached := event.(domain.PortDetachedEvent)
+	require.True(t, isDetached, "expected exactly one PortDetachedEvent, got %T", event)
+	require.Equal(t, domain.PortID(0), detached.Port.ID)
+	require.Equal(t, domain.BusID(testRootBusID), detached.Port.LocalBusID)
+}
+
+// TestVhciEventMapper_RetriesFreshCoordinateMissForSameRemove covers the
+// other retryable transient: a fresh topology snapshot that does not yet
+// contain the event's bus coordinates, followed by the converged snapshot.
+func TestVhciEventMapper_RetriesFreshCoordinateMissForSameRemove(t *testing.T) {
+	t.Parallel()
+
+	valid := loadTopoForMapperTest(t, singleControllerTopoFS())
+	missing := valid
+
+	missing.BusMap = map[uint32]kernel.VHCILocation{}
+
+	topologies := []kernel.Topology{missing, valid}
+	calls := 0
+	waits := 0
+
+	mapper := kernel.NewVHCIEventMapperWithLoaderAndWaitForTest(
+		func() (kernel.Topology, error) {
+			topo := topologies[calls]
+			calls++
+
+			return topo, nil
+		},
+		func(time.Duration) { waits++ },
+	)
+
+	event, ok := mapper.MapEventForTest(map[string]string{
+		testUeventActionField:    testUeventActionRemove,
+		testUeventSubsystemField: testUeventSubsystemUSB,
+		testUeventDevPathField:   testVHCIDeviceDevPath,
+	})
+	require.True(t, ok)
+	require.Equal(t, 2, calls)
+	require.Equal(t, 1, waits)
+
+	detached, isDetached := event.(domain.PortDetachedEvent)
+	require.True(t, isDetached)
+	require.Equal(t, domain.PortID(0), detached.Port.ID)
+	require.Equal(t, domain.BusID(testRootBusID), detached.Port.LocalBusID)
 }
 
 // TestVhciEventMapper_FreshTopologyAcrossVHCIEvents proves successful topology
@@ -591,8 +690,8 @@ func TestVhciEventMapper_DelayedEventFromPreviousControllerDroppedAfterReload(t 
 
 // TestVhciEventMapper_ConcurrentFreshTopologyLoads exercises the event-local
 // loader through concurrent callers. The loader intentionally uses an ordinary
-// counter: resolveTopology's mutex must serialize access, and the race detector
-// validates that future dispatcher fan-in cannot race loader state.
+// counter: resolveEventLocation's mutex must serialize access, and the race
+// detector validates that future dispatcher fan-in cannot race loader state.
 func TestVhciEventMapper_ConcurrentFreshTopologyLoads(t *testing.T) {
 	t.Parallel()
 

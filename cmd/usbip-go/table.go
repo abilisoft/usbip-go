@@ -207,7 +207,7 @@ func (tableRenderer) Ports(w io.Writer, ports []usbip.Port) error {
 			strconv.FormatUint(uint64(p.ID), 10),
 			p.Status.String(),
 			p.Speed.String(),
-			p.Remote.String(),
+			formatRemoteEndpoint(p.Remote),
 			string(p.BusID),
 			string(p.LocalBusID),
 		))

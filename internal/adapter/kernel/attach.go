@@ -328,10 +328,30 @@ func (a *ImporterAdapter) DetachPort(ctx context.Context, id domain.PortID) erro
 		return err
 	}
 
+	rows, err := a.readStatusRowsWithTopology(topo)
+	if err != nil {
+		return err
+	}
+
+	status, found := statusForPort(rows, id)
+	if !found || isFreeStatus(status) {
+		return fmt.Errorf("detach port %d: %w", id, domain.ErrDeviceNotBound)
+	}
+
 	return a.writeClassified(
 		path.Join(SysfsVHCIHCD, SysfsVHCIDetach),
 		formatDetachPayload(id),
 	)
+}
+
+func statusForPort(rows []parsedPort, id domain.PortID) (domain.Status, bool) {
+	for _, row := range rows {
+		if row.port == id {
+			return row.status, true
+		}
+	}
+
+	return domain.StatusNull, false
 }
 
 // formatDetachPayload renders the kernel-flat port as a bare decimal

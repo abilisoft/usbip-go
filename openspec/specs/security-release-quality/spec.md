@@ -141,6 +141,13 @@ the required privileged kernel surface.
 - **THEN** the integration test environment runs as root with writable configfs
 - **AND** it provides the USB/IP, gadget-function, and `dummy_hcd` kernel modules required by every integration scenario
 
+#### Scenario: CLI integration crosses process boundaries
+
+- **WHEN** the live CLI integration attaches a dummy_hcd-backed Device
+- **THEN** it captures the JSON attach acknowledgement's PortID
+- **AND** separate port and detach command processes inspect and release that exact Port
+- **AND** it does not equate the exporter busid with VHCI local_busid
+
 #### Scenario: GitHub Actions run on standard hosted runners
 
 - **WHEN** pull-request, nightly, or release automation runs
