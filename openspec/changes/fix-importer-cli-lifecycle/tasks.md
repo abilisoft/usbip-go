@@ -28,5 +28,5 @@
 - [x] 4.1 Run focused unit, race, format, lint, patch-coverage, and API-compatibility validation
 - [x] 4.2 Run the complete memory-capped KVM kernel integration with no unexpected skips and the env-gated real-busid scenarios
 - [x] 4.3 Run the low-memory two-VM exporter/importer validation
-- [ ] 4.4 Run fresh repository release gates, create and verify a signed Conventional Commit, open the PR, and verify every live GitHub check
+- [x] 4.4 Run fresh repository release gates, create and verify a signed Conventional Commit, open the PR, and verify every live GitHub check
 - [x] 4.5 Run fresh focused unit, race, formatting, lint, strict OpenSpec, and 100% patch-coverage validation for the retry change
