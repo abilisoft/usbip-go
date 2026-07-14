@@ -12,6 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	sessionShutdownReason = "shutdown"
+	sessionLateReason     = "late"
+)
+
 func TestImporterWatchCloseBarrierDrainsAcceptedEventExactlyOnce(t *testing.T) {
 	t.Parallel()
 
@@ -33,8 +38,8 @@ func TestImporterWatchCloseBarrierDrainsAcceptedEventExactlyOnce(t *testing.T) {
 func TestExporterWatchCloseBarrierDrainsAcceptedEventExactlyOnce(t *testing.T) {
 	t.Parallel()
 
-	accepted := domain.SessionEndedEvent{At: time.Unix(3, 0), Reason: "shutdown"}
-	postClose := domain.SessionEndedEvent{At: time.Unix(4, 0), Reason: "late"}
+	accepted := domain.SessionEndedEvent{At: time.Unix(3, 0), Reason: sessionShutdownReason}
+	postClose := domain.SessionEndedEvent{At: time.Unix(4, 0), Reason: sessionLateReason}
 
 	got := app.ExerciseSessionSubscriberBarrierForTest(accepted, postClose)
 
@@ -52,6 +57,21 @@ func TestImporterWatchSlowSubscriberDropsOverflow(t *testing.T) {
 	overflow := domain.PortReconnectExhaustedEvent{At: time.Unix(6, 0), Attempts: 2}
 
 	got := app.ExerciseImporterSubscriberOverflowForTest(first, overflow)
+
+	require.True(t, got.FirstActive)
+	require.True(t, got.FirstSent)
+	require.True(t, got.OverflowActive)
+	require.False(t, got.OverflowSent)
+	require.Equal(t, []domain.Event{first}, got.Buffered)
+}
+
+func TestExporterWatchSlowSubscriberDropsOverflow(t *testing.T) {
+	t.Parallel()
+
+	first := domain.SessionEndedEvent{At: time.Unix(11, 0), Reason: sessionShutdownReason}
+	overflow := domain.SessionEndedEvent{At: time.Unix(12, 0), Reason: sessionLateReason}
+
+	got := app.ExerciseSessionSubscriberOverflowForTest(first, overflow)
 
 	require.True(t, got.FirstActive)
 	require.True(t, got.FirstSent)
@@ -85,8 +105,8 @@ func TestImporterTerminalDrainStopsWhenConsumerStops(t *testing.T) {
 func TestExporterTerminalDrainStopsWhenConsumerStops(t *testing.T) {
 	t.Parallel()
 
-	first := domain.SessionEndedEvent{At: time.Unix(9, 0), Reason: "shutdown"}
-	second := domain.SessionEndedEvent{At: time.Unix(10, 0), Reason: "late"}
+	first := domain.SessionEndedEvent{At: time.Unix(9, 0), Reason: sessionShutdownReason}
+	second := domain.SessionEndedEvent{At: time.Unix(10, 0), Reason: sessionLateReason}
 	delivered := make([]domain.Event, 0, 1)
 
 	remaining := app.DrainSessionSubscriberForTest(

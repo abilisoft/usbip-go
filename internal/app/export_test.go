@@ -55,7 +55,7 @@ type SubscriberBarrierResultForTest struct {
 }
 
 // SubscriberOverflowResultForTest captures the bounded-buffer behavior of one
-// importer subscriber without exposing the production subscriber type.
+// subscriber without exposing the production subscriber type.
 type SubscriberOverflowResultForTest struct {
 	FirstActive    bool
 	FirstSent      bool
@@ -72,6 +72,38 @@ func ExerciseImporterSubscriberOverflowForTest(
 	overflow domain.Event,
 ) SubscriberOverflowResultForTest {
 	sub := &importerEventSubscriber{
+		ch:   make(chan domain.Event, 1),
+		done: make(chan struct{}),
+	}
+
+	firstActive, firstSent := sub.tryPublish(first)
+	overflowActive, overflowSent := sub.tryPublish(overflow)
+
+	buffered := make([]domain.Event, 0, 1)
+
+	select {
+	case event := <-sub.ch:
+		buffered = append(buffered, event)
+	default:
+	}
+
+	return SubscriberOverflowResultForTest{
+		FirstActive:    firstActive,
+		FirstSent:      firstSent,
+		OverflowActive: overflowActive,
+		OverflowSent:   overflowSent,
+		Buffered:       buffered,
+	}
+}
+
+// ExerciseSessionSubscriberOverflowForTest fills a capacity-one exporter
+// session subscriber and attempts one additional publication. The second event
+// must be dropped without closing or deactivating the subscriber.
+func ExerciseSessionSubscriberOverflowForTest(
+	first domain.Event,
+	overflow domain.Event,
+) SubscriberOverflowResultForTest {
+	sub := &sessionEventSubscriber{
 		ch:   make(chan domain.Event, 1),
 		done: make(chan struct{}),
 	}
