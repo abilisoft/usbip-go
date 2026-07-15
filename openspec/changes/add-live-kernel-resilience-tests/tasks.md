@@ -37,4 +37,4 @@
 - [x] 4.2 Run the focused repeated-cycle and delayed-path single-kernel cases in the memory-capped KVM environment and confirm neither skips.
 - [x] 4.3 Run the tracked two-guest target and prove exactly three non-skipped bidirectional cycles, both netem qdisc counter deltas, exact-Port/device/session drain between cycles, and clean guest kernel diagnostics.
 - [x] 4.4 Run the complete memory-capped single-kernel integration suite and the repository's required local CI, coverage, and patch-coverage gates without overlapping heavy VM/build workloads.
-- [ ] 4.5 Create and verify signed Conventional Commits with no attribution trailers, publish the branch, and confirm the pull-request checks pass while disclosing the separate manual two-guest evidence.
+- [x] 4.5 Create and verify signed Conventional Commits with no attribution trailers, publish the branch, and confirm the pull-request checks pass while disclosing the separate manual two-guest evidence.
