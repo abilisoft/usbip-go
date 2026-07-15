@@ -204,7 +204,10 @@ func TestCompletePortIDsListsKnownPorts(t *testing.T) {
 			return []usbip.Port{
 				{ID: 100, Status: domain.StatusUsed, BusID: testNestedBusID},
 				{ID: 256, Status: domain.StatusError, BusID: testSecondaryBusID},
-				{ID: 512, Status: domain.StatusAvailable, BusID: "3-3"},
+				{ID: 2048, Status: domain.StatusError + 1, BusID: "3-3"},
+				{ID: 512, Status: domain.StatusNull},
+				{ID: 768, Status: domain.StatusNotAssigned},
+				{ID: 1024, Status: domain.StatusAvailable},
 			}, nil
 		},
 	}
@@ -214,13 +217,16 @@ func TestCompletePortIDsListsKnownPorts(t *testing.T) {
 	cmd.SetContext(context.Background())
 
 	got, _ := completePortIDs(cmd, nil, "")
-	require.Len(t, got, 2,
-		"completePortIDs must return only attached kernel ports")
+	require.Len(t, got, 4,
+		"completePortIDs must return one entry per active port")
 	require.Contains(t, got[0], "100")
 	require.Contains(t, got[1], "256")
-	require.NotContains(t, got, "512")
-	require.NotContains(t, got[0], ":3240")
-	require.NotContains(t, got[1], ":3240")
+	require.Contains(t, got[2], "2048")
+	require.Contains(t, got[3], "768")
+
+	for _, completion := range got {
+		require.NotContains(t, completion, ":3240")
+	}
 }
 
 func TestIsAttachedPort(t *testing.T) {
@@ -231,11 +237,12 @@ func TestIsAttachedPort(t *testing.T) {
 		status domain.Status
 		want   bool
 	}{
-		{name: "null", status: domain.StatusNull, want: false},
-		{name: "available", status: domain.StatusAvailable, want: false},
+		{name: testStatusNullName, status: domain.StatusNull, want: false},
+		{name: testStatusAvailableName, status: domain.StatusAvailable, want: false},
 		{name: "not assigned", status: domain.StatusNotAssigned, want: true},
 		{name: "used", status: domain.StatusUsed, want: true},
 		{name: "error", status: domain.StatusError, want: true},
+		{name: "unknown future state", status: domain.StatusError + 1, want: true},
 	}
 
 	for _, test := range tests {

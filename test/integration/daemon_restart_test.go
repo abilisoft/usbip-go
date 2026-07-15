@@ -56,9 +56,10 @@ const daemonStartSignal = "usbip-go serve accepting connections"
 // lifecycle across an abrupt exporter process restart. Kernel socket
 // handoff keeps traffic outside the userspace data path while the daemon
 // is running; it does not make the active remote attachment portable to
-// a replacement process. The client port is released after SIGKILL, while
-// the exporter-side kernel session requires explicit reconciliation before
-// the client can attach to the replacement daemon.
+// a replacement process. SIGKILL closes the daemon's userspace descriptors,
+// but both kernels retain their handed-off socket references until the
+// exporter-side session is explicitly reconciled. That reconciliation releases
+// the client port before it can attach to the replacement daemon.
 //
 // Test flow:
 //  1. Harness vudc + env-supplied usbip-host busid.
@@ -66,8 +67,8 @@ const daemonStartSignal = "usbip-go serve accepting connections"
 //     already bound (Bind happens from the parent before spawning).
 //  3. Parent (as importer) attaches the device via TCP.
 //  4. Kill the daemon (SIGKILL).
-//  5. Assert the client VHCI port is released, then reconcile the orphaned
-//     exporter kernel session through usbip_sockfd=-1.
+//  5. Reconcile the orphaned exporter kernel session through usbip_sockfd=-1,
+//     then assert the client VHCI port and exporter device are released.
 //  6. Start a replacement daemon subprocess on the same address.
 //  7. Attach again and prove the replacement session reaches both
 //     client and exporter kernel-owned states.
@@ -120,8 +121,9 @@ func TestDaemonRestartRequiresSessionReconnect(t *testing.T) {
 	// exporter-side kernel state to prove both kernels own socket refs.
 	waitForExporterKernelStatus(t, busID, usbipExporterStatusUsed)
 
-	// SIGKILL daemon #1. Linux tears down this exported connection and the
-	// remote VHCI port transitions back to a free state.
+	// SIGKILL daemon #1. The handed-off kernel socket references outlive the
+	// userspace process, so the exporter session must be reconciled explicitly
+	// before the remote VHCI port can transition back to a free state.
 	require.NoError(t, daemon1.proc.Signal(syscall.SIGKILL))
 
 	_, err = daemon1.proc.Wait()
@@ -132,8 +134,8 @@ func TestDaemonRestartRequiresSessionReconnect(t *testing.T) {
 		t.Fatalf("daemon1 Wait: %v", err)
 	}
 
-	waitForClientPortRelease(t, ctx, imp, port.ID)
 	reconcileExporterKernelSession(t, busID)
+	waitForClientPortRelease(t, ctx, imp, port.ID)
 	waitForExporterKernelStatus(t, busID, usbipExporterStatusAvailable)
 
 	// Start daemon #2 reusing the same port. bindReplacementExporter
@@ -253,13 +255,12 @@ func waitForClientPortRelease(
 			}
 
 			return port.Status == domain.StatusNull ||
-				port.Status == domain.StatusNotAssigned ||
 				port.Status == domain.StatusAvailable
 		}
 
 		return true
 	}, daemonStateDeadline, daemonPollInterval,
-		"client VHCI port %d must be released after daemon death", portID)
+		"client VHCI port %d must be released after exporter reconciliation", portID)
 }
 
 // daemonSubprocess carries the exec.Cmd handle and the path to the

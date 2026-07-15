@@ -70,6 +70,14 @@ Exporter Serve SHALL run an accept loop until context cancellation, shutdown, or
 - **WHEN** Serve stops after a Session fd has been handed to the kernel
 - **THEN** the Session remains registered and kernel-owned until peer completion or Shutdown claims cleanup
 
+#### Scenario: Exporter process dies after stable kernel handoff
+
+- **WHEN** the exporter process exits abruptly after both kernels own the handed-off socket
+- **THEN** the exporter-side kernel session and exact client VHCI Port may remain claimed
+- **AND** recovery first reconciles the exporter, writing `-1` to `usbip_sockfd` when that session remains used
+- **AND** the exact client Port is free only when absent, `Null`, or `Available`; `NotAssigned` remains claimed
+- **AND** a replacement daemon does not inherit the old session, so the client performs a fresh Attach
+
 ### Requirement: Session registration enforces configured limits
 
 The exporter SHALL enforce total session cap, per-peer cap, accept rate limit, handshake byte cap, and handshake timeout before handing a connection to the kernel.

@@ -33,6 +33,7 @@ go_test(
         "dummy_hcd_unique_name_test.go",
         "events_test.go",
         "harness_test.go",
+        "latency_proxy_test.go",
         "loopback_test.go",
         "main_test.go",
         "process_death_test.go",

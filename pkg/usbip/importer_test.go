@@ -246,6 +246,36 @@ func TestImporterDetachForwards(t *testing.T) {
 	}
 }
 
+// TestImporterDetachFreshInstanceForwards proves the public facade does not
+// require a process-local Attach before detaching a kernel-owned Port.
+func TestImporterDetachFreshInstanceForwards(t *testing.T) {
+	t.Parallel()
+
+	const portID = usbip.PortID(6)
+
+	s := newInternalImporterForTest(t)
+	detachGot := make(chan domain.PortID, 1)
+
+	s.kernel.detachPortFn = func(_ context.Context, id domain.PortID) error {
+		detachGot <- id
+
+		return nil
+	}
+
+	imp := usbip.NewImporterFromInternalForTest(s.inner)
+
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	require.NoError(t, imp.Detach(t.Context(), portID))
+
+	select {
+	case got := <-detachGot:
+		require.Equal(t, portID, got)
+	case <-time.After(time.Second):
+		t.Fatal("fresh Importer did not forward Detach to the kernel")
+	}
+}
+
 // TestImporterListPortsForwards wires a kernel stub that returns a
 // synthetic port list and asserts the facade returns the same slice.
 func TestImporterListPortsForwards(t *testing.T) {

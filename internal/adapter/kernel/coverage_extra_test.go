@@ -204,6 +204,30 @@ func TestParseStatusRowNumbersErrorBranches(t *testing.T) {
 	}
 }
 
+// TestIsControllerNotReadyStatusRowRejectsInvalidFieldCounts pins the
+// defensive token-count guard independently of parseStatusRow. Production
+// calls currently pass only parsed rows, but keeping the helper fail-closed
+// prevents a future direct caller from indexing a truncated status line.
+func TestIsControllerNotReadyStatusRowRejectsInvalidFieldCounts(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		line string
+	}{
+		{"truncated", "hs 0000 005 000 00000000 0000000000000000"},
+		{"extra field", "hs 0000 005 000 00000000 0000000000000000 0-0 extra"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.False(t, isControllerNotReadyStatusRow(tc.line))
+		})
+	}
+}
+
 // TestTopologyStatusProjection covers Topology.Status which projects
 // the full topology into the operations-observability OpenSpec status JSON shape. A simple value
 // projection: the four scalar fields must round-trip.

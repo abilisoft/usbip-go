@@ -12,6 +12,10 @@ BAZEL_UNIT_TEST_FLAGS ?= --test_tag_filters=-integration,-conformance,-mutation,
 BAZEL_BUILD_TARGETS ?= //...
 BAZEL_TEST_TARGETS ?= //:test
 BAZEL_INTEGRATION_TEST_TARGETS ?= //:integration
+BAZEL_VM_INTEGRATION_TEST_TARGETS ?= //tools/scripts:kernel_vm_two_guest_test
+BAZEL_VM_RESOURCE_FLAGS ?= --jobs=1 --local_resources=cpu=1 --local_resources=memory=1024
+BAZEL_VM_STARTUP_FLAGS ?= --host_jvm_args=-Xmx512m
+BAZEL_VM_TEST_TIMEOUT_SECONDS ?= 2400
 BAZEL_CONFORMANCE_TEST_TARGETS ?= //:conformance
 BAZEL_COVERAGE_TARGETS ?= //:test
 BAZEL_DIST_TARGETS ?= //cmd/usbip-go:usbip-go //test/integration/killable:killable
@@ -27,6 +31,7 @@ GO_VENDOR_GOMODCACHE ?= $(GO_VENDOR_CACHE_ROOT)/go-mod
 GO_VENDOR_GOTMPDIR ?= $(GO_VENDOR_CACHE_ROOT)/tmp
 REPO_GO ?= $(TOOLS_DIR)/go/bin/go
 CODEQL_GO ?= $(REPO_GO)
+KERNEL_VM_CACHE_ROOT ?= $(CURDIR)/.local/kernel-vm
 
 export BAZELISK_HOME
 
@@ -188,6 +193,11 @@ test-coverage: bootstrap
 .PHONY: test-integration
 test-integration: bootstrap
 	$(BAZEL) test --config=integration $(BAZEL_TEST_FLAGS) $(BAZEL_INTEGRATION_TEST_TARGETS)
+
+## Run the two-guest KVM USB/IP resilience test
+.PHONY: test-integration-vm
+test-integration-vm: bootstrap
+	$(BAZEL) $(BAZEL_VM_STARTUP_FLAGS) test --config=integration --test_env=KERNEL_VM_CACHE_ROOT="$(KERNEL_VM_CACHE_ROOT)" --test_env=KERNEL_VM_WORKSPACE_ROOT="$(CURDIR)" $(BAZEL_TEST_FLAGS) $(BAZEL_VM_RESOURCE_FLAGS) --nocache_test_results --test_timeout=$(BAZEL_VM_TEST_TIMEOUT_SECONDS) $(BAZEL_VM_INTEGRATION_TEST_TARGETS)
 
 ## Run mutation tests
 .PHONY: test-mutation

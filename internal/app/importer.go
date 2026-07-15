@@ -117,18 +117,18 @@ type Importer struct {
 	// is replaced atomically by the matching handle after AttachRemote
 	// succeeds. Guarded by mu.
 	reservations map[domain.PortID]*attachReservation
+	// untrackedDetaches coordinates teardown for kernel-owned ports that this
+	// Importer did not attach itself, such as ports inherited after a one-shot
+	// CLI attach process exits. Guarded by mu. The kernel mutation, not this
+	// process-local map, remains authoritative across Importer instances.
+	untrackedDetaches map[domain.PortID]*detachAttempt
 	// inFlight dedupes concurrent Attach calls for the same
 	// (remote, busid) pair. Without this guard two callers would race
 	// the dial + handshake + AttachRemote sequence and import the same
 	// device onto two local ports. Guarded by mu.
 	inFlight map[attachKey]struct{}
-	// untrackedDetaches coordinates callers detaching a kernel-owned port
-	// that has no process-local handle (for example, a later one-shot CLI
-	// invocation). Guarded by mu; entries exist only while their owner is
-	// executing the adapter mutation.
-	untrackedDetaches map[domain.PortID]*detachAttempt
-	nextGen           uint64
-	wg                lifecycleWaitGroup
+	nextGen  uint64
+	wg       lifecycleWaitGroup
 	// subscribers is the per-call fanout list for app-synthesized port
 	// lifecycle events (PortReconnectExhausted). Watch merges these with
 	// the upstream KernelEvents subscription so consumers see all port
@@ -229,8 +229,8 @@ type detachTarget struct {
 	handle      *portHandle
 	attempt     *detachAttempt
 	reservation *attachReservation
-	owner       bool
 	untracked   bool
+	owner       bool
 }
 
 // cancel closes the done channel exactly once, signalling any watcher
@@ -343,8 +343,8 @@ func NewImporter(opts ...ImporterOption) *Importer {
 		transportOptions:  cfg.transportOptions,
 		handles:           make(map[domain.PortID]*portHandle),
 		reservations:      make(map[domain.PortID]*attachReservation),
-		inFlight:          make(map[attachKey]struct{}),
 		untrackedDetaches: make(map[domain.PortID]*detachAttempt),
+		inFlight:          make(map[attachKey]struct{}),
 	}
 }
 
@@ -514,25 +514,34 @@ func (i *Importer) Attach(
 	return port, err
 }
 
-// Detach tears down a previously-imported port by id. It cancels the
-// handle's context BEFORE issuing the sysfs-backed detach per importer-lifecycle OpenSpec
+// Detach tears down a kernel-owned vhci port by id. When this Importer owns a
+// matching handle, it cancels the handle's context BEFORE issuing the
+// sysfs-backed detach per importer-lifecycle OpenSpec
 // so any auto-reconnect watcher sees cancel ahead of the status
 // transition and does not race a reattempt, and blocks on the watcher
 // goroutine's done channel before touching the kernel so an in-flight
 // reconnect attempt cannot overlap with the sysfs write. When the
-// kernel rejects the detach, the handle is left registered so callers
-// can retry.
+// kernel rejects the detach for a reason other than already-free, the handle is
+// left registered so callers can retry. An authoritative already-free result
+// removes only that exact stale handle so a later Port generation can reuse the
+// ID.
 //
 // Detach sets handle.detaching BEFORE cancel so a reconnect watcher
 // wedged inside kernel.AttachRemote past the bounded wait cannot
 // silently register a fresh handle after Detach returns. The watcher
 // observes the flag on its post-Attach check and rolls back the kernel
 // handoff instead of taking ownership of the replacement port.
+//
+// A fresh Importer has no process-local handle for ports inherited from an
+// earlier process. In that case Detach delegates directly to the kernel and
+// coordinates overlapping callers in untrackedDetaches. This keeps one-shot
+// CLI attach and detach invocations interoperable without a racy ListPorts
+// preflight; the serialized kernel mutation decides whether the Port is live.
 func (i *Importer) Detach(ctx context.Context, id domain.PortID) error {
 	for {
 		target, err := i.acquireDetachTarget(id)
 		if err != nil {
-			return i.detachTargetError(id, err)
+			return err
 		}
 
 		if target.reservation == nil {
@@ -765,16 +774,6 @@ func (i *Importer) attach(
 	return i.attachOverDialed(ctx, endpoint, busID, opts)
 }
 
-func (i *Importer) detachTargetError(id domain.PortID, err error) error {
-	if errors.Is(err, domain.ErrDeviceNotBound) {
-		i.logger.Warn("importer detach unknown port",
-			slog.Any("port_id", id),
-			slog.String("outcome", string(DetachOutcomeNotFound)))
-	}
-
-	return err
-}
-
 func (i *Importer) detachPublishedTarget(
 	ctx context.Context, id domain.PortID, target detachTarget,
 ) error {
@@ -783,7 +782,10 @@ func (i *Importer) detachPublishedTarget(
 	}
 
 	if target.untracked {
-		return i.detachUntrackedTarget(ctx, id, target.attempt)
+		err := i.detachUntrackedPort(ctx, id)
+		i.finishUntrackedDetach(id, target.attempt, err)
+
+		return err
 	}
 
 	err := i.detachHandle(ctx, id, target.handle)
@@ -796,7 +798,10 @@ func (i *Importer) detachPublishedTarget(
 // acquireDetachTarget performs the handle/reservation lookup and any
 // ownership transition under Importer.mu. Initial handoff reservations are
 // visible before kernel mutation, so the no-handle case can wait for a
-// publication instead of incorrectly returning ErrDeviceNotBound.
+// publication instead of mutating a newly-live generation. When neither
+// exists, the Port may still be kernel-owned by an earlier process, so callers
+// create or join an untracked attempt rather than treating local bookkeeping
+// as authoritative.
 func (i *Importer) acquireDetachTarget(id domain.PortID) (detachTarget, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -843,35 +848,49 @@ func (i *Importer) acquireDetachTarget(id domain.PortID) (detachTarget, error) {
 	attempt := &detachAttempt{done: make(chan struct{})}
 
 	i.untrackedDetaches[id] = attempt
+	// Enrol before releasing Importer.mu so Close cannot miss the kernel-side
+	// mutation when it snapshots the lifecycle group.
 	i.wg.Add(1)
 
-	return detachTarget{attempt: attempt, owner: true, untracked: true}, nil
+	return detachTarget{attempt: attempt, untracked: true, owner: true}, nil
 }
 
-// detachUntrackedTarget owns the adapter mutation for a kernel port that has
-// no process-local reconnect handle. Concurrent followers share the exact
-// result, while completion removes the ephemeral map entry so a later retry
-// reconciles against fresh kernel state.
-func (i *Importer) detachUntrackedTarget(
-	ctx context.Context, id domain.PortID, attempt *detachAttempt,
-) error {
+// detachUntrackedPort is the owner-only body for a kernel Port without a
+// matching process-local handle. No ListPorts preflight is performed: it would
+// race the detach write and could report a stale answer. DetachPort is the
+// serialized authoritative operation and classifies an already-free Port as
+// ErrDeviceNotBound.
+func (i *Importer) detachUntrackedPort(ctx context.Context, id domain.PortID) error {
 	err := i.kernel.DetachPort(ctx, id)
 	if err != nil {
-		err = fmt.Errorf("detach port %d: %w", id, err)
+		outcome := DetachOutcomeError
 		if errors.Is(err, domain.ErrDeviceNotBound) {
-			err = i.detachTargetError(id, err)
-		} else {
-			i.logger.Warn("importer detach kernel error",
-				slog.Any("port_id", id),
-				slog.String("outcome", string(DetachOutcomeError)),
-				slog.Any("err", err))
+			outcome = DetachOutcomeNotFound
 		}
-	} else {
-		i.logger.Info("importer detached",
+
+		i.logger.Warn("importer detach kernel error",
 			slog.Any("port_id", id),
-			slog.String("outcome", string(DetachOutcomeOK)))
+			slog.String("outcome", string(outcome)),
+			slog.Any("err", err))
+
+		return fmt.Errorf("detach port %d: %w", id, err)
 	}
 
+	i.logger.Info("importer detached",
+		slog.Any("port_id", id),
+		slog.String("outcome", string(DetachOutcomeOK)))
+
+	return nil
+}
+
+// finishUntrackedDetach publishes one immutable result to all overlapping
+// callers, releases the exact map entry, and drains the lifecycle enrollment.
+// Removing successful and failed attempts lets a later non-overlapping caller
+// ask the kernel again, which is necessary for both duplicate classification
+// and retry after a transient failure.
+func (i *Importer) finishUntrackedDetach(
+	id domain.PortID, attempt *detachAttempt, err error,
+) {
 	i.mu.Lock()
 	attempt.err = err
 	close(attempt.done)
@@ -881,8 +900,6 @@ func (i *Importer) detachUntrackedTarget(
 	}
 	i.mu.Unlock()
 	i.wg.Done()
-
-	return err
 }
 
 // waitAttachPublication waits for a selected port to become either a tracked
@@ -954,6 +971,16 @@ func (i *Importer) detachHandle(ctx context.Context, id domain.PortID, h *portHa
 
 	err := i.kernel.DetachPort(ctx, id)
 	if err != nil {
+		if errors.Is(err, domain.ErrDeviceNotBound) {
+			i.deleteExactHandle(id, h)
+			i.logger.Warn("importer detach found port already released",
+				slog.Any("port_id", id),
+				slog.String("outcome", string(DetachOutcomeNotFound)),
+				slog.Any("err", err))
+
+			return fmt.Errorf("detach port %d: %w", id, err)
+		}
+
 		// Preserve the handle so callers can retry; the cancelled
 		// context is harmless — any future watcher starts fresh from
 		// the next successful Attach which regenerates the handle.
@@ -965,17 +992,21 @@ func (i *Importer) detachHandle(ctx context.Context, id domain.PortID, h *portHa
 		return fmt.Errorf("detach port %d: %w", id, err)
 	}
 
-	i.mu.Lock()
-	if current, ok := i.handles[id]; ok && current == h {
-		delete(i.handles, id)
-	}
-	i.mu.Unlock()
+	i.deleteExactHandle(id, h)
 
 	i.logger.Info("importer detached",
 		slog.Any("port_id", id),
 		slog.String("outcome", string(DetachOutcomeOK)))
 
 	return nil
+}
+
+func (i *Importer) deleteExactHandle(id domain.PortID, h *portHandle) {
+	i.mu.Lock()
+	if current, ok := i.handles[id]; ok && current == h {
+		delete(i.handles, id)
+	}
+	i.mu.Unlock()
 }
 
 // detachExactHandle owns or joins teardown for one already-published handle.

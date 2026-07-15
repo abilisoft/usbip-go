@@ -97,13 +97,11 @@ func completePortIDs(cmd *cobra.Command, _ []string, _ string) ([]cobra.Completi
 		return nil, cobra.ShellCompDirectiveError
 	}
 
+	ports = activePorts(ports)
+
 	out := make([]cobra.Completion, 0, len(ports))
 
 	for _, p := range ports {
-		if !isAttachedPort(p) {
-			continue
-		}
-
 		description := strings.TrimSpace(strings.Join([]string{
 			formatRemoteEndpoint(p.Remote),
 			string(p.BusID),

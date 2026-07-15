@@ -74,7 +74,7 @@ type (
 	// Device describes a USB device enumerated over USB/IP.
 	Device = domain.Device
 
-	// Port describes an attached vhci port on the importer side.
+	// Port describes one vhci kernel status row on the importer side.
 	Port = domain.Port
 
 	// Session describes a single client connection from the daemon's view.
@@ -217,12 +217,15 @@ func (i *Importer) Attach(ctx context.Context, r RemoteEndpoint, busID BusID, op
 	return port, translateInternalErr(err)
 }
 
-// Detach tears down a previously-attached port.
+// Detach tears down a kernel-owned vhci port. The Port may have been attached
+// by this Importer or inherited from an earlier Importer or process.
 func (i *Importer) Detach(ctx context.Context, id PortID) error {
 	return translateInternalErr(i.inner.Detach(ctx, id))
 }
 
-// ListPorts returns the kernel's view of currently-attached ports.
+// ListPorts returns the kernel's vhci status rows, including free-capacity
+// rows whose Status is Null or Available and claimed NotAssigned rows that are
+// still waiting for their local USB address.
 func (i *Importer) ListPorts(ctx context.Context) ([]Port, error) {
 	ports, err := i.inner.ListPorts(ctx)
 

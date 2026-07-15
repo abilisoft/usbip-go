@@ -757,6 +757,56 @@ func TestDetachPort_RejectsNonLivePort(t *testing.T) {
 	}
 }
 
+func TestDetachPort_ClassifiesOnlyDetachWriteEINVALAsNotBound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		writeErr     syscall.Errno
+		wantNotBound bool
+	}{
+		{name: "port became free", writeErr: syscall.EINVAL, wantNotBound: true},
+		{name: "other write failure", writeErr: syscall.EIO, wantNotBound: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var writes atomic.Int32
+
+			mfs := attachFS()
+
+			mfs[testFSVHCIController0StatusPath] = &fstest.MapFile{Data: []byte(
+				"hub port sta spd dev      sockfd local_busid\n" +
+					"ss  0007 003 005 01020304 000005 2-4\n",
+			)}
+
+			a, err := kernel.NewImporterAdapter(
+				kernel.WithFS(mfs),
+				kernel.WithWriteFunc(func(string, string) error {
+					writes.Add(1)
+
+					return tt.writeErr
+				}),
+			)
+			require.NoError(t, err)
+
+			err = a.DetachPort(t.Context(), domain.PortID(7))
+			require.ErrorIs(t, err, tt.writeErr,
+				"operation-specific classification must preserve the syscall cause")
+
+			if tt.wantNotBound {
+				require.ErrorIs(t, err, domain.ErrDeviceNotBound)
+			} else {
+				require.NotErrorIs(t, err, domain.ErrDeviceNotBound)
+			}
+
+			require.EqualValues(t, 1, writes.Load())
+		})
+	}
+}
+
 func TestDetachPort_PropagatesStatusReadFailure(t *testing.T) {
 	t.Parallel()
 
@@ -776,6 +826,33 @@ func TestDetachPort_PropagatesStatusReadFailure(t *testing.T) {
 	require.ErrorIs(t, err, fs.ErrPermission)
 	require.EqualValues(t, 0, writes.Load(),
 		"a status-read failure must be returned before any sysfs write")
+}
+
+func TestDetachPort_DoesNotClassifyPreWriteEINVALAsNotBound(t *testing.T) {
+	t.Parallel()
+
+	var writes atomic.Int32
+
+	fakeFS := errFS{
+		inner: attachFS(),
+		block: testFSVHCIController0NPortsPath,
+		errOn: syscall.EINVAL,
+	}
+	a, err := kernel.NewImporterAdapter(
+		kernel.WithFS(fakeFS),
+		kernel.WithWriteFunc(func(string, string) error {
+			writes.Add(1)
+
+			return nil
+		}),
+	)
+	require.NoError(t, err)
+
+	err = a.DetachPort(t.Context(), domain.PortID(7))
+	require.ErrorIs(t, err, syscall.EINVAL)
+	require.NotErrorIs(t, err, domain.ErrDeviceNotBound,
+		"only an EINVAL from the validated detach write means already free")
+	require.Zero(t, writes.Load(), "topology failure must stop before sysfs write")
 }
 
 // TestDetachPort_SucceedsDespiteIncompleteBusMap pins the

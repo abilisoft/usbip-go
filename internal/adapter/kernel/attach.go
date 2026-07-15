@@ -7,6 +7,7 @@ package kernel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -338,10 +339,21 @@ func (a *ImporterAdapter) DetachPort(ctx context.Context, id domain.PortID) erro
 		return fmt.Errorf("detach port %d: %w", id, domain.ErrDeviceNotBound)
 	}
 
-	return a.writeClassified(
+	detachErr := a.writeClassified(
 		path.Join(SysfsVHCIHCD, SysfsVHCIDetach),
 		formatDetachPayload(id),
 	)
+	if errors.Is(detachErr, syscall.EINVAL) {
+		// vhci_port_disconnect returns EINVAL for a valid in-range Port whose
+		// vdev is already VDEV_ST_NULL. Classify only this detach write: EINVAL
+		// from topology parsing, range validation, or other sysfs operations has
+		// different meaning and must remain intact.
+		return fmt.Errorf(
+			"detach port %d: %w (%w)", id, domain.ErrDeviceNotBound, detachErr,
+		)
+	}
+
+	return detachErr
 }
 
 func statusForPort(rows []parsedPort, id domain.PortID) (domain.Status, bool) {

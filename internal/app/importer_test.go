@@ -1073,17 +1073,40 @@ func TestImporterDetachCancelsThenDelegates(t *testing.T) {
 	require.Equal(t, portID, kernel.DetachPortCalls()[0].ID)
 }
 
-// TestImporterDetachUnknownReturnsNotBound asserts a fresh Importer delegates
-// an untracked PortID to the kernel adapter and preserves its canonical
-// not-bound classification. The adapter's live VHCI snapshot, rather than the
-// process-local handle map, is authoritative across CLI process boundaries.
-func TestImporterDetachUnknownReturnsNotBound(t *testing.T) {
+// TestImporterDetachFreshInstanceDelegates asserts a fresh Importer delegates
+// to the authoritative kernel mutation even though it has no local handle.
+// This is the in-process regression for one-shot CLI attach/detach commands.
+func TestImporterDetachFreshInstanceDelegates(t *testing.T) {
 	t.Parallel()
 
 	const portID domain.PortID = 99
 
 	kernel := &ImporterKernelMock{
-		DetachPortFunc: func(_ context.Context, _ domain.PortID) error {
+		DetachPortFunc: func(_ context.Context, got domain.PortID) error {
+			require.Equal(t, portID, got)
+
+			return nil
+		},
+	}
+
+	imp := newImporterForTest(t, app.WithImporterKernel(kernel))
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	require.NoError(t, imp.Detach(context.Background(), portID))
+	require.Len(t, kernel.DetachPortCalls(), 1)
+}
+
+// TestImporterDetachFreshInstanceReturnsKernelNotBound asserts that absence is
+// classified by the kernel adapter rather than the process-local handle map.
+func TestImporterDetachFreshInstanceReturnsKernelNotBound(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 99
+
+	kernel := &ImporterKernelMock{
+		DetachPortFunc: func(_ context.Context, got domain.PortID) error {
+			require.Equal(t, portID, got)
+
 			return domain.ErrDeviceNotBound
 		},
 	}
@@ -1093,25 +1116,6 @@ func TestImporterDetachUnknownReturnsNotBound(t *testing.T) {
 
 	err := imp.Detach(context.Background(), portID)
 	require.ErrorIs(t, err, domain.ErrDeviceNotBound)
-	require.Len(t, kernel.DetachPortCalls(), 1)
-	require.Equal(t, portID, kernel.DetachPortCalls()[0].ID)
-}
-
-// TestImporterDetachUntrackedLivePort asserts a fresh Importer can release a
-// kernel-owned Port that predates its process without fabricating a handle.
-func TestImporterDetachUntrackedLivePort(t *testing.T) {
-	t.Parallel()
-
-	const portID domain.PortID = 8
-
-	kernel := &ImporterKernelMock{
-		DetachPortFunc: func(_ context.Context, _ domain.PortID) error { return nil },
-	}
-
-	imp := newImporterForTest(t, app.WithImporterKernel(kernel))
-	t.Cleanup(func() { require.NoError(t, imp.Close()) })
-
-	require.NoError(t, imp.Detach(context.Background(), portID))
 	require.Len(t, kernel.DetachPortCalls(), 1)
 	require.Equal(t, portID, kernel.DetachPortCalls()[0].ID)
 }
@@ -1147,7 +1151,8 @@ func TestImporterDetachDuplicateReturnsNotBound(t *testing.T) {
 
 	err := imp.Detach(context.Background(), portID)
 	require.ErrorIs(t, err, domain.ErrDeviceNotBound)
-	require.Len(t, kernel.DetachPortCalls(), 2)
+	require.Len(t, kernel.DetachPortCalls(), 2,
+		"a later duplicate must ask the authoritative kernel for current state")
 }
 
 // TestImporterDetachClosedReturnsErr asserts Detach after Close returns

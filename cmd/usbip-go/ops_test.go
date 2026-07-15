@@ -218,7 +218,14 @@ func TestPortNoFilterListsAll(t *testing.T) {
 
 	imp := &mockImporter{
 		listPortsFn: func(_ context.Context) ([]usbip.Port, error) {
-			return []usbip.Port{{ID: 0, BusID: testNestedBusID}, {ID: 1, BusID: "2-2"}}, nil
+			return []usbip.Port{
+				{ID: 0, Status: domain.StatusUsed, BusID: testNestedBusID},
+				{ID: 1, Status: domain.StatusError, BusID: "2-2"},
+				{ID: 5, Status: domain.StatusError + 1, BusID: "3-3"},
+				{ID: 2, Status: domain.StatusNull},
+				{ID: 3, Status: domain.StatusNotAssigned},
+				{ID: 4, Status: domain.StatusAvailable},
+			}, nil
 		},
 	}
 	swapFactories(t, imp, &mockExporter{})
@@ -239,7 +246,36 @@ func TestPortNoFilterListsAll(t *testing.T) {
 	require.Equal(t, "v1", m["schema"])
 
 	ports, _ := m["ports"].([]any)
-	require.Len(t, ports, 2)
+	require.Len(t, ports, 4)
+	require.Contains(t, out.String(), `"status":"not-assigned"`)
+	require.Contains(t, out.String(), `"status":"status(5)"`)
+}
+
+// TestPortNotAssignedIsActive proves a kernel-claimed port remains visible
+// while the virtual device is waiting for its local USB address. Operators
+// must be able to discover and detach that in-progress attachment.
+func TestPortNotAssignedIsActive(t *testing.T) {
+	t.Parallel()
+
+	imp := &mockImporter{
+		listPortsFn: func(_ context.Context) ([]usbip.Port, error) {
+			return []usbip.Port{{ID: 43, Status: domain.StatusNotAssigned}}, nil
+		},
+	}
+	swapFactories(t, imp, &mockExporter{})
+
+	cmd := newRootCmd()
+
+	var out bytes.Buffer
+
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{testOutputJSONFlag, testPortCommand, "--id=43"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+	require.Contains(t, out.String(), `"id":43`)
+	require.Contains(t, out.String(), `"status":"not-assigned"`)
 }
 
 // TestPortIDNotAttached — `port --id N` where N is absent → exit 5
@@ -249,7 +285,7 @@ func TestPortIDNotAttached(t *testing.T) {
 
 	imp := &mockImporter{
 		listPortsFn: func(_ context.Context) ([]usbip.Port, error) {
-			return []usbip.Port{{ID: 0, BusID: testNestedBusID}}, nil
+			return []usbip.Port{{ID: 0, Status: domain.StatusUsed, BusID: testNestedBusID}}, nil
 		},
 	}
 	swapFactories(t, imp, &mockExporter{})
@@ -267,24 +303,38 @@ func TestPortIDNotAttached(t *testing.T) {
 	require.Equal(t, ExitDeviceNotFound, MapError(err))
 }
 
-// TestPortIDFreeNotAttached proves that a kernel slot is not an attachment
-// merely because ListPorts exposes its numeric row.
+// TestPortIDFreeNotAttached proves that kernel capacity rows are not
+// attachments merely because ListPorts exposes their numeric IDs.
 func TestPortIDFreeNotAttached(t *testing.T) {
 	t.Parallel()
 
-	imp := &mockImporter{
-		listPortsFn: func(_ context.Context) ([]usbip.Port, error) {
-			return []usbip.Port{{ID: 42, Status: domain.StatusAvailable}}, nil
-		},
+	tests := []struct {
+		name   string
+		status domain.Status
+	}{
+		{name: testStatusNullName, status: domain.StatusNull},
+		{name: testStatusAvailableName, status: domain.StatusAvailable},
 	}
-	swapFactories(t, imp, &mockExporter{})
 
-	cmd := newRootCmd()
-	cmd.SetArgs([]string{testPortCommand, "--id=42"})
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 
-	err := cmd.Execute()
-	require.Error(t, err)
-	require.Equal(t, ExitDeviceNotFound, MapError(err))
+			imp := &mockImporter{
+				listPortsFn: func(_ context.Context) ([]usbip.Port, error) {
+					return []usbip.Port{{ID: 42, Status: test.status}}, nil
+				},
+			}
+			swapFactories(t, imp, &mockExporter{})
+
+			cmd := newRootCmd()
+			cmd.SetArgs([]string{testPortCommand, "--id=42"})
+
+			err := cmd.Execute()
+			require.Error(t, err)
+			require.Equal(t, ExitDeviceNotFound, MapError(err))
+		})
+	}
 }
 
 // TestBindSuccess — bind <busid> invokes Exporter.Bind.

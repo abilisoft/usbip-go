@@ -93,6 +93,7 @@ stderr; it does not print Go identifier names.
 | `ErrKernelModuleMissing` | `vhci_hcd` / `usbip_host` / `usbip_core` not loaded, or no access to `/sys/module/`. | Load the role modules with `sudo modprobe usbip_core usbip_host` on exporters or `sudo modprobe usbip_core vhci_hcd` on importers. |
 | `ErrPermission` | Sysfs write needs `CAP_SYS_ADMIN` + `CAP_DAC_OVERRIDE`. | `sudo` the caller or `setcap` the binary. |
 | `ErrDeviceNotFound` | BusID does not exist on the exporter, is not bound, or is not currently advertised. | Compare `usbip-go list HOST` with the exporter's local `usbip-go list`, then bind the local target if appropriate. |
+| `ErrDeviceNotBound` | An exporter device is not bound, or a validated importer detach found that the VHCI Port was already free. | Refresh local/exported device state or `usbip-go port`; do not repeat a detach for a Port the kernel already considers free. |
 | `ErrDeviceAlreadyBound` | A bind was repeated or an importer already owns the device. | Inspect active Sessions; unbind only when ownership is confirmed stale. |
 | `ErrNoFreePort` | All vhci ports are occupied. | Detach a port, or boot the kernel with more vhci ports. |
 | `ErrProtocolMismatch` | Server sent a version byte != `0x0111` or unknown opcode. | Version mismatch or corrupted wire. Capture with tcpdump. |
@@ -128,22 +129,57 @@ role modules before running commands.
 
 ## Recovering from a stuck port
 
-`usbip-go detach N` reconciles the requested port against the live VHCI state,
-so it also works when the process that attached the device has exited. If the
-command still fails, check the kernel view:
+Each CLI invocation creates a fresh Importer. A later
+`usbip-go detach <port_id>` process delegates to authoritative `vhci_hcd` state
+and does not need to be the process that performed the attach. Start with the
+supported path:
 
 ```text
-$ cat /sys/devices/platform/vhci_hcd.0/status
+$ usbip-go port
+$ sudo usbip-go detach <port_id>
+$ usbip-go port
 ```
 
-As a last resort, a port in `VDEV_ST_ERROR` or `VDEV_ST_USED` can be
-force-detached via sysfs:
+The CLI Port view hides normalized `null` and `available` capacity rows. It
+keeps ordinary `not-assigned` rows visible because the kernel has claimed those
+virtual devices but has not assigned their local USB addresses yet. The public
+Go `Importer.ListPorts` API intentionally returns all normalized usable kernel
+rows so library callers can inspect capacity. If detach reports that the device
+is not bound, refresh `usbip-go port`; the kernel already considers that valid
+Port free.
+
+Do not confuse a genuine claimed `not-assigned` row with Linux's
+`status_show_not_ready` placeholder. An ordinary row uses the normal six-digit
+socket field, such as `000000`. The synthetic placeholder uses the exact
+otherwise-zero not-assigned shape with a sixteen-zero socket field,
+`0000000000000000`, while the VHCI controller lacks driver data. The kernel
+adapter rejects that snapshot: `Importer.ListPorts` and allocation return an
+error with no partial or synthetic Ports. Retry after the controller becomes
+ready rather than interpreting the placeholder as attached devices or free
+capacity.
+
+For deeper diagnosis, inspect each controller's raw status file:
 
 ```text
-$ echo <port_id> | sudo tee /sys/devices/platform/vhci_hcd.0/detach
+$ cat /sys/devices/platform/vhci_hcd.*/status
 ```
 
-This is the last-resort path; prefer `usbip-go detach` when it works.
+Importer rows use `VDEV_ST_USED` and `VDEV_ST_ERROR` semantics, not exporter
+`SDEV_ST_*` states. The status row's `local_busid` names the importer-side USB
+device and can differ from the exporter BusID; correlate lifecycle operations
+with the kernel-flat PortID returned by attach. Direct sysfs detach is a last
+resort after recording the CLI error, proving that exact PortID is active and
+in range, and ensuring no concurrent attach or reconnect owns it. The
+controller detach file at `/sys/devices/platform/vhci_hcd.0/detach` expects the
+verified kernel-flat PortID used by the CLI; do not convert it to a
+controller-local coordinate or echo a guessed ID.
+
+Only after those checks, a verified Port in `VDEV_ST_ERROR` or
+`VDEV_ST_USED` can be force-detached via sysfs:
+
+```text
+$ echo <verified_port_id> | sudo tee /sys/devices/platform/vhci_hcd.0/detach
+```
 
 ## Daemon not accepting connections
 

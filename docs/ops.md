@@ -319,17 +319,21 @@ sudo install -m 0755 /tmp/new-usbip-go /usr/bin/usbip-go
 sudo systemctl start usbip-go
 ```
 
-Active USB/IP sessions do not migrate to the replacement daemon.
-Graceful drain deliberately disconnects them, and an abrupt daemon exit
-causes remote VHCI ports to leave the used state. An abrupt exit can leave the
-exporter-side kernel session marked used; reconcile each affected device before
-starting replacement traffic:
+Active USB/IP sessions do not migrate to the replacement daemon. Graceful drain
+deliberately disconnects them. After a stable kernel handoff, an abrupt daemon
+exit can leave both the exporter-side kernel session and the exact remote VHCI
+Port in a claimed or used state because both kernels retain their socket
+references. Reconcile each affected exporter device before starting replacement
+traffic:
 
 ```text
 printf '%s' -1 | sudo tee /sys/bus/usb/devices/BUSID/usbip_sockfd
 ```
 
-Clients must attach again after the replacement daemon is ready. Socket
+After exporter reconciliation, wait for the exact old client Port to be absent
+or to report `Null` or `Available`; `NotAssigned` is still claimed and is not a
+free Port. A replacement daemon cannot inherit the old kernel-owned session, so
+clients must attach again after the replacement daemon is ready. Socket
 activation keeps port 3240 bound across the restart so new connection attempts
 avoid a listener gap; it does not preserve established USB/IP sessions.
 

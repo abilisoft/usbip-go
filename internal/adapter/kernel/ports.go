@@ -21,6 +21,19 @@ import (
 // vhci status row: hub, port, sta, spd, dev, sockfd, local_busid.
 const statusFieldCount = 7
 
+// status_show_not_ready in Linux vhci_sysfs.c emits a deliberately distinct
+// placeholder row while a VHCI controller has no platform driver data. The
+// ordinary status path renders sockfd with %06u; the not-ready path instead
+// renders sixteen zeroes. Preserve that wire distinction so a controller
+// snapshot cannot masquerade as a set of claimed NotAssigned ports.
+const (
+	controllerNotReadyStatusRaw = "005"
+	controllerNotReadySpeedRaw  = "000"
+	controllerNotReadyDevIDRaw  = "00000000"
+	controllerNotReadySockFDRaw = "0000000000000000"
+	controllerNotReadyBusIDRaw  = "0-0"
+)
+
 // errStatusRowControllerMismatch surfaces when a parsed row's declared
 // flat port does not belong to the controller block of the status file
 // it came from (row.port / VHCIPorts != controllerIdx). The kernel
@@ -29,6 +42,12 @@ const statusFieldCount = 7
 // state is inconsistent and any downstream attach/detach math keyed on
 // it would be wrong.
 var errStatusRowControllerMismatch = errors.New("status row's flat port does not belong to its controller file")
+
+// errStatusControllerNotReady marks the exact placeholder row shape emitted by
+// status_show_not_ready when platform_get_drvdata() is nil. Returning an error
+// fails allocation and listing closed instead of exposing synthetic capacity as
+// active NotAssigned attachments.
+var errStatusControllerNotReady = errors.New("vhci status controller not ready")
 
 // errStatusRowZeroVHCIPorts surfaces when parseStatusFile is called
 // with vhciPorts=0. The caller must source vhciPorts from a validated
@@ -45,8 +64,9 @@ const (
 	rowIdxStatus = 2
 	rowIdxSpeed  = 3
 	rowIdxDevID  = 4
-	// column 5 is the sockfd; we never need it on the read path — the
-	// kernel owns the fd once attach succeeds, so we skip straight to 6.
+	// The read path does not expose sockfd, but its field width distinguishes
+	// an ordinary row from Linux's controller-not-ready placeholder.
+	rowIdxSockFD  = 5
 	rowIdxBusID   = 6
 	statusRadix10 = 10
 	statusRadix16 = 16
@@ -91,12 +111,12 @@ func (a *commonAdapter) readStatusRows() ([]parsedPort, error) {
 // only to validate that a row belongs to the controller file it was
 // read from.
 //
-// Malformed rows surface a slog.Warn signal and are skipped; a row
-// whose flat port falls outside its controller's window fails the
-// whole call — that is a kernel-state inconsistency the caller must see, not a
-// tokenisation glitch the caller can ignore. AttachRemote supplies the same
-// snapshot later used for pre-write bounds validation so one attach cannot mix
-// two vhci_hcd generations.
+// Malformed rows surface a slog.Warn signal and are skipped. A Linux
+// controller-not-ready placeholder or a row whose flat port falls outside its
+// controller's window fails the whole call — those are kernel-state
+// inconsistencies the caller must see, not tokenisation glitches the caller can
+// ignore. AttachRemote supplies the same snapshot later used for pre-write
+// bounds validation so one attach cannot mix two vhci_hcd generations.
 func (a *commonAdapter) readStatusRowsWithTopology(topo StatusTopology) ([]parsedPort, error) {
 	rows := make([]parsedPort, 0)
 
@@ -130,11 +150,11 @@ func statusFileName(idx uint32) string {
 	return fmt.Sprintf(SysfsVHCIStatusFmt, idx)
 }
 
-// parseStatusFile tokenises every line of a status file. Malformed
-// rows surface a warn log and are skipped; a row whose flat port does
-// not belong to controllerIdx's block ([controllerIdx*vhciPorts,
-// (controllerIdx+1)*vhciPorts)) is a kernel-state inconsistency and
-// fails the whole call. vhciPorts is the per-controller width
+// parseStatusFile tokenises every line of a status file. Malformed rows
+// surface a warn log and are skipped. A controller-not-ready placeholder or a
+// row whose flat port does not belong to controllerIdx's block
+// ([controllerIdx*vhciPorts, (controllerIdx+1)*vhciPorts)) is a kernel-state
+// inconsistency and fails the whole call. vhciPorts is the per-controller width
 // (VHCI_PORTS, i.e. HCPorts*2) sourced from the operation-local topology.
 func (a *commonAdapter) parseStatusFile(body, source string, controllerIdx, vhciPorts uint32) ([]parsedPort, error) {
 	if vhciPorts == 0 {
@@ -145,25 +165,14 @@ func (a *commonAdapter) parseStatusFile(body, source string, controllerIdx, vhci
 
 	scanner := bufio.NewScanner(strings.NewReader(body))
 	for scanner.Scan() {
-		line := scanner.Text()
-		if skipStatusLine(line) {
-			continue
+		row, include, err := a.parseStatusLine(scanner.Text(), source, controllerIdx, vhciPorts)
+		if err != nil {
+			return nil, err
 		}
 
-		row, ok := parseStatusRow(line)
-		if !ok {
-			a.logger.Warn("skip malformed vhci status row",
-				"source", source, "line", line)
-
-			continue
+		if include {
+			out = append(out, row)
 		}
-
-		if uint32(row.port)/vhciPorts != controllerIdx {
-			return nil, fmt.Errorf("%w: source=%s port=%d controllerIdx=%d vhciPorts=%d",
-				errStatusRowControllerMismatch, source, uint32(row.port), controllerIdx, vhciPorts)
-		}
-
-		out = append(out, row)
 	}
 
 	// Surface any scanner failure (e.g. bufio.ErrTooLong for a row
@@ -178,6 +187,56 @@ func (a *commonAdapter) parseStatusFile(body, source string, controllerIdx, vhci
 	}
 
 	return out, nil
+}
+
+// parseStatusLine parses and validates one data row. Header, empty, and
+// malformed lines are deliberately excluded; kernel-state inconsistencies are
+// returned so parseStatusFile can fail the whole snapshot closed.
+func (a *commonAdapter) parseStatusLine(
+	line, source string,
+	controllerIdx, vhciPorts uint32,
+) (parsedPort, bool, error) {
+	if skipStatusLine(line) {
+		return parsedPort{}, false, nil
+	}
+
+	row, ok := parseStatusRow(line)
+	if !ok {
+		a.logger.Warn("skip malformed vhci status row",
+			"source", source, "line", line)
+
+		return parsedPort{}, false, nil
+	}
+
+	if isControllerNotReadyStatusRow(line) {
+		return parsedPort{}, false, fmt.Errorf("%w: source=%s port=%d",
+			errStatusControllerNotReady, source, uint32(row.port))
+	}
+
+	if uint32(row.port)/vhciPorts != controllerIdx {
+		return parsedPort{}, false, fmt.Errorf("%w: source=%s port=%d controllerIdx=%d vhciPorts=%d",
+			errStatusRowControllerMismatch, source, uint32(row.port), controllerIdx, vhciPorts)
+	}
+
+	return row, true, nil
+}
+
+// isControllerNotReadyStatusRow matches only the exact data-field shape Linux
+// emits from status_show_not_ready: VDEV_ST_NOTASSIGNED with zero speed/device,
+// a sixteen-zero sockfd placeholder, and no local BusID. A genuinely claimed
+// NotAssigned vdev flows through port_show_vhci instead and carries the ordinary
+// six-digit zero sockfd, so it remains visible to callers.
+func isControllerNotReadyStatusRow(line string) bool {
+	fields := strings.Fields(line)
+	if len(fields) != statusFieldCount {
+		return false
+	}
+
+	return fields[rowIdxStatus] == controllerNotReadyStatusRaw &&
+		fields[rowIdxSpeed] == controllerNotReadySpeedRaw &&
+		fields[rowIdxDevID] == controllerNotReadyDevIDRaw &&
+		fields[rowIdxSockFD] == controllerNotReadySockFDRaw &&
+		fields[rowIdxBusID] == controllerNotReadyBusIDRaw
 }
 
 // skipStatusLine reports whether line should be ignored during row
