@@ -766,6 +766,7 @@ test_suite(
         "//tools/scripts:ci_local_runner_test",
         "//tools/scripts:coverage_check_test",
         "//tools/scripts:govulncheck_sarif_test",
+        "//tools/scripts:kernel_vm_test_lib_test",
         "//tools/scripts:repo_coverage_test_runner_test",
         "//tools/scripts:start_release_test",
         "//tools/scripts:systemd_unit_test",

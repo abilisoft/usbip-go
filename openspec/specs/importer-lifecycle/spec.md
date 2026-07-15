@@ -127,7 +127,14 @@ After the kernel adapter selects a local PortID, the importer SHALL reserve that
 
 ### Requirement: Detach is idempotent for port teardown
 
-`Detach` SHALL cancel any reconnect watcher for a tracked Port, wait for watcher wind-down subject to the configured shutdown timeout, and share at most one active kernel detach attempt per tracked attachment generation or untracked kernel Port. A tracked handle SHALL be removed only after a successful attempt and only when the PortID still maps to that exact handle. When no handle or attach reservation exists, Detach SHALL reconcile the PortID against authoritative kernel state and detach it if it is live.
+`Detach` SHALL treat authoritative kernel Port ownership independently from
+process-local attachment handles. A tracked detach SHALL cancel and drain its
+reconnect watcher and share at most one kernel attempt per attachment
+generation. A valid Port with no local handle SHALL use one shared untracked
+attempt per Importer and PortID. Tracked handles SHALL be removed after success
+or authoritative already-free classification only when the PortID still maps to
+that exact handle. Failed untracked attempts SHALL clear their coordination
+record so a later call can retry.
 
 #### Scenario: Watcher is still running
 
@@ -135,9 +142,15 @@ After the kernel adapter selects a local PortID, the importer SHALL reserve that
 - **THEN** the watcher is cancelled before kernel detach proceeds
 - **AND** bounded waiting uses the AttachOptions ShutdownTimeout semantics
 
-#### Scenario: Concurrent callers detach one attachment
+#### Scenario: Concurrent callers detach one tracked attachment
 
-- **WHEN** multiple callers overlap while detaching the same tracked generation or untracked kernel Port
+- **WHEN** multiple callers overlap while detaching the same tracked handle generation
+- **THEN** exactly one caller issues the kernel detach
+- **AND** other callers observe the same completed result
+
+#### Scenario: Concurrent callers detach one untracked Port
+
+- **WHEN** multiple callers on one fresh Importer overlap while detaching the same kernel-owned Port
 - **THEN** exactly one caller issues the kernel detach
 - **AND** other callers observe the same completed result
 
@@ -147,33 +160,50 @@ After the kernel adapter selects a local PortID, the importer SHALL reserve that
 - **THEN** that follower returns its context error
 - **AND** the owner and other followers continue observing the shared attempt
 
-#### Scenario: Kernel detach fails
+#### Scenario: Tracked kernel detach fails
 
-- **WHEN** the shared kernel detach attempt returns an error
+- **WHEN** the shared tracked kernel detach attempt returns an error other than already-free
 - **THEN** every overlapping caller observes that error
-- **AND** the exact tracked handle remains registered, or the ephemeral untracked attempt is removed, so a later call can retry
+- **AND** the exact tracked handle remains registered so a later call can retry
+
+#### Scenario: Untracked kernel detach fails
+
+- **WHEN** the shared untracked kernel detach attempt returns an error
+- **THEN** every overlapping caller observes that error
+- **AND** the coordination record is removed so a later call can retry
 
 #### Scenario: PortID is reused before an old detach completes
 
 - **WHEN** an old detach attempt completes after the PortID maps to a different attachment pointer
 - **THEN** the old attempt does not remove the newer attachment's handle
 
-#### Scenario: Port is already gone
+#### Scenario: Tracked Port is already free
 
-- **WHEN** Detach observes that the kernel Port is absent or free
-- **THEN** the result is classified with the canonical not-found/device sentinel
+- **WHEN** authoritative kernel detach reports that a tracked Port is already free
+- **THEN** the result is classified with the canonical not-bound/device sentinel
+- **AND** the exact stale handle is removed so a later generation can reuse that PortID
+
+#### Scenario: Untracked Port is already free
+
+- **WHEN** authoritative kernel state reports that a valid untracked Port is absent, `Null`, or `Available`
+- **THEN** Detach returns the canonical not-bound/device sentinel
 - **AND** no detach sysfs write occurs
 
-#### Scenario: Port is live but untracked by this Importer
+#### Scenario: Fresh Importer detaches an untracked kernel Port
 
-- **WHEN** Detach receives a PortID that authoritative kernel state reports as attached but the current Importer has no handle or reservation for it
-- **THEN** Detach releases that kernel Port
+- **WHEN** a fresh Importer receives a valid PortID still owned by the kernel
+- **THEN** it invokes the serialized kernel detach mutation without a `ListPorts` preflight
 - **AND** it does not fabricate reconnect metadata or a tracked handle
 
-#### Scenario: Attach selects a Port under untracked detach
+#### Scenario: Close overlaps an untracked detach
 
-- **WHEN** AttachRemote selects a PortID whose untracked detach transition is active in the same Importer
-- **THEN** the reservation is rejected before the adapter attach mutation
+- **WHEN** `Close` begins while an untracked detach mutation is active
+- **THEN** Close waits for that mutation subject to the configured lifecycle deadline
+
+#### Scenario: Attach reservation overlaps an untracked detach
+
+- **WHEN** attach attempts to reserve a PortID owned by an active untracked detach in the same Importer
+- **THEN** reservation is rejected until the detach attempt completes
 
 ### Requirement: Port listing separates kernel truth from process metadata
 
@@ -190,6 +220,35 @@ Importer ListPorts SHALL preserve kernel-derived Port fields and SHALL enrich re
 - **WHEN** ListPorts reads a kernel row for which the current Importer has no matching live handle
 - **THEN** remote BusID and Remote remain unknown
 - **AND** LocalBusID remains the authoritative importer-local identity
+
+### Requirement: Completed detach leaves the Importer reusable
+
+The same Importer SHALL remain reusable after authoritative kernel state reports
+a detached Port free, accepting a later kernel attachment without retaining the
+prior attachment generation, payload, or Port ownership. An exact Port SHALL be free
+only when absent, `Null`, or `Available`; `NotAssigned` remains claimed. Focused
+single-kernel validation SHALL prove same-Importer reuse, and tracked two-guest
+validation SHALL prove the kernel attachment lifecycle repeats safely across
+independent short-lived production CLI Importers and distinct exporter and
+importer kernel instances.
+
+#### Scenario: Bounded single-kernel cycles repeat
+
+- **WHEN** one Importer completes exactly three sequential Attach, cycle-specific deterministic byte-transfer, exact-Port Detach, and kernel-drain cycles against fresh VUDC gadgets
+- **THEN** every cycle's bytes match its cycle-specific payload exactly
+- **AND** block-device disappearance is accepted only when the filesystem reports `fs.ErrNotExist`
+- **AND** VHCI drain requires a nonempty structurally valid snapshot whose rows are all `Null`
+- **AND** the exact prior Port is absent, `Null`, or `Available`, never `NotAssigned`
+- **AND** gadget release succeeds before the next cycle
+- **AND** every later Attach produces a working data path
+
+#### Scenario: Independent production lifecycle repeats across two guest kernels
+
+- **WHEN** one importer guest uses independent short-lived CLI Importers to complete exactly three sequential production Attach, cycle-specific bidirectional ACM byte-transfer, exact-Port Detach, and fail-closed drain cycles against a production exporter in a distinct guest kernel
+- **THEN** each exporter-to-importer and importer-to-exporter payload matches its cycle-specific bytes exactly
+- **AND** the detached Port and imported ACM device drain before the next Attach
+- **AND** the exporter session drains and the exported gadget remains ready for the next connection
+- **AND** every later Attach produces a working inter-guest data path
 
 ### Requirement: Reconnect watcher re-establishes attachments
 

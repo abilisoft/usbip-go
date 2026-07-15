@@ -86,19 +86,19 @@ type VUDCDevice struct {
 	// structure; t.TempDir-style cleanup removes the tree on test exit.
 	Name string
 
-	cleanup func()
+	cleanup func() error
 }
 
-// Release tears down the configfs gadget before the test ends. SetupVUDC
-// also registers the same cleanup with testing.T, so Release is optional and
-// idempotent; callers use it when a subsequent scenario must reuse a finite
-// usbip_vudc instance during the same test.
-func (d *VUDCDevice) Release() {
+// Release tears down the configfs gadget before the test ends and reports any
+// cleanup error. SetupVUDC also registers the same idempotent cleanup with
+// testing.T; callers use Release when a subsequent scenario must prove that a
+// finite usbip_vudc instance was released before it is reused.
+func (d *VUDCDevice) Release() error {
 	if d == nil || d.cleanup == nil {
-		return
+		return nil
 	}
 
-	d.cleanup()
+	return d.cleanup()
 }
 
 // SetupVUDC creates a single usbip-vudc gadget in configfs and binds it
@@ -149,20 +149,20 @@ func setupVUDCWithBacking(t *testing.T, backing []byte) *VUDCDevice {
 
 	err := writeGadgetTreeWithBacking(t, root, name, backing)
 	if err != nil {
-		cleanup()
-		t.Skipf("integration harness: configfs write failed: %v (usbip-vudc UDC instance may be exhausted)", err)
+		t.Skipf("integration harness: configfs write failed: %v (usbip-vudc UDC instance may be exhausted)",
+			errors.Join(err, cleanup()))
 	}
 
 	udc, err := firstAvailableVUDC()
 	if err != nil {
-		cleanup()
-		t.Skipf("integration harness: no usbip-vudc UDC available: %v", err)
+		t.Skipf("integration harness: no usbip-vudc UDC available: %v",
+			errors.Join(err, cleanup()))
 	}
 
 	err = writeFile(filepath.Join(root, "UDC"), udc)
 	if err != nil {
-		cleanup()
-		t.Skipf("integration harness: UDC bind failed: %v", err)
+		t.Skipf("integration harness: UDC bind failed: %v",
+			errors.Join(err, cleanup()))
 	}
 
 	return &VUDCDevice{BusID: udc, Name: name, cleanup: cleanup}
@@ -285,25 +285,34 @@ func uniqueGadgetName(t *testing.T) string {
 // cleanup-time kernel quirk into a test failure). Not all cleanup
 // errors are symptomatic: a "file does not exist" on an unbind-empty
 // write just means the gadget was never bound in the first place.
-func registerGadgetCleanup(t *testing.T, root string) func() {
+func registerGadgetCleanup(t *testing.T, root string) func() error {
 	t.Helper()
 
-	var once sync.Once
+	fn := idempotentCleanup(func() error { return runGadgetCleanup(root) })
 
-	fn := func() {
-		once.Do(func() {
-			err := runGadgetCleanup(root)
-			if err != nil {
-				// Teardown failures should remain visible without replacing the
-				// scenario's primary result with a secondary kernel-cleanup error.
-				t.Logf("integration harness: gadget cleanup errors at %s: %v", root, err)
-			}
-		})
-	}
-
-	t.Cleanup(fn)
+	t.Cleanup(func() {
+		if err := fn(); err != nil {
+			// Explicit lifecycle tests assert the returned error. The fallback
+			// cleanup keeps secondary teardown failures visible when the primary
+			// scenario already stopped before it could call Release.
+			t.Logf("integration harness: gadget cleanup errors at %s: %v", root, err)
+		}
+	})
 
 	return fn
+}
+
+func idempotentCleanup(run func() error) func() error {
+	var once sync.Once
+	var cleanupErr error
+
+	return func() error {
+		once.Do(func() {
+			cleanupErr = run()
+		})
+
+		return cleanupErr
+	}
 }
 
 // runGadgetCleanup performs the configfs teardown dance and accumulates

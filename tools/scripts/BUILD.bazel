@@ -115,6 +115,35 @@ script_test(
 )
 
 script_test(
+    name = "kernel_vm_two_guest_test",
+    size = "enormous",
+    timeout = "eternal",
+    src = "kernel_vm_two_guest_test.sh",
+    data = [
+        "kernel_vm_provision_gadget.sh",
+        "kernel_vm_test_lib.sh",
+        "//cmd/usbip-go",
+    ],
+    tags = [
+        "exclusive",
+        "external",
+        "integration",
+        "local",
+        "manual",
+        "no-sandbox",
+        "requires-kvm",
+        "requires-network",
+    ],
+)
+
+script_test(
+    name = "kernel_vm_test_lib_test",
+    size = "small",
+    src = "kernel_vm_test_lib_test.sh",
+    data = ["kernel_vm_test_lib.sh"],
+)
+
+script_test(
     name = "systemd_unit_test",
     size = "small",
     src = "systemd_unit_test.sh",

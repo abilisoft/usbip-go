@@ -26,6 +26,7 @@ make ci-local          # run the GitHub PR CI pipeline locally
 make test              # unit tests only; excludes integration/conformance/lint/manual targets
 make test-conformance  # wire conformance tests
 make test-integration  # kernel/integration-tagged tests
+make test-integration-vm # fail-closed two-guest KVM resilience test
 make test-coverage     # Bazel coverage plus configured thresholds
 make lint              # strict lint suite; do not disable checks to make this pass
 make govulncheck       # Go vulnerability scan
@@ -120,18 +121,54 @@ checkout Git. The production stamping regression does not share that exception:
 `make check-release-stamping` supplies a committed constant workspace-status
 fixture and executes the declared production binary in a sandboxable test.
 
-Integration tests interact with kernel USB/IP surfaces and require root, a
-writable configfs gadget tree, and loaded `dummy_hcd`, `libcomposite`,
+`make test-integration` runs directly against the host kernel. Run it as root
+on a Linux host with writable configfs and loaded `dummy_hcd`, `libcomposite`,
 `usb_f_acm`, `usb_f_mass_storage`, `usbip_core`, `usbip_host`, `usbip_vudc`, and
 `vhci_hcd` modules for the complete suite. The kernel must enable
-`CONFIG_USB_DUMMY_HCD`; otherwise the full bind/list/attach CLI scenario skips.
-The tests are exposed as `make test-integration` and are not part of the default
-unit-test or GitHub Actions targets. Run them manually on a capable Linux host
-when changing kernel-facing behavior. Standard GitHub-hosted runners do not
-provide the required kernel modules or privileged configfs surface, so the
-automated pipeline deliberately limits itself to unprivileged, Bazel-backed
-validation rather than treating an unavailable kernel environment as a test
-failure or skip.
+`CONFIG_USB_DUMMY_HCD`; otherwise affected scenarios report skips.
+
+Repeated-cycle success is fail closed: only `fs.ErrNotExist` proves the prior
+block device disappeared, the VHCI snapshot must be nonempty, structurally
+valid, and entirely `Null`, and the exact prior Port must be missing, `Null`, or
+`Available`. `NotAssigned` remains claimed, and gadget cleanup errors fail the
+cycle before reuse.
+
+`make test-integration-vm` is the fail-closed production resilience workflow.
+Run it as the ordinary repository user, never through `sudo make`, with
+readable/writable `/dev/kvm`. The host needs QEMU with the `stream` network
+backend, `qemu-img`, `cloud-localds`, `curl`, OpenSSH client tools, and ordinary
+POSIX/core utilities. Host loopback ports `2222`, `2223`, and `33240` must be
+free. Outbound network access is required when the SHA-512-pinned Debian image
+is absent and while the disposable guests install their declared packages.
+
+The VM workflow caches verified images below `.local/kernel-vm/images` and
+creates disposable overlays below `.local/kernel-vm/runs`; `make clean-all`
+removes both. Provisioning is sequential. Final validation runs exactly two
+guests concurrently, each with one vCPU and 1024 MiB. Its Make entrypoint also
+forces one Bazel job, one scheduled CPU, 1024 MiB of scheduled memory, a 512 MiB
+host JVM, disabled test-result caching, and a 2400-second overall deadline.
+
+The exporter and importer use distinct guest kernels and a direct QEMU stream
+link. Exactly three cycles transfer unique ACM payloads byte-for-byte in both
+directions, detach the exact returned Port, and prove Port, device, and exporter
+session drain. Both dedicated guest egress interfaces carry 25 ms `tc netem`
+delay and must show advancing byte and packet counters. Before success scanning,
+both roles must still be running and each role must provide successful nonempty
+kernel-version, kernel-log, journal, system/process, and role-state evidence.
+Missing prerequisites, checksum or network errors, skips, ambiguous state,
+incomplete cleanup, kernel faults, or incomplete evidence fail the target.
+
+Cleanup removes a run root and its guest overlays only after every guest is
+confirmed stopped. If any role cannot be confirmed stopped, the runner preserves
+that run root and its overlays rather than deleting storage a live QEMU process
+may still own; the retained path is reported with the failure logs.
+
+This uses a configfs ACM gadget on `dummy_hcd`, not physical USB hardware. It is
+bounded regression evidence, not soak, endurance, throughput, or performance
+evidence, and it does not claim coverage of loss, jitter, reordering, bandwidth
+limits, outages, or reconnect behavior under impairment. Neither kernel target
+runs on standard GitHub-hosted automation because those runners do not provide
+the required privileged kernel and KVM surfaces.
 
 ## Release process
 
@@ -156,8 +193,9 @@ tag. The workflow validates the tag, runs the reusable security, unit,
 conformance, architecture, and coverage gates, re-runs the local CI sequence,
 generates release notes through the Bazel-provisioned changelog target, and
 then publishes with `make release`. GoReleaser, Go, syft, and cosign are all
-resolved through Bazel runfiles. Kernel integration is a separate manual
-maintainer check because it requires a specially provisioned Linux host.
+resolved through Bazel runfiles. Both `make test-integration` and
+`make test-integration-vm` remain separate manual maintainer checks because
+they require a specially provisioned Linux host.
 
 For a local distribution build, `make dist` uses Bazel's release stamping to
 derive the package version from a canonical `vMAJOR.MINOR.PATCH` tag (or a

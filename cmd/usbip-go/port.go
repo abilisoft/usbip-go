@@ -58,6 +58,8 @@ func runPort(cmd *cobra.Command, pf *portFlags) error {
 		return fmt.Errorf("list ports: %w", err)
 	}
 
+	ports = activePorts(ports)
+
 	if cmd.Flags().Changed("id") {
 		filtered, found := filterPortByID(ports, usbip.PortID(pf.ID))
 		if !found {
@@ -75,6 +77,23 @@ func runPort(cmd *cobra.Command, pf *portFlags) error {
 	}
 
 	return nil
+}
+
+// activePorts removes vhci_hcd capacity rows that do not represent an active
+// attachment. StatusNotAssigned is active: the kernel has claimed the vdev but
+// has not assigned its USB address yet. The public ListPorts API deliberately
+// exposes every kernel row, while the CLI's `port` and detach completion
+// contracts describe active attachments only. Unknown future states remain
+// visible instead of being silently discarded.
+func activePorts(ports []usbip.Port) []usbip.Port {
+	active := make([]usbip.Port, 0, len(ports))
+	for _, port := range ports {
+		if isAttachedPort(port) {
+			active = append(active, port)
+		}
+	}
+
+	return active
 }
 
 // filterPortByID returns the single-port slice and true when id identifies an

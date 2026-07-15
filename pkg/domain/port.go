@@ -6,7 +6,9 @@ package domain
 // PortID identifies a vhci port.
 type PortID uint32
 
-// Port describes an attached vhci port.
+// Port describes one vhci kernel status row. StatusNull and StatusAvailable
+// rows represent free capacity. StatusNotAssigned represents a claimed vdev
+// that has not received its local USB address yet.
 type Port struct {
 	// ID is the numeric vhci port identifier.
 	ID PortID

@@ -6,6 +6,7 @@
 package integration
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -18,4 +19,25 @@ func TestRunGadgetCleanup_MissingRootIsNoOp(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "missing-gadget")
 	require.NoError(t, runGadgetCleanup(root))
 	require.NoError(t, runGadgetCleanup(root))
+}
+
+func TestVUDCDeviceReleaseIsIdempotentAndReturnsCleanupError(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("cleanup failed")
+	calls := 0
+	device := &VUDCDevice{
+		cleanup: idempotentCleanup(func() error {
+			calls++
+
+			return sentinel
+		}),
+	}
+
+	require.ErrorIs(t, device.Release(), sentinel)
+	require.ErrorIs(t, device.Release(), sentinel)
+	require.Equal(t, 1, calls)
+
+	var nilDevice *VUDCDevice
+	require.NoError(t, nilDevice.Release())
 }

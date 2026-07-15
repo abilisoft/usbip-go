@@ -162,6 +162,55 @@ func TestImporterDetachSharesFailureAndAllowsRetry(t *testing.T) {
 	require.EqualValues(t, 2, detachCalls.Load())
 }
 
+func TestImporterTrackedDetachAlreadyFreeReleasesStaleHandle(t *testing.T) {
+	t.Parallel()
+
+	const portID domain.PortID = 25
+
+	var attachCalls atomic.Int32
+
+	kernel := &ImporterKernelMock{
+		ModulesAvailableFunc: func(_ context.Context) error { return nil },
+		AttachRemoteFunc: func(
+			_ context.Context, _ net.Conn, spec app.RemoteDeviceSpec,
+		) (domain.PortID, error) {
+			reserveErr := spec.ReserveLocalPort(portID)
+			if reserveErr != nil {
+				return 0, fmt.Errorf("reserve local port: %w", reserveErr)
+			}
+
+			attachCalls.Add(1)
+
+			return portID, nil
+		},
+		DetachPortFunc: func(_ context.Context, _ domain.PortID) error {
+			return domain.ErrDeviceNotBound
+		},
+	}
+
+	imp := newAttachPublicationImporter(
+		t, kernel, testutil.NewFakeClockAt(importerTestEpoch()),
+	)
+	t.Cleanup(func() { require.NoError(t, imp.Close()) })
+
+	first, err := imp.Attach(
+		context.Background(), testRemote(), attachBusID(), app.AttachOptions{},
+	)
+	require.NoError(t, err)
+	require.Equal(t, portID, first.ID)
+
+	err = imp.Detach(context.Background(), portID)
+	require.ErrorIs(t, err, domain.ErrDeviceNotBound)
+
+	second, err := imp.Attach(
+		context.Background(), testRemote(), attachBusID(), app.AttachOptions{},
+	)
+	require.NoError(t, err,
+		"an authoritative already-free result must not poison Port reuse")
+	require.Equal(t, portID, second.ID)
+	require.EqualValues(t, 2, attachCalls.Load())
+}
+
 func TestImporterDetachFollowerCancellationDoesNotCancelOwner(t *testing.T) {
 	t.Parallel()
 

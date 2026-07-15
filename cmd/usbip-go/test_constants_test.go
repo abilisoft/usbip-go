@@ -32,6 +32,8 @@ const (
 	testRootBusID           = "1-1"
 	testSecondaryBusID      = "2-1"
 	testServeCommand        = "serve"
+	testStatusAvailableName = "available"
+	testStatusNullName      = "null"
 	testStatusSocketFlag    = "--status-socket"
 	testUnbindCommand       = "unbind"
 	testUSBIPCoreModule     = usbip.KernelModuleUSBIPCore

@@ -24,9 +24,9 @@ func TestStatusStyle_AllBranches(t *testing.T) {
 		name   string
 		status domain.Status
 	}{
-		{"null", domain.StatusNull},
+		{testStatusNullName, domain.StatusNull},
 		{"not_assigned", domain.StatusNotAssigned},
-		{"available", domain.StatusAvailable},
+		{testStatusAvailableName, domain.StatusAvailable},
 		{"used", domain.StatusUsed},
 		{statusErrorCaseName, domain.StatusError},
 		{"out_of_enum", domain.Status(999)},
