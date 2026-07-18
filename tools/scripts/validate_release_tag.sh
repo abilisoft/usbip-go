@@ -42,23 +42,35 @@ if [[ ${RELEASE_TAG_SIGNATURE_VERIFIED:-} != 'true' ]]; then
 fi
 
 if [[ -z ${RELEASE_EVENT_AFTER:-} ]]; then
+	fail 'release event tag-object SHA is required'
+fi
+
+if [[ -z ${RELEASE_EVENT_TARGET_COMMIT:-} ]]; then
 	fail 'release event target commit is required'
+fi
+
+if [[ -z ${RELEASE_TAG_OBJECT_SHA:-} ]]; then
+	fail 'live release tag-object SHA is required'
 fi
 
 if [[ -z ${RELEASE_TAG_TARGET_COMMIT:-} ]]; then
 	fail 'annotated release tag target commit is required'
 fi
 
-if [[ -z ${RELEASE_DEFAULT_BRANCH_COMMIT:-} ]]; then
-	fail 'default-branch head commit is required'
+if [[ -z ${RELEASE_CHECKED_OUT_COMMIT:-} ]]; then
+	fail 'checked-out release commit is required'
 fi
 
-if [[ ${RELEASE_TAG_TARGET_COMMIT} != "${RELEASE_EVENT_AFTER}" ]]; then
-	fail 'live annotated tag target does not match the release push event target'
+if [[ ${RELEASE_TAG_OBJECT_SHA} != "${RELEASE_EVENT_AFTER}" ]]; then
+	fail 'live annotated tag object does not match the release push event object'
 fi
 
-if [[ ${RELEASE_TAG_TARGET_COMMIT} != "${RELEASE_DEFAULT_BRANCH_COMMIT}" ]]; then
-	fail 'release tag target must equal the current default-branch head'
+if [[ ${RELEASE_TAG_TARGET_COMMIT} != "${RELEASE_EVENT_TARGET_COMMIT}" ]]; then
+	fail 'live annotated tag target does not match the release push event commit'
+fi
+
+if [[ ${RELEASE_TAG_TARGET_COMMIT} != "${RELEASE_CHECKED_OUT_COMMIT}" ]]; then
+	fail 'release tag target must equal the checked-out release commit'
 fi
 
 printf 'validated fresh stable release tag %s\n' "${RELEASE_TAG}"

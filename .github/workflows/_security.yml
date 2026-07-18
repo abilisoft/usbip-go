@@ -11,6 +11,11 @@ on:
         required: false
         type: boolean
         default: true
+      source-ref:
+        description: Immutable source revision to check out; defaults to the caller event revision.
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -31,6 +36,8 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.source-ref || github.sha }}
       - uses: ./.github/actions/setup-bazel
       - name: Strict lint suite
         run: make lint

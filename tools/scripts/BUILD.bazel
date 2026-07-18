@@ -188,6 +188,19 @@ script_binary(
 )
 
 script_test(
+    name = "recovery_workflow_test",
+    size = "small",
+    src = "recovery_workflow_test.sh",
+    data = [
+        "validate_live_release_recovery.sh",
+        "validate_live_release_recovery_assets.sh",
+        "validate_release_recovery.sh",
+        "validate_release_recovery_assets.sh",
+        "//:github_workflow_files",
+    ],
+)
+
+script_test(
     name = "release_workflow_test",
     size = "small",
     src = "release_workflow_test.sh",
@@ -199,6 +212,40 @@ script_test(
         "//:.goreleaser.yml",
         "//:github_workflow_files",
         "//:repo_make_files",
+    ],
+)
+
+script_binary(
+    name = "validate_live_release_recovery",
+    src = "validate_live_release_recovery.sh",
+    data = ["validate_release_recovery.sh"],
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_test(
+    name = "validate_live_release_recovery_test",
+    size = "small",
+    src = "validate_live_release_recovery_test.sh",
+    data = [
+        "validate_live_release_recovery.sh",
+        "validate_release_recovery.sh",
+    ],
+)
+
+script_binary(
+    name = "validate_live_release_recovery_assets",
+    src = "validate_live_release_recovery_assets.sh",
+    data = ["validate_release_recovery_assets.sh"],
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_test(
+    name = "validate_live_release_recovery_assets_test",
+    size = "small",
+    src = "validate_live_release_recovery_assets_test.sh",
+    data = [
+        "validate_live_release_recovery_assets.sh",
+        "validate_release_recovery_assets.sh",
     ],
 )
 
@@ -230,6 +277,32 @@ script_test(
     size = "small",
     src = "validate_release_notes_test.sh",
     data = ["validate_release_notes.sh"],
+)
+
+script_binary(
+    name = "validate_release_recovery",
+    src = "validate_release_recovery.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_test(
+    name = "validate_release_recovery_test",
+    size = "small",
+    src = "validate_release_recovery_test.sh",
+    data = ["validate_release_recovery.sh"],
+)
+
+script_binary(
+    name = "validate_release_recovery_assets",
+    src = "validate_release_recovery_assets.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_test(
+    name = "validate_release_recovery_assets_test",
+    size = "small",
+    src = "validate_release_recovery_assets_test.sh",
+    data = ["validate_release_recovery_assets.sh"],
 )
 
 script_binary(

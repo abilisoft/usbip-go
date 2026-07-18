@@ -23,4 +23,4 @@
 - [x] 4.2 Run lightweight shell, YAML, Markdown, formatting, and strict change/all-spec OpenSpec checks
 - [x] 4.3 Run the repository Go/CI/release-snapshot gates and fresh mutation testing without weakening resource limits
 - [x] 4.4 Create and verify a signed Conventional Commit with no attribution trailers, publish through a pull request, and confirm all required checks
-- [ ] 4.5 Immediately before the single-use `v1.0.2` push, enable Release workflow ID `266335789` and independently verify its state is `active`
+- [x] 4.5 Immediately before the single-use `v1.0.2` push, enable Release workflow ID `266335789` and independently verify its state is `active`

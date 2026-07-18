@@ -19,8 +19,8 @@ only).
 | Vulnerabilities        | `make govulncheck` in PR, nightly, release, and local `make ci-local` gates; SARIF upload feeds code scanning.        |
 | Token-Permissions      | Every workflow declares minimal top-level `permissions:`; jobs widen only for release or security uploads.   |
 | Security-Policy        | [`SECURITY.md`](../SECURITY.md) at repo root.                                                                    |
-| Signed-Releases        | GoReleaser stages and reuses one draft; cosign signs keylessly through GitHub OIDC; syft emits SBOMs; and the verifier-compatible SLSA `@v2.1.0` workflow uploads provenance into that draft. Only the provenance-dependent publish job makes it public. |
-| Immutable-Tags         | Stable versions are single-use. The all-tag ruleset is authoritative; current release validation accepts only a fresh, signed, correctly targeted canonical tag event. Retract a consumed bad version and use the next patch rather than moving or recreating it. |
+| Signed-Releases        | GoReleaser stages and reuses one draft; cosign signs keylessly through GitHub OIDC; syft emits SBOMs; and the verifier-compatible SLSA `@v2.1.0` workflow uploads provenance into that draft. Only the provenance-dependent publish job makes it public. The fixed `v1.0.2` recovery records protected-main workflow-dispatch provenance rather than claiming a second tag-push event. |
+| Immutable-Tags         | Stable versions are single-use. The all-tag ruleset is authoritative; current release validation accepts only a fresh, signed, correctly targeted canonical tag event. Retract a consumed bad version and use the next patch rather than moving or recreating it. The sole `v1.0.2` recovery preserves its original object and source after a validator-only failure before artifact work. |
 | Dependency-Update-Tool | Dependabot weekly bumps for `gomod` + `github-actions`. See `.github/dependabot.yml`.                            |
 | Fuzzing                | `internal/adapter/wire/fuzz_test.go` — codec fuzz targets seeded with historical malformed inputs.               |
 | Maintained             | The development branch receives active maintenance; published support status is declared in [`SECURITY.md`](../SECURITY.md). |
@@ -62,7 +62,9 @@ cannot enable them on its own.
      release and recovery operations never use that bypass to move, delete, or
      recreate an existing stable tag.
    - Treat the first push as consuming the version even if artifact or
-     provenance publication later fails; retract it and use the next patch.
+     provenance publication later fails; normally retract it and use the next
+     patch. The repository-fixed `v1.0.2` exception never mutates its tag and
+     applies only because the first job failed before any gate or artifact work.
    - Verify the Release workflow is enabled and active before creating a new
      stable tag; a disabled workflow still consumes a pushed version.
 
@@ -116,6 +118,85 @@ Settings → Rules → Rulesets → Add tag ruleset for all tags:
     Never use the bypass to move, delete, or recreate an existing stable tag
 ```
 
+## Release integrity verification
+
+Normal tag-push provenance is verified with `--source-tag vX.Y.Z`. The recovered
+`v1.0.2` statement is intentionally different: `upload-tag-name` selected the
+existing draft but did not turn its protected-main dispatch into tag-push
+provenance. Download all `v1.0.2` assets into one directory and verify its nine
+binary deliverables with:
+
+```bash
+artifacts=(
+  usbip-go_1.0.2_linux_amd64.tar.gz
+  usbip-go_1.0.2_linux_arm64.tar.gz
+  usbip-go_1.0.2_linux_armv7.tar.gz
+  usbip-go_1.0.2_linux_amd64.deb
+  usbip-go_1.0.2_linux_arm64.deb
+  usbip-go_1.0.2_linux_armv7.deb
+  usbip-go_1.0.2_linux_amd64.rpm
+  usbip-go_1.0.2_linux_arm64.rpm
+  usbip-go_1.0.2_linux_armv7.rpm
+)
+
+slsa-verifier verify-artifact "${artifacts[@]}" \
+  --provenance-path multiple.intoto.jsonl \
+  --source-uri github.com/abilisoft/usbip-go \
+  --source-branch main \
+  --builder-id \
+  'https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@refs/tags/v2.1.0' \
+  --build-workflow-input release-tag=v1.0.2
+```
+
+Do not substitute `--source-tag v1.0.2`; that would falsely request tag-push
+provenance. Verify the signed recovery configuration against the controller
+commit disclosed in the GitHub Release body:
+
+```bash
+RECOVERY_CONTROLLER_SHA='<controller commit from the v1.0.2 release body>'
+RECOVERY_ARTIFACT=usbip-go_1.0.2_linux_amd64.tar.gz
+slsa-verifier verify-artifact "${RECOVERY_ARTIFACT}" \
+  --provenance-path multiple.intoto.jsonl \
+  --source-uri github.com/abilisoft/usbip-go \
+  --source-branch main \
+  --builder-id \
+  'https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@refs/tags/v2.1.0' \
+  --build-workflow-input release-tag=v1.0.2 \
+  --print-provenance > verified-provenance.json
+
+jq -e --arg sha "${RECOVERY_CONTROLLER_SHA}" '
+  .predicate.invocation.configSource.uri ==
+    "git+https://github.com/abilisoft/usbip-go@refs/heads/main" and
+  .predicate.invocation.configSource.entryPoint ==
+    ".github/workflows/recover-v1.0.2.yml" and
+  .predicate.invocation.configSource.digest.sha1 == $sha and
+  .predicate.invocation.environment.github_event_name == "workflow_dispatch" and
+  .predicate.invocation.environment.github_event_payload.inputs["release-tag"] ==
+    "v1.0.2"
+' verified-provenance.json
+```
+
+Then verify every downloaded checksum entry, the keyless checksum signature,
+and the source stamp in the amd64 archive:
+
+```sh
+sha256sum --check usbip-go_1.0.2_checksums.txt
+cosign verify-blob \
+  --bundle usbip-go_1.0.2_checksums.txt.sigstore.json \
+  --certificate-identity \
+  'https://github.com/abilisoft/usbip-go/.github/workflows/recover-v1.0.2.yml@refs/heads/main' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  usbip-go_1.0.2_checksums.txt
+
+tar xzf usbip-go_1.0.2_linux_amd64.tar.gz
+version_output=$(NO_COLOR=1 ./usbip-go version)
+printf '%s\n' "${version_output}" | grep -F 'usbip-go version 1.0.2'
+printf '%s\n' "${version_output}" | \
+  grep -F 'commit 72aa5a6b585d1f5b6230c8362254ea2a6296ec75'
+printf '%s\n' "${version_output}" | \
+  grep -F 'built 2026-07-18T15:02:10Z'
+```
+
 ## OpenSSF Best Practices badge
 
 The repo holds the **Passing** tier badge. The **Silver** and **Gold** tiers add
@@ -158,11 +239,13 @@ build-metadata suffix, or leading-zero numeric component). Releases start only
 from a newly created, GitHub-verified signed annotated tag pushed from the
 current default-branch head. When the current workflow revision handles the
 event, it rejects updated, forced, deleted, lightweight, unverified, stale, or
-changed tag targets before downstream work and exposes no manual launcher.
-Later release and publication jobs check out the immutable event commit without
-persisted Git credentials and revalidate the live tag before draft staging and
-publication. Release notes use git-cliff's current-tag selection and must begin
-with the pushed stable version's heading.
+changed tag objects or targets before downstream work and exposes no manual
+launcher. `github.event.after` is the annotated tag-object SHA, while
+`github.sha` is its peeled commit. Later release and publication jobs check out
+that immutable peeled commit without persisted Git credentials and revalidate
+both live identities before draft staging and publication. Release notes use
+git-cliff's current-tag selection and must begin with the pushed stable
+version's heading.
 
 GitHub selects a push workflow from the event's associated ref and revision.
 Consequently, the workflow check is defense in depth, not protection against an
@@ -171,6 +254,17 @@ recreating a consumed version. The active all-tag ruleset is the authoritative
 boundary, and routine release or recovery never bypasses it. A proxy lookup is
 post-release evidence, not a safe reuse check: a different proxy or checksum
 database may already have cached the version.
+
+The separately named `Recover v1.0.2` workflow is a fixed historical repair,
+not a second normal release interface. It accepts only confirmation
+`release-tag=v1.0.2`, binds the exact signed object
+`f0c7083fdee40e1e31ebc170992fa5f43efe8d60` to commit
+`72aa5a6b585d1f5b6230c8362254ea2a6296ec75`, runs all hosted gates against that
+commit, binds the staged draft by release ID, and compares the GitHub SHA-256
+digests of all 14 GoReleaser assets with their staged files and all nine
+downloadable archive/package subjects with the hashes given to the SLSA
+generator immediately before publishing that same ID. It becomes inert after
+the exact public release exists.
 
 [scorecard]: https://github.com/ossf/scorecard
 [bp]: https://www.bestpractices.coreinfrastructure.org/

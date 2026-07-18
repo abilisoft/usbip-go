@@ -62,12 +62,13 @@ if [[ ${release_tag_object_type} == 'tag' ]]; then
 		)
 fi
 
-if [[ -z ${RELEASE_DEFAULT_BRANCH_COMMIT:-} ]]; then
-	RELEASE_DEFAULT_BRANCH_COMMIT=$(git rev-parse HEAD)
+if [[ -z ${RELEASE_CHECKED_OUT_COMMIT:-} ]]; then
+	RELEASE_CHECKED_OUT_COMMIT=$(git rev-parse HEAD)
 fi
 
-export RELEASE_DEFAULT_BRANCH_COMMIT
+export RELEASE_CHECKED_OUT_COMMIT
 export RELEASE_TAG_OBJECT_NAME=${release_tag_object_name}
+export RELEASE_TAG_OBJECT_SHA=${release_tag_object_sha}
 export RELEASE_TAG_OBJECT_TYPE=${release_tag_object_type}
 export RELEASE_TAG_SIGNATURE_VERIFIED=${release_tag_signature_verified}
 export RELEASE_TAG_TARGET_COMMIT=${release_tag_target_commit}

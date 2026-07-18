@@ -35,6 +35,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_EVENT_AFTER: ${{ github.event.after }}
+          RELEASE_EVENT_TARGET_COMMIT: ${{ github.sha }}
           RELEASE_EVENT_CREATED: ${{ github.event.created }}
           RELEASE_EVENT_DELETED: ${{ github.event.deleted }}
           RELEASE_EVENT_FORCED: ${{ github.event.forced }}
@@ -49,6 +50,8 @@ jobs:
       contents: read
       security-events: write
     uses: ./.github/workflows/_security.yml
+    with:
+      source-ref: ${{ github.sha }}
 
   unit-tests:
     name: Unit
@@ -56,6 +59,8 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/_unit-tests.yml
+    with:
+      source-ref: ${{ github.sha }}
 
   conformance:
     name: Conformance
@@ -63,6 +68,8 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/_conformance.yml
+    with:
+      source-ref: ${{ github.sha }}
 
   arch:
     name: Architecture
@@ -70,6 +77,8 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/_arch-checks.yml
+    with:
+      source-ref: ${{ github.sha }}
 
   coverage:
     name: Coverage
@@ -78,6 +87,8 @@ jobs:
       contents: read
       id-token: write
     uses: ./.github/workflows/_coverage.yml
+    with:
+      source-ref: ${{ github.sha }}
 
   release:
     name: Build draft release
@@ -99,7 +110,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-          ref: ${{ github.event.after }}
+          ref: ${{ github.sha }}
       - uses: ./.github/actions/setup-bazel
       - name: Local CI gate
         run: make ci-local
@@ -116,6 +127,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_EVENT_AFTER: ${{ github.event.after }}
+          RELEASE_EVENT_TARGET_COMMIT: ${{ github.sha }}
           RELEASE_EVENT_CREATED: ${{ github.event.created }}
           RELEASE_EVENT_DELETED: ${{ github.event.deleted }}
           RELEASE_EVENT_FORCED: ${{ github.event.forced }}
@@ -169,11 +181,12 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
-          ref: ${{ github.event.after }}
+          ref: ${{ github.sha }}
       - name: Revalidate stable tag before publication
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_EVENT_AFTER: ${{ github.event.after }}
+          RELEASE_EVENT_TARGET_COMMIT: ${{ github.sha }}
           RELEASE_EVENT_CREATED: ${{ github.event.created }}
           RELEASE_EVENT_DELETED: ${{ github.event.deleted }}
           RELEASE_EVENT_FORCED: ${{ github.event.forced }}
