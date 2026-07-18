@@ -20,6 +20,7 @@ only).
 | Token-Permissions      | Every workflow declares minimal top-level `permissions:`; jobs widen only for release or security uploads.   |
 | Security-Policy        | [`SECURITY.md`](../SECURITY.md) at repo root.                                                                    |
 | Signed-Releases        | GoReleaser stages and reuses one draft; cosign signs keylessly through GitHub OIDC; syft emits SBOMs; and the verifier-compatible SLSA `@v2.1.0` workflow uploads provenance into that draft. Only the provenance-dependent publish job makes it public. |
+| Immutable-Tags         | Stable versions are single-use. The all-tag ruleset is authoritative; current release validation accepts only a fresh, signed, correctly targeted canonical tag event. Retract a consumed bad version and use the next patch rather than moving or recreating it. |
 | Dependency-Update-Tool | Dependabot weekly bumps for `gomod` + `github-actions`. See `.github/dependabot.yml`.                            |
 | Fuzzing                | `internal/adapter/wire/fuzz_test.go` — codec fuzz targets seeded with historical malformed inputs.               |
 | Maintained             | The development branch receives active maintenance; published support status is declared in [`SECURITY.md`](../SECURITY.md). |
@@ -30,8 +31,8 @@ only).
 
 ## What the project owner enables on github.com
 
-These two Scorecard checks require server-side configuration. The
-repo content cannot enable them on its own.
+These controls require server-side configuration. The repository content
+cannot enable them on its own.
 
 1. **Active `default-branches` repository ruleset** on `main`:
    - Require two approvals, code-owner review, approval of the last push,
@@ -53,7 +54,19 @@ repo content cannot enable them on its own.
      direct updates. Organization administrators are the configured emergency
      bypass actors.
 
-2. **Code-Review** policy is enforced by the pull-request rules above; the
+2. **Active `default-tags` repository ruleset** on all tags, including stable
+   release tags:
+   - Require signatures and restrict tag creation, updates, deletion, and
+     non-fast-forward changes.
+   - Organization administrators are emergency bypass actors, but routine
+     release and recovery operations never use that bypass to move, delete, or
+     recreate an existing stable tag.
+   - Treat the first push as consuming the version even if artifact or
+     provenance publication later fails; retract it and use the next patch.
+   - Verify the Release workflow is enabled and active before creating a new
+     stable tag; a disabled workflow still consumes a pushed version.
+
+3. **Code-Review** policy is enforced by the pull-request rules above; the
    Scorecard result still depends on merged pull requests actually carrying
    independent approving reviews.
 
@@ -94,6 +107,13 @@ Settings → Rules → Rulesets → Add branch ruleset for the default branch:
   ✓ Restrict branch creation, deletion, and direct updates
     Organization administrators: emergency bypass
   ✓ Block force pushes
+
+Settings → Rules → Rulesets → Add tag ruleset for all tags:
+  ✓ Require signatures
+  ✓ Restrict tag creation, updates, and deletion
+  ✓ Block non-fast-forward updates
+    Organization administrators: emergency bypass
+    Never use the bypass to move, delete, or recreate an existing stable tag
 ```
 
 ## OpenSSF Best Practices badge
@@ -133,11 +153,24 @@ the honest hermetic path over adding an install-only marker action that is never
 used for the actual release.
 
 The explicit validation in `release.yml` and the `tag_pattern` in `cliff.toml`
-are anchored to stable SemVer tags (`vMAJOR.MINOR.PATCH`, no pre-release or
-build-metadata suffix). Releases start only from a signed annotated tag pushed
-from the current default-branch head. The workflow exposes no manual launcher
-that would create an unsigned lightweight tag incompatible with the repository
-tag ruleset.
+are anchored to stable SemVer tags (`vMAJOR.MINOR.PATCH`, no pre-release,
+build-metadata suffix, or leading-zero numeric component). Releases start only
+from a newly created, GitHub-verified signed annotated tag pushed from the
+current default-branch head. When the current workflow revision handles the
+event, it rejects updated, forced, deleted, lightweight, unverified, stale, or
+changed tag targets before downstream work and exposes no manual launcher.
+Later release and publication jobs check out the immutable event commit without
+persisted Git credentials and revalidate the live tag before draft staging and
+publication. Release notes use git-cliff's current-tag selection and must begin
+with the pushed stable version's heading.
+
+GitHub selects a push workflow from the event's associated ref and revision.
+Consequently, the workflow check is defense in depth, not protection against an
+administrator moving a tag to an obsolete workflow revision or deleting and
+recreating a consumed version. The active all-tag ruleset is the authoritative
+boundary, and routine release or recovery never bypasses it. A proxy lookup is
+post-release evidence, not a safe reuse check: a different proxy or checksum
+database may already have cached the version.
 
 [scorecard]: https://github.com/ossf/scorecard
 [bp]: https://www.bestpractices.coreinfrastructure.org/
