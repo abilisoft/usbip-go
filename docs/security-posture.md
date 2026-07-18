@@ -19,7 +19,7 @@ only).
 | Vulnerabilities        | `make govulncheck` in PR, nightly, release, and local `make ci-local` gates; SARIF upload feeds code scanning.        |
 | Token-Permissions      | Every workflow declares minimal top-level `permissions:`; jobs widen only for release or security uploads.   |
 | Security-Policy        | [`SECURITY.md`](../SECURITY.md) at repo root.                                                                    |
-| Signed-Releases        | GoReleaser + cosign keyless via GitHub OIDC; SBOM via syft. See `.goreleaser.yml`.                               |
+| Signed-Releases        | GoReleaser stages and reuses one draft; cosign signs keylessly through GitHub OIDC; syft emits SBOMs; and the verifier-compatible SLSA `@v2.1.0` workflow uploads provenance into that draft. Only the provenance-dependent publish job makes it public. |
 | Dependency-Update-Tool | Dependabot weekly bumps for `gomod` + `github-actions`. See `.github/dependabot.yml`.                            |
 | Fuzzing                | `internal/adapter/wire/fuzz_test.go` — codec fuzz targets seeded with historical malformed inputs.               |
 | Maintained             | The development branch receives active maintenance; published support status is declared in [`SECURITY.md`](../SECURITY.md). |
@@ -132,11 +132,12 @@ GoReleaser invocation as a literal `goreleaser/goreleaser-action` step. We prefe
 the honest hermetic path over adding an install-only marker action that is never
 used for the actual release.
 
-The direct trigger filter in `release.yml`, its manual release-start form, and
-the `tag_pattern` in `cliff.toml` are anchored to stable SemVer tags
-(`vMAJOR.MINOR.PATCH`, no pre-release or build-metadata suffix). The manual path
-creates the tag from the current default-branch head and redispatches at that
-tag, so both entry points use the same gated tag-context publishing pipeline.
+The explicit validation in `release.yml` and the `tag_pattern` in `cliff.toml`
+are anchored to stable SemVer tags (`vMAJOR.MINOR.PATCH`, no pre-release or
+build-metadata suffix). Releases start only from a signed annotated tag pushed
+from the current default-branch head. The workflow exposes no manual launcher
+that would create an unsigned lightweight tag incompatible with the repository
+tag ruleset.
 
 [scorecard]: https://github.com/ossf/scorecard
 [bp]: https://www.bestpractices.coreinfrastructure.org/

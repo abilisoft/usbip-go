@@ -172,30 +172,33 @@ the required privileged kernel and KVM surfaces.
 
 ## Release process
 
-The release workflow supports two equivalent entry points:
+Start from a clean, up-to-date default branch and push a signed annotated tag:
 
-1. In GitHub, open **Actions**, select **Release**, click **Run workflow**, keep
-   the branch set to the default branch, enter `vX.Y.Z`, and run it. The first
-   run validates and creates the tag, then hands off to a second run at that tag.
-2. From an up-to-date local default branch, create and push a tag directly:
+```sh
+git switch main
+git pull --ff-only
+git tag -s vX.Y.Z -m 'Release vX.Y.Z'
+git tag -v vX.Y.Z
+git push origin refs/tags/vX.Y.Z
+```
 
-   ```sh
-   git tag -s vX.Y.Z -m 'Release vX.Y.Z'
-   git push origin vX.Y.Z
-   ```
+The Release workflow intentionally has no GitHub Actions manual-dispatch form:
+the launcher cannot produce the required signed annotated tag. Do not use
+GitHub's **Draft a new release** / **Publish release** form either; that form
+couples tag creation to a GitHub Release before this pipeline has built and
+attested its artifacts.
 
-Do not use GitHub's **Draft a new release** / **Publish release** form to create
-the tag. That form couples tag creation to a GitHub Release, but this pipeline
-must build and attest artifacts before publishing the draft.
-
-Both supported entry points run `.github/workflows/release.yml` at the stable
-tag. The workflow validates the tag, runs the reusable security, unit,
+The signed tag push runs `.github/workflows/release.yml`. The workflow validates
+the tag, runs the reusable security, unit,
 conformance, architecture, and coverage gates, re-runs the local CI sequence,
-generates release notes through the Bazel-provisioned changelog target, and
-then publishes with `make release`. GoReleaser, Go, syft, and cosign are all
-resolved through Bazel runfiles. Both `make test-integration` and
-`make test-integration-vm` remain separate manual maintainer checks because
-they require a specially provisioned Linux host.
+and generates release notes through the Bazel-provisioned changelog target.
+GoReleaser stages and reuses one draft release. The verifier-compatible SLSA
+generator identity at `@v2.1.0` uploads provenance into that same draft while
+keeping it unpublished; only the provenance-dependent publish job makes the
+release public. GoReleaser, Go, syft, and cosign are resolved through Bazel
+runfiles. Both `make test-integration` and `make test-integration-vm` remain
+separate manual maintainer checks because they require a specially provisioned
+Linux host.
 
 For a local distribution build, `make dist` uses Bazel's release stamping to
 derive the package version from a canonical `vMAJOR.MINOR.PATCH` tag (or a

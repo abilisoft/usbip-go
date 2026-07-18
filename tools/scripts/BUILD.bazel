@@ -187,17 +187,15 @@ script_binary(
     visibility = PUBLIC_VISIBILITY,
 )
 
-script_binary(
-    name = "start_release",
-    src = "start_release.sh",
-    visibility = PUBLIC_VISIBILITY,
-)
-
 script_test(
-    name = "start_release_test",
+    name = "release_workflow_test",
     size = "small",
-    src = "start_release_test.sh",
-    data = ["start_release.sh"],
+    src = "release_workflow_test.sh",
+    data = [
+        "//:.goreleaser.yml",
+        "//:github_workflow_files",
+        "//:repo_make_files",
+    ],
 )
 
 script_test(

@@ -52,7 +52,7 @@ all: build lint test
 ## Install repo-local Go and Bazelisk
 .PHONY: bootstrap
 bootstrap:
-	@HARNESS_TOOLS_DIR="$(TOOLS_DIR)" HARNESS_BAZELISK_HOME="$(BAZELISK_HOME)" HARNESS_BAZEL_OUTPUT_USER_ROOT="$(BAZEL_OUTPUT_USER_ROOT)" tools/scripts/bootstrap.sh
+	@HARNESS_TOOLS_DIR="$(TOOLS_DIR)" HARNESS_BAZELISK_HOME="$(BAZELISK_HOME)" HARNESS_BAZEL_OUTPUT_USER_ROOT="$(BAZEL_OUTPUT_USER_ROOT)" tools/scripts/bootstrap.sh 1>&2
 
 ## Build Bazel targets; override BAZEL_BUILD_TARGETS to narrow the set
 .PHONY: build
@@ -68,7 +68,7 @@ build-codeql: bootstrap
 ## Generate changelog output
 .PHONY: changelog
 changelog: bootstrap
-	$(BAZEL) run //:changelog
+	@$(BAZEL) run //:changelog
 
 ## Check exported API compatibility against baselines
 .PHONY: check-api-compatibility
@@ -162,11 +162,6 @@ release-check: bootstrap
 .PHONY: release-snapshot
 release-snapshot: bootstrap
 	$(BAZEL) run $(BAZEL_BUILD_FLAGS) //:release-snapshot
-
-## Validate, create, and hand off a manual GitHub release tag
-.PHONY: start-release
-start-release:
-	@tools/scripts/start_release.sh
 
 ## Run tests; override BAZEL_TEST_TARGETS to narrow the set
 .PHONY: test
