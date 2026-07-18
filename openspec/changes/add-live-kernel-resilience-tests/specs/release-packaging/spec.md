@@ -7,18 +7,17 @@ architecture, and coverage workflows that run on the standard GitHub-hosted
 runner pool available to the project. Single-kernel module integration and
 two-guest KVM resilience SHALL remain separate manual maintainer checks because
 they require privileged Linux kernel or virtualization capabilities unavailable
-on those runners. These prerequisites SHALL be identical for direct tag pushes
-and manually created tags.
+on those runners.
 
 #### Scenario: Prereq gate fails
 
-- **WHEN** any prereq workflow fails for either release entry point
-- **THEN** the build-and-publish release job does not run
+- **WHEN** any prereq workflow fails for the tagged release
+- **THEN** the draft-building release job does not run
 
 #### Scenario: Prereq gates pass
 
 - **WHEN** security, unit tests, conformance, architecture checks, and coverage complete successfully
-- **THEN** the release job may build and publish artifacts
+- **THEN** the release job may build and stage draft artifacts for downstream attestation and publication
 
 #### Scenario: Kernel integration requires privileged capabilities
 
