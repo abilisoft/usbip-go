@@ -5,6 +5,7 @@ set -euo pipefail
 readonly exit_failure=1
 readonly exit_success=0
 readonly expected_commit='0123456789abcdef0123456789abcdef01234567'
+readonly expected_tag_object='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 
 validator_path() {
 	if [[ -n ${TEST_SRCDIR:-} && -n ${TEST_WORKSPACE:-} ]]; then
@@ -33,8 +34,10 @@ case "${endpoint}" in
 */git/ref/tags/*)
 	if [[ ${FAKE_GH_MODE:-} == 'lightweight' ]]; then
 		printf 'commit\t%s\n' "${FAKE_COMMIT}"
+	elif [[ ${FAKE_GH_MODE:-} == 'moved_object' ]]; then
+		printf 'tag\t%s\n' 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 	else
-		printf 'tag\t%s\n' 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+		printf 'tag\t%s\n' "${FAKE_TAG_OBJECT}"
 	fi
 	;;
 */git/tags/*)
@@ -42,7 +45,7 @@ case "${endpoint}" in
 	target=${FAKE_COMMIT}
 	if [[ ${FAKE_GH_MODE:-} == 'unverified' ]]; then
 		verified=false
-	elif [[ ${FAKE_GH_MODE:-} == 'moved' ]]; then
+	elif [[ ${FAKE_GH_MODE:-} == 'moved_target' ]]; then
 		target='1123456789abcdef0123456789abcdef01234567'
 	fi
 	printf '%s\tcommit\t%s\t%s\n' "${FAKE_TAG}" "${target}" "${verified}"
@@ -68,8 +71,10 @@ run_case() {
 		FAKE_COMMIT=${expected_commit} \
 		FAKE_GH_MODE=${mode} \
 		FAKE_TAG=v1.2.3 \
-		RELEASE_DEFAULT_BRANCH_COMMIT=${expected_commit} \
-		RELEASE_EVENT_AFTER=${expected_commit} \
+		FAKE_TAG_OBJECT=${expected_tag_object} \
+		RELEASE_CHECKED_OUT_COMMIT=${expected_commit} \
+		RELEASE_EVENT_AFTER=${expected_tag_object} \
+		RELEASE_EVENT_TARGET_COMMIT=${expected_commit} \
 		RELEASE_EVENT_CREATED=true \
 		RELEASE_EVENT_DELETED=false \
 		RELEASE_EVENT_FORCED=false \
@@ -95,5 +100,6 @@ run_case() {
 run_case fresh "${exit_success}" '' 'validated fresh stable release tag v1.2.3'
 run_case lightweight "${exit_failure}" lightweight 'release ref must point to an annotated tag object'
 run_case unverified "${exit_failure}" unverified 'signature must be verified by GitHub'
-run_case moved "${exit_failure}" moved 'live annotated tag target does not match the release push event target'
+run_case moved_object "${exit_failure}" moved_object 'live annotated tag object does not match the release push event object'
+run_case moved_target "${exit_failure}" moved_target 'live annotated tag target does not match the release push event commit'
 run_case api_failure "${exit_failure}" api_failure ''

@@ -1,0 +1,305 @@
+# SPDX-FileCopyrightText: 2026 AbiliSoft
+# SPDX-License-Identifier: Apache-2.0
+
+name: Recover v1.0.2
+
+on:
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: Confirm the only immutable release this workflow can recover.
+        required: true
+        type: choice
+        options:
+          - v1.0.2
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recover-immutable-v1.0.2
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  validate-tag:
+    name: Validate immutable v1.0.2 source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      release-tag: ${{ steps.validate.outputs.release-tag }}
+      source-commit: ${{ steps.validate.outputs.source-commit }}
+      tag-object-sha: ${{ steps.validate.outputs.tag-object-sha }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          path: .local/release-source
+          persist-credentials: false
+          ref: 72aa5a6b585d1f5b6230c8362254ea2a6296ec75
+      - name: Validate fixed tag, source, controller, and release state
+        id: validate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RECOVERY_CONTROLLER_COMMIT: ${{ github.sha }}
+          RECOVERY_CONTROLLER_PATH: .
+          RECOVERY_CONTROLLER_REF: ${{ github.ref }}
+          RECOVERY_REPOSITORY: ${{ github.repository }}
+          RECOVERY_REQUIRED_RELEASE_STATE: preflight
+          RECOVERY_SOURCE_PATH: .local/release-source
+          RECOVERY_TAG: ${{ inputs.release-tag }}
+        run: tools/scripts/validate_live_release_recovery.sh
+
+  security:
+    name: Security
+    needs: validate-tag
+    permissions:
+      contents: read
+      # The called workflow declares this static job permission. Its SARIF steps
+      # remain disabled below, but reusable workflows cannot elevate the caller.
+      security-events: write
+    uses: ./.github/workflows/_security.yml
+    with:
+      source-ref: ${{ needs.validate-tag.outputs.source-commit }}
+      upload-sarif: false
+
+  unit-tests:
+    name: Unit
+    needs: validate-tag
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_unit-tests.yml
+    with:
+      source-ref: ${{ needs.validate-tag.outputs.source-commit }}
+
+  conformance:
+    name: Conformance
+    needs: validate-tag
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_conformance.yml
+    with:
+      source-ref: ${{ needs.validate-tag.outputs.source-commit }}
+
+  arch:
+    name: Architecture
+    needs: validate-tag
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_arch-checks.yml
+    with:
+      source-ref: ${{ needs.validate-tag.outputs.source-commit }}
+
+  coverage:
+    name: Coverage
+    needs: validate-tag
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/_coverage.yml
+    with:
+      source-ref: ${{ needs.validate-tag.outputs.source-commit }}
+
+  release:
+    name: Build recovered draft release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    needs:
+      - arch
+      - conformance
+      - coverage
+      - security
+      - unit-tests
+      - validate-tag
+    outputs:
+      hashes: ${{ steps.hash-artifacts.outputs.hashes }}
+      release-assets: ${{ steps.hash-artifacts.outputs.release-assets }}
+      release-id: ${{ steps.validate-draft.outputs.release-id }}
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.validate-tag.outputs.source-commit }}
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: .local/release-control
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: ./.github/actions/setup-bazel
+      - name: Local CI gate for immutable source
+        run: make ci-local
+      - name: Generate recovered release notes
+        env:
+          RECOVERY_CONTROLLER_COMMIT: ${{ github.sha }}
+          RECOVERY_SOURCE_COMMIT: ${{ needs.validate-tag.outputs.source-commit }}
+          RELEASE_NOTES_PATH: build/release-notes.md
+          RELEASE_TAG: ${{ needs.validate-tag.outputs.release-tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          make changelog > "${RELEASE_NOTES_PATH}"
+          .local/release-control/tools/scripts/validate_release_notes.sh
+          {
+            printf '\n## Immutable release recovery\n\n'
+            printf '%s\n' \
+              'This release preserves the original signed v1.0.2 tag after its first workflow failed before artifact generation.'
+            printf "Immutable source commit: \`%s\`.\n\n" "${RECOVERY_SOURCE_COMMIT}"
+            printf "Recovery controller: \`.github/workflows/recover-v1.0.2.yml@%s\` on protected \`main\`.\n\n" \
+              "${RECOVERY_CONTROLLER_COMMIT}"
+            printf '%s\n' \
+              'Its SLSA statement is protected-main workflow-dispatch provenance, not a new tag-push event.'
+          } >> "${RELEASE_NOTES_PATH}"
+      - name: Revalidate immutable source before staging draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RECOVERY_CONTROLLER_COMMIT: ${{ github.sha }}
+          RECOVERY_CONTROLLER_PATH: .local/release-control
+          RECOVERY_CONTROLLER_REF: ${{ github.ref }}
+          RECOVERY_REPOSITORY: ${{ github.repository }}
+          RECOVERY_REQUIRED_RELEASE_STATE: preflight
+          RECOVERY_SOURCE_PATH: .
+          RECOVERY_TAG: ${{ needs.validate-tag.outputs.release-tag }}
+        run: .local/release-control/tools/scripts/validate_live_release_recovery.sh
+      - name: Stage recovered draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_NOTES: build/release-notes.md
+        run: make release
+      - name: Bind the recovered draft release ID
+        id: validate-draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RECOVERY_CONTROLLER_COMMIT: ${{ github.sha }}
+          RECOVERY_CONTROLLER_PATH: .local/release-control
+          RECOVERY_CONTROLLER_REF: ${{ github.ref }}
+          RECOVERY_REPOSITORY: ${{ github.repository }}
+          RECOVERY_REQUIRED_RELEASE_STATE: draft
+          RECOVERY_SOURCE_PATH: .
+          RECOVERY_TAG: ${{ needs.validate-tag.outputs.release-tag }}
+        run: .local/release-control/tools/scripts/validate_live_release_recovery.sh
+      - name: Hash recovered release artifacts for SLSA provenance
+        id: hash-artifacts
+        working-directory: build/dist
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          expected_artifacts=(
+            usbip-go_1.0.2_linux_amd64.deb
+            usbip-go_1.0.2_linux_amd64.rpm
+            usbip-go_1.0.2_linux_amd64.tar.gz
+            usbip-go_1.0.2_linux_arm64.deb
+            usbip-go_1.0.2_linux_arm64.rpm
+            usbip-go_1.0.2_linux_arm64.tar.gz
+            usbip-go_1.0.2_linux_armv7.deb
+            usbip-go_1.0.2_linux_armv7.rpm
+            usbip-go_1.0.2_linux_armv7.tar.gz
+          )
+          expected_release_assets=(
+            usbip-go_1.0.2_checksums.txt
+            usbip-go_1.0.2_checksums.txt.sigstore.json
+            usbip-go_1.0.2_linux_amd64.deb
+            usbip-go_1.0.2_linux_amd64.rpm
+            usbip-go_1.0.2_linux_amd64.tar.gz
+            usbip-go_1.0.2_linux_amd64.tar.gz.sbom.json
+            usbip-go_1.0.2_linux_arm64.deb
+            usbip-go_1.0.2_linux_arm64.rpm
+            usbip-go_1.0.2_linux_arm64.tar.gz
+            usbip-go_1.0.2_linux_arm64.tar.gz.sbom.json
+            usbip-go_1.0.2_linux_armv7.deb
+            usbip-go_1.0.2_linux_armv7.rpm
+            usbip-go_1.0.2_linux_armv7.tar.gz
+            usbip-go_1.0.2_linux_armv7.tar.gz.sbom.json
+          )
+          artifacts=( *.tar.gz *.deb *.rpm )
+          expected=$(printf '%s\n' "${expected_artifacts[@]}" | sort)
+          actual=$(printf '%s\n' "${artifacts[@]}" | sort)
+          if [[ ${actual} != "${expected}" ]]; then
+            echo "recovered SLSA subjects are incomplete or unexpected" >&2
+            diff -u <(printf '%s\n' "${expected}") <(printf '%s\n' "${actual}") || true
+            exit 1
+          fi
+          for artifact in "${artifacts[@]}"; do
+            if [[ ! -s ${artifact} ]]; then
+              echo "recovered SLSA subject is empty: ${artifact}" >&2
+              exit 1
+            fi
+          done
+          hashes=$(sha256sum "${artifacts[@]}" | base64 -w0)
+          echo "hashes=${hashes}" >> "$GITHUB_OUTPUT"
+          for release_asset in "${expected_release_assets[@]}"; do
+            if [[ ! -s ${release_asset} ]]; then
+              echo "recovered staged release asset is missing or empty: ${release_asset}" >&2
+              exit 1
+            fi
+          done
+          release_assets=$(sha256sum "${expected_release_assets[@]}" | base64 -w0)
+          echo "release-assets=${release_assets}" >> "$GITHUB_OUTPUT"
+  provenance:
+    name: Generate recovered SLSA provenance
+    needs: [release, validate-tag]
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+    # Keep the tagged reusable-workflow ref because slsa-verifier includes it in
+    # the trusted-builder identity. upload-tag-name selects the immutable draft;
+    # it does not misrepresent this branch dispatch as tag-push provenance.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects: ${{ needs.release.outputs.hashes }}
+      draft-release: 'true'
+      upload-assets: true
+      upload-tag-name: ${{ needs.validate-tag.outputs.release-tag }}
+
+  publish:
+    name: Publish recovered attested release
+    needs: [provenance, release, validate-tag]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.validate-tag.outputs.source-commit }}
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: .local/release-control
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Revalidate and publish the exact recovered draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RECOVERY_CONTROLLER_COMMIT: ${{ github.sha }}
+          RECOVERY_CONTROLLER_PATH: .local/release-control
+          RECOVERY_CONTROLLER_REF: ${{ github.ref }}
+          RECOVERY_EXPECTED_RELEASE_ID: ${{ needs.release.outputs.release-id }}
+          RECOVERY_EXPECTED_ASSETS_BASE64: ${{ needs.release.outputs.release-assets }}
+          RECOVERY_EXPECTED_SUBJECTS_BASE64: ${{ needs.release.outputs.hashes }}
+          RECOVERY_RELEASE_ID: ${{ needs.release.outputs.release-id }}
+          RECOVERY_REPOSITORY: ${{ github.repository }}
+          RECOVERY_REQUIRED_RELEASE_STATE: draft
+          RECOVERY_SOURCE_PATH: .
+          RECOVERY_TAG: ${{ needs.validate-tag.outputs.release-tag }}
+        run: |-
+          set -euo pipefail
+          .local/release-control/tools/scripts/validate_live_release_recovery.sh
+          .local/release-control/tools/scripts/validate_live_release_recovery_assets.sh
+          gh api --method PATCH "repos/${RECOVERY_REPOSITORY}/releases/${RECOVERY_RELEASE_ID}" \
+            -F draft=false >/dev/null

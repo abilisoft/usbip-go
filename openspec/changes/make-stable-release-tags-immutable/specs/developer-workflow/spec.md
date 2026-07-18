@@ -7,7 +7,10 @@ immutable after their first push. Maintainers SHALL NOT move, delete, recreate,
 or bypass tag protection to reuse a stable version. If a pushed version is
 incorrect or its release fails, a normal pull request SHALL retract that
 version in `go.mod`, and the next release attempt SHALL use a higher patch
-version. The active server-side ruleset over all tags SHALL be the authoritative
+version. The validation-only failure of the already-consumed `v1.0.2` tag is the
+sole exception and follows the fixed recovery contract in
+`recover-immutable-v1-0-2-release`; all other failures retain this higher-patch
+rule. The active server-side ruleset over all tags SHALL be the authoritative
 immutability boundary; current workflow validation SHALL remain defense in
 depth because push workflow code comes from the event ref and revision. Before
 consuming a new stable version, maintainers SHALL verify that the Release
@@ -21,7 +24,7 @@ workflow is enabled and active.
 
 #### Scenario: Automated release fails after tag creation
 
-- **WHEN** any build, draft, provenance, or publication stage fails after a stable tag was pushed
+- **WHEN** any build, draft, provenance, or publication stage fails after a stable tag was pushed and the fixed `v1.0.2` exception does not apply
 - **THEN** maintainers fix the failure through the protected default branch
 - **AND** they retract the consumed version and create a new signed annotated tag with a higher patch version
 

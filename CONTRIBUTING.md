@@ -192,8 +192,10 @@ cannot make obsolete workflow revisions safe to bypass. Go proxies and the
 checksum database can cache a tag before GitHub release automation finishes,
 so a failed or incorrect release is recovered through a normal pull request
 that retracts that version in `go.mod`; the next attempt uses a higher patch
-version. A not-found response from one proxy is not proof that the version is
-safe to reuse.
+version. The sole historical exception is the fixed `v1.0.2` recovery described
+below: its original run failed in the first validation job before gates,
+artifacts, a draft, provenance, or publication. A not-found response from one
+proxy is not proof that a version is safe to reuse.
 
 The Release workflow intentionally has no GitHub Actions manual-dispatch form:
 the launcher cannot produce the required signed annotated tag. Do not use
@@ -202,12 +204,15 @@ couples tag creation to a GitHub Release before this pipeline has built and
 attested its artifacts.
 
 The signed tag push runs `.github/workflows/release.yml`. When the current
-workflow revision handles the event, it validates a fresh canonical creation,
-GitHub-verified annotated-tag metadata, and an exact target match with both the
-event and the checked-out default-branch head. If that checkout observes a
-concurrent default-branch advance, validation fails closed and consumes the
-version. Later jobs check out the immutable event commit without persisted Git
-credentials and revalidate the live tag before draft staging and publication.
+workflow revision handles the event, it validates a fresh canonical creation
+and GitHub-verified annotated-tag metadata. For an annotated tag,
+`github.event.after` identifies the tag object while `github.sha` identifies its
+peeled commit; validation compares the live ref object with the former and its
+direct target with the latter and the checked-out default-branch head. If that
+checkout observes a concurrent default-branch advance, validation fails closed
+and consumes the version. Later jobs check out the immutable peeled commit from
+`github.sha` without persisted Git credentials and revalidate both live
+identities before draft staging and publication.
 The workflow then runs the reusable security, unit, conformance, architecture,
 and coverage gates, re-runs the local CI sequence, and generates tag-bound
 release notes through the Bazel-provisioned changelog target. It rejects an
@@ -219,6 +224,21 @@ release public. GoReleaser, Go, syft, and cosign are resolved through Bazel
 runfiles. Both `make test-integration` and `make test-integration-vm` remain
 separate manual maintainer checks because they require a specially provisioned
 Linux host.
+
+The separately named **Recover v1.0.2** workflow is not a general release
+launcher. It accepts only the `v1.0.2` confirmation and is repository-bound to
+annotated object `f0c7083fdee40e1e31ebc170992fa5f43efe8d60` and source commit
+`72aa5a6b585d1f5b6230c8362254ea2a6296ec75`. It runs only from protected
+`main`, refuses an existing public release, tests every hosted gate and
+`make ci-local` against that exact source, revalidates before draft staging and
+publication, binds the one staged draft by release ID, and verifies the exact
+15-asset roster, all 14 staged GoReleaser digests, and all nine remote SLSA
+subject digests before making that same draft public. It never creates or
+mutates a tag. Its SLSA statement identifies
+the protected-main recovery workflow and the recorded
+`release-tag=v1.0.2` dispatch confirmation, not a new tag-push event. Follow
+[`docs/security-posture.md`](docs/security-posture.md) for the distinct
+verification command.
 
 For a local distribution build, `make dist` uses Bazel's release stamping to
 derive the package version from a canonical `vMAJOR.MINOR.PATCH` tag (or a

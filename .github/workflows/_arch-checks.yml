@@ -5,6 +5,12 @@ name: Architecture checks
 
 on:
   workflow_call:
+    inputs:
+      source-ref:
+        description: Immutable source revision to check out; defaults to the caller event revision.
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -20,6 +26,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source-ref || github.sha }}
       - uses: ./.github/actions/setup-bazel
       - name: Domain boundary rules
         run: make check-domain-boundaries
@@ -30,6 +39,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source-ref || github.sha }}
       - uses: ./.github/actions/setup-bazel
       - name: Pure Go enforcement
         run: make check-pure-go
@@ -42,6 +54,8 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.source-ref || github.sha }}
       - name: Restore trusted API baselines
         if: github.event_name == 'pull_request'
         env:
@@ -59,7 +73,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3; v7 fails hosted setup here
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source-ref || github.sha }}
       - uses: ./.github/actions/setup-bazel
       - name: Linux cross-compilation
         run: make check-cross-compile
@@ -70,6 +87,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source-ref || github.sha }}
       - uses: ./.github/actions/setup-bazel
       - name: Production release stamping
         run: make check-release-stamping

@@ -40,6 +40,7 @@ release_event_created_count=0
 release_event_deleted_count=0
 release_event_forced_count=0
 release_event_after_count=0
+release_event_target_commit_count=0
 release_repository_count=0
 release_tag_input_count=0
 release_tag_validator_count=0
@@ -52,8 +53,9 @@ validator_gh_token_count=0
 validator_tag_ref_endpoint_count=0
 validator_tag_object_endpoint_count=0
 validator_tag_signature_query_count=0
-validator_default_branch_commit_count=0
+validator_checked_out_commit_count=0
 validator_tag_object_name_export_count=0
+validator_tag_object_sha_export_count=0
 validator_tag_object_type_export_count=0
 validator_tag_signature_export_count=0
 validator_tag_target_commit_export_count=0
@@ -93,6 +95,7 @@ release_persist_credentials_count=0
 publish_checkout_count=0
 publish_checkout_ref_count=0
 publish_persist_credentials_count=0
+source_ref_handoff_count=0
 changelog_current_count=0
 changelog_latest_count=0
 permissions_header_count=0
@@ -121,6 +124,17 @@ while IFS= read -r line || [[ -n ${line} ]]; do
 		printf 'SLSA generator must use its verifier-compatible semantic version tag, not a raw SHA\n' >&2
 		exit 1
 	fi
+
+	if [[ ${line} == "          ref: \${{ github.event.after }}" ]]; then
+		printf 'release jobs must never check out an annotated tag-object SHA\n' >&2
+		exit 1
+	fi
+
+	case "${line}" in
+	"          RELEASE_EVENT_AFTER: \${{ github.event.after }}") release_event_after_count=$((release_event_after_count + 1)) ;;
+	"          RELEASE_EVENT_TARGET_COMMIT: \${{ github.sha }}") release_event_target_commit_count=$((release_event_target_commit_count + 1)) ;;
+	"      source-ref: \${{ github.sha }}") source_ref_handoff_count=$((source_ref_handoff_count + 1)) ;;
+	esac
 
 	case "${line}" in
 	'  push:') push_trigger_count=$((push_trigger_count + 1)) ;;
@@ -163,7 +177,6 @@ while IFS= read -r line || [[ -n ${line} ]]; do
 		case "${line}" in
 		'      - uses: actions/checkout@'*) validator_checkout_count=$((validator_checkout_count + 1)) ;;
 		"          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}") validator_gh_token_count=$((validator_gh_token_count + 1)) ;;
-		"          RELEASE_EVENT_AFTER: \${{ github.event.after }}") release_event_after_count=$((release_event_after_count + 1)) ;;
 		"          RELEASE_EVENT_CREATED: \${{ github.event.created }}") release_event_created_count=$((release_event_created_count + 1)) ;;
 		"          RELEASE_EVENT_DELETED: \${{ github.event.deleted }}") release_event_deleted_count=$((release_event_deleted_count + 1)) ;;
 		"          RELEASE_EVENT_FORCED: \${{ github.event.forced }}") release_event_forced_count=$((release_event_forced_count + 1)) ;;
@@ -235,7 +248,7 @@ while IFS= read -r line || [[ -n ${line} ]]; do
 			in_release_needs=true
 			;;
 		'      - uses: actions/checkout@'*) release_checkout_count=$((release_checkout_count + 1)) ;;
-		"          ref: \${{ github.event.after }}") release_checkout_ref_count=$((release_checkout_ref_count + 1)) ;;
+		"          ref: \${{ github.sha }}") release_checkout_ref_count=$((release_checkout_ref_count + 1)) ;;
 		'          persist-credentials: false') release_persist_credentials_count=$((release_persist_credentials_count + 1)) ;;
 		"          RELEASE_NOTES_PATH: build/release-notes.md") release_notes_path_input_count=$((release_notes_path_input_count + 1)) ;;
 		"          RELEASE_TAG: \${{ github.ref_name }}") release_notes_tag_input_count=$((release_notes_tag_input_count + 1)) ;;
@@ -293,7 +306,7 @@ while IFS= read -r line || [[ -n ${line} ]]; do
 		case "${line}" in
 		'    needs: [provenance]') publish_needs_provenance_count=$((publish_needs_provenance_count + 1)) ;;
 		'      - uses: actions/checkout@'*) publish_checkout_count=$((publish_checkout_count + 1)) ;;
-		"          ref: \${{ github.event.after }}") publish_checkout_ref_count=$((publish_checkout_ref_count + 1)) ;;
+		"          ref: \${{ github.sha }}") publish_checkout_ref_count=$((publish_checkout_ref_count + 1)) ;;
 		'          persist-credentials: false') publish_persist_credentials_count=$((publish_persist_credentials_count + 1)) ;;
 		'        run: tools/scripts/validate_live_release_tag.sh')
 			publish_revalidation_count=$((publish_revalidation_count + 1))
@@ -317,8 +330,9 @@ while IFS= read -r line || [[ -n ${line} ]]; do
 	'readonly tag_ref_endpoint='*) validator_tag_ref_endpoint_count=$((validator_tag_ref_endpoint_count + 1)) ;;
 	$'\treadonly tag_object_endpoint='*) validator_tag_object_endpoint_count=$((validator_tag_object_endpoint_count + 1)) ;;
 	*'.verification.verified | tostring'*) validator_tag_signature_query_count=$((validator_tag_signature_query_count + 1)) ;;
-	$'\tRELEASE_DEFAULT_BRANCH_COMMIT=$(git rev-parse HEAD)') validator_default_branch_commit_count=$((validator_default_branch_commit_count + 1)) ;;
+	$'\tRELEASE_CHECKED_OUT_COMMIT=$(git rev-parse HEAD)') validator_checked_out_commit_count=$((validator_checked_out_commit_count + 1)) ;;
 	'export RELEASE_TAG_OBJECT_NAME='*) validator_tag_object_name_export_count=$((validator_tag_object_name_export_count + 1)) ;;
+	'export RELEASE_TAG_OBJECT_SHA='*) validator_tag_object_sha_export_count=$((validator_tag_object_sha_export_count + 1)) ;;
 	'export RELEASE_TAG_OBJECT_TYPE='*) validator_tag_object_type_export_count=$((validator_tag_object_type_export_count + 1)) ;;
 	'export RELEASE_TAG_SIGNATURE_VERIFIED='*) validator_tag_signature_export_count=$((validator_tag_signature_export_count + 1)) ;;
 	'export RELEASE_TAG_TARGET_COMMIT='*) validator_tag_target_commit_export_count=$((validator_tag_target_commit_export_count + 1)) ;;
@@ -350,7 +364,14 @@ expect_one "${release_job_count}" 'release job'
 expect_one "${push_trigger_count}" 'release push trigger'
 expect_one "${stable_tag_trigger_count}" 'stable tag trigger pattern'
 expect_one "${prerelease_exclusion_count}" 'prerelease trigger exclusion'
-expect_one "${release_event_after_count}" 'release event target input'
+if ((release_event_after_count != 3)); then
+	printf 'expected tag-object event input for initial, staging, and publication validation; found %d\n' "${release_event_after_count}" >&2
+	exit 1
+fi
+if ((release_event_target_commit_count != 3)); then
+	printf 'expected peeled event-commit input for initial, staging, and publication validation; found %d\n' "${release_event_target_commit_count}" >&2
+	exit 1
+fi
 expect_one "${release_event_created_count}" 'fresh-tag created event input'
 expect_one "${release_event_deleted_count}" 'fresh-tag deleted event input'
 expect_one "${release_event_forced_count}" 'fresh-tag forced event input'
@@ -366,8 +387,9 @@ expect_one "${validator_gh_token_count}" 'read-only GitHub API token input'
 expect_one "${validator_tag_ref_endpoint_count}" 'live release tag-ref lookup'
 expect_one "${validator_tag_object_endpoint_count}" 'annotated release tag-object lookup'
 expect_one "${validator_tag_signature_query_count}" 'GitHub tag-signature verification lookup'
-expect_one "${validator_default_branch_commit_count}" 'default-branch head lookup'
+expect_one "${validator_checked_out_commit_count}" 'checked-out release commit lookup'
 expect_one "${validator_tag_object_name_export_count}" 'annotated tag-name validator input'
+expect_one "${validator_tag_object_sha_export_count}" 'annotated tag-object SHA validator input'
 expect_one "${validator_tag_object_type_export_count}" 'annotated tag-type validator input'
 expect_one "${validator_tag_signature_export_count}" 'tag-signature validator input'
 expect_one "${validator_tag_target_commit_export_count}" 'tag-target validator input'
@@ -408,6 +430,11 @@ expect_one "${publish_checkout_count}" 'publish checkout action'
 expect_one "${publish_checkout_ref_count}" 'immutable publish event-target checkout'
 expect_one "${publish_persist_credentials_count}" 'credential-free publish checkout'
 expect_one "${changelog_current_count}" 'current-tag changelog selection'
+
+if ((source_ref_handoff_count != 5)); then
+	printf 'release prereq workflows must each receive the peeled event commit; found %d handoffs\n' "${source_ref_handoff_count}" >&2
+	exit 1
+fi
 
 if ((release_notes_tag_input_count != 2)); then
 	printf 'release job must pass the tag to both release-note and live-tag validation steps\n' >&2

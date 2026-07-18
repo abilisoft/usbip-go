@@ -1,8 +1,4 @@
-## Purpose
-
-Specify the release workflow, GoReleaser packaging contract, artifact integrity, and provenance behavior for published usbip-go releases.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Release workflow only publishes canonical stable SemVer tags
 
@@ -92,150 +88,11 @@ before the current workflow can validate it.
 - **WHEN** a tag such as `v1.2.3foo`, `v1.2.3+build.7`, or `v01.2.3` reaches validation
 - **THEN** the validate-tag job rejects it before artifacts are built
 
-### Requirement: Release publication waits for prereq gates
-
-The release job SHALL depend on reusable security, unit-test, conformance,
-architecture, and coverage workflows that run on the standard GitHub-hosted
-runner pool available to the project. Single-kernel module integration and
-two-guest KVM resilience SHALL remain separate manual maintainer checks because
-they require privileged Linux kernel or virtualization capabilities unavailable
-on those runners.
-
-#### Scenario: Prereq gate fails
-
-- **WHEN** any prereq workflow fails for the tagged release
-- **THEN** the draft-building release job does not run
-
-#### Scenario: Prereq gates pass
-
-- **WHEN** security, unit tests, conformance, architecture checks, and coverage complete successfully
-- **THEN** the release job may build and stage draft artifacts for downstream attestation and publication
-
-#### Scenario: Kernel integration requires privileged capabilities
-
-- **WHEN** the project has only standard GitHub-hosted runners
-- **THEN** the release workflow does not schedule kernel-module, writable-configfs, or KVM integration tests
-- **AND** maintainers can run `make test-integration` on a capable Linux host and `make test-integration-vm` on a capable Linux KVM host
-
-### Requirement: Release notes come from git-cliff
-
-The release workflow SHALL generate release notes for the exact stable release
-tag at `HEAD` with git-cliff `--current` and redirect only the renderer's stdout
-into the release-notes file. Bootstrap diagnostics and Make recipe echo SHALL
-remain outside that file. The workflow SHALL fail before artifact publication
-if the renderer's output is empty or its first heading does not identify the
-pushed stable tag.
-
-#### Scenario: Release notes render
-
-- **WHEN** the release job checks out the immutable event target with full history and its stable tag is at `HEAD`
-- **THEN** only `git-cliff --current --strip header` stdout writes `build/release-notes.md`
-- **AND** setup and build diagnostics are excluded from the rendered release notes
-- **AND** the first heading identifies the pushed stable tag
-- **AND** that file is passed to GoReleaser through `--release-notes`
-
-#### Scenario: Release notes are empty
-
-- **WHEN** git-cliff renders zero bytes to stdout
-- **THEN** `build/release-notes.md` remains zero bytes
-- **AND** setup and build diagnostics do not make the file nonempty
-- **AND** the workflow emits an error and refuses to release
-
-#### Scenario: Release notes identify a different version
-
-- **WHEN** the rendered release-notes heading does not identify the pushed stable tag
-- **THEN** the workflow emits an error and refuses to stage release artifacts
-
-### Requirement: GoReleaser builds a single pure-Go Linux binary matrix
-
-GoReleaser SHALL build the `./cmd/usbip-go` single binary for Linux `amd64`, `arm64`, and `armv7` with cgo disabled.
-
-#### Scenario: Release binary is built
-
-- **WHEN** GoReleaser runs the `usbip-go` build
-- **THEN** `CGO_ENABLED=0` is set
-- **AND** `-trimpath`, `-s`, and `-w` are used
-- **AND** `main.version`, `main.commit`, and `main.buildDate` are stamped from tag/version, commit, and commit-date metadata
-
-#### Scenario: Snapshot release runs locally
-
-- **WHEN** `make release-snapshot` dispatches to the Bazel `//:release-snapshot` target
-- **THEN** GoReleaser runs with `--snapshot --clean` through the Bazel-provisioned release harness
-
-### Requirement: Bazel distribution binaries carry build provenance
-
-The Make/Bazel distribution path SHALL stamp the production `usbip-go` binary with the canonical version, commit, and build date derived from declared workspace-status inputs. Canonical `vMAJOR.MINOR.PATCH` Git tags SHALL normalize to package version `MAJOR.MINOR.PATCH` where packaging metadata requires an unprefixed version.
-
-#### Scenario: Tagged distribution binary is built
-
-- **WHEN** `make dist` builds from a canonical stable tag
-- **THEN** `usbip-go version` reports that tag's release version
-- **AND** it reports the source commit and deterministic build-date metadata instead of compiled fallback values
-
-#### Scenario: Development distribution binary is built
-
-- **WHEN** `make dist` builds from a commit without an exact stable tag
-- **THEN** the version is a deterministic development version derived from repository state
-- **AND** commit and build-date metadata remain populated
-
-#### Scenario: Release provenance regression runs
-
-- **WHEN** `make check-release-stamping` runs
-- **THEN** Bazel builds the production `usbip-go` target under the release configuration with committed deterministic workspace-status values
-- **AND** the regression executes that declared production artifact and verifies its exact version, commit, and build date
-
-### Requirement: Release archives include operator documentation and deployment files
-
-GoReleaser SHALL package tar.gz archives with the binary plus core repository documentation, systemd unit files, and the modules-load snippet.
-
-#### Scenario: Archive is produced
-
-- **WHEN** a release archive is generated
-- **THEN** its name includes project, version, OS, architecture, and ARM variant when applicable
-- **AND** it includes `LICENSE`, `README.md`, `CONTRIBUTING.md`, `contrib/systemd/usbip-go.service`, `contrib/systemd/usbip-go.socket`, `contrib/modules-load.d/usbip-go.conf`, and `docs/*.md`
-
-### Requirement: OS packages install binary, docs, systemd units, and modules-load config
-
-GoReleaser nfpm packaging SHALL produce Debian and RPM packages for the same build IDs.
-
-#### Scenario: Package is produced
-
-- **WHEN** nfpm emits a package
-- **THEN** the binary installs under `/usr/bin`
-- **AND** the systemd service and socket install under `/usr/lib/systemd/system`
-- **AND** the modules-load snippet installs under `/usr/lib/modules-load.d`
-- **AND** README and LICENSE install under `/usr/share/doc/usbip-go`
-
-### Requirement: Checksums and SBOMs are generated
-
-The release SHALL publish a sha256 checksums file and SPDX JSON SBOM documents for archives.
-
-#### Scenario: Checksums are generated
-
-- **WHEN** GoReleaser completes artifact generation
-- **THEN** it writes `usbip-go_<version>_checksums.txt` using SHA-256
-
-#### Scenario: SBOMs are generated
-
-- **WHEN** SBOM generation is enabled in the release workflow
-- **THEN** each archive receives a `${artifact}.sbom.json` SPDX document
-
-### Requirement: Checksums are keylessly signed with Sigstore
-
-The release workflow SHALL sign the checksums file with cosign keyless signing using GitHub OIDC.
-
-#### Scenario: Signing runs
-
-- **WHEN** GoReleaser reaches the sign step
-- **THEN** cosign signs the checksum artifact
-- **AND** writes a Sigstore bundle named `${artifact}.sigstore.json`
-
 ### Requirement: SLSA provenance covers user-downloadable binary artifacts
 
 The release and fixed recovery workflows SHALL produce SLSA provenance for
 downloadable binary archives and OS packages. They SHALL invoke the generic
-generator with the exact
-verifier-compatible reusable-workflow identity
+generator with the exact verifier-compatible reusable-workflow identity
 `slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0`.
 GoReleaser SHALL stage and reuse one draft GitHub Release. The provenance job
 SHALL upload into that existing release with `draft-release: 'true'`; the fixed
@@ -270,6 +127,8 @@ represent one event identity as the other.
 - **WHEN** the SLSA generator fails before uploading valid provenance
 - **THEN** the draft GitHub Release remains unpublished
 - **AND** the dependent publish job does not run
+
+## ADDED Requirements
 
 ### Requirement: The immutable v1.0.2 release has a fixed fail-closed recovery
 

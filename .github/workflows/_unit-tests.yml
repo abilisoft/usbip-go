@@ -5,6 +5,12 @@ name: Unit tests
 
 on:
   workflow_call:
+    inputs:
+      source-ref:
+        description: Immutable source revision to check out; defaults to the caller event revision.
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -20,6 +26,9 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source-ref || github.sha }}
       - uses: ./.github/actions/setup-bazel
       - name: Unit tests
         run: make test
