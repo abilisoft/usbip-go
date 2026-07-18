@@ -53,8 +53,8 @@ fi
 
 asset_rows=$(
 	gh api "repos/${RECOVERY_REPOSITORY}/releases/${RECOVERY_RELEASE_ID}/assets?per_page=100" \
-		--paginate --slurp \
-		--jq 'add | .[] | [.id, .name, .size, (.digest // ""), .state] | @tsv'
+		--paginate \
+		--jq '.[] | [.id, .name, .size, (.digest // ""), .state] | @tsv'
 ) || fail 'unable to read the bound recovered draft assets'
 
 export RECOVERY_ASSET_ROWS=${asset_rows}

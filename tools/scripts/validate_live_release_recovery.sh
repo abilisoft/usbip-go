@@ -74,11 +74,27 @@ if [[ ${recovery_tag_object_type} == 'tag' ]]; then
 fi
 
 readonly releases_endpoint="repos/${RECOVERY_REPOSITORY}/releases?per_page=100"
-release_summary=$(
-	gh api "${releases_endpoint}" --paginate --slurp \
-		--jq "add | [.[] | select(.tag_name == \"v1.0.2\" and .draft == true)] as \$drafts | [.[] | select(.tag_name == \"v1.0.2\" and .draft == false)] as \$public | [(\$drafts | length), (\$public | length), (\$drafts[0].id // \"\")] | @tsv"
+release_rows=$(
+	gh api "${releases_endpoint}" --paginate \
+		--jq ".[] | select(.tag_name == \"${fixed_release_tag}\") | [(.draft | tostring), (.id | tostring)] | @tsv"
 ) || fail 'unable to inspect existing recovery releases'
-IFS=$'\t' read -r recovery_draft_count recovery_public_count recovery_release_id <<<"${release_summary}"
+
+recovery_draft_count=0
+recovery_public_count=0
+recovery_release_id=''
+while IFS=$'\t' read -r release_is_draft live_release_id; do
+	[[ -n ${release_is_draft} ]] || continue
+	case "${release_is_draft}" in
+	true)
+		((recovery_draft_count += 1))
+		if ((recovery_draft_count == 1)); then
+			recovery_release_id=${live_release_id}
+		fi
+		;;
+	false) ((recovery_public_count += 1)) ;;
+	*) fail 'GitHub returned an invalid recovery release state' ;;
+	esac
+done <<<"${release_rows}"
 
 case "${recovery_draft_count}:${recovery_public_count}" in
 0:0) recovery_release_state='absent' ;;
