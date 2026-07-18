@@ -8,7 +8,7 @@ readonly HARNESS_VERSION_FALLBACK_BASE="0.0.0"
 readonly HARNESS_VERSION_FALLBACK_SHA="0000000"
 readonly HARNESS_BUILD_DATE_FALLBACK="unknown"
 readonly HARNESS_VERSION_TAG_GLOB="v[0-9]*.[0-9]*.[0-9]*"
-readonly HARNESS_VERSION_TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+$'
+readonly HARNESS_VERSION_TAG_REGEX='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
 readonly HARNESS_GIT="${HARNESS_GIT:-git}"
 
 harness_git_short_sha() {

@@ -192,10 +192,57 @@ script_test(
     size = "small",
     src = "release_workflow_test.sh",
     data = [
+        "changelog_runner.sh",
+        "validate_live_release_tag.sh",
+        "validate_release_notes.sh",
+        "validate_release_tag.sh",
         "//:.goreleaser.yml",
         "//:github_workflow_files",
         "//:repo_make_files",
     ],
+)
+
+script_binary(
+    name = "validate_live_release_tag",
+    src = "validate_live_release_tag.sh",
+    data = ["validate_release_tag.sh"],
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_test(
+    name = "validate_live_release_tag_test",
+    size = "small",
+    src = "validate_live_release_tag_test.sh",
+    data = [
+        "validate_live_release_tag.sh",
+        "validate_release_tag.sh",
+    ],
+)
+
+script_binary(
+    name = "validate_release_notes",
+    src = "validate_release_notes.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_test(
+    name = "validate_release_notes_test",
+    size = "small",
+    src = "validate_release_notes_test.sh",
+    data = ["validate_release_notes.sh"],
+)
+
+script_binary(
+    name = "validate_release_tag",
+    src = "validate_release_tag.sh",
+    visibility = PUBLIC_VISIBILITY,
+)
+
+script_test(
+    name = "validate_release_tag_test",
+    size = "small",
+    src = "validate_release_tag_test.sh",
+    data = ["validate_release_tag.sh"],
 )
 
 script_test(

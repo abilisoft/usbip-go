@@ -172,7 +172,9 @@ the required privileged kernel and KVM surfaces.
 
 ## Release process
 
-Start from a clean, up-to-date default branch and push a signed annotated tag:
+Confirm in GitHub Actions that the Release workflow is enabled and active.
+Then start from a clean, up-to-date default branch and push a signed annotated
+tag:
 
 ```sh
 git switch main
@@ -182,16 +184,34 @@ git tag -v vX.Y.Z
 git push origin refs/tags/vX.Y.Z
 ```
 
+A stable version is consumed the first time its tag is pushed. Never
+force-update, delete, recreate, or use an administrative ruleset bypass to move
+an existing stable tag. The active server-side tag ruleset is the authoritative
+immutability boundary; an Actions workflow is selected from the pushed ref and
+cannot make obsolete workflow revisions safe to bypass. Go proxies and the
+checksum database can cache a tag before GitHub release automation finishes,
+so a failed or incorrect release is recovered through a normal pull request
+that retracts that version in `go.mod`; the next attempt uses a higher patch
+version. A not-found response from one proxy is not proof that the version is
+safe to reuse.
+
 The Release workflow intentionally has no GitHub Actions manual-dispatch form:
 the launcher cannot produce the required signed annotated tag. Do not use
 GitHub's **Draft a new release** / **Publish release** form either; that form
 couples tag creation to a GitHub Release before this pipeline has built and
 attested its artifacts.
 
-The signed tag push runs `.github/workflows/release.yml`. The workflow validates
-the tag, runs the reusable security, unit,
-conformance, architecture, and coverage gates, re-runs the local CI sequence,
-and generates release notes through the Bazel-provisioned changelog target.
+The signed tag push runs `.github/workflows/release.yml`. When the current
+workflow revision handles the event, it validates a fresh canonical creation,
+GitHub-verified annotated-tag metadata, and an exact target match with both the
+event and the checked-out default-branch head. If that checkout observes a
+concurrent default-branch advance, validation fails closed and consumes the
+version. Later jobs check out the immutable event commit without persisted Git
+credentials and revalidate the live tag before draft staging and publication.
+The workflow then runs the reusable security, unit, conformance, architecture,
+and coverage gates, re-runs the local CI sequence, and generates tag-bound
+release notes through the Bazel-provisioned changelog target. It rejects an
+empty body or a heading for a different version.
 GoReleaser stages and reuses one draft release. The verifier-compatible SLSA
 generator identity at `@v2.1.0` uploads provenance into that same draft while
 keeping it unpublished; only the provenance-dependent publish job makes the

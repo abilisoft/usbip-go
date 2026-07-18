@@ -3,6 +3,7 @@ module github.com/abilisoft/usbip-go
 go 1.26.5
 
 retract (
+	v1.0.1 // Tag was rewritten after proxy caching during a failed release; use v1.0.2 or later
 	v1.0.0 // Published accidentally; do not use
 	v0.2.1 // License defect; do not use
 	v0.2.0 // License defect; do not use

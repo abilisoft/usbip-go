@@ -98,8 +98,9 @@ assert_equal \
 
 init_repo "${fallback_repo}"
 commit_file "${fallback_repo}" first "fallback" "${first_commit_date}"
+"${git_bin}" -C "${fallback_repo}" tag v01.2.3
 fallback_sha=$("${git_bin}" -C "${fallback_repo}" rev-parse --short=7 HEAD)
 assert_equal \
 	"0.0.0.dev1+g${fallback_sha}" \
 	"$(version_in "${fallback_repo}")" \
-	"repository without a canonical tag"
+	"repository without a canonical tag ignores a leading-zero tag"

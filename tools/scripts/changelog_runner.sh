@@ -124,7 +124,7 @@ fi
 
 cliff_args=(
 	--config "${config}"
-	--latest
+	--current
 	--strip header
 	# Use native TLS so private CAs installed in the runner's system trust
 	# store are honored if the changelog configuration performs API calls.
