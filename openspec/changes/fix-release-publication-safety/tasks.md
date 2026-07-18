@@ -14,4 +14,4 @@
 
 - [x] 3.1 Run the focused policy test and relevant action, Make, shell, YAML, Bazel, and Markdown lint targets
 - [x] 3.2 Run strict baseline/change OpenSpec validation and verify clean release-note output
-- [ ] 3.3 Create and verify a signed Conventional Commit, publish the branch through a pull request, and confirm all required checks
+- [x] 3.3 Create and verify a signed Conventional Commit, publish the branch through a pull request, and confirm all required checks
