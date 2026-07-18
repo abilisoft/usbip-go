@@ -192,13 +192,16 @@ expect_count "${pure_validator}" "printf 'tag-object-sha=%s\\n'" 1 'validated ta
 expect_count "${pure_validator}" "printf 'source-commit=%s\\n'" 1 'validated source-commit output'
 expect_count "${pure_validator}" "printf 'release-id=%s\\n'" 1 'bound release-ID output'
 
-expect_count "${live_validator}" '--paginate --slurp' 1 'complete release-state pagination'
+expect_count "${live_validator}" '--paginate' 1 'complete release-state pagination'
+expect_count "${live_validator}" '--slurp' 0 'GitHub CLI-compatible release pagination'
 expect_count "${live_validator}" "git -C \"\${RECOVERY_CONTROLLER_PATH}\" rev-parse HEAD" 1 'controller checkout verification'
 expect_count "${live_validator}" "git -C \"\${RECOVERY_SOURCE_PATH}\" rev-parse HEAD" 1 'source checkout verification'
 expect_count "${live_validator}" "git -C \"\${RECOVERY_SOURCE_PATH}\" rev-parse \"refs/tags/\${fixed_release_tag}\"" 1 'local tag-object verification'
 expect_count "${live_validator}" "git -C \"\${RECOVERY_SOURCE_PATH}\" rev-parse \"refs/tags/\${fixed_release_tag}^{commit}\"" 1 'local tag-target verification'
 
 expect_count "${live_asset_validator}" "releases/\${RECOVERY_RELEASE_ID}" 2 'bound release-ID API lookups'
+expect_count "${live_asset_validator}" '--paginate' 1 'complete asset pagination'
+expect_count "${live_asset_validator}" '--slurp' 0 'GitHub CLI-compatible asset pagination'
 expect_count "${live_asset_validator}" '(.digest // "")' 1 'remote asset SHA-256 digest retrieval'
 expect_count "${pure_asset_validator}" 'published asset digest does not match the attested subject' 1 'remote subject digest binding'
 expect_count "${pure_asset_validator}" 'published asset digest does not match the staged release asset' 1 'remote staged-asset digest binding'

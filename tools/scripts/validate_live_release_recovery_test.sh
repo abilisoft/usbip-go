@@ -30,6 +30,10 @@ if [[ ${FAKE_GH_MODE:-} == 'api_failure' ]]; then
 	exit 1
 fi
 
+if [[ " $* " == *' --slurp '* && " $* " == *' --jq '* ]]; then
+	exit 2
+fi
+
 endpoint=${2:-}
 case "${endpoint}" in
 */git/ref/tags/*)
@@ -48,9 +52,12 @@ case "${endpoint}" in
 	;;
 */releases\?*)
 	case "${FAKE_GH_MODE:-}" in
-	draft) printf '1\t0\t123\n' ;;
-	public) printf '0\t1\t\n' ;;
-	*) printf '0\t0\t\n' ;;
+	draft) printf 'true\t123\n' ;;
+	invalid) printf 'unknown\t123\n' ;;
+	mixed) printf 'true\t123\nfalse\t456\n' ;;
+	multiple) printf 'true\t123\ntrue\t124\n' ;;
+	public) printf 'false\t456\n' ;;
+	*) : ;;
 	esac
 	;;
 *)
@@ -135,6 +142,9 @@ run_case() {
 
 run_case absent "${exit_success}" '' '' 'validated immutable release recovery'
 run_case draft "${exit_success}" draft '' 'validated immutable release recovery'
+run_case invalid "${exit_failure}" invalid '' 'invalid recovery release state'
+run_case mixed "${exit_failure}" mixed '' 'recovery replay is forbidden'
+run_case multiple "${exit_failure}" multiple '' 'requires no release or one exact-tag draft'
 run_case public "${exit_failure}" public '' 'recovery replay is forbidden'
 run_case lightweight "${exit_failure}" lightweight '' 'must point to an annotated tag object'
 run_case unverified "${exit_failure}" unverified '' 'signature must be verified by GitHub'

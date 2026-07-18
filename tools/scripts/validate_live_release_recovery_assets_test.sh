@@ -81,6 +81,10 @@ if [[ ${FAKE_GH_MODE:-} == 'api_failure' ]]; then
 	exit 1
 fi
 
+if [[ " $* " == *' --slurp '* && " $* " == *' --jq '* ]]; then
+	exit 2
+fi
+
 endpoint=${2:-}
 case "${endpoint}" in
 */releases/123) printf '123\tv1.0.2\ttrue\tfalse\n' ;;
