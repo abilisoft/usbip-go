@@ -31,5 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: ./.github/actions/setup-bazel
+        with:
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       - name: Mutation tests
         run: make test-mutation

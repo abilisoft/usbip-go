@@ -34,6 +34,18 @@ coverage --combined_report=lcov
 
 # --- Named configs ---
 
+# BuildBuddy is opt-in so fork pull requests without repository secrets keep a
+# fully local Bazel execution path. CI selects this config through the ignored
+# user.bazelrc only when authenticated credentials are available.
+build:buildbuddy --bes_results_url=https://abilisoft.buildbuddy.io/invocation/
+build:buildbuddy --bes_backend=grpcs://abilisoft.buildbuddy.io
+common:buildbuddy --remote_cache=grpcs://abilisoft.buildbuddy.io
+common:buildbuddy --remote_timeout=10m
+
+# Local authentication and config selection belong in this ignored file or in
+# the developer's home Bazel configuration, never in the repository.
+try-import %workspace%/user.bazelrc
+
 # Cross-compilation
 build:linux-amd64 --platforms=@rules_go//go/toolchain:linux_amd64
 build:linux-arm64 --platforms=@rules_go//go/toolchain:linux_arm64

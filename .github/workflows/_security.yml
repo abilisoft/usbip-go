@@ -16,6 +16,10 @@ on:
         required: false
         type: string
         default: ''
+    secrets:
+      BUILDBUDDY_ORG_API_KEY:
+        description: Authenticates the optional BuildBuddy Bazel configuration.
+        required: false
 
 permissions:
   contents: read
@@ -39,6 +43,8 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.source-ref || github.sha }}
       - uses: ./.github/actions/setup-bazel
+        with:
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       - name: Strict lint suite
         run: make lint
       - name: Git history secret scan

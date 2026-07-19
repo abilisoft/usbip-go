@@ -26,18 +26,24 @@ jobs:
       contents: read
       security-events: write
     uses: ./.github/workflows/_security.yml
+    secrets:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
 
   unit-tests:
     name: Unit
     permissions:
       contents: read
     uses: ./.github/workflows/_unit-tests.yml
+    secrets:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
 
   conformance:
     name: Conformance
     permissions:
       contents: read
     uses: ./.github/workflows/_conformance.yml
+    secrets:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
 
   coverage:
     name: Coverage
@@ -45,6 +51,8 @@ jobs:
       contents: read
       id-token: write
     uses: ./.github/workflows/_coverage.yml
+    secrets:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
 
   snapshot:
     name: Snapshot release packaging
@@ -53,5 +61,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: ./.github/actions/setup-bazel
+        with:
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       - name: Snapshot release packaging
         run: make release-snapshot
