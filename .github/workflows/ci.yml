@@ -27,24 +27,32 @@ jobs:
       contents: read
       security-events: write
     uses: ./.github/workflows/_security.yml
+    secrets:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
 
   unit-tests:
     name: Unit
     permissions:
       contents: read
     uses: ./.github/workflows/_unit-tests.yml
+    secrets:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
 
   conformance:
     name: Conformance
     permissions:
       contents: read
     uses: ./.github/workflows/_conformance.yml
+    secrets:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
 
   arch:
     name: Architecture
     permissions:
       contents: read
     uses: ./.github/workflows/_arch-checks.yml
+    secrets:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
 
   coverage:
     name: Coverage
@@ -52,6 +60,8 @@ jobs:
       contents: read
       id-token: write
     uses: ./.github/workflows/_coverage.yml
+    secrets:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
 
   tdd-discipline:
     name: TDD commit discipline

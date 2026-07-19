@@ -67,6 +67,8 @@ jobs:
       # remain disabled below, but reusable workflows cannot elevate the caller.
       security-events: write
     uses: ./.github/workflows/_security.yml
+    secrets:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
     with:
       source-ref: ${{ needs.validate-tag.outputs.source-commit }}
       upload-sarif: false
@@ -77,6 +79,8 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/_unit-tests.yml
+    secrets:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
     with:
       source-ref: ${{ needs.validate-tag.outputs.source-commit }}
 
@@ -86,6 +90,8 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/_conformance.yml
+    secrets:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
     with:
       source-ref: ${{ needs.validate-tag.outputs.source-commit }}
 
@@ -95,6 +101,8 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/_arch-checks.yml
+    secrets:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
     with:
       source-ref: ${{ needs.validate-tag.outputs.source-commit }}
 
@@ -105,6 +113,8 @@ jobs:
       contents: read
       id-token: write
     uses: ./.github/workflows/_coverage.yml
+    secrets:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
     with:
       source-ref: ${{ needs.validate-tag.outputs.source-commit }}
 
@@ -139,6 +149,8 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
       - uses: ./.github/actions/setup-bazel
+        with:
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       - name: Local CI gate for immutable source
         run: make ci-local
       - name: Generate recovered release notes

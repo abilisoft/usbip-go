@@ -172,7 +172,11 @@ required by the repository ruleset. The separately named `v1.0.2` recovery
 workflow SHALL be limited to its repository-fixed tag object and source commit,
 SHALL accept only a fixed `v1.0.2` confirmation and no release-selection input,
 and SHALL use the same Make/Bazel quality and release entry points against that
-exact source.
+exact source. Authenticated repository workflows SHALL select the named
+BuildBuddy configuration through an ignored credential file so Bazel publishes
+build events and uses the remote cache without committing an API key. Workflows
+without that secret, including fork pull requests, SHALL retain the default
+repository-local cache path.
 
 #### Scenario: CodeQL traces the production binary
 
@@ -186,6 +190,18 @@ exact source.
 - **WHEN** the CI workflow runs for a push or pull request
 - **THEN** reusable GitHub Actions jobs invoke Make/Bazel targets for security/lint/vulnerability, unit, conformance, coverage, architecture/API, and TDD discipline contexts required by the repository ruleset
 - **AND** local contributors can exercise the repository-owned command sequence with `make ci-local`
+
+#### Scenario: Authenticated CI uses BuildBuddy
+
+- **WHEN** a repository workflow can read `BUILDBUDDY_ORG_API_KEY`
+- **THEN** the shared Bazel setup writes a private ignored `user.bazelrc` that selects the named `buildbuddy` configuration and supplies its authentication header
+- **AND** Bazel reports build events to BuildBuddy and uses its remote cache while actions execute locally
+
+#### Scenario: Fork pull request has no repository secret
+
+- **WHEN** GitHub withholds repository secrets from a fork pull-request workflow
+- **THEN** the shared Bazel setup does not create a credential override
+- **AND** Bazel uses the default repository-local cache configuration
 
 #### Scenario: Nightly verification runs
 

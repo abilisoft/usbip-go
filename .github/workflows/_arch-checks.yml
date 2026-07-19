@@ -11,6 +11,10 @@ on:
         required: false
         type: string
         default: ''
+    secrets:
+      BUILDBUDDY_ORG_API_KEY:
+        description: Authenticates the optional BuildBuddy Bazel configuration.
+        required: false
 
 permissions:
   contents: read
@@ -30,6 +34,8 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.source-ref || github.sha }}
       - uses: ./.github/actions/setup-bazel
+        with:
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       - name: Domain boundary rules
         run: make check-domain-boundaries
 
@@ -43,6 +49,8 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.source-ref || github.sha }}
       - uses: ./.github/actions/setup-bazel
+        with:
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       - name: Pure Go enforcement
         run: make check-pure-go
 
@@ -65,6 +73,8 @@ jobs:
           git show "${BASE_SHA}:api/pkg_domain.json" > api/pkg_domain.json
           git show "${BASE_SHA}:api/pkg_usbip.json" > api/pkg_usbip.json
       - uses: ./.github/actions/setup-bazel
+        with:
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       - name: API compatibility
         run: make check-api-compatibility
 
@@ -78,6 +88,8 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.source-ref || github.sha }}
       - uses: ./.github/actions/setup-bazel
+        with:
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       - name: Linux cross-compilation
         run: make check-cross-compile
 
@@ -91,5 +103,7 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.source-ref || github.sha }}
       - uses: ./.github/actions/setup-bazel
+        with:
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       - name: Production release stamping
         run: make check-release-stamping

@@ -15,6 +15,25 @@ The repository bootstraps its own tools under `.local/`:
 - Do not depend on host-installed Nix, Task, GoReleaser, golangci-lint, or Go
   binaries for normal development or CI.
 
+## BuildBuddy
+
+The checked-in `.bazelrc` defines an opt-in `buildbuddy` configuration for the
+AbiliSoft BuildBuddy event service and remote cache. Bazel actions continue to
+execute locally. Authenticated GitHub Actions jobs select the configuration
+through an ignored `user.bazelrc`; fork pull requests do not receive repository
+secrets and therefore retain the repository-local cache path.
+
+For local use, put the following in the ignored `user.bazelrc` or your home
+`.bazelrc`, substitute your own key, and restrict the file to your user:
+
+```text
+common --config=buildbuddy
+common --remote_header=x-buildbuddy-api-key=<your-key>
+```
+
+Never commit a BuildBuddy API key or pass it through a tracked Bazel
+configuration.
+
 ## Common commands
 
 ```bash

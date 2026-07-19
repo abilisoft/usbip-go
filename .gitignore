@@ -85,6 +85,7 @@ Thumbs.db
 .tabnine/
 .ai/
 /.mcp.json
+/user.bazelrc
 # Tool-specific pointer file. Durable repository policy lives in the
 # committed root AGENTS.md.
 /CLAUDE.md
